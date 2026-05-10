@@ -1,0 +1,15 @@
+@if (notification) {
+  <div class="rn-banner" role="alert">
+    <div class="rn-icon">⏰</div>
+    <div class="rn-content">
+      <div class="rn-title">{{notification.title || 'Reminder'}}</div>
+      @if (notification.body) {
+        <div class="rn-body">{{notification.body}}</div>
+      }
+    </div>
+    <div class="rn-actions">
+      <button type="button" class="rn-snooze" (click)="snooze()">Snooze 10 min</button>
+      <button type="button" class="rn-dismiss" (click)="dismiss()">Dismiss</button>
+    </div>
+  </div>
+}

@@ -1,0 +1,286 @@
+<section class="main-container">
+  @if (selectedCount) {
+    <div class="selection-navbar">
+      <button class="selection-close H" type="button" aria-label="Clear selection" (click)="Shared.clearNoteSelection()">×</button>
+      <div class="selection-count">{{selectedCount}} selected</div>
+      <div class="selection-actions">
+        <button type="button" class="selection-icon pin H pop" data-pop="Pin" (click)="Shared.bulkTogglePinSelected()"></button>
+        <button #selectionColorBtn type="button" class="selection-icon color H pop" data-pop="Background options"
+          (click)="openTooltip(selectionColorBtn,selectionColorTt)"></button>
+        <button type="button" class="selection-icon reminder H disabled pop" data-pop="Reminder"></button>
+        <button type="button" class="selection-icon archive H pop" data-pop="Archive" (click)="Shared.bulkArchiveSelected()"></button>
+        <button type="button" class="selection-icon delete H pop" data-pop="Delete" (click)="Shared.bulkTrashSelected()"></button>
+        <button #selectionMoreBtn type="button" class="selection-icon more H pop" data-pop="More"
+          (click)="openSelectionMore(selectionMoreBtn,selectionMoreTt)"></button>
+      </div>
+    </div>
+  } @else {
+    <div class="navbar" [class.search-expanded]="searchExpanded">
+    <div class="first-col">
+      <div class="pic-container H" (click)="closeSideBar()">
+        <img src="./assets/images/svg/menu.svg" class="menu-icon" alt="menu">
+      </div>
+      <div class="keep-img" (click)="onLogoClick($event)" style="cursor: pointer; position: relative;">
+        <img src="./assets/images/keep2x.fw.png" width="49"
+          srcset="./assets/images/keep2x.fw.png 1x, ./assets/images/keep2x.fw.png 2x" alt="keep">
+        @if (showEasterEgg) {
+          <div class="rpg-speech">
+            <div class="rpg-content">
+              {{ easterEggMessages[eggIndex] }}
+            </div>
+            <div class="rpg-arrow"></div>
+          </div>
+        }
+      </div>
+        <div (click)="onLogoClick($event)" style="cursor: pointer;">
+          <span class="text">Kept</span>
+        </div>
+      </div>
+      <div class="sec-col">
+        <div class="search-area">
+          <div class="search-row">
+            <div class="form-container">
+              <form #form23zSaZ class="form" (submit)="$event.preventDefault()">
+                <div class="input-container">
+                  <input #searchInput class="input" autocomplete="off" placeholder="Search your notes" type="text"
+                    [value]="Shared.searchQuery" (input)="updateSearch($event)"
+                    (focus)="onSearchFocus()" (blur)="onSearchBlur()"
+                    (keydown)="onSearchKeydown($event)">
+                </div>
+                <button class="btn" aria-label="Clear search" type="button" (click)="clearSearch()">
+                  <img class="pic H" [class.d-none]="!Shared.searchQuery" src="./assets/images/svg/x-btn.svg" alt="clear search">
+                </button>
+                <button class="btn left" aria-label="Search" type="button">
+                  <img class="pic H" src="./assets/images/svg/search.svg" alt="search">
+                </button>
+              </form>
+            </div>
+            <div class="filters-toggle">
+              <button class="filters-btn" [class.open]="isFiltersOpen" type="button" (click)="toggleFilters($event)">
+                <span class="btn-text">Filters</span>
+                <span class="material-symbols-outlined filter-icon">filter_list</span>
+                <span class="chevron">▾</span>
+              </button>
+              @if (isFiltersOpen) {
+                <div class="filters-dropdown" (click)="$event.stopPropagation()">
+                  <div class="dropdown-header">Quick Filters</div>
+                  
+                  <div class="filter-item" [class.active]="isFilterActive('!image')" (click)="toggleFilter('!image')">
+                    <div class="checkbox"><div class="check-mark"></div></div>
+                    <span class="label">Images</span>
+                  </div>
+
+                  <div class="filter-item" [class.active]="isFilterActive('!draw')" (click)="toggleFilter('!draw')">
+                    <div class="checkbox"><div class="check-mark"></div></div>
+                    <span class="label">Drawings</span>
+                  </div>
+
+                  <div class="filter-item" [class.active]="isFilterActive('!url')" (click)="toggleFilter('!url')">
+                    <div class="checkbox"><div class="check-mark"></div></div>
+                    <span class="label">Links</span>
+                  </div>
+
+                  <div class="filter-item" [class.active]="isFilterActive('!attachment')" (click)="toggleFilter('!attachment')">
+                    <div class="checkbox"><div class="check-mark"></div></div>
+                    <span class="label">Attachments</span>
+                  </div>
+
+                  <div class="filter-item" [class.active]="isFilterActive('!todo')" (click)="toggleFilter('!todo')">
+                    <div class="checkbox"><div class="check-mark"></div></div>
+                    <span class="label">Checkboxes</span>
+                  </div>
+
+                  <div class="filter-item" [class.active]="isFilterActive('!label')" (click)="toggleFilter('!label')">
+                    <div class="checkbox"><div class="check-mark"></div></div>
+                    <span class="label">Any Label</span>
+                  </div>
+
+                  @if (activeFilters.length > 0) {
+                    <div class="dropdown-header">Active Labels</div>
+                    @for (filter of activeFilters; track filter.code) {
+                      @if (filter.code.startsWith('!label:')) {
+                        <div class="filter-item active" (click)="toggleFilter(filter.code)">
+                          <div class="checkbox"><div class="check-mark"></div></div>
+                          <span class="label">{{filter.label}}</span>
+                        </div>
+                      }
+                    }
+                  }
+
+                  <div class="filter-item" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 4px;" (click)="clearAllFilters(); isFiltersOpen = false">
+                    <span class="label" style="opacity: 0.7;">Clear All</span>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+          <div class="active-filters" style="display: none;"></div>
+        </div>
+        <div class="btns-container">
+          <div class="search H pop" data-pop="Search"></div>
+          <div class="view H pop"
+            [class.view-grid]="Shared.noteViewType.value === 'list'"
+            [attr.data-pop]="Shared.noteViewType.value === 'list' ? 'Grid view' : 'List view'"
+            (click)="view()"></div>
+          <button class="theme-toggle H pop" type="button"
+            [attr.data-pop]="auth.currentUser?.theme === 'light' ? 'Use dark theme' : 'Use light theme'"
+            [attr.aria-label]="auth.currentUser?.theme === 'light' ? 'Use dark theme' : 'Use light theme'"
+            (click)="toggleTheme()">
+            <span class="theme-emoji">{{auth.currentUser?.theme === 'light' ? '🌙' : '☀️'}}</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="th-col">
+
+        @if (auth.isAdmin) {
+          <a routerLink="/users" class="admin-link">Users</a>
+        }
+        <button class="logout" type="button" (click)="logout()">Sign out</button>
+          <div class="user-pic-container" (click)="toggleProfile($event)">
+            @if (auth.currentUser?.avatarDataUrl) {
+              <img class="user-pic" [src]="auth.currentUser?.avatarDataUrl"
+                [alt]="auth.currentUser?.displayName || 'user-pic'"
+                [title]="auth.currentUser?.displayName || auth.currentUser?.username || 'User'">
+            } @else {
+              <div class="user-pic avatar-fallback animal-{{auth.currentUser?.avatarPreset || 'cat'}}"
+                [attr.aria-label]="auth.currentUser?.displayName || auth.currentUser?.username || 'User'"
+                [title]="auth.currentUser?.displayName || auth.currentUser?.username || 'User'">
+                <span class="head"><i></i></span>
+              </div>
+            }
+          </div>
+          @if (isProfileOpen) {
+            <div class="profile-menu" (click)="$event.stopPropagation()">
+              <div class="profile-avatar-row">
+                <label class="profile-preview" aria-label="Change avatar">
+                  <input #avatarFile type="file" accept="image/*" (change)="uploadAvatar($event)">
+                  @if (avatarPreview) {
+                    <img [src]="avatarPreview" alt="Avatar preview">
+                  } @else {
+                    <div class="avatar-fallback large animal-{{avatarPresetPreview || 'cat'}}">
+                      <span class="head"><i></i></span>
+                    </div>
+                  }
+                  <span class="avatar-change-indicator">Change</span>
+                </label>
+                <button type="button" class="remove-avatar-btn H pop" data-pop="Remove photo" aria-label="Remove photo" (click)="clearAvatar()">
+                  <span class="material-symbols-outlined">delete</span>
+                </button>
+              </div>
+              <label class="profile-field">
+                <span>Display name</span>
+                <input #displayNameInput type="text" [value]="auth.currentUser?.displayName || ''">
+              </label>
+              <p class="crop-note">Images are center-cropped into the circle.</p>
+              @if (profileError) {
+                <div class="profile-error">{{profileError}}</div>
+              }
+              <button class="profile-refresh-btn" type="button" (click)="refresh()">
+                <span class="material-symbols-outlined">refresh</span>
+                Refresh notes
+              </button>
+              <div class="password-reset-section">
+                <button class="pw-reset-toggle" type="button" (click)="togglePasswordReset()">
+                  <span class="material-symbols-outlined">lock_reset</span>
+                  {{showPasswordReset ? 'Cancel password reset' : 'Reset password'}}
+                </button>
+                @if (showPasswordReset) {
+                  <div class="pw-reset-form">
+                    <label class="profile-field">
+                      <span>Current password</span>
+                      <input type="password" [(ngModel)]="currentPassword" autocomplete="current-password" placeholder="Enter current password">
+                    </label>
+                    <label class="profile-field">
+                      <span>New password</span>
+                      <input type="password" [(ngModel)]="newPassword" autocomplete="new-password" placeholder="Min. 8 characters">
+                    </label>
+                    <label class="profile-field">
+                      <span>Confirm new password</span>
+                      <input type="password" [(ngModel)]="confirmNewPassword" autocomplete="new-password" placeholder="Re-enter new password">
+                    </label>
+                    @if (passwordResetError) {
+                      <div class="pw-feedback error">{{passwordResetError}}</div>
+                    }
+                    @if (passwordResetSuccess) {
+                      <div class="pw-feedback success">{{passwordResetSuccess}}</div>
+                    }
+                    <button class="pw-save" type="button" [disabled]="isResettingPassword || !currentPassword || !newPassword || !confirmNewPassword" (click)="resetMyPassword()">
+                      {{isResettingPassword ? 'Updating...' : 'Update password'}}
+                    </button>
+                  </div>
+                }
+              </div>
+              <div class="profile-actions">
+                <button class="secondary" type="button" (click)="openAdvancedSettings()">Advanced settings</button>
+                <button class="primary" type="button" (click)="saveProfile(displayNameInput.value)">Save</button>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+  }
+
+  </section>
+
+<div #selectionColorTt data-tooltip="true" data-is-tooltip-open="false" class="colorMenu">
+  <div class="first-row">
+    @for (color of bgColors | keyvalue; track color) {
+      <div [attr.data-bg-color]="color.key" [style.background-color]="color.value"
+        (click)="selectionColorMenu.bgColor(color.value)" [class.nocolor]="color.value === ''">
+      </div>
+    }
+  </div>
+  <div class="second-row">
+    @for (image of bgImages | keyvalue; track image) {
+      <div [attr.data-bg-image]="image.key" [style.background-image]="image.value | ph"
+        (click)="selectionColorMenu.bgImage(image.value)" [class.noimage]="image.value === ''">
+        @if (bgImageLabels[image.key]) {
+          <span>{{bgImageLabels[image.key]}}</span>
+        }
+      </div>
+    }
+  </div>
+</div>
+
+<div #selectionMoreTt data-tooltip="true" data-is-tooltip-open="false" class="moreMenu">
+  <div (click)="selectionMoreMenu(selectionMoreTt).trash()">Delete note</div>
+  <div (click)="selectionMoreMenu(selectionMoreTt).openLabelMenu(labelMenuTt)">Add label</div>
+  <div (click)="selectionMoreMenu(selectionMoreTt).clone()">Make a copy</div>
+  <div (click)="selectionMoreMenu(selectionMoreTt).openMerge()">Merge…</div>
+</div>
+
+@if (isMergeDialogOpen) {
+  <app-merge-dialog
+    [notes]="mergeDialogNotes"
+    (confirm)="confirmMerge($event)"
+    (cancel)="closeMergeDialog()">
+  </app-merge-dialog>
+}
+
+<div #labelMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu">
+  <div class="title">Label note</div>
+  <div class="search">
+    <input #newLabelInput type="text" maxlength="50" placeholder="Enter label name"
+      (keydown.enter)="addLabelFromMenu(newLabelInput); $event.preventDefault()" (blur)="addLabelFromMenu(newLabelInput)"
+      (input)="labelMenuError=''">
+    <div class="search-icon"></div>
+  </div>
+  @if (newLabelInput.value.trim().length) {
+    <div class="label-list create-label" (mousedown)="$event.preventDefault()" (click)="addLabelFromMenu(newLabelInput)">
+      <div class="check-icon"></div>
+      <div class="label-name">Create "{{newLabelInput.value.trim()}}"</div>
+    </div>
+  }
+  @if (labelMenuError) {
+    <div class="label-error">{{labelMenuError}}</div>
+  }
+  <div class="label-list-container">
+    @for (label of Shared.label.list; track label) {
+      <div class="label-list" (click)="labelMenu(label)">
+        <div [class.done]='isSelectedLabel(label)' class="check-icon"></div>
+        <div class="label-name">{{label.name}}</div>
+      </div>
+    }
+  </div>
+</div>

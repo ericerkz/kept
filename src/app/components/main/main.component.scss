@@ -1,0 +1,199 @@
+.main-section {
+  max-width: 100vw;
+  overflow-x: clip;
+  position: relative;
+}
+
+.padding {
+  padding: 8px 10px 0;
+  min-width: 0;
+}
+
+.sidenav-sticky {
+  position: sticky;
+  top: 64px;
+  align-self: flex-start;
+  z-index: 900;
+
+
+  @media (max-width: 599px) {
+    // The mobile drawer is `position: fixed` inside the sidenav itself, so the
+    // wrapper just needs to vanish from layout.
+    position: static;
+    width: 0;
+    flex: 0;
+  }
+}
+
+.mobile-compose-fab {
+  display: none;
+}
+
+@media (max-width: 599px) {
+  .padding {
+    padding: 0 12px;
+  }
+
+  .mobile-compose-fab {
+    align-items: center;
+    background: #feefc3;
+    border: none;
+    border-radius: 16px; // more squarish rounded corners for modern feel
+    bottom: 24px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    color: #3c4043;
+    cursor: pointer;
+    display: inline-flex;
+    height: 56px;
+    justify-content: center;
+    right: 16px; // move to right side
+    left: auto;
+    position: fixed;
+    width: 56px;
+    z-index: 1400;
+    transition: transform 0.2s, box-shadow 0.2s;
+
+    &:active {
+      transform: scale(0.95);
+    }
+
+    .material-symbols-outlined {
+      font-size: 28px;
+      line-height: 1;
+    }
+  }
+
+  :host-context(.light-theme) .mobile-compose-fab {
+    background: #fff;
+    color: #1a73e8;
+    box-shadow: 0 1px 3px 0 rgba(60,64,67,0.302), 0 4px 8px 3px rgba(60,64,67,0.149);
+  }
+
+  .mobile-install-fab {
+    align-items: stretch;
+    background: #2d2e30;
+    border-radius: 16px;
+    bottom: 24px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    color: #e8eaed;
+    display: inline-flex;
+    height: 56px;
+    overflow: hidden;
+    position: fixed;
+    right: 88px; // 16px gap + 56px compose FAB + 16px from edge
+    z-index: 1400;
+
+    .mobile-install-main {
+      align-items: center;
+      background: transparent;
+      border: 0;
+      color: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      font: 600 13px/1 "Google Sans", Roboto, sans-serif;
+      gap: 8px;
+      padding: 0 14px 0 16px;
+
+      .material-symbols-outlined { font-size: 22px; }
+      .label { white-space: nowrap; }
+
+      &:active { opacity: 0.85; }
+    }
+
+    .mobile-install-dismiss {
+      align-items: center;
+      background: transparent;
+      border: 0;
+      border-left: 1px solid rgba(255,255,255,0.1);
+      color: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      font-size: 22px;
+      justify-content: center;
+      line-height: 1;
+      padding: 0;
+      width: 36px;
+
+      &:active { opacity: 0.85; }
+    }
+  }
+
+  :host-context(.light-theme) .mobile-install-fab {
+    background: #fff;
+    color: #1a73e8;
+    box-shadow: 0 1px 3px 0 rgba(60,64,67,0.302), 0 4px 8px 3px rgba(60,64,67,0.149);
+
+    .mobile-install-dismiss {
+      border-left-color: rgba(0,0,0,0.08);
+      color: #5f6368;
+    }
+  }
+
+  .desktop-placeholder-input {
+    display: none;
+
+    &.mobile-active {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100vh;
+      z-index: 1500;
+      background: #202124;
+      margin: 0;
+    }
+  }
+
+}
+
+// PWA install help modal — rendered from main.component when the user taps
+// the mobile install FAB. Mirrors the sidenav's version because Angular's
+// view encapsulation scopes those styles to the sidenav component.
+.pwa-install-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1500;
+}
+
+.pwa-install-card {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #202124;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 1501;
+  width: 90%;
+  max-width: 360px;
+  color: #e8eaed;
+
+  h3 { margin: 0 0 12px; font-size: 1.15rem; font-weight: 500; }
+  p { margin: 0 0 12px; color: #9aa0a6; font-size: 0.875rem; }
+  ol { margin: 0; padding-left: 20px; font-size: 0.875rem; }
+  ol li { margin-bottom: 8px; }
+
+  .pwa-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: transparent;
+    border: 0;
+    color: #9aa0a6;
+    font-size: 24px;
+    cursor: pointer;
+    line-height: 1;
+    width: 32px;
+    height: 32px;
+  }
+}
+
+:host-context(.light-theme) .pwa-install-card {
+  background: #fff;
+  color: #202124;
+  p { color: #5f6368; }
+  .pwa-close { color: #5f6368; }
+}

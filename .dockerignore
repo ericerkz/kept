@@ -1,0 +1,8 @@
+node_modules
+dist
+data
+.git
+.angular
+.vscode
+.gemini
+*.log

@@ -1,0 +1,56 @@
+<div class="merge-backdrop" (click)="doCancel()"></div>
+<div class="merge-dialog" role="dialog" aria-labelledby="merge-dialog-title" (click)="$event.stopPropagation()">
+  <h3 id="merge-dialog-title" class="merge-dialog__title">Merge {{notes.length}} notes</h3>
+  <p class="merge-dialog__subtitle">
+    Drag to reorder, or use the arrows. Content will be combined top-to-bottom.
+  </p>
+
+  @if (hasDrawings()) {
+    <div class="merge-dialog__warning">
+      <span class="material-symbols-outlined">brush</span>
+      <div>
+        <strong>{{drawingCount()}} drawing{{drawingCount() === 1 ? '' : 's'}} will be flattened.</strong>
+        <small>Drawings become inline images in the merged note and lose their drawing-editor state. The original drawing notes go to trash and remain editable as drawings if you restore them. Remove drawings from the selection if you'd rather keep them as-is.</small>
+      </div>
+    </div>
+  }
+
+  <ol class="merge-dialog__list">
+    @for (note of notes; track note.id; let i = $index) {
+      <li class="merge-dialog__item"
+          [class.merge-dialog__item--drawing]="noteIsDrawing(note)"
+          draggable="true"
+          (dragstart)="onDragStart($event, i)"
+          (dragover)="onDragOver($event)"
+          (drop)="onDrop($event, i)"
+          (dragend)="onDragEnd()">
+        <span class="merge-dialog__handle material-symbols-outlined" aria-hidden="true">drag_indicator</span>
+        <div class="merge-dialog__item-text">
+          <div class="merge-dialog__summary">{{noteSummary(note)}}</div>
+          <div class="merge-dialog__type">{{noteTypeLabel(note)}}</div>
+        </div>
+        <div class="merge-dialog__arrows">
+          <button type="button" class="merge-dialog__arrow"
+                  [disabled]="i === 0"
+                  aria-label="Move up"
+                  (click)="moveUp(i)">▲</button>
+          <button type="button" class="merge-dialog__arrow"
+                  [disabled]="i === notes.length - 1"
+                  aria-label="Move down"
+                  (click)="moveDown(i)">▼</button>
+        </div>
+      </li>
+    }
+  </ol>
+
+  <p class="merge-dialog__footnote">
+    Originals will be moved to trash (10-day recovery). The merged note becomes a new note owned by you.
+  </p>
+
+  <div class="merge-dialog__actions">
+    <button type="button" class="merge-dialog__btn" (click)="doCancel()" [disabled]="isMerging">Cancel</button>
+    <button type="button" class="merge-dialog__btn merge-dialog__btn--primary" (click)="doConfirm()" [disabled]="isMerging || notes.length < 2">
+      {{ isMerging ? 'Merging…' : 'Merge ' + notes.length + ' notes' }}
+    </button>
+  </div>
+</div>

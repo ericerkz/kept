@@ -1,0 +1,59 @@
+# See http://help.github.com/ignore-files/ for more about ignoring files.
+
+# Compiled output
+/dist
+/tmp
+/out-tsc
+/bazel-out
+/.vscode
+/tmp
+/readme-src
+
+# Node
+/node_modules
+npm-debug.log
+yarn-error.log
+.codex-ng-serve.*.log
+.codex-dev.*.log
+/data
+
+# IDEs and editors
+.idea/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/*
+
+# Miscellaneous
+/.angular/cache
+.sass-cache/
+/connect.lock
+/coverage
+/libpeerconnection.log
+testem.log
+/typings
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Local dev scaffolding — ad-hoc patch scripts, exploratory tests, one-off
+# DB seeders. None of these belong in the published repo.
+/patch.js
+/patch-*.js
+/migrate-and-clean.js
+/scratch/
+/IOS_CLIENT_BRIEF.md

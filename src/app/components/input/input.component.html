@@ -1,0 +1,602 @@
+<div #main [class.main-container]="!isEditing" [class.mobile-compose-mode]="mobileComposeMode">
+  <!--? placeholder -->
+  <input #imageInput class="image-input" type="file" accept="image/*" multiple (change)="imageInputChange($event)">
+  <input #attachmentInput class="attachment-input" type="file" [accept]="attachmentAccept" multiple
+    (change)="attachmentInputChange($event)">
+  <div #notePlaceholder (click)="notePhClick()" (dragover)="dragOverImages($event)" (drop)="dropImages($event)" class="placeholder">
+    <input class="input" placeholder="Take a note…" type="text">
+    <div class="check H pop" data-pop="New list" (click)="isCbox.next(true)"></div>
+    <div class="paint H pop" data-pop="New note with drawing" (click)="openDrawingNote($event)"></div>
+    <div class="picture H pop" data-pop="New note with image" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)"></div>
+  </div>
+  <!--? new note -->
+  <div #noteMain class="note-main" [class.detail-bg]="isEditing && hasBackgroundImage"
+    [class.drawing-note]="isDrawingNote" [class.drawing-fullscreen]="isDrawingFullscreen"
+    (dragstart)="dragInlineImage($event)" (dragend)="dragEndInlineImage()" (dragover)="dragOverImages($event)"
+    (drop)="dropImages($event)" hidden>
+
+    @if (activeEditors.length && isEditing) {
+      <div class="active-editors-presence">
+        @for (editor of activeEditors; track editor.id) {
+          <div class="editor-avatar H pop" [attr.data-pop]="editor.displayName || editor.username">
+            @if (editor.avatarDataUrl) {
+              <img [src]="editor.avatarDataUrl" [alt]="editor.displayName">
+            } @else {
+              <span class="avatar-fallback animal-{{editor.avatarPreset || 'cat'}}">
+                <span class="head"><i></i></span>
+              </span>
+            }
+          </div>
+        }
+      </div>
+    }
+    @if (isDrawingNote) {
+      <div #noteContainer class="drawing-editor">
+        <div #noteTitle hidden></div>
+        <div class="drawing-toolbar">
+          <button type="button" class="drawing-icon back" aria-label="Back" (click)="saveNote()">
+            <span class="material-symbols-outlined">arrow_back</span>
+          </button>
+          <button type="button" class="drawing-icon select" [class.active]="drawingTool === 'select'" aria-label="Select"
+            (click)="selectDrawingTool('select')">
+            <span class="material-symbols-outlined">select_all</span>
+          </button>
+          <div class="drawing-tool-menu">
+            <button type="button" class="drawing-icon eraser has-menu" [class.active]="drawingTool === 'eraser'" aria-label="Eraser"
+              (click)="toggleEraserMenu($event)">
+              <span class="material-symbols-outlined">ink_eraser</span>
+            </button>
+            @if (showDrawingEraserMenu) {
+              <div class="drawing-popover eraser-menu">
+                <button type="button" (click)="clearDrawingPage()">Clear Page</button>
+              </div>
+            }
+          </div>
+          <div class="drawing-tool-menu">
+            <button type="button" class="drawing-icon marker has-menu" [class.active]="drawingTool === 'marker'"
+              [style.--tool-color]="drawingToolOptions.marker.color" aria-label="Marker"
+              (click)="toggleDrawingToolMenu('marker', $event)">
+              <span class="material-symbols-outlined">ink_marker</span>
+            </button>
+            @if (drawingOpenToolMenu === 'marker') {
+              <ng-container [ngTemplateOutlet]="drawingToolMenuTemplate" [ngTemplateOutletContext]="{ tool: 'marker' }"></ng-container>
+            }
+          </div>
+          <div class="drawing-tool-menu">
+            <button type="button" class="drawing-icon pen has-menu" [class.active]="drawingTool === 'pen'"
+              [style.--tool-color]="drawingToolOptions.pen.color" aria-label="Pen"
+              (click)="toggleDrawingToolMenu('pen', $event)">
+              <span class="material-symbols-outlined">ink_pen</span>
+            </button>
+            @if (drawingOpenToolMenu === 'pen') {
+              <ng-container [ngTemplateOutlet]="drawingToolMenuTemplate" [ngTemplateOutletContext]="{ tool: 'pen' }"></ng-container>
+            }
+          </div>
+          <div class="drawing-tool-menu">
+            <button type="button" class="drawing-icon highlighter has-menu" [class.active]="drawingTool === 'highlighter'"
+              [style.--tool-color]="drawingToolOptions.highlighter.color" aria-label="Highlighter"
+              (click)="toggleDrawingToolMenu('highlighter', $event)">
+              <span class="material-symbols-outlined">ink_highlighter</span>
+            </button>
+            @if (drawingOpenToolMenu === 'highlighter') {
+              <ng-container [ngTemplateOutlet]="drawingToolMenuTemplate" [ngTemplateOutletContext]="{ tool: 'highlighter' }"></ng-container>
+            }
+          </div>
+          <div class="drawing-tool-menu">
+            <button type="button" class="drawing-icon grid" [class.active]="showDrawingBackgroundMenu" aria-label="Canvas background"
+              (click)="showDrawingBackgroundMenu = !showDrawingBackgroundMenu; showDrawingMoreMenu = false">
+              <span class="material-symbols-outlined">grid_on</span>
+            </button>
+            @if (showDrawingBackgroundMenu) {
+              <div class="drawing-popover background-picker">
+                <button type="button" [class.active]="drawingBackground === 'square'" (click)="setDrawingBackground('square')">
+                  <span class="bg-preview square"></span><span>Square</span>
+                </button>
+                <button type="button" [class.active]="drawingBackground === 'dots'" (click)="setDrawingBackground('dots')">
+                  <span class="bg-preview dots"></span><span>Dots</span>
+                </button>
+                <button type="button" [class.active]="drawingBackground === 'rules'" (click)="setDrawingBackground('rules')">
+                  <span class="bg-preview rules"></span><span>Rules</span>
+                </button>
+                <button type="button" [class.active]="drawingBackground === 'none'" (click)="setDrawingBackground('none')">
+                  <span class="bg-preview none"></span><span>None</span>
+                </button>
+              </div>
+            }
+          </div>
+          <span class="drawing-spacer"></span>
+          <button type="button" class="drawing-icon undo" [disabled]="drawingHistoryIndex <= 0" aria-label="Undo" (click)="undoDrawing()">
+            <span class="material-symbols-outlined">undo</span>
+          </button>
+          <button type="button" class="drawing-icon redo" [disabled]="drawingHistoryIndex >= drawingHistory.length - 1" aria-label="Redo" (click)="redoDrawing()">
+            <span class="material-symbols-outlined">redo</span>
+          </button>
+          <button type="button" class="drawing-icon fullscreen" aria-label="Fullscreen" (click)="toggleDrawingFullscreen()">
+            <span class="material-symbols-outlined">fullscreen</span>
+          </button>
+          <div class="drawing-tool-menu">
+            <button type="button" class="drawing-icon more" aria-label="More" (click)="showDrawingMoreMenu = !showDrawingMoreMenu; showDrawingBackgroundMenu = false">
+              <span class="material-symbols-outlined">more_vert</span>
+            </button>
+            @if (showDrawingMoreMenu) {
+              <div class="drawing-popover more-menu">
+                <button type="button" (click)="newDrawing()">New drawing</button>
+                <button type="button" (click)="exportDrawing()">Export as image</button>
+                <button type="button" (click)="deleteCurrentDrawing()">Delete current drawing</button>
+              </div>
+            }
+          </div>
+        </div>
+        <div #drawingWrap class="drawing-canvas-wrap">
+          <div class="drawing-stage" [style.transform]="'translate(' + drawingTransform.x + 'px, ' + drawingTransform.y + 'px) scale(' + drawingTransform.scale + ')'"
+            [class.bg-square]="drawingBackground === 'square'"
+            [class.bg-dots]="drawingBackground === 'dots'" [class.bg-rules]="drawingBackground === 'rules'">
+            <canvas #drawingCanvas (pointerdown)="drawingPointerDown($event)" (pointermove)="drawingPointerMove($event)"
+              (pointerup)="drawingPointerUp($event)" (pointercancel)="drawingPointerUp($event)"
+              (touchstart)="$event.preventDefault()"></canvas>
+            @if (drawingSelection) {
+              <div class="drawing-selection" [ngStyle]="drawingSelectionStyle">
+                <div class="resize-handle nw" (pointerdown)="startDrawingResize('nw', $event)" (pointermove)="drawingPointerMove($event)" (pointerup)="drawingPointerUp($event)" (touchstart)="$event.preventDefault(); $event.stopPropagation()"></div>
+                <div class="resize-handle ne" (pointerdown)="startDrawingResize('ne', $event)" (pointermove)="drawingPointerMove($event)" (pointerup)="drawingPointerUp($event)" (touchstart)="$event.preventDefault(); $event.stopPropagation()"></div>
+                <div class="resize-handle sw" (pointerdown)="startDrawingResize('sw', $event)" (pointermove)="drawingPointerMove($event)" (pointerup)="drawingPointerUp($event)" (touchstart)="$event.preventDefault(); $event.stopPropagation()"></div>
+                <div class="resize-handle se" (pointerdown)="startDrawingResize('se', $event)" (pointermove)="drawingPointerMove($event)" (pointerup)="drawingPointerUp($event)" (touchstart)="$event.preventDefault(); $event.stopPropagation()"></div>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    } @else {
+    <div #noteContainer class="note-container">
+      <!--? Mobile Top Bar -->
+      <div class="mobile-top-bar">
+        <button type="button" class="mobile-icon back" (click)="mobileBack()">
+          <span class="material-symbols-outlined">arrow_back</span>
+        </button>
+        <span class="spacer"></span>
+        <div class="mobile-top-icons">
+          <div [class.pinned]="notePin.dataset['pinned'] === 'true'" class="mobile-icon pin" (click)="togglePinned()">
+            <span class="material-symbols-outlined">{{notePin.dataset['pinned'] === 'true' ? 'push_pin' : 'push_pin'}}</span>
+          </div>
+          <div class="mobile-icon alarm" [class.alarm-active]="!!getActiveReminder()"
+            (click)="alarmIconTapped($event)">
+            <span class="material-symbols-outlined">{{ !!getActiveReminder() ? 'notifications_active' : 'notifications' }}</span>
+          </div>
+          <div class="mobile-icon archive" (click)="isArchived = true;saveNote()">
+            <span class="material-symbols-outlined">archive</span>
+          </div>
+        </div>
+        @if (pendingDateConfirm) {
+          <div class="date-confirm-pill" role="region" aria-label="Confirm reminder date">
+            <span class="dc-text">Reminder date: <strong>{{formatPendingDateLabel(pendingDateConfirm.date)}}</strong></span>
+            <button type="button" class="dc-cancel" (click)="cancelPendingDate()">Change</button>
+            <button type="button" class="dc-confirm" (click)="confirmPendingDate()">Pick time →</button>
+          </div>
+        }
+      </div>
+
+      <ng-container [ngTemplateOutlet]="imagesTemplate" [ngTemplateOutletContext]="{ placement: 'top' }">
+      </ng-container>
+      <div [hidden]="noteTitle.innerHTML.length" class="note-title ph"> Title</div>
+      <div #noteTitle (input)="onNoteTitleInput()" (paste)="pasteEvent($event)"
+        class="note-title" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
+      </div>
+      <!--? note OR checkboxes (or both, in the case of merged hybrid notes) -->
+      @if (isCbox.value && hasHybridBody()) {
+        <ng-container [ngTemplateOutlet]="noteTemplate"></ng-container>
+        <ng-container [ngTemplateOutlet]="checkboxesTemplate"></ng-container>
+      } @else {
+        <ng-container [ngTemplateOutlet]="isCbox.value ? checkboxesTemplate : noteTemplate"></ng-container>
+      }
+      <ng-container [ngTemplateOutlet]="imagesTemplate" [ngTemplateOutletContext]="{ placement: 'bottom' }">
+      </ng-container>
+      <!--? labels -->
+      <div class="labels-container">
+        @for (label of labels; track label) {
+          @if (label.added) {
+            <div class="label-container">
+              <div class="label"><span>{{label.name}}</span>
+              <div class="cancel-icon" (click)="label.added = !label.added"></div>
+            </div>
+          </div>
+        }
+      }
+    </div>
+    <ng-container [ngTemplateOutlet]="attachmentsTemplate"></ng-container>
+    @if (getActiveReminder(); as r) {
+      <div class="reminder-chip" (mousedown)="$event.stopPropagation()" (click)="alarmIconTapped($event)">
+        <img src="./assets/images/svg/clock.svg" alt="" width="12" height="12">
+        {{formatReminderDate(r.dueAtUtc)}}
+      </div>
+    }
+  </div>
+  }
+  <div #notePin data-pinned="false" [class.pinned]="notePin.dataset['pinned'] === 'true'" class="pin-icon H pop"
+    [hidden]="isDrawingNote"
+    (click)="togglePinned()"
+    [attr.data-pop]="notePin.dataset['pinned'] === 'false' ? 'Pin note':'Unpin note' ">
+  </div>
+  <!--? icons -->
+  @if (!isTrashed && !isDrawingNote) {
+    <div class="icons-container">
+      @if (showTextFormatting && !isCbox.value) {
+        <div class="text-format-toolbar" (mousedown)="$event.preventDefault()" (click)="$event.stopPropagation()">
+          <button type="button" (mousedown)="applyTextFormat('h1',$event)">H1</button>
+          <button type="button" (mousedown)="applyTextFormat('h2',$event)">H2</button>
+          <button type="button" class="body-format" (mousedown)="applyTextFormat('body',$event)">Aa</button>
+          <span></span>
+          <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
+          <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
+          <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
+          <button type="button" class="clear-format" (mousedown)="applyTextFormat('clear',$event)">Tx</button>
+        </div>
+      }
+      <div class="icons">
+        <button type="button" class="text-format-trigger H pop" data-pop="Formatting options"
+          [class.active]="showTextFormatting" [disabled]="isCbox.value" (click)="toggleTextFormatting($event)">A</button>
+        <div class="alarm H pop" data-pop="Remind me"
+          [class.alarm-active]="!!getActiveReminder()"
+          (click)="alarmIconTapped($event)">
+        </div>
+        <div #collaboratorMenuTtBtn class="colab H pop" [class.disabled]="!isEditing"
+          data-pop="Collaborator" (click)="openCollaboratorMenu(collaboratorMenuTtBtn,collaboratorMenuTt)"></div>
+        <div #colorMenuTtBtn class="color H pop" data-pop="Background Options"
+          (click)="openTooltip(colorMenuTtBtn,colorMenuTt)">
+        </div>
+        <div class="image H pop" data-pop="Add image" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)"></div>
+        <div class="attachment H pop" data-pop="Attachments" (click)="openAttachmentPicker($event)"></div>
+        <div class="archive H pop" (click)="isArchived = true;saveNote()" data-pop="Archive"></div>
+        <div #moreMenuTtBtn class="more H pop" data-pop="More" (click)="openTooltip(moreMenuTtBtn,moreMenuTt)">
+        </div>
+        <div class="undo disabled pop" data-pop="Undo"></div>
+        <div class="undo r disabled"></div>
+      </div>
+      @if (pendingDateConfirm) {
+        <div class="date-confirm-pill date-confirm-pill--desktop" role="region" aria-label="Confirm reminder date">
+          <span class="dc-text">Reminder date: <strong>{{formatPendingDateLabel(pendingDateConfirm.date)}}</strong></span>
+          <button type="button" class="dc-cancel" (click)="cancelPendingDate()">Change</button>
+          <button type="button" class="dc-confirm" (click)="confirmPendingDate()">Pick time →</button>
+        </div>
+      }
+      <div class="close-btn" (click)="saveNote()"> Close </div>
+    </div>
+
+    <!--? Mobile Bottom Bar -->
+    <div class="mobile-bottom-bar">
+      <div class="left-icons">
+        <div #collaboratorMenuTtBtnMobile class="mobile-icon colab" (click)="openCollaboratorMenu(collaboratorMenuTtBtnMobile,collaboratorMenuTt)" title="Collaborator">
+          <div class="glyph colab"></div>
+        </div>
+        <div class="mobile-icon image" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)" title="Add image">
+          <div class="glyph picture"></div>
+        </div>
+        <div class="mobile-icon attachment" (click)="openAttachmentPicker($event)" title="Attachments">
+          <div class="glyph attachment"></div>
+        </div>
+        <div class="mobile-icon paint" (click)="openDrawingNote($event)" title="Add drawing">
+          <div class="glyph paint"></div>
+        </div>
+        <div class="mobile-icon check" (click)="toggleCbox()" title="Add checkboxes">
+          <div class="glyph check"></div>
+        </div>
+        <div #colorMenuTtBtnMobile class="mobile-icon color" (click)="openTooltip(colorMenuTtBtnMobile,colorMenuTt)" title="Background options">
+          <span class="material-symbols-outlined">palette</span>
+        </div>
+      </div>
+      <div class="timestamp">
+        {{lastEditedTime || 'Edited just now'}}
+      </div>
+      <div #moreMenuTtBtnMobile class="mobile-icon more" (click)="openTooltip(moreMenuTtBtnMobile,moreMenuTt)" title="More">
+        <span class="material-symbols-outlined">more_vert</span>
+      </div>
+    </div>
+  } @else if (isTrashed) {
+
+    <div class="icons-container min">
+      <div class="icons">
+        <div class="delete H"></div>
+        <div class="restore H"></div>
+      </div>
+    </div>
+  }
+  <!--? icons if trashed -->
+
+  @if (showReminderPicker && getActiveReminder()) {
+    <div class="reminder-picker reminder-picker--inline"
+      (mousedown)="$event.stopPropagation()" (mouseup)="$event.stopPropagation()" (click)="$event.stopPropagation()">
+      <button type="button" class="rp-clear" (click)="clearReminder($event)">Remove reminder</button>
+    </div>
+  }
+  @if (showReminderDateDialog && !getActiveReminder()) {
+    <div class="reminder-date-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
+      role="dialog" aria-label="Set reminder date">
+      <div class="rd-title">Set reminder</div>
+      <div class="rd-calendar" aria-label="Reminder date calendar">
+        <div class="rd-calendar-head">
+          <button type="button" class="rd-nav" aria-label="Previous month" (click)="shiftCalendarMonth(-1)">
+            <span class="material-symbols-outlined">chevron_left</span>
+          </button>
+          <div class="rd-month">{{calendarMonthLabel()}}</div>
+          <button type="button" class="rd-nav" aria-label="Next month" (click)="shiftCalendarMonth(1)">
+            <span class="material-symbols-outlined">chevron_right</span>
+          </button>
+        </div>
+        <div class="rd-weekdays">
+          @for (weekday of calendarWeekdays; track $index) {
+            <span>{{weekday}}</span>
+          }
+        </div>
+        <div class="rd-days">
+          @for (day of calendarDays(); track day.date) {
+            <button type="button" class="rd-day"
+              [class.outside]="!day.currentMonth"
+              [class.today]="day.today"
+              [class.selected]="day.selected"
+              [disabled]="day.disabled"
+              (click)="selectCalendarDate(day.date)">
+              {{day.day}}
+            </button>
+          }
+        </div>
+      </div>
+      <div class="rd-actions">
+        <button type="button" class="rd-secondary" (click)="cancelReminderDate()">Cancel</button>
+        <button type="button" class="rd-primary" [disabled]="!customDate" (click)="confirmReminderDate(customTimeInp)">Pick time</button>
+      </div>
+    </div>
+  }
+  <input #customTimeInp type="text" class="timepicker-ui-input rp-hidden-time" autocomplete="off" readonly [(ngModel)]="customTime"
+    aria-hidden="true" tabindex="-1">
+</div>
+</div>
+
+<!--* templates -->
+<ng-template #drawingToolMenuTemplate let-tool="tool">
+  <div class="drawing-popover tool-options">
+    <div class="drawing-color-grid">
+      @for (color of drawingColors; track color) {
+        <button type="button" class="drawing-color-swatch" [class.active]="drawingToolColor(tool) === color"
+          [style.background-color]="color" [attr.aria-label]="'Use color ' + color"
+          (click)="setDrawingToolColor(tool, color)"></button>
+      }
+    </div>
+    <div class="drawing-size-row">
+      @for (size of drawingSizes; track size) {
+        <button type="button" class="drawing-size-swatch" [class.active]="drawingToolSize(tool) === size"
+          [attr.aria-label]="'Use stroke size ' + size" (click)="setDrawingToolSize(tool, size)">
+          <span [style.width.px]="size" [style.height.px]="size"></span>
+        </button>
+      }
+    </div>
+  </div>
+</ng-template>
+<!--* images template -->
+<ng-template #imagesTemplate let-placement="placement">
+  <div class="note-images" [class.top]="placement === 'top'" [class.bottom]="placement === 'bottom'">
+    @for (image of images; track image.id) {
+      @if (image.placement === placement) {
+        <figure class="note-image">
+          @if (image.id !== 'drawing') {
+            <button type="button" class="delete-image-btn H pop" data-pop="Delete image" (click)="deleteImage(image)">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+          }
+          <img [src]="image.dataUrl" [alt]="image.name">
+        </figure>
+      }
+    }
+  </div>
+</ng-template>
+<!--* attachments template -->
+<ng-template #attachmentsTemplate>
+  @if (attachments.length || pendingAttachmentFiles.length || isUploadingAttachment) {
+    <div class="attachments-list">
+      @for (attachment of attachments; track attachment.id) {
+        <div class="attachment-card" role="button" tabindex="0"
+          (click)="downloadAttachment(attachment, $event)"
+          (keydown.enter)="downloadAttachment(attachment, $event)"
+          (keydown.space)="downloadAttachment(attachment, $event)">
+          <span class="material-symbols-outlined attachment-type">{{attachmentIcon(attachment)}}</span>
+          <span class="attachment-name">{{attachment.originalName}}</span>
+          <span class="attachment-size">{{formatFileSize(attachment.fileSize)}}</span>
+          <button type="button" class="attachment-download H" aria-label="Download attachment" title="Download attachment"
+            (click)="downloadAttachment(attachment, $event)">
+            <span class="material-symbols-outlined">download</span>
+          </button>
+          <button type="button" class="attachment-remove H pop" data-pop="Delete attachment"
+            (click)="deleteAttachment(attachment, $event)">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+      }
+      @for (file of pendingAttachmentFiles; track file.name + file.size + file.lastModified) {
+        <div class="attachment-card pending">
+          <span class="material-symbols-outlined attachment-type">{{attachmentIcon(file)}}</span>
+          <span class="attachment-name">{{file.name}}</span>
+          <span class="attachment-size">{{formatFileSize(file.size)}}</span>
+          <button type="button" class="attachment-remove H pop" data-pop="Remove attachment"
+            (click)="removePendingAttachment(file, $event)">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+      }
+      @if (isUploadingAttachment) {
+        <div class="attachment-card pending">
+          <span class="material-symbols-outlined attachment-type">upload_file</span>
+          <span class="attachment-name">Uploading...</span>
+        </div>
+      }
+    </div>
+  }
+</ng-template>
+<!--* note template -->
+<ng-template #noteTemplate>
+  <div [hidden]="noteBody.innerHTML.length" class="note-body ph">Take a note…</div>
+  <div #noteBody (input)="onNoteBodyInput(noteBody)" (paste)="pasteEvent($event)"
+    (click)="onNoteBodyClick($event)"
+    class="note-body" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
+  </div>
+</ng-template>
+<!--* cboxes template -->
+<ng-template #checkboxesTemplate>
+  <!--? isDone: false -->
+  <ng-container [ngTemplateOutlet]="cboxTemplate" [ngTemplateOutletContext]="{ isDone: false }">
+  </ng-container>
+  <div class="cbox-ph-container" (click)="cboxPhClick()">
+    <div class="cbox-plus-icon"></div>
+    <div class="cbox-note-container">
+      <div class="cbox-note ph">List item</div>
+      <div #cboxPh (keydown)="cboxPhKeyDown($event)" class="cbox-note" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
+      </div>
+    </div>
+  </div>
+  <!--? isDone: true -->
+  @if ((checkBoxes | cboxDone:true).length) {
+    <div class="hr"></div>
+    <div class="cbox-done-container" (click)="isCboxCompletedListCollapsed = !isCboxCompletedListCollapsed">
+      <div [class.rotate]="!isCboxCompletedListCollapsed" class="cbox-arrow"></div>
+      <div>
+        <span>({{(checkBoxes | cboxDone:true).length}}) Completed item</span>
+      </div>
+    </div>
+  }
+  @if (!isCboxCompletedListCollapsed) {
+    <ng-container [ngTemplateOutlet]="cboxTemplate"
+      [ngTemplateOutletContext]="{ isDone: true }">
+    </ng-container>
+  }
+
+  <!--* cbox template -->
+  <ng-template let-isDone="isDone" #cboxTemplate>
+    @for (cb of checkBoxes | cboxDone:isDone; track cb.id; let last = $last) {
+      <div class="cbox-container" [attr.data-cbox-row-id]="cb.id" [class.cbox-dragging]="draggedCboxId === cb.id"
+        [draggable]="dragReadyCboxId === cb.id"
+        (dragstart)="cboxDragStart(cb.id, $event)" (dragend)="cboxDragEnd()"
+        (drag)="cboxDrag($event)"
+        (dragover)="cboxDragOver(cb.id, isDone, $event)" (drop)="cboxDrop(cb.id, isDone, $event)">
+        <div class="cbox-move-icon" (mousedown)="cboxPrepareDrag(cb.id)" (mouseup)="cboxCancelDrag()"></div>
+        <div [class.done]="cb.done" class="cbox-icon" (click)="cboxTools(cb.id).check()"></div>
+        <div class="cbox-note-container">
+          <div #cboxInput [attr.data-cbox-last]="last" [attr.data-cbox-id]="cb.id" [class.cbox-done]="cb.done"
+            (blur)="cboxTools(cb.id).update(cboxInput)" (keydown)="cBoxKeyDown($event,cb.id)"
+            (focus)="cboxInputFocus($event)"
+            class="cbox-note" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text" [innerHTML]="cb.data">
+          </div>
+        </div>
+        <div class="cbox-cancel-icon H" (click)="cboxTools(cb.id!).remove()"></div>
+      </div>
+    }
+  </ng-template>
+</ng-template>
+
+<!--? --------tooltips-------- -->
+
+<!--? more MENU -->
+<div #moreMenuTt data-tooltip="true" data-is-tooltip-open="false" class="moreMenu">
+  <div [hidden]="moreMenuEls.delete.disabled" (click)="moreMenu(moreMenuTt).trash()">
+    {{ isSharedNoteForCurrentUser() ? 'Unshare this with me' : 'Delete note' }}
+  </div>
+  <div #labelMenuBtn
+    (click)="this.Shared.closeTooltip(moreMenuTt);openTooltip(moreMenuTtBtn!.nativeElement,labelMenuTt)">
+    Add label
+  </div>
+  <!-- <div [hidden]="moreMenuEls.drawing.disabled">{{moreMenuEls.drawing.value}}</div> -->
+  <div [hidden]="moreMenuEls.copy.disabled" (click)="moreMenu(moreMenuTt).clone()">
+    Make a copy
+  </div>
+  <div (click)="moreMenu(moreMenuTt).toggleCbox()">
+    {{moreMenuEls.checkbox.value}}
+  </div>
+  <!-- <div [hidden]="moreMenuEls.gdocs.disabled">{{moreMenuEls.gdocs.value}}</div> -->
+</div>
+<!--? color MENU -->
+<div #colorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="colorMenu">
+  <div class="first-row">
+    @for (color of bgColors | keyvalue; track color) {
+      <div [attr.data-bg-color]="color.key" [style.background-color]="color.value"
+        (click)="colorMenu.bgColor(color.value)" [class.nocolor]="color.value === ''">
+      </div>
+    }
+  </div>
+  <div class="second-row">
+    @for (image of bgImages | keyvalue; track image) {
+      <div [attr.data-bg-image]="image.key" [style.background-image]="image.value | ph"
+        (click)="colorMenu.bgImage(image.value)" [class.noimage]="image.value === ''">
+        @if (bgImageLabels[image.key]) {
+          <span>{{bgImageLabels[image.key]}}</span>
+        }
+      </div>
+    }
+  </div>
+</div>
+<!--? collaborator MENU -->
+<div #collaboratorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="collaboratorMenu">
+  <div class="title">Collaborators</div>
+  @if (!canManageCollaborators()) {
+    <div class="hint">Shared with you. Only the owner can change access.</div>
+  }
+  @if (collaboratorError) {
+    <div class="error">{{collaboratorError}}</div>
+  }
+  @if (!collaboratorUsers.length && !collaboratorError) {
+    <div class="hint">No other users yet.</div>
+  }
+  <div class="user-list">
+    @for (user of collaboratorUsers; track user.id) {
+      @let userIsOwner = isNoteOwner(user.id);
+      <label class="share-user" [class.readonly]="!canManageCollaborators() || userIsOwner" [class.is-owner]="userIsOwner">
+        @if (userIsOwner) {
+          <span class="owner-glyph" title="Owner of this note" aria-label="Owner">
+            <span class="material-symbols-outlined">workspace_premium</span>
+          </span>
+        } @else {
+          <input type="checkbox" [checked]="isCollaboratorSelected(user.id)"
+            [disabled]="!canManageCollaborators()" (change)="toggleCollaborator(user.id)">
+        }
+        <div class="collaborator-avatar-wrapper">
+          @if (user.avatarDataUrl) {
+            <img class="collaborator-avatar" [src]="user.avatarDataUrl" [alt]="user.displayName">
+          } @else {
+            <span class="collaborator-avatar avatar-fallback animal-{{user.avatarPreset || 'cat'}}">
+              <span class="head"><i></i></span>
+            </span>
+          }
+          <span class="status-dot" [class.online]="user.online"></span>
+        </div>
+        <span class="user-name">{{user.displayName || user.username}}</span>
+        @if (userIsOwner) {
+          <span class="owner-pill">Owner</span>
+        }
+      </label>
+    }
+  </div>
+    <div class="actions">
+      <button type="button" (click)="Shared.closeTooltip(collaboratorMenuTt)">Close</button>
+    </div>
+</div>
+<!--? label MENU -->
+<div #labelMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu">
+  <div class="title">Label note</div>
+  <div class="search">
+    <input #newLabelInput type="text" maxlength="50" placeholder="Enter label name"
+      (keydown.enter)="addLabelFromMenu(newLabelInput); $event.preventDefault()" (blur)="addLabelFromMenu(newLabelInput)"
+      (input)="labelMenuError=''">
+    <div class="search-icon"></div>
+  </div>
+  @if (newLabelInput.value.trim().length) {
+    <div class="label-list create-label" (mousedown)="$event.preventDefault()" (click)="addLabelFromMenu(newLabelInput)">
+      <div class="check-icon"></div>
+      <div class="label-name">Create "{{newLabelInput.value.trim()}}"</div>
+    </div>
+  }
+  @if (labelMenuError) {
+    <div class="label-error">{{labelMenuError}}</div>
+  }
+  <div class="label-list-container">
+    @for (label of labels; track label) {
+      <div class="label-list" (click)="label.added = !label.added">
+        <div [class.done]='label.added' class="check-icon"></div>
+        <div class="label-name">{{label.name}}</div>
+      </div>
+    }
+  </div>
+</div>

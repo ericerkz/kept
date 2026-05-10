@@ -1,0 +1,12 @@
+<svg width="24px" height="24px" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <defs>
+        <path d="M12,2 C17.52,2 22,6.48 22,12 C22,17.52 17.52,22 12,22 C6.48,22 2,17.52 2,12 C2,6.48 6.48,2 12,2 Z M10,14.2 L7.4,11.6 L6,13 L10,17 L18,9 L16.6,7.6 L10,14.2 Z" id="path-1"></path>
+    </defs>
+    <g id="check_circle_24px" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <polygon id="bounds" points="0 0 24 0 24 24 0 24"></polygon>
+        <mask id="mask-2" fill="white">
+            <use xlink:href="#path-1"></use>
+        </mask>
+        <use id="Mask" fill="#ffffff" fill-rule="nonzero" xlink:href="#path-1"></use>
+    </g>
+</svg>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kept - Modern Self-Hosted Notes</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header>
+    <div class="header-left">
+      <button class="menu-btn" aria-label="Toggle Menu">
+        <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"></path></svg>
+      </button>
+      <a href="#" class="logo-container">
+        <img src="assets/images/keep2x.png" alt="Kept Logo">
+        <span class="logo-text">Kept</span>
+      </a>
+    </div>
+    <a href="https://github.com/ericerkz/kept" target="_blank" rel="noopener noreferrer" class="github-link">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+      </svg>
+      <span>GitHub</span>
+    </a>
+  </header>
+
+  <div class="main-container">
+    <nav class="sidebar">
+      <a href="#welcome" class="nav-item active">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 17H4v2h10v-2zm6-8H4v2h16V9zM4 15h16v-2H4v2zM4 5v2h16V5H4z"/></svg>
+        Welcome
+      </a>
+      <a href="#features" class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm-1-11v6h2v-6h-2zm0-4v2h2V7h-2z"/></svg>
+        Features
+      </a>
+      <a href="#quick-start" class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+        Installation
+      </a>
+      <a href="#reverse-proxy" class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2l4 4h-3v7h-2V6H8l4-4zm-7 8h4v2H5v8h14v-8h-4v-2h4c1.1 0 2 .9 2 2v8c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2v-8c0-1.1.9-2 2-2z"/></svg>
+        Reverse proxy
+      </a>
+      <a href="#backups" class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7zm4-3h2v10h-2zm4 6h2v4h-2z"/></svg>
+        Backups
+      </a>
+    </nav>
+
+    <main class="content">
+      <div class="content-inner">
+        
+        <div class="hero">
+          <img src="assets/images/keep2x.png" alt="Kept logo">
+          <h1>Your self-hosted sticky notes</h1>
+          <p>Get the speed, simplicity, and visual ease of your favorite note-taking apps—while keeping full control of your own data.</p>
+          <div class="hero-actions">
+            <a href="#quick-start" class="btn btn-primary">Get Started</a>
+            <a href="https://github.com/ericerkz/kept" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="margin-right: 8px;">
+                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+              </svg>
+              View on GitHub
+            </a>
+          </div>
+        </div>
+
+        <section id="welcome">
+          <h2>👋 Welcome to Kept</h2>
+          <p>Kept is designed for people who love fast, low-friction note capture. Whether you need a quick checklist, a drawing, or a simple text note, Kept makes it effortless to jot things down and organize them visually with colors and labels.</p>
+          <img src="assets/images/ui-showcase.png" alt="UI Showcase" class="img-fluid">
+          <p>If you're migrating from Google Keep, we've even included a simple import tool to bring all your existing notes over seamlessly.</p>
+        </section>
+
+        <section id="features">
+          <h2>✨ What you get with Kept</h2>
+          
+          <div class="feature-grid">
+            <div class="feature-box">
+              <h3>📝 Rich Note Capture</h3>
+              <p>Create text, checklist, image, and drawing notes. Drag and drop to sort checklists, pin important items, and organize with custom labels, colors, and backgrounds.</p>
+            </div>
+            
+            <div class="feature-box">
+              <h3>⏰ Reminders that Work</h3>
+              <p>Set one-shot or scheduled reminders with snooze functionality. Get push notifications directly to your browser or phone.</p>
+            </div>
+            
+            <div class="feature-box">
+              <h3>🤝 Real-Time Sharing</h3>
+              <p>Collaborate with others! Share notes with other users on your instance and edit together in real-time, just like a modern document editor.</p>
+            </div>
+            
+            <div class="feature-box">
+              <h3>🔐 Privacy First</h3>
+              <p>Your data stays with you. Includes local user accounts, custom profile avatars, and optional two-factor authentication (2FA) for extra security.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="quick-start">
+          <h2>🚀 How to Install</h2>
+          <p>The easiest and most reliable way to run Kept is using Docker. It keeps everything self-contained and takes just a few minutes.</p>
+          
+          <pre><code>git clone https://github.com/ericerkz/kept.git
+cd kept
+docker compose up -d --build</code></pre>
+          
+          <p>That's it! Open your browser and go to <code>http://localhost:6767</code>. You'll be greeted by a friendly setup wizard to create your admin account.</p>
+          
+          <details>
+            <summary>Prefer to install directly without Docker?</summary>
+            <p>If you have Node.js v24.x installed, you can run Kept natively using our automated scripts.</p>
+            <p><strong>For Linux/macOS:</strong></p>
+            <pre><code>chmod +x install-native.sh
+sudo ./install-native.sh</code></pre>
+            <p><strong>For Windows (Run as Administrator):</strong></p>
+            <pre><code>.\install-native.ps1</code></pre>
+          </details>
+        </section>
+
+        <section id="reverse-proxy">
+          <h2>Reverse proxy examples</h2>
+          <p>For public HTTPS access, point your domain at Kept and proxy traffic to <code>127.0.0.1:6767</code>. Online status and live collaboration use WebSockets at <code>/api/realtime</code>, so that rule must come before the catch-all app proxy.</p>
+
+          <h3>Apache</h3>
+          <pre><code># Required once:
+# sudo a2enmod proxy proxy_http proxy_wstunnel rewrite ssl
+# sudo systemctl reload apache2
+
+&lt;VirtualHost *:80&gt;
+    ServerName kept.example.com
+    Redirect permanent / https://kept.example.com/
+&lt;/VirtualHost&gt;
+
+&lt;IfModule mod_ssl.c&gt;
+&lt;VirtualHost *:443&gt;
+    ServerName kept.example.com
+    ProxyRequests Off
+    ProxyPreserveHost On
+
+    # WebSocket realtime: online status + live collaboration.
+    ProxyPass /api/realtime ws://127.0.0.1:6767/api/realtime
+    ProxyPassReverse /api/realtime ws://127.0.0.1:6767/api/realtime
+
+    # Normal app/API traffic.
+    ProxyPass / http://127.0.0.1:6767/
+    ProxyPassReverse / http://127.0.0.1:6767/
+
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/kept.example.com/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/kept.example.com/privkey.pem
+&lt;/VirtualHost&gt;
+&lt;/IfModule&gt;</code></pre>
+
+          <h3>Nginx</h3>
+          <pre><code>server {
+    listen 80;
+    server_name kept.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name kept.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/kept.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/kept.example.com/privkey.pem;
+
+    # WebSocket realtime: online status + live collaboration.
+    location /api/realtime {
+        proxy_pass http://127.0.0.1:6767/api/realtime;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Normal app/API traffic.
+    location / {
+        proxy_pass http://127.0.0.1:6767;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}</code></pre>
+        </section>
+
+        <section id="backups">
+          <h2>💾 Peace of mind with Backups</h2>
+          <p>We know how important your notes are, so Kept makes protecting them simple.</p>
+          <ul>
+            <li><strong>Automated Schedules:</strong> Set Kept to automatically back up your data daily, weekly, or monthly. You never have to think about it.</li>
+            <li><strong>One-Click Restore:</strong> If you ever need to set up a new server or recover your data, you can upload your backup file during setup to restore everything instantly.</li>
+          </ul>
+          <p>Your data is safely stored in a single folder (<code>./data</code>), making it extremely easy to copy, move, or sync to your personal cloud storage.</p>
+        </section>
+
+      </div>
+    </main>
+  </div>
+  
+  <script src="script.js"></script>
+</body>
+</html>
