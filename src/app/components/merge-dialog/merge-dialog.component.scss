@@ -1,0 +1,195 @@
+.merge-backdrop {
+  background: rgba(0, 0, 0, 0.55);
+  inset: 0;
+  position: fixed;
+  z-index: 9000;
+}
+
+.merge-dialog {
+  background: #2d2e30;
+  border: 1px solid #5f6368;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  color: #e8eaed;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  left: 50%;
+  max-height: calc(100dvh - 64px);
+  max-width: 520px;
+  padding: 20px 22px;
+  position: fixed;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(100vw - 32px);
+  z-index: 9001;
+}
+
+.merge-dialog__title {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0 0 4px;
+}
+
+.merge-dialog__subtitle {
+  color: #bdc1c6;
+  font-size: 13px;
+  margin: 0 0 14px;
+}
+
+.merge-dialog__warning {
+  align-items: flex-start;
+  background: rgba(253, 197, 79, 0.12);
+  border: 1px solid rgba(253, 197, 79, 0.35);
+  border-radius: 8px;
+  color: #fdd663;
+  display: flex;
+  font-size: 12px;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+
+  .material-symbols-outlined { font-size: 20px; }
+  strong { color: #fde293; display: block; font-size: 13px; font-weight: 500; margin-bottom: 2px; }
+  small { color: #fde293; font-size: 12px; line-height: 1.4; opacity: 0.85; }
+}
+
+.merge-dialog__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0 0 12px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.merge-dialog__item {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  cursor: grab;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 22px minmax(0, 1fr) 56px;
+  padding: 10px 12px;
+
+  &:active { cursor: grabbing; }
+  &--drawing { border-color: rgba(253, 197, 79, 0.4); }
+}
+
+.merge-dialog__handle {
+  color: #9aa0a6;
+  font-size: 20px;
+}
+
+.merge-dialog__item-text {
+  min-width: 0;
+}
+
+.merge-dialog__summary {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merge-dialog__type {
+  color: #9aa0a6;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.merge-dialog__arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.merge-dialog__arrow {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  color: #e8eaed;
+  cursor: pointer;
+  font-size: 9px;
+  height: 22px;
+  line-height: 1;
+  padding: 0;
+  width: 26px;
+
+  &:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+  &:disabled { cursor: not-allowed; opacity: 0.3; }
+}
+
+.merge-dialog__footnote {
+  color: #9aa0a6;
+  font-size: 11px;
+  margin: 0 0 14px;
+}
+
+.merge-dialog__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.merge-dialog__btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 18px;
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+
+  &:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
+  &:disabled { cursor: not-allowed; opacity: 0.5; }
+}
+
+.merge-dialog__btn--primary {
+  background: #8ab4f8;
+  border-color: transparent;
+  color: #202124;
+
+  &:hover:not(:disabled) { background: #aecbfa; }
+}
+
+:host-context(.light-theme) {
+  .merge-dialog {
+    background: #fff;
+    border-color: #dadce0;
+    color: #202124;
+  }
+  .merge-dialog__subtitle, .merge-dialog__type, .merge-dialog__footnote { color: #5f6368; }
+  .merge-dialog__handle { color: #80868b; }
+  .merge-dialog__item {
+    background: #f8f9fa;
+    border-color: #dadce0;
+  }
+  .merge-dialog__warning {
+    background: rgba(234, 134, 0, 0.1);
+    border-color: rgba(234, 134, 0, 0.35);
+    color: #b06000;
+    strong, small { color: #b06000; }
+  }
+  .merge-dialog__btn {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.12);
+    &:hover:not(:disabled) { background: rgba(0, 0, 0, 0.1); }
+  }
+  .merge-dialog__btn--primary {
+    background: #1a73e8;
+    color: #fff;
+    &:hover:not(:disabled) { background: #1967d2; }
+  }
+  .merge-dialog__arrow {
+    border-color: #dadce0;
+    color: #202124;
+    &:hover:not(:disabled) { background: rgba(0, 0, 0, 0.06); }
+  }
+}

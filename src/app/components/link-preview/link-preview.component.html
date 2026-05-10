@@ -1,0 +1,49 @@
+@if (loading) {
+  <div class="lp-card lp-loading" [class.lp-visual]="cardMode">
+    <div class="lp-thumb loading-shimmer"></div>
+    <div class="lp-content">
+      <div class="lp-text">
+        <div class="lp-title loading-shimmer" style="width: 80%"></div>
+        <div class="lp-domain loading-shimmer" style="width: 40%"></div>
+      </div>
+    </div>
+  </div>
+} @else {
+  <div class="lp-card" [class.lp-visual]="cardMode" [class.lp-clickable]="clickToOpen"
+    (click)="openCard($event)">
+    
+    @if (!failed && preview?.image && !imageError) {
+      <img class="lp-thumb" [src]="proxyUrl(preview!.image)" [alt]="preview?.title"
+        (error)="imageError = true">
+    } @else {
+      <div class="lp-thumb-placeholder">
+        <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L10.9 5.03m3.1 5.97a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07l1.22-1.22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+    }
+
+    <div class="lp-content">
+      <div class="lp-text">
+        <div class="lp-title">{{ preview?.title || linkDomain(url) }}</div>
+        <div class="lp-domain">{{ preview?.domain || linkDomain(url) }}</div>
+      </div>
+
+      <div class="lp-actions">
+        <button class="lp-action-btn" type="button" [title]="copied ? 'Copied' : 'Copy link'"
+          (mousedown)="$event.stopPropagation()" (mouseup)="copy($event)" (click)="$event.stopPropagation()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L10.9 5.03"></path>
+            <path d="M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07l1.22-1.22"></path>
+          </svg>
+        </button>
+        <button class="lp-action-btn" type="button" title="Open link"
+          (mousedown)="$event.stopPropagation()" (mouseup)="open($event)" (click)="$event.stopPropagation()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <line x1="10" y1="14" x2="21" y2="3"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+}

@@ -1,0 +1,54 @@
+<main class="auth-page">
+  @if (!isLoading && registrationEnabled) {
+    <section class="auth-panel">
+      <div class="brand-row">
+        <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
+        <span>Kept</span>
+      </div>
+      <h1>Create an account</h1>
+
+      @if (successMessage) {
+        <div class="success">{{successMessage}}</div>
+        <p class="helper" style="margin-top: 16px;">
+          <a routerLink="/login" style="color: #fbbc04;">← Back to sign in</a>
+        </p>
+      } @else {
+        <form (ngSubmit)="submit()" #registerForm="ngForm" class="auth-form">
+          <label>
+            <span>Username</span>
+            <input name="username" [ngModel]="username" (ngModelChange)="onUsernameChange($event)" autocomplete="username" minlength="3" required>
+            <small class="hint">Minimum 3 characters</small>
+          </label>
+          <label>
+            <span>Display name</span>
+            <input name="displayName" [(ngModel)]="displayName" (input)="onDisplayNameInput()" autocomplete="name" placeholder="Defaults to your username — change it to anything you'd like">
+          </label>
+          <label>
+            <span>Email</span>
+            <input name="email" [(ngModel)]="email" autocomplete="email" type="email" required>
+          </label>
+          <label>
+            <span>Password</span>
+            <input name="password" [(ngModel)]="password" autocomplete="new-password" type="password" minlength="8" required>
+            <small class="hint">Minimum 8 characters</small>
+          </label>
+          <label>
+            <span>Confirm password</span>
+            <input name="confirmPassword" [(ngModel)]="confirmPassword" autocomplete="new-password" type="password" minlength="8" required>
+            <small class="hint">Must match password</small>
+          </label>
+
+          @if (error) {
+            <div class="error">{{error}}</div>
+          }
+          <button type="submit" [disabled]="registerForm.invalid || isRegistering">
+            {{isRegistering ? 'Creating account...' : 'Create account'}}
+          </button>
+        </form>
+        <div class="footer-tagline">
+          Already have an account? <a routerLink="/login" style="color: #fbbc04;">Sign in</a>
+        </div>
+      }
+    </section>
+  }
+</main>

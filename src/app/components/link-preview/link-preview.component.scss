@@ -1,0 +1,157 @@
+.lp-card {
+  align-items: center;
+  background: transparent;
+  border: 1px solid rgba(154, 160, 166, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  margin-top: 8px;
+  min-height: 52px;
+  overflow: hidden;
+  padding: 0;
+  transition: background 0.15s, border-color 0.15s;
+  user-select: none;
+  width: 100%;
+
+  &:hover {
+    background: rgba(154, 160, 166, 0.05);
+    border-color: rgba(154, 160, 166, 0.5);
+
+    .lp-actions {
+      opacity: 1;
+    }
+  }
+
+  .lp-thumb {
+    flex-shrink: 0;
+    height: 52px;
+    object-fit: cover;
+    width: 68px;
+  }
+
+  .lp-content {
+    align-items: center;
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+  }
+
+  .lp-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .lp-title {
+    color: #e8eaed;
+    font-family: 'Google Sans', Roboto, Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .lp-domain {
+    color: #9aa0a6;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .lp-actions {
+    display: flex;
+    gap: 12px;
+    margin-left: 12px;
+    opacity: 0.6; // Keep them slightly visible as per screenshot
+    transition: opacity 0.15s;
+  }
+
+  .lp-action-btn {
+    align-items: center;
+    background: transparent;
+    border: none;
+    color: #bdc1c6;
+    cursor: pointer;
+    display: flex;
+    height: 24px;
+    justify-content: center;
+    padding: 0;
+    transition: color 0.12s;
+    width: 24px;
+
+    svg {
+      height: 18px;
+      width: 18px;
+    }
+
+    &:hover {
+      color: #e8eaed;
+    }
+  }
+
+  // Visual mode for link-only notes (High impact)
+  &.lp-visual {
+    flex-direction: column;
+    align-items: stretch;
+    margin-top: 0;
+
+    .lp-thumb {
+      height: 180px;
+      width: 100%;
+    }
+
+    .lp-content {
+      padding: 12px 16px;
+    }
+
+    .lp-actions {
+      opacity: 1;
+      margin-top: 4px;
+    }
+
+    .lp-title {
+      font-size: 15px;
+      white-space: normal;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+  }
+}
+
+.lp-loading {
+  pointer-events: none;
+  .lp-thumb { background-color: rgba(154, 160, 166, 0.1); }
+}
+
+.loading-shimmer {
+  background: linear-gradient(90deg, rgba(154, 160, 166, 0.05) 25%, rgba(154, 160, 166, 0.1) 50%, rgba(154, 160, 166, 0.05) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+  min-height: 14px;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+:host-context(.light-theme) {
+  .lp-card { 
+    background: #fff;
+    border-color: #dadce0;
+    &:hover { background: #f8f9fa; border-color: #bdc1c6; }
+  }
+  .lp-title { color: #202124; }
+  .lp-domain { color: #5f6368; }
+  .lp-action-btn {
+    color: #5f6368;
+    &:hover { color: #202124; }
+  }
+}

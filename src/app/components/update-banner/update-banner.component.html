@@ -1,0 +1,30 @@
+@if (visible) {
+  <div class="update-banner" role="status">
+    <div class="update-banner__content">
+      <span class="update-banner__icon material-symbols-outlined" aria-hidden="true">system_update</span>
+      <div class="update-banner__text">
+        <strong>A new version of Kept is available.</strong>
+        <span>You're on <code>{{status?.current}}</code>. Latest is <code>{{status?.latest}}</code>.</span>
+      </div>
+      <div class="update-banner__actions">
+        @if (status?.releaseUrl) {
+          <a [href]="status?.releaseUrl" target="_blank" rel="noopener" class="update-banner__btn update-banner__btn--primary">View release</a>
+        }
+        @if (status?.releaseNotes) {
+          <button type="button" class="update-banner__btn" (click)="toggleNotes($event)">
+            {{ showNotes ? 'Hide notes' : 'Release notes' }}
+          </button>
+        }
+        <button type="button" class="update-banner__btn" (click)="dismiss(false)" title="Hide for 30 days">
+          Remind me later
+        </button>
+        <button type="button" class="update-banner__btn update-banner__btn--ghost" (click)="dismiss(true)" title="Don't remind me about this version again">
+          Don't remind me
+        </button>
+      </div>
+    </div>
+    @if (showNotes && status?.releaseNotes) {
+      <pre class="update-banner__notes">{{status?.releaseNotes}}</pre>
+    }
+  </div>
+}

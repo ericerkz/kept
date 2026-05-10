@@ -1,0 +1,116 @@
+<main class="auth-page">
+  @if (backupCodes) {
+    <section class="auth-panel">
+      <div class="brand-row">
+        <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
+        <span>Kept</span>
+      </div>
+      <h1>Setup complete</h1>
+      <div class="success-message">
+        <strong>Two-Factor Authentication is enabled.</strong>
+      </div>
+      <p>Please save these emergency backup codes in a secure location. They are one-time use tokens that will allow you to log in if you lose access to your authenticator app.</p>
+      
+      <div class="backup-codes">
+        @for (code of backupCodes; track code) {
+          <code>{{code}}</code>
+        }
+      </div>
+
+      <button type="button" (click)="continueToLogin()" [disabled]="isSaving">
+        {{isSaving ? 'Logging in...' : 'I have saved my backup codes. Continue.'}}
+      </button>
+    </section>
+  } @else {
+    <section class="auth-panel">
+      <div class="brand-row">
+        <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
+        <span>Kept</span>
+      </div>
+      <h1>Initial setup</h1>
+      <p class="helper">Create the first administrator account for this local workspace.</p>
+
+      <form (ngSubmit)="submit()" #setupForm="ngForm" class="auth-form">
+        <label>
+          <span>Username</span>
+          <input name="username" [ngModel]="username" (ngModelChange)="onUsernameChange($event)" autocomplete="username" minlength="3" required>
+          <small class="hint">Minimum 3 characters</small>
+        </label>
+        <label>
+          <span>Display name</span>
+          <input name="displayName" [(ngModel)]="displayName" (input)="onDisplayNameInput()" autocomplete="name" placeholder="Defaults to your username — change it to anything you'd like">
+        </label>
+        <label>
+          <span>Password</span>
+          <input name="password" [(ngModel)]="password" autocomplete="new-password" type="password" minlength="8"
+            required>
+          <small class="hint">Minimum 8 characters</small>
+        </label>
+        <label>
+          <span>Confirm password</span>
+          <input name="confirmPassword" [(ngModel)]="confirmPassword" autocomplete="new-password" type="password"
+            minlength="8" required>
+          <small class="hint">Must match password</small>
+        </label>
+
+        <label class="option-card">
+          <input name="importTakeoutAfterCreate" type="checkbox" [(ngModel)]="importTakeoutAfterCreate">
+          <span>
+            <strong>Import from Google Keep</strong>
+            <small>Moving from Google Keep? Take me to the import tool after setup so I can upload my Google Takeout export.</small>
+          </span>
+        </label>
+
+        <label class="option-card">
+          <input type="checkbox" [checked]="enable2fa" (change)="toggle2fa($event)" [disabled]="isGenerating2fa">
+          <span>
+            <strong>Enable Two-Factor Authentication</strong>
+            <small>Protect your admin account with an open-source authenticator app like <a href="https://ente.io/auth/" target="_blank" rel="noopener">Ente Auth</a>, or alternatives like Authy or Google Authenticator.</small>
+          </span>
+        </label>
+
+        @if (enable2fa && qrCodeUrl) {
+          <div class="two-factor-setup">
+            <img [src]="qrCodeUrl" alt="2FA QR Code" class="qr-code">
+            <p>Scan this QR code with your authenticator app, then enter the 6-digit code below to verify.</p>
+            <label>
+              <span>Authenticator Code</span>
+              <input name="totpToken" [(ngModel)]="totpToken" autocomplete="one-time-code" type="text" inputmode="numeric" pattern="[0-9]{6}" [required]="enable2fa">
+            </label>
+          </div>
+        }
+
+        @if (error) {
+          <div class="error">{{error}}</div>
+        }
+        <button type="submit" [disabled]="setupForm.invalid || isSaving || isRestoringFromBackup">
+          {{isSaving ? 'Creating account...' : 'Create admin account'}}
+        </button>
+
+        <div class="setup-divider">OR</div>
+
+        <label class="option-card">
+          <input type="checkbox" name="isRestoringFromBackup" [(ngModel)]="isRestoringFromBackup" (change)="error = ''">
+          <span>
+            <strong>Restore from backup</strong>
+            <small>Already have a Kept backup? Upload your .sqlite file to restore all accounts, notes, and settings instantly.</small>
+          </span>
+        </label>
+
+        @if (isRestoringFromBackup) {
+          <div class="restore-upload">
+            <input type="file" #backupFileInput (change)="onBackupFileSelected($event)" accept=".sqlite" style="display: none;">
+            <button type="button" class="btn-secondary" (click)="backupFileInput.click()">
+              {{selectedBackupFile ? selectedBackupFile.name : 'Select .sqlite file'}}
+            </button>
+            @if (selectedBackupFile) {
+              <button type="button" class="btn-primary" (click)="submitRestore()" [disabled]="isRestoring">
+                {{isRestoring ? 'Restoring...' : 'Restore and continue'}}
+              </button>
+            }
+          </div>
+        }
+      </form>
+    </section>
+  }
+</main>

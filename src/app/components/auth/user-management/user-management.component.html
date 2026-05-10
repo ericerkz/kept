@@ -1,0 +1,328 @@
+<main class="auth-page management-page">
+  <section class="auth-panel wide">
+
+    <div class="management-header">
+      <div class="brand-row">
+        <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
+        <span>Kept</span>
+      </div>
+      <a routerLink="/">← Back to notes</a>
+    </div>
+
+    <h1>User management</h1>
+
+    @if (error) { <div class="error global-msg">{{error}}</div> }
+    @if (success) { <div class="success global-msg">{{success}}</div> }
+
+    <!-- ── Group: Registration ──────────────────────────────────────────── -->
+    <div class="settings-group">
+      <h2 class="group-title color-blue">
+        <span class="material-symbols-outlined">how_to_reg</span>
+        Registration
+      </h2>
+
+      <section class="settings-section reg-section">
+        <div class="section-title">Sign-up policy</div>
+        <p class="section-desc">
+          Control whether new visitors can register their own accounts and whether those accounts need an admin's approval before they can sign in.
+        </p>
+
+        <div class="reg-toggles">
+          <label class="reg-toggle">
+            <input type="checkbox" [(ngModel)]="selfRegistrationEnabled" (change)="saveRegistrationSettings()">
+            <div>
+              <strong>Allow self-registration</strong>
+              <small>New users can create their own accounts from the login page.</small>
+            </div>
+          </label>
+          @if (selfRegistrationEnabled) {
+            <label class="reg-toggle">
+              <input type="checkbox" [(ngModel)]="requireApproval" (change)="saveRegistrationSettings()">
+              <div>
+                <strong>Require admin approval</strong>
+                <small>New self-registered accounts must be approved by an admin before they can sign in.</small>
+              </div>
+            </label>
+          }
+        </div>
+      </section>
+    </div>
+
+    <!-- ── Group: Add user ──────────────────────────────────────────────── -->
+    <div class="settings-group">
+      <h2 class="group-title color-green">
+        <span class="material-symbols-outlined">person_add</span>
+        Add a user
+      </h2>
+
+      <section class="settings-section create-user-section">
+        <div class="section-title">Create account</div>
+        <p class="section-desc">
+          Provision a new user directly. They'll be active immediately — no approval step.
+        </p>
+
+        <form (ngSubmit)="createUser()" #userForm="ngForm" class="auth-form user-form">
+          <label>
+            <span>Username</span>
+            <input name="username" [ngModel]="username" (ngModelChange)="onUsernameChange($event)" autocomplete="off" minlength="3" required>
+            <small class="hint">Minimum 3 characters</small>
+          </label>
+          <label>
+            <span>Display name</span>
+            <input name="displayName" [(ngModel)]="displayName" (input)="onDisplayNameInput()" autocomplete="off" placeholder="Defaults to the username — change it to anything you'd like">
+          </label>
+          <label>
+            <span>Email</span>
+            <input name="email" [(ngModel)]="email" autocomplete="off" type="email" placeholder="user&#64;example.com">
+          </label>
+          <label>
+            <span>Password</span>
+            <input name="password" [(ngModel)]="password" autocomplete="new-password" type="password" minlength="8" required>
+            <small class="hint">Minimum 8 characters</small>
+          </label>
+          <label>
+            <span>Role</span>
+            <select name="role" [(ngModel)]="role">
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+
+          <div class="form-actions">
+            <button type="submit" [disabled]="userForm.invalid || isSaving">
+              {{isSaving ? 'Creating…' : 'Create user'}}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <!-- ── Group: Existing users ────────────────────────────────────────── -->
+    <div class="settings-group">
+      <h2 class="group-title color-purple">
+        <span class="material-symbols-outlined">group</span>
+        Users
+        <span class="user-count">{{users.length}}</span>
+      </h2>
+
+      <section class="settings-section users-section">
+        <div class="user-list">
+          @for (user of users; track user.id) {
+            <div class="user-row" [class.disabled-user]="user.enabled === false">
+              <div class="user-info">
+                <div class="user-name-row">
+                  <strong>{{user.displayName || user.username}}</strong>
+                  <span class="role-pill" [class.role-admin]="user.role === 'admin'">{{user.role}}</span>
+                  @if (user.totpEnabled) {
+                    <span class="mfa-badge" title="2FA Enabled">
+                      <span class="material-symbols-outlined" style="font-size: 14px;">shield_lock</span>
+                    </span>
+                  }
+                  @if (user.enabled === false) {
+                    <span class="pending-badge">Pending approval</span>
+                  }
+
+                </div>
+                <span class="user-handle">{{user.username}}</span>
+                @if (user.email) {
+                  <span class="user-email">{{user.email}}</span>
+                }
+              </div>
+              <div class="user-actions">
+                @if (user.enabled === false && auth.currentUser?.id !== user.id) {
+                  <button type="button" class="btn-approve" (click)="toggleUserEnabled(user)">Approve</button>
+                } @else if (user.enabled !== false && auth.currentUser?.id !== user.id) {
+                  <button type="button" class="btn-secondary" (click)="toggleUserEnabled(user)">Disable</button>
+                }
+                <button type="button" class="btn-secondary" (click)="openResetPassword(user.id!)">
+                  {{resetPasswordUserId === user.id ? 'Cancel' : 'Reset password'}}
+                </button>
+                @if (user.totpEnabled) {
+                  <button type="button" class="btn-warning-link" (click)="disableUser2fa(user.id!)">
+                    Disable 2FA
+                  </button>
+                }
+
+                <button type="button" class="btn-danger" (click)="confirmDeleteUser(user)" [disabled]="auth.currentUser?.id === user.id">
+                  Delete
+                </button>
+              </div>
+
+              @if (confirmDeleteUserId === user.id) {
+                <div class="delete-confirmation-inline">
+                  <div class="confirmation-text">Are you sure you want to delete <strong>{{user.username}}</strong>? This cannot be undone.</div>
+                  <div class="confirmation-actions">
+                    <button type="button" class="btn-danger" (click)="deleteUser(user)">Confirm Delete</button>
+                    <button type="button" class="btn-secondary" (click)="cancelDeleteUser()">Cancel</button>
+                  </div>
+                </div>
+              }
+
+              @if (resetPasswordUserId === user.id) {
+                <div class="reset-pw-inline">
+                  <input type="password" [(ngModel)]="resetPasswordValue" placeholder="New password (min. 8 chars)" autocomplete="new-password">
+                  <button type="button" [disabled]="isResettingPassword || !resetPasswordValue" (click)="submitResetPassword(user.id!)">
+                    {{isResettingPassword ? 'Resetting…' : 'Set new password'}}
+                  </button>
+                  @if (resetPasswordError) {
+                    <div class="pw-inline-feedback error">{{resetPasswordError}}</div>
+                  }
+                  @if (resetPasswordSuccess) {
+                    <div class="pw-inline-feedback success">{{resetPasswordSuccess}}</div>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </section>
+    </div>
+
+    <!-- ── Group: Automated Backups ────────────────────────────────────── -->
+    <div class="settings-group">
+      <h2 class="group-title color-orange">
+        <span class="material-symbols-outlined">schedule_send</span>
+        Automated scheduled backups
+      </h2>
+
+      <section class="settings-section backup-section">
+        <div class="section-title">Recurrence and time</div>
+        @if (automatedBackupError) { <div class="error global-msg" style="margin-bottom: 16px;">{{automatedBackupError}}</div> }
+        @if (automatedBackupSuccess) { <div class="success global-msg" style="margin-bottom: 16px;">{{automatedBackupSuccess}}</div> }
+        <p class="section-desc">
+
+
+          Configure Kept to automatically snapshot your database. Backups are saved to: <code class="path-code">{{absolutePath}}</code>
+        </p>
+
+        <div class="backup-controls scheduled-controls">
+          <div class="backup-config">
+            <label>
+              <span>Automated schedule</span>
+              <select [(ngModel)]="backupSchedule" (change)="changeBackupSchedule(backupSchedule)">
+                <option value="none">Disabled</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </label>
+          </div>
+
+          @if (backupSchedule !== 'none') {
+            <div class="backup-config time-picker-container">
+              <label>
+                <span>Schedule settings</span>
+                <div class="timepicker-input-group" (click)="openBackupTimePicker()">
+                  <input type="text" id="backupTimeInput" class="timepicker-ui-input" [value]="backupTime" readonly>
+                  <span class="material-symbols-outlined clock-icon">schedule</span>
+                </div>
+              </label>
+            </div>
+          }
+
+        </div>
+
+        @if (lastAutomatedAt) {
+          <div class="last-backup-hint">
+            <strong>Last automated backup:</strong> {{lastAutomatedAt | date:'medium'}}
+          </div>
+        }
+
+      </section>
+    </div>
+
+    <!-- ── Group: Manual Backup ─────────────────────────────────────────── -->
+    <div class="settings-group">
+      <h2 class="group-title color-orange">
+        <span class="material-symbols-outlined">backup</span>
+        Manual database backup
+      </h2>
+
+      <section class="settings-section backup-section">
+        <div class="section-title">One-click snapshot</div>
+        @if (manualBackupError) { <div class="error global-msg" style="margin-bottom: 16px;">{{manualBackupError}}</div> }
+        @if (manualBackupSuccess) { <div class="success global-msg" style="margin-bottom: 16px;">{{manualBackupSuccess}}</div> }
+        <p class="section-desc">
+
+
+          Trigger an immediate manual backup of the entire database.
+        </p>
+
+        <div class="backup-controls manual-controls">
+          <button type="button" class="btn-primary" (click)="runBackupNow()" [disabled]="isBackingUp">
+            {{isBackingUp ? 'Backing up…' : 'Run manual backup now'}}
+          </button>
+        </div>
+
+        @if (lastManualAt) {
+          <div class="last-backup-hint">
+            <strong>Last manual backup:</strong> {{lastManualAt | date:'medium'}}
+          </div>
+        }
+
+
+        @if (backupFiles.length > 0) {
+          <div class="backup-list">
+            <h3>Recent backups</h3>
+            @for (file of backupFiles; track file.filename) {
+              <div class="backup-row">
+                <div class="file-info">
+                  <span class="filename">{{file.filename}}</span>
+                  <span class="file-meta">{{formatSize(file.size)}} • {{file.createdAt | date:'medium'}}</span>
+                </div>
+                <div class="file-actions">
+                  <button type="button" class="btn-secondary" (click)="downloadBackup(file.filename)">Download</button>
+                  <button type="button" class="btn-danger-link" (click)="deleteBackup(file.filename)">Delete</button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </section>
+    </div>
+
+    <!-- ── Group: About ───────────────────────────────────────────────── -->
+    <div class="settings-group">
+      <h2 class="group-title color-grey">
+        <span class="material-symbols-outlined">info</span>
+        About
+      </h2>
+
+      <section class="settings-section about-section">
+        <div class="about-row">
+          <div class="about-label">Kept version</div>
+          <div class="about-value">
+            <code>{{versionInfo?.current || '—'}}</code>
+            @if (versionInfo?.isOutdated && versionInfo?.latest) {
+              <span class="version-tag outdated">Update available: <code>{{versionInfo?.latest}}</code></span>
+            } @else if (versionInfo?.latest && !versionInfo?.isOutdated) {
+              <span class="version-tag uptodate">Up to date</span>
+            }
+          </div>
+        </div>
+        @if (versionInfo?.releaseUrl) {
+          <div class="about-row">
+            <div class="about-label">Latest release</div>
+            <div class="about-value">
+              <a [href]="versionInfo?.releaseUrl" target="_blank" rel="noopener">View on GitHub →</a>
+            </div>
+          </div>
+        }
+        @if (versionInfo?.checkedAt) {
+          <div class="about-row">
+            <div class="about-label">Last checked</div>
+            <div class="about-value about-muted">{{versionInfo?.checkedAt | date:'medium'}}</div>
+          </div>
+        }
+        @if (versionInfo?.checkError) {
+          <div class="about-row">
+            <div class="about-label">Check error</div>
+            <div class="about-value about-muted">{{versionInfo?.checkError}}</div>
+          </div>
+        }
+      </section>
+    </div>
+
+
+  </section>
+</main>

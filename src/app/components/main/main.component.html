@@ -1,0 +1,45 @@
+<app-navbar></app-navbar>
+<app-update-banner></app-update-banner>
+<section class="main-section">
+    <div class="d-flex">
+        <div class="sidenav-sticky">
+            <app-sidenav></app-sidenav>
+        </div>
+        <div class="w-100 padding">
+            <app-input class="desktop-placeholder-input"></app-input>
+            <app-notes></app-notes>
+        </div>
+    </div>
+    <button class="mobile-compose-fab" type="button" aria-label="New note" (click)="openMobileComposer()">
+      <span class="material-symbols-outlined">edit_note</span>
+    </button>
+    @if ((Shared.showInstallButton | async) && !Shared.isInstallFabDismissed()) {
+      <div class="mobile-install-fab" role="region" aria-label="Install Kept">
+        <button type="button" class="mobile-install-main" (click)="installPwa()">
+          <span class="material-symbols-outlined">install_mobile</span>
+          <span class="label">Install App</span>
+        </button>
+        <button type="button" class="mobile-install-dismiss" aria-label="Dismiss"
+          (click)="dismissInstallFab($event)">×</button>
+      </div>
+    }
+</section>
+
+@if (installHelpOpen) {
+  <div class="pwa-install-backdrop" (click)="installHelpOpen = false"></div>
+  <div class="pwa-install-card" (click)="$event.stopPropagation()">
+    <button class="pwa-close" type="button" aria-label="Close install instructions"
+      (click)="installHelpOpen = false">×</button>
+    <h3>Install Kept</h3>
+    @if (Shared.isIos) {
+      <p>On iPhone or iPad, use Safari to install Kept.</p>
+      <ol>
+        <li>Tap the <strong>Share</strong> button in Safari's toolbar.</li>
+        <li>Choose <strong>Add to Home Screen</strong>.</li>
+        <li>Tap <strong>Add</strong> to finish.</li>
+      </ol>
+    } @else {
+      <p>Use your browser menu to install Kept as an app.</p>
+    }
+  </div>
+}

@@ -1,0 +1,84 @@
+services:
+  kept:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kept-app
+    ports:
+      - "6767:6767"
+    environment:
+      - NODE_ENV=production
+      - PORT=6767
+      - SQLITE_PATH=/app/data/kept.sqlite
+
+      # Pass the host user's UID/GID into the container so files in ./data
+      # are owned by you on the host (no sudo needed for backups). $UID is
+      # automatically set by most Linux/macOS shells; $GID is not always set,
+      # so we fall back to UID (single-user accounts almost always have
+      # primary GID == UID). The entrypoint also auto-detects from the data
+      # directory's existing owner if these are unset, so this is a safety
+      # net rather than a hard requirement.
+      - PUID=${UID:-1000}
+      - PGID=${GID:-1000}
+
+      # ── OPTIONAL security/operational options  ────────────────────────────
+
+      # Public base URL the server thinks it's at. Only needed if your reverse
+      # proxy strips/doesn't set X-Forwarded-Proto, or rewrites paths (e.g.
+      # serving at /kept). Used for OAuth redirect URIs.
+      # - BASE_URL=https://kept.example.com
+
+
+
+      # Allow restoring a SQLite backup via /api/setup/restore. This should really only be enabled when you actually need it
+      # (lost access to account/forgotten password/failed TOTP, etc.), 
+      # then unset. 
+      # If left enabled, anyone with an auth token could restore a backup and overwrite your data.
+      # Set to "1" only when you actually need to perform a restore, then unset.
+      # - KEPT_ALLOW_RESTORE=1
+
+      # Session lifetime in days (default 30). Lower = more re-auth, more
+      # damage-control if a token is stolen.
+      # - KEPT_SESSION_TTL_DAYS=30
+
+      # ── CORS (cross-origin requests) ─────────────────────────────────────
+      # Kept uses Bearer tokens instead of cookies, so the default compose
+      # config allows browser API calls from any origin. This avoids remote
+      # clients/native shells failing when the app and API are not served from
+      # the exact same origin.
+      #
+      # Allow any origin (easy mode for personal self-hosting):
+      - KEPT_CORS_ALLOW_ALL=1
+      #
+      # Tradeoff: any website can hit your unauth endpoints
+      # (/api/setup/status, login, register) from a browser. Authenticated
+      # API calls still require a valid Bearer token, so user data is not
+      # exposed. Fine for most personal/family instances.
+      #
+      # To pin specific origins instead, comment out KEPT_CORS_ALLOW_ALL above
+      # and uncomment KEPT_CORS_ORIGINS below. Comma-separated, no spaces, no
+      # trailing slashes, scheme + host (+ port if non-default):
+      # - KEPT_CORS_ORIGINS=https://kept.example.com,https://app.example.com
+      #
+      # Localhost dev / LAN / mixed examples:
+      # - KEPT_CORS_ORIGINS=http://localhost:4200,http://localhost:6767
+      # - KEPT_CORS_ORIGINS=http://192.168.1.50:6767,https://kept.example.com
+      # - KEPT_CORS_ORIGINS=https://kept.example.com,http://kept.local
+      #
+      # If both KEPT_CORS_ALLOW_ALL and KEPT_CORS_ORIGINS are set, the
+      # allowlist takes precedence.
+      #
+      # Note: CORS does not control realtime presence/live collaboration.
+      # For those to work over the internet, your reverse proxy must support
+      # WebSocket upgrades and forward /api/realtime to this container.
+
+      # VAPID keys for web push. Auto-generated into ./data/vapid.json on
+      # first run if not set. Override here if you want to manage them yourself.
+      # - VAPID_PUBLIC_KEY=
+      # - VAPID_PRIVATE_KEY=
+      # - VAPID_SUBJECT=https://kept.example.com
+
+
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

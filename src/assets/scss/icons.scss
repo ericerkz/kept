@@ -1,0 +1,125 @@
+//? icons
+.icons-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 4px 0;
+  position: relative;
+  justify-content: space-between;
+
+  &.min {
+    justify-content: center;
+
+    .icons>div {
+      margin: 0 2px;
+    }
+  }
+
+  .icons {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+
+    %icon {
+      opacity: 0.71;
+      height: 34px;
+      margin: 0 8px;
+      width: 34px;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: 18px 18px;
+      position: relative;
+    }
+
+    .alarm {
+      @extend %icon;
+      background-image: url(/assets/images/svg/alarm.svg);
+    }
+
+    .colab {
+      @extend %icon;
+      background-image: url(/assets/images/svg/col.svg);
+    }
+
+    .color {
+      @extend %icon;
+      background-image: url(/assets/images/svg/bg.svg);
+    }
+
+    .image {
+      @extend %icon;
+      background-image: url(/assets/images/svg/image.svg);
+    }
+
+    .attachment {
+      @extend %icon;
+      background-image: url(/assets/images/svg/attachment.svg);
+    }
+
+    .archive {
+      @extend %icon;
+      background-image: url(/assets/images/svg/archive2.svg);
+    }
+
+    .unarchive {
+      @extend %icon;
+      background-image: url(/assets/images/svg/unarchive.svg);
+    }
+
+    .more {
+      @extend %icon;
+      background-image: url(/assets/images/svg/more.svg);
+    }
+
+    .undo {
+      @extend %icon;
+      background-image: url(/assets/images/svg/undo.svg);
+    }
+
+    .delete {
+      @extend %icon;
+      background-image: url(/assets/images/svg/delete.svg);
+    }
+
+    .restore {
+      @extend %icon;
+      background-image: url(/assets/images/svg/restore.svg);
+    }
+
+    .undo.r {
+      @extend %icon;
+      transform: scaleX(-1);
+    }
+
+    .disabled {
+      cursor: not-allowed !important;
+      opacity: 0.25 !important;
+    }
+
+
+  }
+}
+
+
+
+
+//? pin-icon
+.pin-icon {
+  opacity: 0.54;
+  height: 32px;
+  width: 32px;
+  right: 14px;
+  top: 8px;
+  position: absolute;
+  background-image: url(/assets/images/svg/pin.svg);
+  background-position: center;
+  background-repeat: no-repeat;
+
+  &.pinned {
+    background-image: url(/assets/images/svg/pin-pinned.svg) !important;
+  }
+
+  &:hover {
+    opacity: 0.87 !important;
+  }
+}

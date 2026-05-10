@@ -1,0 +1,41 @@
+<main class="auth-page">
+  <section class="auth-panel compact">
+    <div class="brand-row">
+      <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
+      <span>Kept</span>
+    </div>
+    <h1>Sign in</h1>
+
+    <form (ngSubmit)="submit()" #loginForm="ngForm" class="auth-form">
+      @if (!requires2FA) {
+        <label>
+          <span>Username</span>
+          <input name="username" [(ngModel)]="username" autocomplete="username" required>
+        </label>
+        <label>
+          <span>Password</span>
+          <input name="password" [(ngModel)]="password" autocomplete="current-password" type="password" required>
+        </label>
+      } @else {
+        <label>
+          <span>Two-Factor Code or Backup Code</span>
+          <input name="totpToken" [(ngModel)]="totpToken" autocomplete="one-time-code" type="text" inputmode="numeric" pattern="[0-9]{6}|[a-zA-Z0-9]{8}" required autofocus placeholder="6-digit code or backup code">
+        </label>
+      }
+
+      @if (error) {
+        <div class="error">{{error}}</div>
+      }
+      <button type="submit" [disabled]="loginForm.invalid || isSigningIn">
+        {{isSigningIn ? 'Signing in...' : 'Sign in'}}
+      </button>
+    </form>
+    @if (registrationEnabled) {
+      <div class="footer-tagline">
+        Don't have an account? <a routerLink="/register" style="color: #fbbc04;">Create one</a>
+      </div>
+    } @else {
+      <div class="footer-tagline">Kept: self-hosted sticky notes</div>
+    }
+  </section>
+</main>

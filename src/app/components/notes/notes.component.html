@@ -1,0 +1,422 @@
+<section>
+  <input #overviewImageInput class="overview-image-input" type="file" accept="image/*" multiple
+    (change)="overviewImageInputChange($event)">
+  <section #mainContainer class="main-container" [class.is-dragging]="!!draggedNoteId">
+    <div class="pb-80" [hidden]="!(Shared.note.pinned | notesTools:currentPageName:Shared.searchQuery).length">
+      <p #title _title>pinned</p>
+      <ng-container [ngTemplateOutlet]="noteTemplate" [ngTemplateOutletContext]="{notes:Shared.note.pinned}">
+      </ng-container>
+    </div>
+    <div [hidden]="!(Shared.note.unpinned | notesTools:currentPageName:Shared.searchQuery).length">
+      <p #title _title>other</p>
+      <ng-container [ngTemplateOutlet]="noteTemplate" [ngTemplateOutletContext]="{notes:Shared.note.unpinned}">
+      </ng-container>
+    </div>
+  </section>
+</section>
+
+@if (!(this.Shared.note.all | notesTools:currentPageName:Shared.searchQuery).length) {
+  <section>
+    <div class="no-notes">
+      <div class="image"></div>
+      <div>
+        <span class="text">Notes {{ currentPage.attachments ? 'with attachments' : ('you ' + (currentPage.reminders?'with reminders ' : (currentPage.archive? 'archive' : ( currentPage.trash?'trash':'add'))))}}
+        appear here</span>
+      </div>
+    </div>
+  </section>
+}
+
+
+<!-- Reminder date dialog. Rendered at component root so it escapes the
+     transformed .note-container ancestors (bricks.js masonry positions
+     each note via translate3d, which creates a containing block for
+     position:fixed descendants and traps any popover rendered inside). -->
+@if (activePickerNote && !getActiveReminderForNote(activePickerNote.id!)) {
+  <div class="reminder-date-dialog__backdrop" aria-hidden="true"
+    (click)="cancelPendingNoteDate()"></div>
+  <div class="reminder-date-dialog reminder-date-dialog--note"
+    (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
+    role="dialog" aria-label="Set reminder date">
+    <div class="rd-title">Set reminder</div>
+    <div class="rd-calendar" aria-label="Reminder date calendar">
+      <div class="rd-calendar-head">
+        <button type="button" class="rd-nav" aria-label="Previous month" (click)="shiftCalendarMonth(-1)">
+          <span class="material-symbols-outlined">chevron_left</span>
+        </button>
+        <div class="rd-month">{{calendarMonthLabel()}}</div>
+        <button type="button" class="rd-nav" aria-label="Next month" (click)="shiftCalendarMonth(1)">
+          <span class="material-symbols-outlined">chevron_right</span>
+        </button>
+      </div>
+      <div class="rd-weekdays">
+        @for (weekday of calendarWeekdays; track $index) {
+          <span>{{weekday}}</span>
+        }
+      </div>
+      <div class="rd-days">
+        @for (day of calendarDays(); track day.date) {
+          <button type="button" class="rd-day"
+            [class.outside]="!day.currentMonth"
+            [class.today]="day.today"
+            [class.selected]="day.selected"
+            [disabled]="day.disabled"
+            (click)="selectCalendarDate(day.date)">
+            {{day.day}}
+          </button>
+        }
+      </div>
+    </div>
+    <div class="rd-actions">
+      <button type="button" class="rd-secondary" (click)="cancelPendingNoteDate()">Cancel</button>
+      <button type="button" class="rd-primary" [disabled]="!customDate" (click)="confirmNoteDate(activePickerNote)">Pick time</button>
+    </div>
+  </div>
+}
+
+<div #modalContainer class="modal-container">
+  <div #modal class="modal">
+    @if (modalContainer.style.display == 'block') {
+      <app-input [noteToEdit]="clickedNoteData" [isEditing]="true" [autoOpenImagePicker]="openImagePickerOnModal">
+      </app-input>
+    }
+  </div>
+</div>
+
+<!--*  note template -->
+<ng-template #noteTemplate let-notes="notes">
+  <div #noteEl [class.mx-auto]="Shared.noteViewType.value === 'list' ">
+    @for (note of notes | notesTools:currentPageName:Shared.searchQuery | slice:0:visibleNoteLimit ; track note.id) {
+      <div #noteEL class="note-container" [class.selected]="Shared.isNoteSelected(note.id)"
+        [class.note-dragging]="draggedNoteId === note.id"
+        [attr.data-note-id]="note.id"
+        [draggable]="canReorderNote(note)"
+        (dragstart)="noteDragStart(note,$event)"
+        (dragover)="noteDragOver(note,notes,$event)"
+        (drop)="noteDrop(note,notes,$event)"
+        (dragend)="noteDragEnd(notes)"
+        (touchstart)="onTouchStart(note, $event)"
+        (touchmove)="onTouchMove($event)"
+        (touchend)="onTouchEnd(noteEL, note, $event)"
+        (touchcancel)="onTouchCancel()">
+        @if (currentPage.label && (note.archived || note.trashed)) {
+          <span class="note-badge"
+          [innerText]="note.archived ? 'archive': (note.trashed ? 'trash' : '') "></span>
+        }
+          @let noteIsLinkOnly = isLinkOnlyNote(note);
+          @let noteUrlList = noteUrls(note);
+          <div class="note-main" [class.note-main--link-only]="noteIsLinkOnly"
+          [ngStyle]="{'background-color':note.bgColor,'border-color':note.bgColor,'background-image' : note.bgImage, 'color': noteTextColor(note)}">
+          @if (note.ownerUserId && auth.currentUser?.id && note.ownerUserId !== auth.currentUser?.id) {
+            <div class="shared-indicator H pop" [attr.data-pop]="'Shared by ' + (note.ownerDisplayName || note.ownerUsername || 'another user')">
+              @if (note.ownerAvatarDataUrl) {
+                <img [src]="note.ownerAvatarDataUrl" alt="Owner avatar">
+              } @else {
+                <div class="avatar-fallback animal-{{note.ownerAvatarPreset || 'cat'}}">
+                  <span class="head"><i></i></span>
+                </div>
+              }
+               @if (note.ownerOnline) {
+                <div class="mini-glyph online"></div>
+              }
+            </div>
+          }
+          <div (click)="openModal(noteEL,note)">
+            @if (noteIsLinkOnly) {
+                <app-link-preview [url]="noteUrlList[0]" [cardMode]="true"></app-link-preview>
+            } @else {
+            <div class="note-images">
+                @for (image of note.images || []; track image.id) {
+                  @if (image.placement === 'top') {
+                    <img [src]="image.dataUrl" [alt]="image.name" loading="lazy" decoding="async">
+                  }
+                }
+            </div>
+            <div class="title">
+              <span [innerHTML]="note.noteTitle"></span>
+            </div>
+            @if (!note.isCbox || isHybridCard(note)) {
+              <section class="body-segments" [class.min]="note.noteBody!.length > 68">
+                @for (segment of noteBodySegments(note); track trackBodySegment($index, segment)) {
+                  @if (segment.type === 'html') {
+                    <div class="body" [innerHTML]="segment.value"></div>
+                  } @else {
+                    <div class="link-previews">
+                      <app-link-preview [url]="segment.value"></app-link-preview>
+                    </div>
+                  }
+                }
+              </section>
+            }
+            @if (note.isCbox) {
+              <div class="cboxes min">
+                @let activeCboxes = note.checkBoxes! | cboxDone:false;
+                @let completedCboxes = note.checkBoxes! | cboxDone:true;
+                @for (cb of activeCboxes | slice:0:7; track cb.id; let i = $index) {
+                  <div class="cbox-container">
+                    <div (mousedown)="$event.stopPropagation()" (mouseup)="toggleOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()" [class.done]="cb.done"
+                    class="cbox-icon"></div>
+                    <div class="cbox-note-container min">
+                      <div [attr.data-id]="cb.id" [class.cbox-done]="cb.done"
+                        [class.min]="cb.data.length > 68" class="cbox-note"
+                        [innerHTML]="cb.data">
+                      </div>
+                    </div>
+                    <div (mousedown)="$event.stopPropagation()" (mouseup)="removeOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()"
+                      class="cbox-cancel-icon min H">
+                    </div>
+                  </div>
+                  @if (i === 6) {
+                    <div class="cbox-container">
+                      <div class="cbox-icon"></div>
+                      <div class="cbox-note-container min">
+                        <div class="cbox-note">...</div>
+                      </div>
+                    </div>
+                  }
+                }
+                @if (completedCboxes.length) {
+                  <div class="hr min"></div>
+                  <div class="cbox-done-container min">
+                    <div class="cbox-arrow rotate"></div>
+                    <span>{{completedCboxes.length}} Completed item{{completedCboxes.length === 1 ? '' : 's'}}</span>
+                  </div>
+                  @for (cb of completedCboxes | slice:0:7; track cb.id) {
+                    <div class="cbox-container">
+                      <div (mousedown)="$event.stopPropagation()" (mouseup)="toggleOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()" [class.done]="cb.done"
+                      class="cbox-icon"></div>
+                      <div class="cbox-note-container min">
+                        <div [attr.data-id]="cb.id" [class.cbox-done]="cb.done"
+                          [class.min]="cb.data.length > 68" class="cbox-note"
+                          [innerHTML]="cb.data">
+                        </div>
+                      </div>
+                      <div (mousedown)="$event.stopPropagation()" (mouseup)="removeOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()"
+                        class="cbox-cancel-icon min H">
+                      </div>
+                    </div>
+                  }
+                }
+              </div>
+            }
+            <div class="note-images">
+              @for (image of note.images || []; track image.id) {
+                @if (image.placement === 'bottom') {
+                  <img [src]="image.dataUrl" [alt]="image.name" loading="lazy" decoding="async">
+                }
+              }
+            </div>
+            } <!-- end @else (not link-only) -->
+          </div>
+          <!-- Removed collaborator avatars from overview as requested -->
+          <div class="labels-container min">
+            @for (label of note.labels; track label) {
+              @if (label.added) {
+                <div class="label-container">
+                  <div class="label"><span>{{label.name}}</span>
+                  <div class="cancel-icon pop" data-pop="Remove Label"
+                  (click)="removeLabel(note,label)"></div>
+                </div>
+              </div>
+            }
+          }
+        </div>
+        @if ((note.attachments || []).length) {
+          <div class="attachments-list min">
+            @for (attachment of note.attachments || []; track attachment.id) {
+              <div class="attachment-card min" role="button" tabindex="0"
+                (mousedown)="$event.stopPropagation()"
+                (click)="downloadAttachment(attachment, $event)"
+                (keydown.enter)="downloadAttachment(attachment, $event)"
+                (keydown.space)="downloadAttachment(attachment, $event)">
+                <span class="material-symbols-outlined attachment-type">{{attachmentIcon(attachment)}}</span>
+                <span class="attachment-name">{{attachment.originalName}}</span>
+                <span class="attachment-size">{{formatFileSize(attachment.fileSize)}}</span>
+                <button type="button" class="attachment-download H" aria-label="Download attachment" title="Download attachment"
+                  (click)="downloadAttachment(attachment, $event)">
+                  <span class="material-symbols-outlined">download</span>
+                </button>
+              </div>
+            }
+          </div>
+        }
+        @if (!note.trashed) {
+          @if (getActiveReminderForNote(note.id!); as r) {
+            <div class="reminder-chip" (mousedown)="$event.stopPropagation()" (click)="toggleReminderPicker(note, $event)">
+              <img src="./assets/images/svg/clock.svg" alt="" width="12" height="12">
+              {{formatReminderDate(r.dueAtUtc)}}
+            </div>
+          }
+          @if (activePickerNoteId === note.id && getActiveReminderForNote(note.id!)) {
+            <div class="reminder-picker reminder-picker--inline"
+              (mousedown)="$event.stopPropagation()" (mouseup)="$event.stopPropagation()" (click)="$event.stopPropagation()">
+              <button type="button" class="rp-clear" (click)="clearReminder(note, $event)">Remove reminder</button>
+            </div>
+          }
+          <div class="icons-container min">
+            <div class="icons">
+              <div class="alarm H pop" data-pop="Remind me"
+                [class.alarm-active]="!!getActiveReminderForNote(note.id!)"
+                (mousedown)="$event.stopPropagation()" (click)="toggleReminderPicker(note, $event)">
+              </div>
+              @if (pendingNoteDateConfirm?.note?.id === note.id) {
+                <div class="date-confirm-pill date-confirm-pill--note"
+                  (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
+                  role="region" aria-label="Confirm reminder date">
+                  <span class="dc-text"><strong>{{formatPendingDateLabel(pendingNoteDateConfirm!.date)}}</strong></span>
+                  <button type="button" class="dc-cancel" (click)="cancelPendingNoteDate()">Change</button>
+                  <button type="button" class="dc-confirm" (click)="confirmPendingNoteDate()">Pick time →</button>
+                </div>
+              }
+              <!-- Reminder date dialog rendered at component root level (see
+                   bottom of this file) so it escapes bricks.js's transformed
+                   .note-container ancestor. -->
+
+              <div #collaboratorMenuTtBtn class="colab H pop" data-pop="Collaborator"
+                (click)="openCollaboratorMenu(collaboratorMenuTtBtn,collaboratorMenuTt,note)"></div>
+              <div #colorMenuTtBtn data-toolTipType="colorMenu" data-pop="Background Options"
+                (click)="openTooltip(colorMenuTtBtn,colorMenuTt,note)" class="color H pop">
+              </div>
+              <div class="image H pop" data-pop="Add image" (click)="openModalForImage(noteEL,note,$event)"></div>
+              <div [ngClass]="note.archived ? 'unarchive' : 'archive'" class="H pop"
+                (click)="toggleArchive(note.id!,note.archived)"
+              [attr.data-pop]="note.archived ? 'Unarchive' : 'Archive'"></div>
+              <div data-toolTipType="moreMenu" #moreMenuTtBtn
+                (click)="openTooltip(moreMenuTtBtn,moreMenuTt,note)" class="more H pop"
+                data-pop="More">
+              </div>
+            </div>
+          </div>
+        } @else {
+          <div class="trash-countdown"><img src="./assets/images/svg/exclaimwarn.svg" alt="warn"> {{trashCountdown(note)}} before permanent deletion</div>
+          <div class="icons-container min">
+            <div class="icons">
+              <div class="delete H pop" data-pop="Delete forever" (click)="removeNote(note)">
+              </div>
+              <div class="restore material-restore H pop" data-pop="Restore" (click)="restoreNote(note.id!)">
+                <span class="material-symbols-outlined">undo</span>
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+      <div class="check-icon" (click)="toggleSelection(note,$event)">
+  <svg viewBox="0 0 18 18"><path d="m6.61 11.89l-3.11-3.11-1.06 1.06 4.17 4.16 8.95-8.95-1.06-1.05z"/></svg>
+</div>
+      <div (click)="togglePin(note.id!,note.pinned)" [class.pinned]="note.pinned" class="pin-icon H pop"
+      [attr.data-pop]="!note.pinned ? 'Pin note':'Unpin note' "></div>
+    </div>
+  }
+  @if ((notes | notesTools:currentPageName:Shared.searchQuery).length > visibleNoteLimit) {
+    <button type="button" class="load-more-notes" (click)="increaseVisibleNoteLimit()">Load more</button>
+  }
+</div>
+</ng-template>
+
+<!--? Time picker host. Date picking happens via per-note transparent
+     <input type="date"> overlays on the alarm icon (see noteTemplate). -->
+<input #globalReminderTime type="text" class="timepicker-ui-input rp-hidden-time" autocomplete="off" readonly [(ngModel)]="customTime"
+  aria-hidden="true" tabindex="-1">
+
+<!--? --------tooltips-------- -->
+<!--? more MENU -->
+<div #moreMenuTt data-tooltip="true" data-is-tooltip-open="false" class="moreMenu">
+  <div (click)="moreMenu(moreMenuTt).trash(activeNote!)">{{ (activeNote && activeNote.ownerUserId !== auth.currentUser?.id) ? 'Unshare this with me' : 'Delete note' }}</div>
+  <div #labelMenuBtn (click)="moreMenu(moreMenuTt).openLabelMenu(labelMenuTt)">Add label
+  </div>
+  <div (click)="moreMenu(moreMenuTt).clone()">Make a copy</div>
+</div>
+<!--? color MENU -->
+<div #colorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="colorMenu">
+  <div class="first-row">
+    @for (color of bgColors | keyvalue; track color) {
+      <div [attr.data-bg-color]="color.key" [style.background-color]="color.value"
+        (click)="colorMenu.bgColor(color.value)" [class.nocolor]="color.value === ''">
+      </div>
+    }
+  </div>
+  <div class="second-row">
+    @for (image of bgImages | keyvalue; track image) {
+      <div [attr.data-bg-image]="image.key" [style.background-image]="image.value | ph"
+        (click)="colorMenu.bgImage(image.value)" [class.noimage]="image.value === ''">
+        @if (bgImageLabels[image.key]) {
+          <span>{{bgImageLabels[image.key]}}</span>
+        }
+      </div>
+    }
+  </div>
+</div>
+<!--? label MENU -->
+<div #labelMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu">
+  <div class="title">Label note</div>
+  <div class="search">
+    <input #newLabelInput type="text" maxlength="50" placeholder="Enter label name"
+      (keydown.enter)="addLabelFromMenu(newLabelInput); $event.preventDefault()" (blur)="addLabelFromMenu(newLabelInput)"
+      (input)="labelMenuError=''">
+    <div class="search-icon"></div>
+  </div>
+  @if (newLabelInput.value.trim().length) {
+    <div class="label-list create-label" (mousedown)="$event.preventDefault()" (click)="addLabelFromMenu(newLabelInput)">
+      <div class="check-icon"></div>
+      <div class="label-name">Create "{{newLabelInput.value.trim()}}"</div>
+    </div>
+  }
+  @if (labelMenuError) {
+    <div class="label-error">{{labelMenuError}}</div>
+  }
+  <div class="label-list-container">
+    @for (label of labels; track label) {
+      <div class="label-list" (click)="labelMenu(label)">
+        <div [class.done]='label.added' class="check-icon"></div>
+        <div class="label-name">{{label.name}}</div>
+      </div>
+    }
+  </div>
+</div>
+<!--? collaborator MENU -->
+<div #collaboratorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="collaboratorMenu">
+  <div class="title">Collaborators</div>
+  @if (!canManageCollaborators()) {
+    <div class="hint">Shared with you. Only the owner can change access.</div>
+  }
+  @if (collaboratorError) {
+    <div class="error">{{collaboratorError}}</div>
+  }
+  @if (!collaboratorUsers.length && !collaboratorError) {
+    <div class="hint">No other users yet.</div>
+  }
+  <div class="user-list">
+    @for (user of collaboratorUsers; track user.id) {
+      @let userIsOwner = isNoteOwner(user.id);
+      <label class="share-user" [class.readonly]="!canManageCollaborators() || userIsOwner" [class.is-owner]="userIsOwner">
+        @if (userIsOwner) {
+          <span class="owner-glyph" title="Owner of this note" aria-label="Owner">
+            <span class="material-symbols-outlined">workspace_premium</span>
+          </span>
+        } @else {
+          <input type="checkbox" [checked]="isCollaboratorSelected(user.id)"
+            [disabled]="!canManageCollaborators()" (change)="toggleCollaborator(user.id)">
+        }
+        <div class="collaborator-avatar-wrapper">
+          @if (user.avatarDataUrl) {
+            <img class="collaborator-avatar" [src]="user.avatarDataUrl" [alt]="user.displayName">
+          } @else {
+            <span class="collaborator-avatar avatar-fallback animal-{{user.avatarPreset || 'cat'}}">
+              <span class="head"><i></i></span>
+            </span>
+          }
+          <span class="status-dot" [class.online]="user.online"></span>
+        </div>
+        <span class="user-name">{{user.displayName || user.username}}</span>
+        @if (userIsOwner) {
+          <span class="owner-pill">Owner</span>
+        }
+      </label>
+    }
+  </div>
+  @if (canManageCollaborators()) {
+    <div class="actions">
+      <button type="button" (click)="Shared.closeTooltip(collaboratorMenuTt)">Close</button>
+    </div>
+  }
+</div>

@@ -1,0 +1,1136 @@
+.main-container {
+  border-radius: 8px;
+  margin: 24px auto 16px auto;
+  max-width: 600px;
+  width: 100%;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 60%), 0 2px 6px 2px rgb(0 0 0 / 30%);
+  position: relative;
+}
+
+.disabled {
+  cursor: not-allowed !important;
+  opacity: 0.25 !important;
+}
+
+.image-input,
+.attachment-input {
+  height: 1px;
+  left: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  width: 1px;
+  z-index: -1;
+}
+
+//? placeholder  ---------------------
+.placeholder {
+  .input {
+    padding: 21px 6px 11px 16px;
+    font-family: "Google Sans Light 2";
+    height: 46px;
+    width: 100%;
+    background-color: #202124;
+    border: 1px solid #5f6368;
+    border-radius: 8px;
+
+    &:focus-visible {
+      outline-width: 0;
+    }
+
+    &::placeholder {
+      letter-spacing: 0.00625em;
+      font-family: "Google Sans";
+      font-size: 1rem;
+      font-weight: 500;
+      line-height: 1.5rem;
+      color: rgba(255, 255, 255, 0.702);
+    }
+  }
+
+  %icons {
+    height: 46px;
+    position: absolute;
+    top: 1px;
+    width: 46px;
+    background-repeat: no-repeat;
+    background-position: center;
+    opacity: 0.54;
+
+    &:hover {
+      opacity: 0.87;
+    }
+
+    &.pop::before {
+      top: 45px
+    }
+  }
+
+  .check {
+    @extend %icons;
+    background-image: url(/assets/images/svg/check.svg);
+    right: 121px;
+  }
+
+  .paint {
+    @extend %icons;
+    background-image: url(/assets/images/svg/paint.svg);
+    right: 67px;
+  }
+
+  .picture {
+    @extend %icons;
+    background-image: url(/assets/images/svg/picture.svg);
+    right: 13px;
+  }
+}
+
+//? new note  ------------------------
+.note-main {
+  border: 1px solid #5f6368;
+  border-radius: 8px;
+  background-color: #202124;
+  background-position: right bottom;
+  background-repeat: no-repeat;
+  background-size: cover;
+
+  &.detail-bg {
+    background-color: #fff !important;
+    background-position: center bottom;
+    background-size: cover;
+    color: #202124 !important;
+    // The detail/edit modal needs to constrain itself to the modal's height
+    // and let its own content scroll, so users can reach the bottom of long
+    // merged notes when the browser window is shorter than the content.
+    // Mobile uses .mobile-compose-mode for full-screen layout with its own
+    // scroll surface, so this desktop-only flex layout would create a
+    // nested scroller conflict on phones.
+    @media (min-width: 660px) {
+      display: flex;
+      flex-direction: column;
+      max-height: 100%;
+      min-height: 0;
+
+      .note-container {
+        flex: 1;
+        // Allow flex shrinking so the inner scroller actually engages —
+        // without min-height: 0 a flex child grows to its content's natural
+        // size and overflow: auto becomes a no-op.
+        min-height: 0;
+        overflow-y: auto;
+      }
+    }
+
+    .note-container {
+      background-image: none !important;
+    }
+
+    .icons-container {
+      background-color: transparent;
+      border-radius: 0 0 8px 8px;
+      flex-shrink: 0;
+    }
+
+    .close-btn {
+      color: #3c4043;
+    }
+  }
+
+  .note-container {
+    background-position-x: right;
+    background-position-y: bottom;
+    background-size: cover;
+
+    .note-images {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+
+      &.top {
+        padding-top: 8px;
+      }
+
+      &.bottom {
+        padding-bottom: 8px;
+      }
+    }
+
+    .note-image {
+      margin: 0 12px;
+      overflow: hidden;
+      border-radius: 8px;
+      border: 1px solid rgb(154 160 166 / 22%);
+      background-color: rgb(32 33 36 / 35%);
+
+      img {
+        display: block;
+        width: 100%;
+        max-height: 360px;
+        object-fit: contain;
+        background-color: rgb(0 0 0 / 14%);
+      }
+
+      figcaption {
+        display: flex;
+        justify-content: flex-end;
+        gap: 4px;
+        padding: 6px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font-family: "Google Sans";
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 16px;
+        padding: 6px 8px;
+
+        &:hover {
+          background-color: rgba(154, 160, 166, 0.16);
+        }
+      }
+    }
+
+    //? title
+    .note-title {
+      color: inherit;
+      padding: 10px 16px;
+      margin-top: 8px;
+      font-size: 1.35rem; // larger title like Keep mobile
+      font-weight: 400;
+
+      letter-spacing: 0.00625em;
+      font-family: "Google Sans";
+      font-size: 1rem;
+      font-weight: 500;
+      line-height: 1.5rem;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+
+      &.ph {
+        color: rgba(255, 255, 255, 0.6);
+        position: absolute;
+        width: 100%;
+        pointer-events: none;
+        padding-left: 11px;
+      }
+
+      &:focus-visible {
+        outline: 0;
+      }
+    }
+
+
+
+    //? note body
+    .note-body {
+      color: inherit;
+      letter-spacing: 0.01428571em;
+      font-family: Roboto, Arial, sans-serif;
+      font-size: 0.875rem;
+      font-weight: 400;
+      line-height: 1.25rem;
+      min-height: 46px;
+      padding: 13px 16px 12px 16px;
+      // No inner max-height: the editing modal's outer .note-container is
+      // the scroll surface (so long hybrid notes can be reached end-to-end).
+
+      &.ph {
+        color: rgba(255, 255, 255, 0.702);
+        font-weight: 500;
+        position: absolute;
+        width: 100%;
+        pointer-events: none;
+      }
+
+      &:focus-visible {
+        outline: 0;
+      }
+    }
+
+  }
+
+}
+
+.mobile-top-bar, .mobile-bottom-bar {
+  display: none;
+}
+
+@media (max-width: 599px) {
+  .mobile-top-bar {
+    display: flex;
+    align-items: center;
+    padding: 8px 4px;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: inherit;
+
+    .mobile-icon {
+      width: 48px;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #9aa0a6;
+      cursor: pointer;
+      // Anchor for any absolutely-positioned overlay (e.g. the transparent
+      // <input type="date"> sitting on the alarm icon).
+      position: relative;
+
+      .material-symbols-outlined {
+        font-size: 24px;
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+
+      &.back {
+        background: transparent;
+        border: none;
+        margin-right: 8px;
+      }
+
+      &.pin.pinned {
+        color: #fff;
+        .material-symbols-outlined {
+          font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+      }
+    }
+
+    .mobile-top-icons {
+      display: flex;
+      gap: 4px;
+    }
+
+    .spacer {
+      flex: 1;
+    }
+  }
+
+  .mobile-bottom-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 48px;
+    padding: 0 4px;
+    background: inherit;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    position: sticky;
+    // The visualViewport listener writes the soft-keyboard height into
+    // --keyboard-offset; lift the bar above the keyboard when one is open.
+    bottom: var(--keyboard-offset, 0px);
+    transition: bottom 0.18s ease-out;
+    z-index: 10;
+
+    .left-icons {
+      display: flex;
+      gap: 4px;
+    }
+
+    .mobile-icon {
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #5f6368; // Consistent dark grey for mobile
+      cursor: pointer;
+
+      .material-symbols-outlined {
+        font-family: 'Material Symbols Outlined' !important;
+        font-size: 24px;
+        font-feature-settings: 'liga';
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        line-height: 1;
+        text-transform: none;
+      }
+
+      .glyph {
+        width: 24px;
+        height: 24px;
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: 20px;
+        opacity: 1; // Full opacity for clarity
+        filter: grayscale(1) brightness(0.4); // Force dark grey for SVG backgrounds
+
+        &.picture { background-image: url(/assets/images/svg/picture.svg); }
+        &.colab { background-image: url(/assets/images/svg/col.svg); }
+        &.paint { background-image: url(/assets/images/svg/paint.svg); }
+        &.check { background-image: url(/assets/images/svg/check.svg); }
+        &.attachment { background-image: url(/assets/images/svg/attachment.svg); }
+      }
+    }
+
+    .timestamp {
+      color: #9aa0a6;
+      font-size: 12px;
+      flex: 1;
+      text-align: center;
+      font-family: 'Roboto', Arial, sans-serif;
+    }
+  }
+
+  :host-context(.light-theme) {
+    .mobile-top-bar .mobile-icon,
+    .mobile-bottom-bar .mobile-icon,
+    .mobile-bottom-bar .timestamp {
+      color: #5f6368;
+    }
+    .mobile-top-bar .mobile-icon.pin.pinned {
+      color: #202124;
+    }
+    .mobile-bottom-bar {
+      border-top-color: #e0e0e0;
+    }
+  }
+}
+
+.attachments-list {
+  display: grid;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+
+.attachment-card {
+  align-items: center;
+  background: rgba(154, 160, 166, 0.12);
+  border: 1px solid rgba(154, 160, 166, 0.22);
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 22px minmax(0, 1fr) auto 28px 28px;
+  min-height: 38px;
+  padding: 5px 6px 5px 10px;
+
+  &.pending {
+    cursor: default;
+    opacity: 0.8;
+  }
+
+  .attachment-type {
+    color: #9aa0a6;
+    font-size: 20px;
+  }
+
+  .attachment-name {
+    font-family: Roboto, Arial, sans-serif;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .attachment-size {
+    color: #9aa0a6;
+    font-family: Roboto, Arial, sans-serif;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .attachment-download,
+  .attachment-remove {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 50%;
+    color: #9aa0a6;
+    cursor: pointer;
+    display: flex;
+    height: 28px;
+    justify-content: center;
+    padding: 0;
+    width: 28px;
+
+    &:hover {
+      background: rgba(154, 160, 166, 0.18);
+      color: inherit;
+    }
+
+    .material-symbols-outlined {
+      font-size: 18px;
+    }
+  }
+
+  .attachment-download .material-symbols-outlined {
+    font-size: 19px;
+  }
+
+  .attachment-download {
+    color: #8ab4f8;
+  }
+}
+
+.note-main.drawing-note {
+
+  background: #f8f9fa !important;
+  border-color: #dadce0;
+  color: #3c4043;
+  overflow: visible;
+}
+
+.note-main.drawing-fullscreen {
+  border-radius: 0;
+  bottom: 0;
+  left: 0;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 2000;
+}
+
+.drawing-editor {
+  background: #f8f9fa;
+  border-radius: inherit;
+  display: flex;
+  flex-direction: column;
+  min-height: 430px;
+}
+
+.drawing-fullscreen .drawing-editor {
+  min-height: 0;
+  height: 100%;
+}
+
+
+.drawing-fullscreen .drawing-editor {
+  height: 100vh;
+}
+
+.drawing-fullscreen .drawing-canvas-wrap {
+  min-height: calc(100vh - 52px);
+}
+
+.drawing-toolbar {
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid #dadce0;
+  box-shadow: 0 1px 3px rgb(60 64 67 / 20%);
+  display: flex;
+  gap: 6px;
+  min-height: 52px;
+  padding: 0 12px;
+  position: relative;
+  z-index: 2;
+
+  // On phones the toolbar would overflow off the right; let it wrap to a
+  // second row so all icons stay reachable AND popovers (color pickers, more
+  // menu) can drop down without being clipped by overflow.
+  @media (max-width: 599px) {
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 4px;
+    overflow: visible;
+
+    .drawing-icon,
+    .drawing-tool-menu .drawing-icon {
+      flex: 0 0 auto;
+      height: 36px;
+      width: 36px;
+
+      .material-symbols-outlined {
+        font-size: 22px;
+      }
+    }
+
+    .drawing-spacer {
+      // No need to push tools across multiple rows; collapse the elastic gap.
+      flex: 0 0 0;
+      width: 0;
+    }
+  }
+}
+
+.drawing-icon {
+  --tool-color: #5f6368;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  color: #5f6368;
+  cursor: pointer;
+  display: inline-flex;
+  height: 40px;
+  justify-content: center;
+  position: relative;
+  width: 40px;
+
+  &:hover,
+  &.active {
+    background: #f1f3f4;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.3;
+  }
+
+  .material-symbols-outlined {
+    color: currentColor;
+    font-size: 25px;
+    font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+    line-height: 1;
+  }
+}
+
+.drawing-spacer {
+  flex: 1;
+}
+
+.drawing-icon.has-menu::after {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  content: "";
+  position: absolute;
+  right: 2px;
+  top: 18px;
+}
+
+.drawing-icon.marker,
+.drawing-icon.pen,
+.drawing-icon.highlighter {
+  color: var(--tool-color);
+}
+
+.drawing-icon.more .material-symbols-outlined {
+  font-size: 32px;
+  font-variation-settings: 'FILL' 0, 'wght' 600, 'GRAD' 0, 'opsz' 24;
+}
+
+.drawing-tool-menu {
+  position: relative;
+}
+
+.drawing-popover {
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  box-shadow: 0 3px 8px rgb(60 64 67 / 30%);
+  display: flex;
+  position: absolute;
+  top: 46px;
+  z-index: 3;
+}
+
+.eraser-menu {
+  display: grid;
+  left: 0;
+  min-width: 128px;
+  padding: 8px 0;
+
+  button {
+    background: transparent;
+    border: 0;
+    color: #3c4043;
+    cursor: pointer;
+    font-family: "Google Sans", Roboto, Arial, sans-serif;
+    font-size: 14px;
+    padding: 10px 16px;
+    text-align: left;
+
+    &:hover {
+      background: #f1f3f4;
+    }
+  }
+}
+
+.tool-options {
+  display: grid;
+  left: 0;
+  padding: 12px 14px 10px;
+  width: 344px;
+}
+
+.drawing-color-grid {
+  display: grid;
+  gap: 12px 16px;
+  grid-template-columns: repeat(7, 1fr);
+  padding-bottom: 12px;
+}
+
+.drawing-color-swatch {
+  border: 1px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  height: 22px;
+  padding: 0;
+  width: 22px;
+
+  &.active {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 3px #202124;
+  }
+}
+
+.drawing-size-row {
+  align-items: center;
+  border-top: 1px solid #dadce0;
+  display: flex;
+  gap: 15px;
+  padding-top: 10px;
+}
+
+.drawing-size-swatch {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  width: 34px;
+
+  span {
+    background: #000;
+    border-radius: 50%;
+    display: block;
+    min-height: 2px;
+    min-width: 2px;
+  }
+
+  &.active {
+    border-color: #202124;
+  }
+}
+
+.background-picker {
+  gap: 8px;
+  left: 50%;
+  padding: 10px;
+  transform: translateX(-50%);
+
+  button {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    color: #3c4043;
+    cursor: pointer;
+    display: grid;
+    gap: 6px;
+    justify-items: center;
+    padding: 8px 12px;
+
+    &.active,
+    &:hover {
+      background: #f1f3f4;
+    }
+  }
+}
+
+.bg-preview {
+  border: 1px solid #5f6368;
+  border-radius: 50%;
+  display: block;
+  height: 48px;
+  width: 48px;
+
+  &.square {
+    background-image: linear-gradient(#9aa0a6 1px, transparent 1px), linear-gradient(90deg, #9aa0a6 1px, transparent 1px);
+    background-size: 12px 12px;
+  }
+
+  &.dots {
+    background-image: radial-gradient(#7b8ff7 1.5px, transparent 1.5px);
+    background-size: 12px 12px;
+  }
+
+  &.rules {
+    background-image: linear-gradient(#9aa0a6 1px, transparent 1px);
+    background-size: 100% 13px;
+  }
+}
+.note-image {
+  position: relative;
+  
+  .delete-image-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: #fff;
+    color: #5f6368;
+    border: 1px solid #dadce0;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 1;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    transition: all 0.2s;
+    z-index: 100;
+    
+    .material-symbols-outlined {
+      font-size: 20px;
+      font-weight: 500;
+    }
+
+    &:hover {
+      background: #f1f3f4;
+      color: #202124;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+  }
+}
+
+.note-main:hover .delete-image-btn {
+  opacity: 1;
+}
+
+.more-menu {
+  display: grid;
+  min-width: 176px;
+  padding: 8px 0;
+  right: 0;
+
+  button {
+    background: transparent;
+    border: 0;
+    color: #3c4043;
+    cursor: pointer;
+    font-family: "Google Sans", Roboto, Arial, sans-serif;
+    font-size: 14px;
+    padding: 10px 18px;
+    text-align: left;
+
+    &:hover {
+      background: #f1f3f4;
+    }
+  }
+}
+
+.drawing-canvas-wrap {
+  background-color: #fff;
+  flex: 1;
+  min-height: 360px;
+  overflow: hidden;
+  position: relative;
+  touch-action: none;
+}
+
+.drawing-stage {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-origin: 0 0;
+  transition: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &.bg-square {
+    background-image: linear-gradient(#e0e0e0 1px, transparent 1px), linear-gradient(90deg, #e0e0e0 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  &.bg-dots {
+    background-image: radial-gradient(#d2d6e8 1.5px, transparent 1.5px);
+    background-size: 22px 22px;
+  }
+
+  &.bg-rules {
+    background-image: linear-gradient(#e0e0e0 1px, transparent 1px);
+    background-size: 100% 32px;
+  }
+
+  canvas {
+    display: block;
+    height: 100%;
+    touch-action: none;
+    width: 100%;
+  }
+}
+
+.drawing-selection {
+  background: rgb(66 133 244 / 28%);
+  border: 1px solid #4c8bf5;
+  cursor: move;
+  pointer-events: none;
+  position: absolute;
+  touch-action: none;
+
+  .resize-handle {
+    position: absolute;
+    width: 24px; // Larger touch target for mobile
+    height: 24px;
+    background: #fff;
+    border: 1px solid #4c8bf5;
+    border-radius: 50%;
+    pointer-events: auto;
+    touch-action: none;
+
+    &::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 8px;
+      height: 8px;
+      background: #4c8bf5;
+      border-radius: 50%;
+    }
+
+    &.nw { top: -12px; left: -12px; cursor: nwse-resize; }
+    &.ne { top: -12px; right: -12px; cursor: nesw-resize; }
+    &.sw { bottom: -12px; left: -12px; cursor: nesw-resize; }
+    &.se { bottom: -12px; right: -12px; cursor: nwse-resize; }
+  }
+}
+
+@media (max-width:660px) {
+  .mobile-compose-mode {
+    display: block;
+  }
+
+  .note-main.detail-bg {
+    .note-images img {
+      max-height: 120px;
+    }
+
+    .note-image {
+      position: relative;
+
+      .delete-image-btn {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        background: #fff;
+        color: #5f6368;
+        border: 1px solid #dadce0;
+        border-radius: 50%;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        opacity: 1;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        transition: all 0.2s;
+        z-index: 100;
+
+        .material-symbols-outlined {
+          font-size: 18px;
+          font-weight: 500;
+        }
+
+        &:hover {
+          background: #f1f3f4;
+          color: #202124;
+        }
+      }
+
+      &:hover .delete-image-btn {
+        opacity: 1;
+      }
+    }
+  }
+
+  .mobile-compose-mode {
+    border-radius: 0;
+    bottom: 0;
+    box-shadow: none;
+    left: 0;
+    margin: 0;
+    max-width: none;
+    width: 100%;
+    position: fixed;
+    right: 0;
+    top: 0;
+    z-index: 1900;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+
+    .placeholder {
+      display: none;
+    }
+
+    .note-main {
+      border: none;
+      border-radius: 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: auto;
+      height: 100%;
+    }
+
+    .note-main .note-body {
+      max-height: none;
+      min-height: 60vh;
+      padding-bottom: 80px; // extra space at bottom
+      // iOS Safari auto-zooms inputs whose font-size is < 16px. Bump the body
+      // editor (and any inline cbox edits) to 16px on mobile so opening/closing
+      // a note doesn't leave the page zoomed-in.
+      font-size: 16px;
+      line-height: 1.4;
+    }
+
+    .note-main [contenteditable] {
+      font-size: 16px;
+    }
+
+    .note-main .cbox-note,
+    .note-main .cbox-input {
+      font-size: 16px;
+    }
+
+    .icons-container, .pin-icon {
+      display: none !important;
+    }
+
+    .mobile-top-bar, .mobile-bottom-bar {
+      display: flex !important;
+    }
+
+  }
+}
+
+
+.close-btn {
+  margin-right: 15px;
+  color: #dadce0;
+  letter-spacing: 0.01785714em;
+  font-family: "Google Sans";
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  height: 36px;
+  padding: 8px 24px;
+  border-radius: 4px;
+  cursor: pointer;
+
+  &:hover {
+    background-color: rgba(154, 160, 166, 0.039);
+  }
+}
+
+:host-context(.light-theme) {
+  .main-container {
+    box-shadow: 0 1px 2px 0 rgb(60 64 67 / 30%), 0 2px 6px 2px rgb(60 64 67 / 15%);
+  }
+
+  .placeholder {
+    .input {
+      background-color: #fff;
+      border-color: #e0e0e0;
+      color: #202124;
+
+      &::placeholder {
+        color: #5f6368;
+      }
+    }
+  }
+
+  .note-main {
+    background-color: #fff;
+    border-color: #e0e0e0;
+    color: #202124;
+
+    .note-container {
+      .note-image {
+        background-color: #fff;
+        border-color: #dadce0;
+      }
+
+      .note-title.ph,
+      .note-body.ph {
+        color: #5f6368;
+      }
+
+    }
+  }
+
+  .close-btn {
+    color: #3c4043;
+
+    &:hover {
+      background-color: rgba(60, 64, 67, 0.08);
+    }
+  }
+}
+
+
+.active-editors-presence {
+  position: absolute;
+  top: 10px;
+  right: 50px;
+  display: flex;
+  flex-direction: row-reverse;
+  gap: -8px;
+  z-index: 10;
+  pointer-events: none;
+
+  .editor-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    overflow: hidden;
+    background: #fff;
+    pointer-events: auto;
+    margin-left: -8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    transition: transform 0.2s ease, z-index 0s;
+
+    &:hover {
+      transform: translateY(-2px);
+      z-index: 20;
+    }
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .avatar-fallback {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      background: #e8eaed;
+
+      .head {
+        display: block;
+        width: 16px;
+        height: 16px;
+        background-size: contain;
+      }
+    }
+  }
+}
+
+@media (max-width: 599px) {
+  .active-editors-presence {
+    top: 14px;
+    right: 160px; // Shift left to avoid mobile header icons (3 * 48px icons + margins)
+    
+    .editor-avatar {
+      width: 24px; // Smaller on mobile
+      height: 24px;
+      border-width: 1.5px;
+      margin-left: -6px;
+    }
+  }
+}
+
+:host-context(.dark-theme) .active-editors-presence .editor-avatar {
+  border-color: #202124;
+  background: #202124;
+}

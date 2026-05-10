@@ -1,0 +1,354 @@
+<main class="auth-page settings-page">
+  <section class="auth-panel wide">
+
+    <div class="settings-header">
+      <div class="brand-row">
+        <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
+        <span>Kept</span>
+      </div>
+      <a routerLink="/">← Back to notes</a>
+    </div>
+
+    <h1>Settings</h1>
+
+    @if (error) { <div class="error global-msg">{{error}}</div> }
+    @if (success) { <div class="success global-msg">{{success}}</div> }
+
+    <!-- ── Group: Data & Migration ──────────────────────────────────────── -->
+    <div class="settings-group">
+      <h2 class="group-title color-blue">
+        <span class="material-symbols-outlined">cloud_download</span>
+        Data & Migration
+      </h2>
+      
+      <section class="settings-section takeout-section">
+        <div class="section-title">Import from Google Keep</div>
+        <p class="section-desc">
+          Import your notes from a Google Takeout export. Colors, images, links, checklists, and labels are preserved where possible.
+        </p>
+
+        <div class="instruction-group">
+          <button type="button" class="instruction-toggle" (click)="toggleInstructions('takeout')">
+            <span>How to get your Google Takeout export</span>
+            <span class="chevron" [class.open]="showInstructions === 'takeout'">▾</span>
+          </button>
+          @if (showInstructions === 'takeout') {
+            <ol class="instruction-steps">
+              <li>Go to <a href="https://takeout.google.com" target="_blank" rel="noopener">takeout.google.com</a> and sign in with your Google account.</li>
+              <li>Click <strong>Deselect all</strong>, then scroll down and check only <strong>Keep</strong>.</li>
+              <li>Click <strong>Next step</strong>, choose your delivery method (email is easiest), then click <strong>Create export</strong>.</li>
+              <li>Google will email you a download link — this usually arrives within a few minutes but can take longer for large exports.</li>
+              <li>Download the ZIP from the email and upload it below.</li>
+            </ol>
+          }
+        </div>
+
+        @if (takeoutResult) {
+          <div class="takeout-result" [class.success]="takeoutResult.imported > 0" [class.error]="!takeoutResult.imported && takeoutResult.errors > 0">
+            Imported <strong>{{takeoutResult.imported}}</strong> of {{takeoutResult.total}} notes.
+            @if (takeoutResult.pinnedCount) { <span> {{takeoutResult.pinnedCount}} pinned.</span> }
+            @if (takeoutResult.deduped) { <span> {{takeoutResult.deduped}} already-imported notes skipped.</span> }
+            @if (takeoutResult.skipped) { <span> {{takeoutResult.skipped}} trashed notes skipped.</span> }
+            @if (takeoutResult.errors) { <span> {{takeoutResult.errors}} could not be imported.</span> }
+          </div>
+        }
+        @if (takeoutError) {
+          <div class="error takeout-result">{{takeoutError}}</div>
+        }
+
+        <div class="takeout-actions">
+          <label class="btn-secondary takeout-file-label" [class.disabled]="isImportingTakeout">
+            {{ isImportingTakeout ? 'Importing…' : 'Choose Takeout ZIP' }}
+            <input type="file" accept=".zip" [disabled]="isImportingTakeout" (change)="importTakeout($event)" hidden>
+          </label>
+        </div>
+      </section>
+
+      <section class="settings-section export-section" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 24px; margin-top: 24px;">
+        <div class="section-title">Export your Kept data</div>
+        <p class="section-desc">
+          Download a copy of all your notes, checklists, and labels. Useful for backups or migrating to another service.
+        </p>
+
+        <div class="export-actions" style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px;">
+          <button type="button" class="btn-secondary" [disabled]="isExporting" (click)="exportJSON()" style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined" style="font-size: 20px;">data_object</span>
+            JSON
+          </button>
+          <button type="button" class="btn-secondary" [disabled]="isExporting" (click)="exportCSV()" style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined" style="font-size: 20px;">table_chart</span>
+            CSV
+          </button>
+          <button type="button" class="btn-secondary" [disabled]="isExporting" (click)="exportMarkdown()" style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined" style="font-size: 20px;">description</span>
+            Markdown
+          </button>
+        </div>
+        @if (isExporting) {
+          <p class="hint" style="margin-top: 12px; color: var(--color-blue);">Generating export file...</p>
+        }
+      </section>
+    </div>
+
+    <!-- ── Group: Security ──────────────────────────────────────────────── -->
+    <div class="settings-group">
+      <h2 class="group-title color-green">
+        <span class="material-symbols-outlined">security</span>
+        Security
+      </h2>
+
+      <section class="settings-section">
+        <div class="section-title">
+          <span>Two-Factor Authentication (TOTP)</span>
+          <label class="toggle-label">
+            <input type="checkbox" [checked]="totpEnabled" (change)="toggle2fa($event)">
+            <span class="toggle-text">{{totpEnabled ? 'Enabled' : 'Disabled'}}</span>
+          </label>
+        </div>
+        <p class="section-desc">
+          Protect your account with an open-source authenticator app like <a href="https://ente.io/auth/" target="_blank" rel="noopener">Ente Auth</a>, or alternatives like Authy or Google Authenticator.
+        </p>
+
+        @if (totpEnabled) {
+          <div class="google-connected">
+            <span class="status-dot connected"></span>
+            <span>Two-Factor Authentication is active</span>
+          </div>
+          
+          @if (backupCodes) {
+            <div class="success-message" style="margin-top: 16px;">
+              <strong>New backup codes generated.</strong> Please save them securely.
+            </div>
+            <div class="backup-codes">
+              @for (code of backupCodes; track code) {
+                <code>{{code}}</code>
+              }
+            </div>
+          } @else if (hasBackupCodes) {
+            <p class="hint">You have backup codes stored. If you lose them, you must disable and re-enable 2FA to generate new ones.</p>
+          }
+        } @else {
+          @if (qrCodeUrl) {
+            <div class="two-factor-setup" style="margin-top: 16px;">
+              <img [src]="qrCodeUrl" alt="2FA QR Code" class="qr-code">
+              <p>Scan this QR code with your authenticator app, then enter the 6-digit code below to verify and enable 2FA.</p>
+              <label>
+                <span>Authenticator Code</span>
+                <input name="totpToken" [(ngModel)]="totpToken" autocomplete="one-time-code" type="text" inputmode="numeric" pattern="[0-9]{6}" required>
+              </label>
+              <div class="actions" style="display: flex; gap: 8px; width: 100%;">
+                <button type="button" [disabled]="!totpToken || isSaving2fa" (click)="save2fa()" style="flex: 1;">
+                  {{isSaving2fa ? 'Verifying...' : 'Verify and Enable'}}
+                </button>
+                <button type="button" class="btn-secondary" (click)="qrCodeUrl = ''" style="flex: 1;">Cancel</button>
+              </div>
+            </div>
+          }
+        }
+      </section>
+    </div>
+
+    <!-- ── Group: Reminders & Calendars ─────────────────────────────────── -->
+    <div class="settings-group">
+      <h2 class="group-title color-purple">
+        <span class="material-symbols-outlined">calendar_month</span>
+        Reminders & Calendars
+      </h2>
+      
+      <section class="settings-section intro-section">
+        <p class="section-desc" style="margin-bottom: 0;">
+          Reminders are built in and work without any additional setup — just set a time on any note and Kept handles the rest.
+          The integrations below are all <strong>optional</strong> and let you sync reminders to external calendar apps.
+        </p>
+      </section>
+
+      <!-- ICS Feed -->
+      <section class="settings-section">
+        <div class="section-title">ICS Feed</div>
+        <p class="section-desc">
+          Subscribe to your reminders in any calendar app that supports ICS feeds —
+          Apple Calendar, Outlook, Thunderbird, and others. The feed URL is private; regenerate it to revoke access.
+        </p>
+
+        @if (isLoadingFeed) {
+          <div class="loading-placeholder">Loading feed URL…</div>
+        } @else if (icsFeedError) {
+          <div class="error">{{icsFeedError}}</div>
+        } @else {
+          <div class="ics-feed-row">
+            <input #feedUrlInput type="text" class="ics-url-input" readonly [value]="icsFeedUrl"
+              (click)="feedUrlInput.select()">
+            <button type="button" class="btn-secondary" (click)="copyFeedUrl()">
+              {{feedCopied ? 'Copied!' : 'Copy URL'}}
+            </button>
+          </div>
+          <div class="ics-feed-actions">
+            <small class="hint">Paste into your calendar app's "Subscribe" or "Add calendar from URL" dialog.</small>
+            <button type="button" class="btn-text" [disabled]="isRegeneratingFeed" (click)="regenerateFeedUrl()">
+              {{isRegeneratingFeed ? 'Regenerating…' : 'Regenerate URL'}}
+            </button>
+          </div>
+        }
+      </section>
+
+      <!-- Google Calendar -->
+      <section class="settings-section">
+        <div class="section-title">
+          <span>Google Calendar</span>
+          @if (googleStatus?.hasCredentials) {
+            <label class="toggle-label">
+              <input type="checkbox" [(ngModel)]="googleEnabled" (change)="saveGoogleEnabled()">
+              <span class="toggle-text">{{googleEnabled ? 'Enabled' : 'Disabled'}}</span>
+            </label>
+          }
+        </div>
+        <p class="section-desc">
+          Sync reminders to your Google Calendar as events. Requires your own Google Cloud OAuth credentials.
+        </p>
+
+        <div class="instruction-group">
+          <button type="button" class="instruction-toggle" (click)="toggleInstructions('google')">
+            <span>Setup instructions</span>
+            <span class="chevron" [class.open]="showInstructions === 'google'">▾</span>
+          </button>
+          @if (showInstructions === 'google') {
+            <ol class="instruction-steps">
+              <li>
+                Create a <strong>Google Cloud project</strong> at
+                <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>.
+              </li>
+              <li>Enable the <strong>Google Calendar API</strong> in your project.</li>
+              <li>
+                Under <em>APIs &amp; Services → Credentials</em>, create an
+                <strong>OAuth 2.0 Client ID</strong> (Application type: <em>Web application</em>).
+              </li>
+              <li>
+                Add this exact URL as an <strong>Authorized redirect URI</strong>:
+                <code class="block">{{googleRedirectUrl}}</code>
+              </li>
+              <li>Paste your <strong>Client ID</strong> and <strong>Client Secret</strong> below, then click <em>Connect</em>.</li>
+              <li>
+                You will be redirected to Google to grant calendar access.
+                After approving, reminders will sync to your <em>primary</em> Google Calendar.
+              </li>
+            </ol>
+          }
+        </div>
+
+        @if (isLoadingGoogle) {
+          <div class="loading-placeholder">Checking status…</div>
+        } @else if (googleStatus?.connected) {
+          <div class="google-connected">
+            <span class="status-dot connected"></span>
+            <span>Connected to Google Calendar</span>
+            <div class="google-actions">
+              <button type="button" class="btn-secondary" (click)="disconnectGoogle()">Disconnect</button>
+              <button type="button" class="btn-danger" (click)="removeGoogleCredentials()">Remove credentials</button>
+            </div>
+          </div>
+        } @else {
+          <form class="auth-form gcal-form" (ngSubmit)="connectGoogle()">
+            <label>
+              <span>Client ID</span>
+              <input name="googleClientId" [(ngModel)]="googleClientId" autocomplete="off"
+                placeholder="xxxxxxxxxxxx.apps.googleusercontent.com">
+            </label>
+            <label>
+              <span>Client Secret</span>
+              <input name="googleClientSecret" type="password" [(ngModel)]="googleClientSecret"
+                autocomplete="new-password" placeholder="Your OAuth client secret">
+            </label>
+            <div class="caldav-actions">
+              <button type="submit"
+                [disabled]="isSavingGoogle || isConnectingGoogle || !googleClientId || !googleClientSecret">
+                {{isConnectingGoogle ? 'Redirecting to Google…' : isSavingGoogle ? 'Saving…' : 'Connect Google Calendar'}}
+              </button>
+            </div>
+            @if (googleStatus?.hasCredentials && !googleStatus?.connected) {
+              <p class="hint">Credentials are saved. Click <em>Connect</em> to complete authorization.</p>
+            }
+          </form>
+        }
+      </section>
+
+      <!-- CalDAV -->
+      <section class="settings-section">
+        <div class="section-title">
+          <span>CalDAV Sync</span>
+          @if (hasExistingCaldav) {
+            <label class="toggle-label">
+              <input type="checkbox" [(ngModel)]="caldavEnabled">
+              <span class="toggle-text">{{caldavEnabled ? 'Enabled' : 'Disabled'}}</span>
+            </label>
+          }
+        </div>
+        <p class="section-desc">
+          Push reminders to iCloud, Fastmail, Nextcloud, ownCloud, or any CalDAV-compatible calendar server.
+        </p>
+
+        <div class="instruction-group">
+          <button type="button" class="instruction-toggle" (click)="toggleInstructions('caldav')">
+            <span>Setup instructions</span>
+            <span class="chevron" [class.open]="showInstructions === 'caldav'">▾</span>
+          </button>
+          @if (showInstructions === 'caldav') {
+            <ol class="instruction-steps">
+              <li>Find your CalDAV calendar URL for your provider:
+                <ul>
+                  <li><strong>Apple iCloud:</strong> <code>https://caldav.icloud.com/</code> — use an <em>app-specific password</em> from appleid.apple.com</li>
+                  <li><strong>Fastmail:</strong> <code>https://caldav.fastmail.com/dav/principals/user/you@fastmail.com/</code></li>
+                  <li><strong>Nextcloud:</strong> <code>https://your-domain.com/remote.php/dav/calendars/username/personal/</code></li>
+                  <li><strong>ownCloud:</strong> <code>https://your-domain.com/remote.php/dav/calendars/username/personal/</code></li>
+                  <li><strong>Self-hosted (Radicale, Baikal):</strong> consult your server docs — often <code>/cal/</code> or <code>/dav/</code></li>
+                </ul>
+              </li>
+              <li>Enter your <strong>username</strong> — usually your email address.</li>
+              <li>
+                Enter an <strong>app password</strong> (not your main account password).
+                Most providers require this; generate one in your account's security settings.
+              </li>
+              <li>Click <em>Test connection</em> to verify, then <em>Save</em>.</li>
+            </ol>
+          }
+        </div>
+
+        <form class="auth-form caldav-form" (ngSubmit)="saveCaldav()">
+          <label>
+            <span>Calendar URL</span>
+            <input name="calendarUrl" [(ngModel)]="calendarUrl" autocomplete="off"
+              placeholder="https://caldav.example.com/calendar/">
+            <small class="hint">Full URL to your CalDAV calendar collection</small>
+          </label>
+          <label>
+            <span>Username</span>
+            <input name="username" [(ngModel)]="username" autocomplete="off">
+          </label>
+          <label>
+            <span>Password / App password</span>
+            <input name="password" type="password" [(ngModel)]="password" autocomplete="new-password">
+          </label>
+
+          @if (testResult) {
+            <div [class]="testResult.ok ? 'success' : 'error'">{{testResult.message}}</div>
+          }
+
+          <div class="caldav-actions">
+            <button type="button" class="btn-secondary"
+              [disabled]="isTesting || !calendarUrl || !username || !password"
+              (click)="testCaldav()">
+              {{isTesting ? 'Testing…' : 'Test connection'}}
+            </button>
+            <button type="submit" [disabled]="isSavingCaldav || !calendarUrl || !username || !password">
+              {{isSavingCaldav ? 'Saving…' : 'Save'}}
+            </button>
+            @if (hasExistingCaldav) {
+              <button type="button" class="btn-danger" (click)="removeCaldav()">Remove</button>
+            }
+          </div>
+        </form>
+      </section>
+
+    </div>
+
+  </section>
+</main>

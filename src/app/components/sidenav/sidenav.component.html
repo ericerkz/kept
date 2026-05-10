@@ -1,0 +1,142 @@
+@if (isMobileOpen) {
+  <div class="sidebar-backdrop" (click)="collapseSideBar()"></div>
+}
+<div sideBar class="main-sidebar">
+  <div class="sidenav-top">
+    <div [class.active]="router.url === '/'" class="item" routerLink="/" (click)="onNavItemClick()">
+      <span class="pic lamp" aria-hidden="true"></span>
+      <span class="text">Notes</span>
+    </div>
+    <div [class.active]="router.url === '/reminders'" class="item" routerLink="/reminders" (click)="onNavItemClick()">
+      <span class="pic reminder" aria-hidden="true"></span>
+      <span class="text">Reminders</span>
+    </div>
+    <div [class.active]="router.url === '/attachments'" class="item" routerLink="/attachments" (click)="onNavItemClick()">
+      <span class="material-pic material-symbols-outlined" aria-hidden="true">&#xe226;</span>
+      <span class="text">Attachments</span>
+    </div>
+    <div [class.active]="router.url === '/shared'" class="item" routerLink="/shared" (click)="onNavItemClick()">
+      <span class="pic col" aria-hidden="true"></span>
+      <span class="text">Shared</span>
+    </div>
+  </div>
+
+  <div class="sidenav-labels-header">
+    <span class="pic label" aria-hidden="true"></span>
+    <span class="text">Labels</span>
+    <button type="button" class="edit-labels-btn H" aria-label="Edit labels" title="Edit labels"
+      (click)="openModal()">
+      <span class="material-symbols-outlined">edit</span>
+    </button>
+  </div>
+
+  <div class="sidenav-labels-wrap" [class.can-scroll-up]="canScrollUp" [class.can-scroll-down]="canScrollDown">
+    <div #labelsScroll class="sidenav-labels" (scroll)="onLabelsScroll()">
+      @for (label of Shared.label.list; track label) {
+        <div [class.active]="router.url === '/label/'+label.name" class="item is-label"
+          (click)="onNavItemClick()"
+          [routerLink]="['/label', label.name]">
+          <span class="pic label" aria-hidden="true"></span>
+          <span class="text">{{label.name}}</span>
+        </div>
+      }
+    </div>
+  </div>
+
+  <div class="sidenav-bottom">
+    <div [class.active]="router.url === '/archive'" class="item" routerLink="/archive" (click)="onNavItemClick()">
+      <span class="pic archive" aria-hidden="true"></span>
+      <span class="text">Archive</span>
+    </div>
+    <div [class.active]="router.url === '/trash'" routerLink="/trash" class="item" (click)="onNavItemClick()">
+      <span class="pic trash" aria-hidden="true"></span>
+      <span class="text">Trash</span>
+    </div>
+    @if (auth.isAdmin) {
+      <div [class.active]="router.url === '/users'" routerLink="/users" class="item" (click)="onNavItemClick()">
+        <span class="pic users" aria-hidden="true"></span>
+        <span class="text">Users/Admin settings</span>
+      </div>
+    }
+    <div class="item mobile-only-item" (click)="toggleTheme()">
+      <span class="material-pic material-symbols-outlined" aria-hidden="true">
+        {{auth.currentUser?.theme === 'light' ? 'dark_mode' : 'light_mode'}}
+      </span>
+      <span class="text">{{auth.currentUser?.theme === 'light' ? 'Use dark mode' : 'Use light mode'}}</span>
+    </div>
+    <div class="item" (click)="logout()">
+      <span class="material-pic material-symbols-outlined" aria-hidden="true">logout</span>
+      <span class="text">Sign out</span>
+    </div>
+  </div>
+  @if (Shared.showInstallButton | async) {
+    <div class="install-section">
+      <button class="install-pwa-sidenav" (click)="openInstallPwa()">
+        <span class="material-symbols-outlined">install_mobile</span>
+        <span class="text">Install App</span>
+      </button>
+    </div>
+  }
+  <div class="sidebar-branding">
+    <img src="assets/images/keep2x.fw.png" alt="Kept logo" width="44">
+    <span class="branding-text">Kept</span>
+  </div>
+
+</div>
+
+
+@if (installHelpOpen) {
+  <div class="pwa-install-backdrop" (click)="installHelpOpen = false"></div>
+  <div class="pwa-install-card" (click)="$event.stopPropagation()">
+    <button class="pwa-close" type="button" aria-label="Close install instructions"
+      (click)="installHelpOpen = false">×</button>
+    <h2>Install Kept</h2>
+    @if (Shared.isIos) {
+      <p>On iPhone or iPad, use Safari to install Kept.</p>
+      <ol>
+        <li>Tap the Share button.</li>
+        <li>Choose Add to Home Screen.</li>
+        <li>Tap Add.</li>
+      </ol>
+    } @else {
+      <p>Use your browser menu to install Kept.</p>
+      <ol>
+        <li>Open the browser menu.</li>
+        <li>Tap Install app or Add to Home screen.</li>
+        <li>Confirm Install.</li>
+      </ol>
+    }
+  </div>
+}
+
+<div #modalContainer class="modal-container">
+  <div #modal class="modal">
+    <div class="label-modal-main">
+      <div class="header">
+        <p>Edit labels</p>
+        <div class="input-container">
+          <div #plusIcon class="plus-icon H" (click)="labelInput.value=''"></div>
+          <input #labelInput (blur)="plusIcon.classList.toggle('cancel-icon')"
+            (focus)="plusIcon.classList.toggle('cancel-icon')" (keydown.enter)="addLabel(labelInput)"
+            type="text" placeholder="Create new label" maxlength="50" (input)="''">
+          <div [style.display]="labelInput.value.length ? 'block' : 'none'" class="check-icon H"
+            (click)="addLabel(labelInput)"></div>
+        </div>
+        <div #labelError class="error" hidden>Label already exists</div>
+        @for (label of Shared.label.list; track label) {
+          <div class="labels-container">
+            <div #labelIcon class="label-icon H" (click)="editLabel(label.id!).delete()"></div>
+            <input #labelInput2 (focus)="labelIcon.classList.toggle('trash-icon')"
+              (keydown.enter)="labelInput2.blur()"
+              (blur)="editLabel(label.id!).update(labelInput2.value);labelIcon.classList.toggle('trash-icon')"
+              [value]="label.name" type="text" placeholder="Enter label name" maxlength="50">
+            <div class="pen-icon H" (click)="editLabel(label.id!).update(labelInput2.value)"></div>
+          </div>
+        }
+        <div class="footer">
+          <div (click)="hideModal()" type="submit" tabindex="0">Done</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

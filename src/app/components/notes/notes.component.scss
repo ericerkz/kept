@@ -1,0 +1,810 @@
+.main-container {
+  margin-top: 45px;
+  margin-bottom: 45px;
+
+  .pb-80 {
+    padding-bottom: 80px;
+  }
+
+  [_title] {
+    color: #9aa0a6;
+    letter-spacing: 0.07272727em;
+    font-family: Roboto, Arial, sans-serif;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1rem;
+    text-transform: uppercase;
+    margin: 8px auto;
+    transition: all 0.7s;
+  }
+}
+
+.overview-image-input {
+  height: 1px;
+  left: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  width: 1px;
+  z-index: -1;
+}
+
+.note-container {
+  width: var(--note-width);
+  transition: all 0.3s;
+  position: relative;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+
+  // While the user is touch-dragging this card, disable native scroll and
+  // gestures on it so our custom drag handler owns the touch stream and
+  // preventDefault() actually works.
+  &.touch-dragging {
+    touch-action: none;
+  }
+
+
+  .is-dragging & {
+    transition: none !important;
+  }
+
+  &.note-dragging {
+    opacity: 0.45;
+  }
+
+  .note-badge {
+    position: absolute;
+    left: 91%;
+    top: -13px;
+    transform: translate(-50%, 0);
+    font-family: 'Google Sans Light 1';
+    font-size: 11px;
+    background-color: #fbbc04;
+    color: black;
+    padding: 3px 6px;
+    border-radius: 8px;
+    box-shadow: 2px 3px 6px 0px rgb(0 0 0 / 50%);
+  }
+
+  &:hover {
+    z-index: 99;
+
+    .icons-container,
+    .check-icon {
+      opacity: 1;
+    }
+
+    .check-icon {
+      background-color: #e8f0fe;
+      border-color: #1a73e8;
+      border-width: 2px;
+
+      svg {
+        opacity: 1;
+        fill: #1a73e8;
+      }
+    }
+
+    .pin-icon {
+      opacity: 0.54;
+    }
+  }
+
+  & {
+
+    .icons-container,
+    .pin-icon,
+    .check-icon {
+      opacity: 0;
+      transition: all 0.3s;
+    }
+  }
+
+  %note {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden !important;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+
+  .note-main {
+    position: relative;
+    background-color: transparent; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    border: 1px solid #5f6368;
+    border-radius: 8px;
+    min-height: 60px;
+    background-position-x: right;
+
+    background-position-y: bottom;
+    background-size: cover;
+
+    &.note-main--link-only { min-height: unset; }
+
+    .shared-indicator {
+
+      position: absolute;
+      top: -13px;
+      left: -16px;
+      z-index: 10;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 1px solid #5f6368;
+      background-color: transparent; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 50%;
+      }
+
+      .avatar-fallback {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        border: none;
+      }
+
+      .mini-glyph {
+        position: absolute;
+        bottom: -4px;
+        right: -4px;
+        background: #202124;
+        border: 1px solid #5f6368;
+        border-radius: 50%;
+        width: 12px;
+        height: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        &.online {
+          background: #2ba34d;
+          border: 2px solid #fff;
+          color: transparent;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+
+        .material-symbols-outlined {
+          font-size: 10px;
+          opacity: 0.9;
+        }
+      }
+    }
+  }
+
+  .title {
+    @extend %note;
+    min-height: 38px;
+    margin: 12px 16px 0 16px;
+    letter-spacing: 0.00625em;
+    font-family: "Google Sans";
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.5rem;
+    -webkit-line-clamp: 3;
+  }
+
+  .note-images {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow: hidden;
+
+    &:not(:empty) {
+      padding: 8px 8px 0;
+    }
+
+    img {
+      display: block;
+      width: 100%;
+      max-height: 180px;
+      object-fit: cover;
+      border-radius: 6px;
+      background-color: rgb(0 0 0 / 14%);
+    }
+  }
+
+  .link-previews {
+    margin: 0 10px 10px;
+  }
+
+  .link-only-wrap {
+    overflow: hidden;
+    position: relative;
+  }
+
+  .link-open-glyph {
+    align-items: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #9aa0a6;
+    cursor: pointer;
+    display: flex;
+    height: 28px;
+    justify-content: center;
+    padding: 0;
+    position: absolute;
+    right: 7px;
+    top: 7px;
+    width: 28px;
+
+    svg {
+      fill: none;
+      height: 15px;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2;
+      width: 15px;
+    }
+
+    &:hover {
+      background: rgba(154, 160, 166, 0.12);
+      border-color: rgba(154, 160, 166, 0.45);
+      color: #e8eaed;
+    }
+  }
+
+  .body {
+    @extend %note;
+    min-height: 30px;
+    margin: 4px 16px 12px 16px;
+    letter-spacing: 0;
+    font-family: Roboto, Arial, sans-serif;
+    font-size: 1.125rem;
+    font-weight: 400;
+    line-height: 1.5rem;
+    -webkit-line-clamp: 10;
+
+    &.min {
+      font-size: 0.875rem;
+      letter-spacing: 0.01428571em;
+      line-height: 1.25rem;
+    }
+  }
+
+  .body-segments.min .body {
+    font-size: 0.875rem;
+    letter-spacing: 0.01428571em;
+    line-height: 1.25rem;
+  }
+
+  .body-segments .body {
+    min-height: 0;
+  }
+
+  .body-segments .body:empty {
+    display: none;
+  }
+
+  .attachments-list {
+    display: grid;
+    gap: 5px;
+    padding: 0 10px 10px;
+  }
+
+  .attachment-card {
+    align-items: center;
+    background: rgba(154, 160, 166, 0.12);
+    border: 1px solid rgba(154, 160, 166, 0.2);
+    border-radius: 6px;
+    cursor: pointer;
+    display: grid;
+    gap: 6px;
+    grid-template-columns: 20px minmax(0, 1fr) auto 26px;
+    min-height: 34px;
+    padding: 5px 8px;
+
+    .attachment-type {
+      color: #9aa0a6;
+      font-size: 19px;
+    }
+
+    .attachment-name {
+      font-family: Roboto, Arial, sans-serif;
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .attachment-size {
+      color: #9aa0a6;
+      font-family: Roboto, Arial, sans-serif;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .attachment-download {
+      align-items: center;
+      background: transparent;
+      border: 0;
+      border-radius: 50%;
+      color: #8ab4f8;
+      cursor: pointer;
+      display: flex;
+      height: 26px;
+      justify-content: center;
+      padding: 0;
+      width: 26px;
+
+      &:hover {
+        background: rgba(154, 160, 166, 0.18);
+      }
+
+      .material-symbols-outlined {
+        font-size: 18px;
+      }
+    }
+  }
+
+  .check-icon {
+    border-radius: 50%;
+    height: 22px;
+    width: 22px;
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate(-7px, -7px);
+    background-color: #fff;
+    border: 1.5px solid #5f6368;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+
+    @media (hover: none) {
+      display: none;
+    }
+
+    &::after {
+      content: '';
+      display: none;
+    }
+
+    svg {
+      width: 14px;
+      height: 14px;
+      fill: #5f6368;
+      opacity: 0.3;
+      transition: opacity 0.15s;
+    }
+
+    &:hover {
+      cursor: pointer;
+      border-color: #202124;
+      border-width: 2px;
+      background-color: #e8f0fe;
+
+      svg {
+        opacity: 1;
+        fill: #1a73e8;
+      }
+    }
+  }
+
+  &.selected {
+    z-index: 100;
+
+    .note-main {
+      border-color: #202124 !important;
+      border-width: 2px;
+    }
+
+    .check-icon {
+      opacity: 1 !important;
+      background-color: #1a73e8 !important;
+      border-color: #1a73e8 !important;
+      border-width: 2px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+      svg {
+        opacity: 1 !important;
+        fill: #ffffff !important;
+      }
+    }
+  }
+
+.trash-countdown {
+    color: #d93025;
+    display: inline-flex;
+    align-items: center;
+    font-family: "Google Sans Light 1", Roboto, Arial, sans-serif;
+    font-size: 11.6px;
+    line-height: 14px;
+    margin: 5px;
+    padding: 1px 6px;
+    background: #fce8e6;
+    border-radius: 12px;
+    gap: 2px;
+    white-space: nowrap;
+    max-width: calc(100% - 10px);
+
+    img {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+    }
+
+    // On narrow viewports the chip can be wider than the card —
+    // allow wrapping to a second line so it stays inside the note.
+    @media (max-width: 599px) {
+      white-space: normal;
+      align-items: flex-start;
+      img { margin-top: 1px; }
+    }
+  }
+
+  &.hide {
+    opacity: 0;
+  }
+}
+
+//? no notes
+.no-notes {
+  margin-top: 20vh;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  .image {
+    background-size: 120px 120px;
+    height: 120px;
+    width: 120px;
+    margin: 20px;
+    opacity: 0.1;
+    background-image: url(/assets/images/svg/no-notes.svg);
+  }
+
+  .text {
+    color: #9aa0a6;
+    font-family: "Google Sans Light 1";
+    font-size: 1.375rem;
+    font-weight: 400;
+    letter-spacing: 0;
+    line-height: 1.75rem;
+  }
+}
+
+
+// ? modal
+.modal-container {
+  position: fixed;
+  display: none;
+  z-index: 2000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgb(32, 33, 36, 0.85);
+  // Allow the backdrop to scroll when the editor content is taller than the
+  // viewport (typical for merged hybrid notes with images + body + checklist).
+  // The .modal itself caps its height so the contents scroll inside it; if
+  // the user resizes the window narrower than the cap, the backdrop scroll
+  // takes over so they can still reach the close button.
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  .modal {
+    // The opening/closing animation in notes.component.ts positions the modal
+    // via inline left/top from a getBoundingClientRect calculation, so it
+    // must be absolutely positioned (CSS auto-margin centering would fight
+    // the JS-set coordinates and the modal would land off-center).
+    position: absolute;
+    transition: transform 0.3s ease, opacity 0.18s ease;
+    max-width: 600px;
+    width: 100%;
+    max-height: calc(100dvh - 40px);
+    display: flex;
+    flex-direction: column;
+    transform-origin: top left;
+    will-change: transform;
+    backface-visibility: hidden;
+
+    > app-input {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
+
+    @media (max-width:660px) {
+      padding: 0;
+      height: 100%;
+      max-height: none;
+      max-width: none;
+      margin: 0;
+      border-radius: 0;
+    }
+  }
+
+  .modal:has(.drawing-fullscreen) {
+    inset: 0 !important;
+    left: 0 !important;
+    max-width: none !important;
+    padding: 0 !important;
+    position: fixed !important;
+    top: 0 !important;
+    transform: none !important;
+    will-change: auto !important;
+    backface-visibility: visible !important;
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: 0;
+  }
+}
+
+.load-more-notes {
+  background: transparent;
+  border: 1px solid #5f6368;
+  border-radius: 6px;
+  color: #e8eaed;
+  cursor: pointer;
+  display: block;
+  font-family: "Google Sans", Roboto, Arial, sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  height: 36px;
+  margin: 18px auto 0;
+  padding: 0 18px;
+
+  &:hover {
+    background: rgba(154, 160, 166, 0.12);
+  }
+}
+
+
+// alarm button active state
+.alarm-active::after {
+  background-color: #fbbc04 !important;
+  opacity: 1 !important;
+}
+
+:host-context(.light-theme) {
+  .reminder-chip {
+    background: rgba(251, 188, 4, 0.15);
+    color: #b06000;
+  }
+
+  .reminder-picker {
+    background: #fff;
+    border-color: #dadce0;
+    box-shadow: 0 2px 8px rgb(60 64 67 / 24%);
+
+    .rp-header { color: #202124; border-bottom-color: #dadce0; }
+
+
+    .rp-option { color: #202124; &:hover { background: rgba(60, 64, 67, 0.08); } }
+
+    .rp-option .rp-time { color: #5f6368; }
+
+    .rp-custom {
+      &.open { border-top-color: #dadce0; }
+      input[type="date"], .timepicker-ui-input {
+        background: #fff;
+        border-color: #dadce0;
+        color: #202124;
+
+        color-scheme: light;
+        &:focus { border-color: #1a73e8; }
+      }
+      .rp-set { background: #1a73e8; color: #fff; }
+    }
+
+    .rp-clear,
+    .rp-debug {
+      border-top-color: #dadce0;
+      &:hover { background: rgba(60, 64, 67, 0.06); }
+    }
+
+    .rp-clear { color: #d93025; }
+    .rp-debug { color: #1a73e8; }
+  }
+
+  .note-container {
+    .note-main {
+      background-color: #fff;
+      border-color: #e0e0e0;
+      color: #202124;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+
+    .link-open-glyph {
+      color: #5f6368;
+
+      &:hover {
+        background: rgba(60, 64, 67, 0.08);
+        border-color: rgba(60, 64, 67, 0.28);
+        color: #202124;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+      }
+    }
+
+    .note-badge {
+      box-shadow: 0 1px 3px 0 rgb(60 64 67 / 30%);
+    }
+  }
+
+  .no-notes {
+    .text {
+      color: #5f6368;
+    }
+  }
+
+  .modal-container {
+    background-color: rgb(32 33 36 / 58%);
+  }
+
+  .note-container {
+    &:hover,
+    &.selected {
+      > .check-icon {
+        background-color: transparent; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        background-image: url(/assets/images/svg/check3.svg);
+        background-size: 18px 18px;
+        opacity: 1;
+      }
+    }
+  }
+}
+
+@media (max-width: 599px) {
+  .note-container {
+    .title {
+      font-size: 0.875rem;
+      min-height: 28px;
+      margin: 8px 10px 0 10px;
+      -webkit-line-clamp: 2;
+    }
+
+    .body {
+      font-size: 0.8125rem;
+      margin: 4px 10px 8px 10px;
+      -webkit-line-clamp: 7;
+
+      &.min {
+        font-size: 0.75rem;
+      }
+    }
+
+    .note-images img {
+      max-height: 120px;
+    }
+
+    .note-image {
+      position: relative;
+
+      .delete-image-btn {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        background: #fff;
+        color: #5f6368;
+        border: 1px solid #dadce0;
+        border-radius: 50%;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        opacity: 0;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        transition: all 0.2s;
+        z-index: 10;
+
+        .material-symbols-outlined {
+          font-size: 18px;
+          font-weight: 500;
+        }
+
+        &:hover {
+          background: #f1f3f4;
+          color: #202124;
+        }
+      }
+
+      &:hover .delete-image-btn {
+        opacity: 1;
+      }
+    }
+
+    .note-main {
+      min-height: 50px;
+    }
+
+    .icons-container {
+      flex-wrap: nowrap;
+      justify-content: center;
+      margin: 2px 0;
+
+      .icons {
+        flex-wrap: nowrap;
+        width: 100%;
+        justify-content: space-around;
+
+        > div {
+          height: 28px;
+          width: 28px;
+          margin: 0 2px;
+          background-size: 16px 16px;
+          // Anchor for the transparent <input type="date"> overlay on the
+          // alarm icon (iOS-native picker bridge).
+          position: relative;
+        }
+      }
+    }
+  }
+}
+
+@media (max-width: 1024px), (pointer: coarse) {
+  .note-container {
+    .icons-container.min,
+    &:hover .icons-container.min {
+      display: none !important;
+      opacity: 0 !important;
+      pointer-events: none;
+    }
+  }
+}
+
+.note-collaborators-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 12px 0;
+  padding-bottom: 4px;
+
+  .collaborator-avatar-wrapper.min {
+    width: 24px;
+    height: 24px;
+    margin-right: 0;
+
+    .collaborator-avatar {
+      width: 24px;
+      height: 24px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      bottom: -1px;
+      right: -1px;
+      border: 1.5px solid #fff;
+      border-radius: 50%;
+      background: transparent;
+
+      &.online {
+        background: #2ba34d;
+      }
+    }
+  }
+}
+
+:host-context(.dark-theme) {
+  .note-main {
+    color: #e8eaed;
+    border-color: #5f6368;
+  }
+}
+
+:host-context(.light-theme) {
+  .note-main {
+    color: #202124;
+    border-color: #dadce0;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+  }
+}
+
+
