@@ -5,6 +5,23 @@
   transition: width 0.08s;
   max-width: 100%;
 
+  // Desktop: the wrapper is `position: sticky; top: 94px`, so the drawer can
+  // never use more than the remaining viewport height. Cap it there and let it
+  // scroll — the scrollbar only shows up when the content (nav items + a long
+  // label list) actually exceeds that space, not otherwise.
+  @media (min-width: 600px) {
+    max-height: calc(100vh - 94px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+
+    &::-webkit-scrollbar { width: 6px; }
+    &::-webkit-scrollbar-thumb {
+      background: rgba(154, 160, 166, 0.35);
+      border-radius: 3px;
+    }
+  }
+
   @media (max-width: 599px) {
     width: min(280px, 86vw);
 
@@ -14,10 +31,12 @@
 
       box-shadow: 0 0 16px rgba(0,0,0,0.5);
       height: 100vh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
       background-color: #202124;
       left: 0;
       top: 0;
-      padding-top: 64px;
+      padding-top: 79px;
       pointer-events: auto;
       border-radius: 0 16px 16px 0;
     }

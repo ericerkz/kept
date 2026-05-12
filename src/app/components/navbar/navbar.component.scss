@@ -1301,6 +1301,36 @@
   }
 }
 
+@media (max-width: 599px) {
+  .sec-col .input-container {
+    margin-left: 10px !important;
+    margin-right: 32px !important;
+  }
+
+  .sec-col .form:has(.input:placeholder-shown) .input-container {
+    margin-right: 12px !important;
+  }
+
+  .sec-col .input::placeholder {
+    font-size: 13px !important;
+  }
+}
+
+@media (max-width: 360px) {
+  .sec-col .input-container {
+    margin-left: 8px !important;
+    margin-right: 28px !important;
+  }
+
+  .sec-col .form:has(.input:placeholder-shown) .input-container {
+    margin-right: 10px !important;
+  }
+
+  .sec-col .input::placeholder {
+    font-size: 12px !important;
+  }
+}
+
 :host-context(.light-theme) {
   @media (max-width: 599px) {
     .main-container {
