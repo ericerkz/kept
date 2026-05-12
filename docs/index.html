@@ -207,7 +207,7 @@ server {
 
           <h3>Before you install</h3>
           <ul>
-            <li>Put Kept behind a public <code>https://</code> domain. Mobile push will not work from plain HTTP or a raw local network address. Need help with certificates? See the Apache or Nginx Let's Encrypt tutorials linked above.</li>
+            <li>Put Kept behind a public <code>https://</code> domain. Mobile push will not work from plain HTTP or a raw local network address. Need help with certificates? See the Apache or Nginx Let's Encrypt tutorials linked above in the <a href="#reverse-proxy">Reverse proxy</a> section.</li>
             <li>Set <code>VAPID_SUBJECT</code> to your Kept URL, for example <code>https://kept.example.com</code>. Docker users can uncomment it in <code>docker-compose.yml</code>; native installs can export it before starting the server.</li>
             <li>You do not need Firebase or an Apple developer account. Kept stores its web push keys in <code>./data/vapid.json</code> automatically unless you provide your own.</li>
           </ul>
