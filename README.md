@@ -33,6 +33,8 @@ I've spent years bouncing between open-source note apps trying to find one that 
 
 ⏰ **Reminders that actually fire** — set a one-shot or scheduled reminder, get a browser push notification when it's time. Optional sync with Google Calendar or any CalDAV calendar (your calendar of choice — Apple, Fastmail, Nextcloud, whatever) if you want the events to show up alongside everything else.
 
+📱 **Install it like an app** — Kept supports PWA installs on iOS and Android, including push notifications for reminders. The short setup guide lives on the [Kept website](https://www.keepitkept.xyz/#pwa-mobile).
+
 🤝 **Share notes with people on your instance** — collaborative editing in real time, like a doc editor. Both people typing in the same note see each other's changes live.
 
 🔐 **Privacy by default** — local user accounts, optional two-factor authentication with backup codes, an admin panel for managing users. Your data lives in a single folder on your machine. Nothing is sent anywhere unless you explicitly turn on a calendar integration.
@@ -164,7 +166,7 @@ server {
 }
 ```
 
-Once Kept is on a real `https://` URL, install the PWA (in Safari on iOS: **Share → Add to Home Screen**) and notifications will start firing on your phone like any native app.
+Once Kept is on a real `https://` URL, you can install it as a PWA on iOS or Android and get push notifications for reminders. See the [mobile install guide](https://www.keepitkept.xyz/#pwa-mobile) for the short version.
 
 </details>
 

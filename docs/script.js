@@ -17,7 +17,7 @@ menuBtn.addEventListener('click', () => {
 });
 
 // Update active nav based on scroll position
-const sections = Array.from(document.querySelectorAll('.note-card, h2[id]')).filter(el => el.id);
+const sections = Array.from(document.querySelectorAll('main section[id], .note-card, h2[id]')).filter(el => el.id);
 
 contentArea.addEventListener('scroll', () => {
   let current = '';
