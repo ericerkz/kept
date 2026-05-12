@@ -44,6 +44,10 @@
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2l4 4h-3v7h-2V6H8l4-4zm-7 8h4v2H5v8h14v-8h-4v-2h4c1.1 0 2 .9 2 2v8c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2v-8c0-1.1.9-2 2-2z"/></svg>
         Reverse proxy
       </a>
+      <a href="#pwa-mobile" class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M17 1H7C5.9 1 5 1.9 5 3v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 17H7V4h10v14zm-5 4c-.8 0-1.5-.7-1.5-1.5S11.2 19 12 19s1.5.7 1.5 1.5S12.8 22 12 22z"/></svg>
+        Mobile app
+      </a>
       <a href="#backups" class="nav-item">
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7zm4-3h2v10h-2zm4 6h2v4h-2z"/></svg>
         Backups
@@ -87,6 +91,11 @@
             <div class="feature-box">
               <h3>⏰ Reminders that Work</h3>
               <p>Set one-shot or scheduled reminders with snooze functionality. Get push notifications directly to your browser or phone.</p>
+            </div>
+
+            <div class="feature-box">
+              <h3>📱 Installable on Mobile</h3>
+              <p>Add Kept to your home screen on iOS or Android as a PWA, then get reminder notifications without a native app store build.</p>
             </div>
             
             <div class="feature-box">
@@ -189,6 +198,41 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }</code></pre>
+        </section>
+
+        <section id="pwa-mobile">
+          <h2>Install on iOS and Android</h2>
+          <p>Kept can be installed from the browser as a Progressive Web App. Once it is running from a real HTTPS address, reminder push notifications work on desktop browsers, Android, and iOS home-screen installs.</p>
+
+          <h3>Before you install</h3>
+          <ul>
+            <li>Put Kept behind a public <code>https://</code> domain. Mobile push will not work from plain HTTP or a raw local network address.</li>
+            <li>Set <code>VAPID_SUBJECT</code> to your Kept URL, for example <code>https://kept.example.com</code>. Docker users can uncomment it in <code>docker-compose.yml</code>; native installs can export it before starting the server.</li>
+            <li>You do not need Firebase or an Apple developer account. Kept stores its web push keys in <code>./data/vapid.json</code> automatically unless you provide your own.</li>
+          </ul>
+
+          <h3>iPhone or iPad</h3>
+          <ol>
+            <li>Open your Kept URL in Safari.</li>
+            <li>Tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>.</li>
+            <li>Open Kept from the new Home Screen icon, not from the Safari tab.</li>
+            <li>Sign in and allow notifications when Kept asks.</li>
+          </ol>
+          <p>iOS only allows web push for installed home-screen web apps, so the Safari tab is just for installing.</p>
+
+          <h3>Android</h3>
+          <ol>
+            <li>Open your Kept URL in Chrome or another browser with PWA support.</li>
+            <li>Use the browser menu and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
+            <li>Open Kept from the installed app icon and allow notifications when prompted.</li>
+          </ol>
+
+          <h3>If notifications do not arrive</h3>
+          <ul>
+            <li>Check that the installed app is using your HTTPS domain.</li>
+            <li>Confirm notifications are allowed in the browser or OS settings.</li>
+            <li>On iOS, remove and reinstall the Home Screen app after changing domains or VAPID settings.</li>
+          </ul>
         </section>
 
         <section id="backups">
