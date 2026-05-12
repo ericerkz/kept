@@ -2229,15 +2229,22 @@ export class InputComponent implements OnInit {
   // content can hand touch events off to the body and cause the underlying
   // notes grid to peek-and-bounce behind the open editor.
   private bodyScrollLocked = false;
+  private lockedBodyScrollY = 0;
   private lockBodyScroll() {
     if (this.bodyScrollLocked) return;
     this.bodyScrollLocked = true;
+    this.lockedBodyScrollY = window.scrollY || window.pageYOffset || 0;
+    document.body.style.top = `-${this.lockedBodyScrollY}px`;
     document.body.classList.add('kept-mobile-compose-open');
   }
   private unlockBodyScroll() {
     if (!this.bodyScrollLocked) return;
+    const scrollY = this.lockedBodyScrollY;
     this.bodyScrollLocked = false;
     document.body.classList.remove('kept-mobile-compose-open');
+    document.body.style.top = '';
+    window.scrollTo(0, scrollY);
+    this.lockedBodyScrollY = 0;
   }
 
   // Track the soft-keyboard height on mobile so the sticky bottom toolbar can
