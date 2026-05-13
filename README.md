@@ -63,7 +63,9 @@ docker compose up -d --build
 
 That's it. Open `http://localhost:6767` in your browser, follow the friendly setup wizard to create your admin account, and you're in.
 
-Your notes, uploads, and database all live in a `./data` folder right next to the project. Back it up by copying that folder anywhere you'd back up the rest of your stuff (cloud sync, external drive, whatever).
+If you need more guidance, refer to the [Kept website](https://www.keepitkept.xyz/#pwa-mobile).
+
+Your notes, uploads, and database all live in a `./data` folder right next to the project. Use Kept's automated backups, or you can back it up by copying that folder anywhere you'd back up the rest of your stuff (cloud sync, external drive, whatever) so long as it's idle/not mid-write. 
 
 <details>
 <summary>Want to run it without Docker?</summary>
@@ -215,7 +217,7 @@ The compose file has a comment explaining each one.
 
 ## Tech under the hood
 
-Kept's frontend is **Angular** with **Sass** styles, and the backend is a single-file **Express** server on **Node.js**. Data lives in a **SQLite** file. No external services required to run it. Web push uses the standard browser APIs; there's no Firebase, no Apple developer account needed.
+Kept's frontend is **Angular** with **Sass** styles, and the backend is a single-file **Express** server on **Node.js**. Data lives in a **SQLite** file. No external services required to run it. Web push uses the standard browser APIs.
 
 ## Acknowledgement
 
