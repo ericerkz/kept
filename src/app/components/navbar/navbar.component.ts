@@ -20,11 +20,11 @@ export class NavbarComponent implements OnInit {
   showEasterEgg = false;
   eggIndex = 0;
   easterEggMessages = [
-    "Kept: because, unlike your last relationship, these notes are actually worth holding onto ✨",
-    "I added checkboxes so you can mark off all the tasks you won't do. 📝🤡",
-    "Kept: Because why settle for a trillion-dollar company's app when you can use a version where I’m the only tech support? I promise to Keep your expectations low. 🛠️📉",
-    "Kept: Why use the original when you can use the version that was built entirely on caffeine and spite? ☕🔥",
-    "I know, I know. I look familiar. I get that a lot. 🕵️‍♂️😏"
+    "Kept: because, unlike your last relationship, these notes are actually worth holding onto 💅",
+    "I added checkboxes so you can mark off all the tasks you won't do.",
+    "Kept: Because why use the trillion-dollar company's version when you can run this on your own bare metal, bay-bee!",
+    "Kept: Why use the original when you can use the version that was built entirely on caffeine and spite? 🔥",
+    "I know, I know. I look familiar. I get that a lot."
   ];
 
   konamiCode = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a', 'Enter'];

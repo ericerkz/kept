@@ -321,7 +321,7 @@ export class SharedService {
       // option via the "romantic" hearts illustration.
       const noteId = await this.Notes.add({
         noteTitle: 'A Little Nudge... ⏰',
-        noteBody: 'Set a reminder so you never miss a beat! Whether it\'s a tea break or a big meeting, we\'ve got your back. 💖<br><br>Bonus: this card uses a background image — try the palette icon in the toolbar to set your own.',
+        noteBody: 'Set a reminder and we\'ll handle the whole "remembering-things" stuff - with push notifications across all devices. If you have a preferred calendar for that stuff, you can set them up to sync to that, too.<br><br>Bonus: this card uses a background image — try the palette icon in the toolbar to set your own.',
         bgColor: bgColors.flamingo,
         bgImage: `url(${bgImages.romantic})`,
         pinned: false, archived: false, trashed: false, isCbox: false, labels: [],
@@ -337,7 +337,7 @@ export class SharedService {
           dueAtUtc: tomorrow.toISOString(),
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           title: 'A Little Nudge... ⏰',
-          body: 'Tea break or big meeting? We\'ve got your back! 💖'
+          body: 'Kept will handle the whole "remembering-things" stuff with push notifications across all devices.'
         });
       }
 

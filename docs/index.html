@@ -90,7 +90,7 @@
             
             <div class="feature-box">
               <h3>⏰ Reminders that Work</h3>
-              <p>Set one-shot or scheduled reminders with snooze functionality. Get push notifications directly to your browser or phone.</p>
+              <p>Set one-shot or scheduled reminders with snooze functionality. Get push notifications directly to your browser or phone, and sync them to Google Calendar or any CalDAV-friendly calendar if you want everything in one place.</p>
             </div>
 
             <div class="feature-box">
@@ -101,6 +101,21 @@
             <div class="feature-box">
               <h3>🤝 Real-Time Sharing</h3>
               <p>Collaborate with others! Share notes with other users on your instance and edit together in real-time, just like a modern document editor.</p>
+            </div>
+
+            <div class="feature-box">
+              <h3>📦 Bring Your Notes</h3>
+              <p>Moving over from Google Keep? Drop in a Google Takeout export and Kept can import your notes, checklists, labels, colors, drawings, and images in one go.</p>
+            </div>
+
+            <div class="feature-box">
+              <h3>💾 Backups Without Drama</h3>
+              <p>Schedule automatic daily, weekly, or monthly backups, or make one on demand before you poke at the server and pretend that was always the plan.</p>
+            </div>
+
+            <div class="feature-box">
+              <h3>📤 Your Data, Your Exit</h3>
+              <p>Export your notes whenever you like in JSON, CSV, or Markdown. Handy for backups, migrations, audits, or just the warm glow of knowing the door is open.</p>
             </div>
             
             <div class="feature-box">
@@ -209,7 +224,6 @@ server {
           <ul>
             <li>Put Kept behind a public <code>https://</code> domain. Mobile push will not work from plain HTTP or a raw local network address. Need help with certificates? See the Apache or Nginx Let's Encrypt tutorials linked above in the <a href="#reverse-proxy">Reverse proxy</a> section.</li>
             <li>Set <code>VAPID_SUBJECT</code> to your Kept URL, for example <code>https://kept.example.com</code>. Docker users can uncomment it in <code>docker-compose.yml</code>; native installs can export it before starting the server.</li>
-            <li>You do not need Firebase or an Apple developer account. Kept stores its web push keys in <code>./data/vapid.json</code> automatically unless you provide your own.</li>
           </ul>
 
           <h3>iPhone or iPad</h3>
