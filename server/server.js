@@ -427,6 +427,22 @@ async function init() {
     await run('UPDATE labels SET userId = ? WHERE userId IS NULL', [firstUser.id]);
   }
   await run('CREATE UNIQUE INDEX IF NOT EXISTS labels_user_name_unique ON labels(userId, name)');
+  await run(`
+    CREATE TABLE IF NOT EXISTS note_images (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      noteId INTEGER REFERENCES notes(id) ON DELETE CASCADE,
+      ownerUserId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      storedFilename TEXT NOT NULL,
+      originalName TEXT NOT NULL,
+      fileSize INTEGER NOT NULL,
+      mimeType TEXT NOT NULL,
+      uploadedAt TEXT NOT NULL,
+      UNIQUE(noteId, storedFilename)
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS note_images_note_idx ON note_images(noteId)`);
+  await run(`CREATE INDEX IF NOT EXISTS note_images_filename_idx ON note_images(storedFilename)`);
+  await backfillExistingNoteImages();
   const now = new Date().toISOString();
   const trashCutoff = trashExpirationCutoff();
   await run(
@@ -437,7 +453,10 @@ async function init() {
   );
   await run('UPDATE notes SET trashedAt = NULL WHERE trashed = 0');
   const expiredAtStartup = await all('SELECT id FROM notes WHERE trashed = 1 AND trashedAt IS NOT NULL AND trashedAt <= ?', [trashCutoff]);
-  for (const note of expiredAtStartup) await deleteAttachmentFilesForNote(note.id);
+  for (const note of expiredAtStartup) {
+    await deleteAttachmentFilesForNote(note.id);
+    await deleteImageFilesForNote(note.id);
+  }
   await run('DELETE FROM notes WHERE trashed = 1 AND trashedAt IS NOT NULL AND trashedAt <= ?', [trashCutoff]);
   await run(`
     CREATE TABLE IF NOT EXISTS note_collaborators (
@@ -729,6 +748,79 @@ function parseJson(value, fallback) {
   }
 }
 
+const PRIVATE_IMAGE_PREFIX = '/api/uploads/images/';
+
+function safeStoredImageFilename(filename) {
+  const clean = String(filename || '').trim();
+  if (!/^[0-9]+-[a-f0-9]{24}\.(png|jpe?g|gif|webp)$/i.test(clean)) return '';
+  return clean;
+}
+
+function localImageFilenameFromUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw || raw.startsWith('data:')) return '';
+  let pathname = raw;
+  try {
+    pathname = new URL(raw, 'http://kept.local').pathname;
+  } catch {}
+  const match = pathname.match(/^(?:\/uploads\/|\/api\/uploads\/images\/)([^/?#]+)$/);
+  if (!match) return '';
+  try {
+    return safeStoredImageFilename(decodeURIComponent(match[1]));
+  } catch {
+    return safeStoredImageFilename(match[1]);
+  }
+}
+
+function canonicalImageUrl(value) {
+  const filename = localImageFilenameFromUrl(value);
+  return filename ? `${PRIVATE_IMAGE_PREFIX}${filename}` : value;
+}
+
+function canonicalizeNoteHtmlImages(html) {
+  return String(html || '').replace(/(\bsrc=["'])([^"']+)(["'])/gi, (_match, before, src, after) => {
+    return `${before}${canonicalImageUrl(src)}${after}`;
+  });
+}
+
+function canonicalizeNoteImages(images) {
+  return (Array.isArray(images) ? images : []).map(image => {
+    if (!image || typeof image !== 'object') return image;
+    return { ...image, dataUrl: canonicalImageUrl(image.dataUrl) };
+  });
+}
+
+function canonicalizeNotePayload(payload) {
+  return {
+    ...payload,
+    noteBody: canonicalizeNoteHtmlImages(payload.noteBody || ''),
+    images: canonicalizeNoteImages(payload.images || [])
+  };
+}
+
+function imageMimeType(filename) {
+  const ext = path.extname(String(filename || '')).toLowerCase();
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.webp') return 'image/webp';
+  return 'application/octet-stream';
+}
+
+function extractNoteImageFilenames(note) {
+  const filenames = new Set();
+  const body = String(note?.noteBody || '');
+  for (const match of body.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
+    const filename = localImageFilenameFromUrl(match[1]);
+    if (filename) filenames.add(filename);
+  }
+  for (const image of Array.isArray(note?.images) ? note.images : []) {
+    const filename = localImageFilenameFromUrl(image?.dataUrl);
+    if (filename) filenames.add(filename);
+  }
+  return [...filenames];
+}
+
 function dbNoteToApi(row) {
   return {
     id: row.id,
@@ -808,8 +900,69 @@ function trashExpirationCutoff() {
 
 async function purgeExpiredTrashedNotes() {
   const expired = await all('SELECT id FROM notes WHERE trashed = 1 AND trashedAt IS NOT NULL AND trashedAt <= ?', [trashExpirationCutoff()]);
-  for (const note of expired) await deleteAttachmentFilesForNote(note.id);
+  for (const note of expired) {
+    await deleteAttachmentFilesForNote(note.id);
+    await deleteImageFilesForNote(note.id);
+  }
   await run('DELETE FROM notes WHERE trashed = 1 AND trashedAt IS NOT NULL AND trashedAt <= ?', [trashExpirationCutoff()]);
+}
+
+async function syncNoteImagesForNote(noteId, ownerUserId, note) {
+  if (!noteId || !ownerUserId) return;
+  const filenames = extractNoteImageFilenames(note);
+  await run('DELETE FROM note_images WHERE noteId = ?', [noteId]);
+  for (const filename of filenames) {
+    const filePath = path.join(uploadDir, filename);
+    let stats = null;
+    try {
+      stats = fs.statSync(filePath);
+    } catch {
+      continue;
+    }
+    const existingUnlinked = await get(
+      'SELECT id FROM note_images WHERE storedFilename = ? AND noteId IS NULL AND ownerUserId = ? ORDER BY id LIMIT 1',
+      [filename, ownerUserId]
+    );
+    if (existingUnlinked) {
+      await run(
+        'UPDATE note_images SET noteId = ?, fileSize = ?, mimeType = ? WHERE id = ?',
+        [noteId, stats.size, imageMimeType(filename), existingUnlinked.id]
+      );
+    } else {
+      await run(
+        `INSERT OR IGNORE INTO note_images
+         (noteId, ownerUserId, storedFilename, originalName, fileSize, mimeType, uploadedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [noteId, ownerUserId, filename, filename, stats.size, imageMimeType(filename), new Date().toISOString()]
+      );
+    }
+  }
+}
+
+async function deleteImageFilesForNote(noteId) {
+  const rows = await all('SELECT storedFilename FROM note_images WHERE noteId = ?', [noteId]);
+  await run('DELETE FROM note_images WHERE noteId = ?', [noteId]);
+  for (const row of rows) {
+    const filename = safeStoredImageFilename(row.storedFilename);
+    if (!filename) continue;
+    const stillUsed = await get('SELECT id FROM note_images WHERE storedFilename = ? LIMIT 1', [filename]);
+    if (stillUsed) continue;
+    try { fs.unlinkSync(path.join(uploadDir, filename)); } catch {}
+  }
+}
+
+async function backfillExistingNoteImages() {
+  const rows = await all('SELECT id, ownerUserId, noteBody, images FROM notes WHERE ownerUserId IS NOT NULL');
+  for (const row of rows) {
+    const note = {
+      noteBody: canonicalizeNoteHtmlImages(row.noteBody || ''),
+      images: canonicalizeNoteImages(parseJson(row.images || '[]', []))
+    };
+    await syncNoteImagesForNote(row.id, row.ownerUserId, note);
+    if (note.noteBody !== (row.noteBody || '') || JSON.stringify(note.images) !== (row.images || '[]')) {
+      await run('UPDATE notes SET noteBody = ?, images = ? WHERE id = ?', [note.noteBody, JSON.stringify(note.images), row.id]);
+    }
+  }
 }
 
 function asyncRoute(handler) {
@@ -1497,14 +1650,6 @@ if (corsAllowlist.length) {
   app.use(cors({ origin: '*' }));
 }
 app.use(express.json({ limit: '25mb' }));
-app.use('/uploads', express.static(uploadDir, {
-  immutable: true,
-  maxAge: '30d',
-  setHeaders: (res) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Disposition', 'attachment');
-  }
-}));
 
 app.get('/api/setup/status', asyncRoute(async (_req, res) => {
   const row = await get('SELECT COUNT(*) AS count FROM users');
@@ -2054,12 +2199,53 @@ app.delete('/api/labels/:id', requireAuth, asyncRoute(async (req, res) => {
 
 app.post('/api/uploads/images', requireAuth, upload.single('image'), asyncRoute(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Image file is required.' });
+  await run(
+    `INSERT INTO note_images (noteId, ownerUserId, storedFilename, originalName, fileSize, mimeType, uploadedAt)
+     VALUES (NULL, ?, ?, ?, ?, ?, ?)`,
+    [
+      req.user.id,
+      req.file.filename,
+      req.file.originalname || req.file.filename,
+      req.file.size,
+      req.file.mimetype,
+      new Date().toISOString()
+    ]
+  );
   res.status(201).json({
-    url: `/uploads/${req.file.filename}`,
+    url: `${PRIVATE_IMAGE_PREFIX}${req.file.filename}`,
     name: req.file.originalname || req.file.filename,
     size: req.file.size,
     type: req.file.mimetype
   });
+}));
+
+app.get('/api/uploads/images/:filename', requireAuthOrQueryToken, asyncRoute(async (req, res) => {
+  const filename = safeStoredImageFilename(req.params.filename);
+  if (!filename) return res.status(400).send('Invalid image filename.');
+
+  const image = await get(
+    `SELECT ni.*
+     FROM note_images ni
+     LEFT JOIN notes n ON n.id = ni.noteId
+     LEFT JOIN note_collaborators nc ON nc.noteId = n.id AND nc.userId = ?
+     WHERE ni.storedFilename = ?
+       AND (
+         (ni.noteId IS NULL AND ni.ownerUserId = ?)
+         OR n.ownerUserId = ?
+         OR nc.userId IS NOT NULL
+       )
+     LIMIT 1`,
+    [req.user.id, filename, req.user.id, req.user.id]
+  );
+  if (!image) return res.status(404).send('Image not found.');
+
+  const filePath = path.join(uploadDir, filename);
+  if (!fs.existsSync(filePath)) return res.status(404).send('Image file not found.');
+
+  res.setHeader('Content-Type', image.mimeType || imageMimeType(filename));
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.sendFile(filePath);
 }));
 
 // ─── Attachment Endpoints ──────────────────────────────────────────────────
@@ -2392,33 +2578,35 @@ app.patch('/api/notes/reorder', requireAuth, asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/notes', requireAuth, asyncRoute(async (req, res) => {
+  const noteData = canonicalizeNotePayload(req.body);
   const now = new Date().toISOString();
-  const trashedAt = req.body.trashed ? now : null;
+  const trashedAt = noteData.trashed ? now : null;
   const result = await run(
     `INSERT INTO notes
      (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       req.user.id,
-      String(req.body.noteTitle || ''),
-      req.body.noteBody || '',
-      req.body.bgColor || '',
-      req.body.bgImage || '',
-      JSON.stringify(req.body.checkBoxes || []),
-      JSON.stringify(req.body.images || []),
-      req.body.isCbox ? 1 : 0,
-      JSON.stringify(req.body.labels || []),
-      req.body.archived ? 1 : 0,
-      req.body.trashed ? 1 : 0,
+      String(noteData.noteTitle || ''),
+      noteData.noteBody || '',
+      noteData.bgColor || '',
+      noteData.bgImage || '',
+      JSON.stringify(noteData.checkBoxes || []),
+      JSON.stringify(noteData.images || []),
+      noteData.isCbox ? 1 : 0,
+      JSON.stringify(noteData.labels || []),
+      noteData.archived ? 1 : 0,
+      noteData.trashed ? 1 : 0,
       trashedAt,
       Date.now(),
       now,
       now,
       req.user.id,
-      req.body.isDemo ? 1 : 0
+      noteData.isDemo ? 1 : 0
     ]
   );
-  if (req.body.pinned) {
+  await syncNoteImagesForNote(result.id, req.user.id, noteData);
+  if (noteData.pinned) {
     await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [req.user.id, result.id]);
   }
   await broadcastNoteChange(result.id, 'created', [req.user.id]);
@@ -2429,7 +2617,7 @@ app.put('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   const note = await getAccessibleNote(Number(req.params.id), req.user.id);
   if (!note) return res.status(404).json({ error: 'Note not found.' });
   const isOwner = note.ownerUserId === req.user.id;
-  const next = { ...dbNoteToApi(note), ...req.body };
+  const next = canonicalizeNotePayload({ ...dbNoteToApi(note), ...req.body });
   if (!isOwner) {
     next.bgColor = note.bgColor || '';
     next.bgImage = note.bgImage || '';
@@ -2469,6 +2657,7 @@ app.put('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   } else {
     await run('DELETE FROM user_pins WHERE userId = ? AND noteId = ?', [req.user.id, Number(req.params.id)]);
   }
+  await syncNoteImagesForNote(Number(req.params.id), note.ownerUserId, next);
   await broadcastNoteChange(Number(req.params.id), 'updated');
   await cleanupUnusedLabels(req.user.id);
   res.status(204).end();
@@ -2479,7 +2668,7 @@ app.patch('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Note not found.' });
 
   const isOwner = existing.ownerUserId === req.user.id;
-  const next = { ...dbNoteToApi(existing), ...req.body };
+  const next = canonicalizeNotePayload({ ...dbNoteToApi(existing), ...req.body });
   if (!isOwner) {
     next.bgColor = existing.bgColor || '';
     next.bgImage = existing.bgImage || '';
@@ -2519,6 +2708,7 @@ app.patch('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   } else {
     await run('DELETE FROM user_pins WHERE userId = ? AND noteId = ?', [req.user.id, Number(req.params.id)]);
   }
+  await syncNoteImagesForNote(Number(req.params.id), existing.ownerUserId, next);
   await broadcastNoteChange(Number(req.params.id), 'updated');
   await cleanupUnusedLabels(req.user.id);
   res.status(204).end();
@@ -2556,6 +2746,7 @@ app.post('/api/notes/:id/clone', requireAuth, asyncRoute(async (req, res) => {
   if (note.pinned) {
     await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [req.user.id, result.id]);
   }
+  await syncNoteImagesForNote(result.id, req.user.id, note);
   await broadcastNoteChange(result.id, 'created', [req.user.id]);
   res.status(201).json({ id: result.id });
 }));
@@ -2646,6 +2837,7 @@ app.post('/api/notes/merge', requireAuth, asyncRoute(async (req, res) => {
       ]
     );
     const newNoteId = result.id;
+    await syncNoteImagesForNote(newNoteId, req.user.id, { noteBody: mergedBody, images: mergedImages });
 
     // Re-parent attachments from sources onto the merged note. This avoids
     // re-uploading files and keeps the storedFilename references intact.
@@ -2762,6 +2954,7 @@ app.delete('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   if (isOwner) {
     const recipients = await getNoteRecipientIds(noteId);
     await deleteAttachmentFilesForNote(noteId);
+    await deleteImageFilesForNote(noteId);
     await run('DELETE FROM notes WHERE id = ?', [noteId]);
     await broadcastNoteChange(noteId, 'deleted', recipients);
   } else {
@@ -3670,8 +3863,9 @@ app.post('/api/import/google-takeout', requireAuth, uploadZip.single('takeout'),
           try {
             const ext = SAFE_IMAGE_TYPES.get(attMimeType);
             const filename = `${Date.now()}-${randomHex(12)}${ext}`;
-            fs.writeFileSync(path.join(uploadDir, filename), await attEntry.getData());
-            images.push({ id: `img-${Date.now()}`, dataUrl: `/uploads/${filename}`, name: basename, placement: 'top' });
+            const data = await attEntry.getData();
+            fs.writeFileSync(path.join(uploadDir, filename), data);
+            images.push({ id: `img-${Date.now()}`, dataUrl: `${PRIVATE_IMAGE_PREFIX}${filename}`, name: basename, placement: 'top' });
           } catch (e) {
             if (e && /zip bomb|too many entries|too large|unsafe entry/i.test(e.message)) throw e;
             /* skip image */
@@ -3715,6 +3909,7 @@ app.post('/api/import/google-takeout', requireAuth, uploadZip.single('takeout'),
         if (pinnedFlag) {
           await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [req.user.id, insertResult.id]);
         }
+        await syncNoteImagesForNote(insertResult.id, req.user.id, { noteBody, images });
         imported++;
       } catch (e) { console.error('Takeout import error:', entry.entryName, e.message); errors++; }
     }

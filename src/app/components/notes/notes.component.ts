@@ -146,6 +146,10 @@ export class NotesComponent implements OnInit, OnDestroy {
     return this.noteMeta(note).bodySegments
   }
 
+  imageSrc(src: string) {
+    return this.auth.authenticatedImageUrl(src)
+  }
+
   trackBodySegment(index: number, segment: NoteBodySegment) {
     return `${index}:${segment.type}:${segment.value}`
   }
@@ -159,7 +163,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   }
 
   private noteMeta(note: NoteI) {
-    const body = note.noteBody || ''
+    const body = this.auth.authenticatedImageHtml(note.noteBody || '')
     const title = note.noteTitle || ''
     const themeKey = document.body.classList.contains('light-theme') ? 'l' : 'd'
     const bgKey = `${note.bgColor || ''}|${note.bgImage || ''}|${note.isCbox ? 1 : 0}|${themeKey}`
@@ -1096,14 +1100,14 @@ export class NotesComponent implements OnInit, OnDestroy {
   private fileToNoteImage(file: File, placement: NoteImageI['placement']): Promise<NoteImageI> {
     return this.Shared.note.db.uploadImage(file).then(uploaded => ({
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      dataUrl: uploaded.url,
+      dataUrl: this.auth.authenticatedImageUrl(uploaded.url),
       name: uploaded.name || file.name,
       placement
     }))
   }
 
   private fileToInlineImageHtml(file: File): Promise<string> {
-    return this.Shared.note.db.uploadImage(file).then(uploaded => this.inlineImageHtml(uploaded.url, uploaded.name || file.name))
+    return this.Shared.note.db.uploadImage(file).then(uploaded => this.inlineImageHtml(this.auth.authenticatedImageUrl(uploaded.url), uploaded.name || file.name))
   }
 
   private inlineImageHtml(dataUrl: string, name: string) {
@@ -1683,10 +1687,10 @@ export class NotesComponent implements OnInit, OnDestroy {
 
   private firstNoteImageUrl(note: NoteI) {
     const attachedImage = note.images?.[0]?.dataUrl
-    if (attachedImage) return attachedImage
+    if (attachedImage) return this.auth.authenticatedImageUrl(attachedImage)
 
     const match = (note.noteBody || '').match(/<img[^>]+src=["']([^"']+)["']/i)
-    return match?.[1] || ''
+    return match?.[1] ? this.auth.authenticatedImageUrl(match[1]) : ''
   }
 
   private timePickerInputHandler = () => {
