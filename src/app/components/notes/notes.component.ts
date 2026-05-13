@@ -99,6 +99,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   private reminderLookupCache?: { reminders: any[]; byNoteId: Map<number, any> }
   private trashCountdownCache = new WeakMap<NoteI, { trashedAt: string; bucket: number; value: string }>()
   private reminderDateCache = new Map<string, string>()
+  private pendingPermanentDeletes = new Map<number, { note: NoteI; allIndex: number; pinnedIndex: number; unpinnedIndex: number; timer: ReturnType<typeof setTimeout> }>()
   draggedNoteId?: number
   noteOrderChanged = false
   suppressNextOpen = false
@@ -1288,8 +1289,66 @@ export class NotesComponent implements OnInit, OnDestroy {
       this.Shared.snackBar({ action: 'Only the owner of this note can delete it forever.', opposite: '' }, {}, 0)
       return
     }
-    this.Shared.note.id = note.id!
-    this.Shared.note.db.delete()
+    if (!note.id || this.pendingPermanentDeletes.has(note.id)) return
+    const noteId = note.id
+    const pending = {
+      note,
+      allIndex: this.Shared.note.all.findIndex(n => n.id === noteId),
+      pinnedIndex: this.Shared.note.pinned.findIndex(n => n.id === noteId),
+      unpinnedIndex: this.Shared.note.unpinned.findIndex(n => n.id === noteId),
+      timer: setTimeout(() => {
+        this.pendingPermanentDeletes.delete(noteId)
+        this.notesService.delete(noteId)
+      }, 5000)
+    }
+    this.pendingPermanentDeletes.set(noteId, pending)
+    this.removePendingDeletedNoteFromView(noteId)
+    Snackbar.show({
+      pos: 'bottom-left',
+      text: 'Note deleted',
+      actionText: 'Undo',
+      duration: 4200,
+      onActionClick: () => {
+        const current = this.pendingPermanentDeletes.get(noteId)
+        if (!current) return
+        clearTimeout(current.timer)
+        this.pendingPermanentDeletes.delete(noteId)
+        this.restorePendingDeletedNoteToView(current)
+        Snackbar.show({
+          pos: 'bottom-left',
+          text: 'Note restored',
+          duration: 3000,
+        })
+      }
+    })
+  }
+
+  private removePendingDeletedNoteFromView(noteId: number) {
+    this.Shared.note.all = this.Shared.note.all.filter(n => n.id !== noteId)
+    this.Shared.note.pinned = this.Shared.note.pinned.filter(n => n.id !== noteId)
+    this.Shared.note.unpinned = this.Shared.note.unpinned.filter(n => n.id !== noteId)
+    this.masonrySignatureToken++
+    this.cd.detectChanges()
+    this.scheduleBuildMasonry(true)
+  }
+
+  private restorePendingDeletedNoteToView(pending: { note: NoteI; allIndex: number; pinnedIndex: number; unpinnedIndex: number }) {
+    this.Shared.note.all = this.insertNoteAt(this.Shared.note.all, pending.note, pending.allIndex)
+    if (pending.note.pinned) {
+      this.Shared.note.pinned = this.insertNoteAt(this.Shared.note.pinned, pending.note, pending.pinnedIndex)
+    } else {
+      this.Shared.note.unpinned = this.insertNoteAt(this.Shared.note.unpinned, pending.note, pending.unpinnedIndex)
+    }
+    this.masonrySignatureToken++
+    this.cd.detectChanges()
+    this.scheduleBuildMasonry(true)
+  }
+
+  private insertNoteAt(notes: NoteI[], note: NoteI, index: number) {
+    const next = notes.filter(n => n.id !== note.id)
+    const safeIndex = index >= 0 ? Math.min(index, next.length) : next.length
+    next.splice(safeIndex, 0, note)
+    return next
   }
 
   restoreNote(noteId: number) {
