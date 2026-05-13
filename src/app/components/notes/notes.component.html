@@ -293,7 +293,8 @@
             <div class="icons">
               <div class="delete H pop" data-pop="Delete forever" (click)="$event.stopPropagation(); removeNote(note)">
               </div>
-              <div class="restore H pop" data-pop="Restore" (click)="$event.stopPropagation(); restoreNote(note.id!)">
+              <div class="restore material-restore H pop" data-pop="Restore" (click)="$event.stopPropagation(); restoreNote(note.id!)">
+                <span class="material-symbols-outlined">undo</span>
               </div>
             </div>
           </div>
