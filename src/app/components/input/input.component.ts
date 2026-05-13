@@ -343,7 +343,7 @@ export class InputComponent implements OnInit {
       bgColor: this.noteMain.nativeElement.style.backgroundColor,
       bgImage: this.noteMain.nativeElement.style.backgroundImage || this.noteContainer.nativeElement.style.backgroundImage,
       checkBoxes: this.checkBoxes,
-      images: this.images,
+      images: this.images.map(image => ({ ...image, dataUrl: this.auth.canonicalImageUrl(image.dataUrl) })),
       isCbox: this.isCbox.value,
       labels: this.labels.filter(x => x.added),
       archived: this.isArchived,
@@ -541,7 +541,7 @@ export class InputComponent implements OnInit {
   fileToImage(file: File, placement: NoteImageI['placement']): Promise<NoteImageI> {
     return this.Shared.note.db.uploadImage(file).then(uploaded => ({
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      dataUrl: uploaded.url,
+      dataUrl: this.auth.authenticatedImageUrl(uploaded.url),
       name: uploaded.name || file.name,
       placement
     }))
@@ -711,7 +711,7 @@ export class InputComponent implements OnInit {
 
     const img = document.createElement('img')
     img.className = 'inline-note-image'
-    img.src = src
+    img.src = this.auth.authenticatedImageUrl(src)
     img.alt = alt || ''
     wrapper.appendChild(img)
 
@@ -989,7 +989,7 @@ export class InputComponent implements OnInit {
 
   private decorateLinksForEditor(html: string) {
     const div = document.createElement('div')
-    div.innerHTML = html || ''
+    div.innerHTML = this.auth.authenticatedImageHtml(html || '')
     this.removePreviewMarkup(div)
 
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
@@ -1041,7 +1041,7 @@ export class InputComponent implements OnInit {
 
   private cleanEditorBodyForSave(html: string) {
     const div = document.createElement('div')
-    div.innerHTML = html || ''
+    div.innerHTML = this.auth.canonicalImageHtml(html || '')
     this.removePreviewMarkup(div)
     // Strip editor-only chrome (e.g. the inline image delete button) that lives
     // inside the editable body but has no business being persisted.
@@ -1934,7 +1934,7 @@ export class InputComponent implements OnInit {
   innerData(note: NoteI) {
     this.notePhClick()
     this.noteTitle.nativeElement.innerHTML = note.noteTitle
-    this.images = note.images || []
+    this.images = (note.images || []).map(image => ({ ...image, dataUrl: this.auth.authenticatedImageUrl(image.dataUrl) }))
     this.attachments = note.attachments || []
     this.isDrawingNote = this.images.some(image => image.id === 'drawing')
     this.notePin.nativeElement.dataset['pinned'] = String(note.pinned)
@@ -2312,8 +2312,9 @@ export class InputComponent implements OnInit {
     if (this.noteTitle?.nativeElement && this.noteTitle.nativeElement.innerHTML !== note.noteTitle) {
       this.updateHtmlWithCursorPreservation(this.noteTitle.nativeElement, note.noteTitle);
     }
-    if (this.noteBody?.nativeElement && this.noteBody.nativeElement.innerHTML !== note.noteBody && note.noteBody !== undefined) {
-      this.updateHtmlWithCursorPreservation(this.noteBody.nativeElement, note.noteBody);
+    const nextBody = note.noteBody !== undefined ? this.decorateLinksForEditor(note.noteBody || '') : undefined;
+    if (this.noteBody?.nativeElement && nextBody !== undefined && this.noteBody.nativeElement.innerHTML !== nextBody) {
+      this.updateHtmlWithCursorPreservation(this.noteBody.nativeElement, nextBody);
     }
     if (this.noteMain?.nativeElement) {
       this.noteMain.nativeElement.style.backgroundColor = note.bgColor || "";
@@ -2325,7 +2326,7 @@ export class InputComponent implements OnInit {
       this.checkBoxes = JSON.parse(JSON.stringify(note.checkBoxes || []));
     }
     const oldDrawing = this.images.find(i => i.id === 'drawing');
-    this.images = note.images || [];
+    this.images = (note.images || []).map(image => ({ ...image, dataUrl: this.auth.authenticatedImageUrl(image.dataUrl) }));
     this.attachments = note.attachments || [];
     const newDrawing = this.images.find(i => i.id === 'drawing');
     if (this.isDrawingNote && newDrawing && newDrawing.dataUrl !== oldDrawing?.dataUrl) {

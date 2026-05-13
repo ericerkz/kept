@@ -37,6 +37,49 @@ export class AuthService {
     return new HttpHeaders({ Authorization: `Bearer ${this.token}` });
   }
 
+  canonicalImageUrl(value: string) {
+    const raw = String(value || '').trim();
+    if (!raw || raw.startsWith('data:')) return raw;
+    let pathname = raw;
+    try {
+      const parsed = new URL(raw, window.location.origin);
+      const allowedOrigins = new Set([window.location.origin]);
+      if (this.apiUrl.startsWith('http')) allowedOrigins.add(new URL(this.apiUrl).origin);
+      if (!allowedOrigins.has(parsed.origin)) return raw;
+      pathname = parsed.pathname;
+    } catch {}
+    const match = pathname.match(/^(?:\/uploads\/|\/api\/uploads\/images\/)([^/?#]+)$/);
+    if (!match) return raw;
+    return `/api/uploads/images/${match[1]}`;
+  }
+
+  authenticatedImageUrl(value: string) {
+    const canonical = this.canonicalImageUrl(value);
+    if (!canonical.startsWith('/api/uploads/images/')) return canonical;
+    const token = this.token;
+    const imageUrl = this.apiUrl.startsWith('http') ? `${this.apiUrl}${canonical.slice('/api'.length)}` : canonical;
+    if (!token) return imageUrl;
+    return `${imageUrl}?token=${encodeURIComponent(token)}`;
+  }
+
+  authenticatedImageHtml(html: string) {
+    const div = document.createElement('div');
+    div.innerHTML = html || '';
+    div.querySelectorAll<HTMLImageElement>('img[src]').forEach(img => {
+      img.setAttribute('src', this.authenticatedImageUrl(img.getAttribute('src') || img.src));
+    });
+    return div.innerHTML;
+  }
+
+  canonicalImageHtml(html: string) {
+    const div = document.createElement('div');
+    div.innerHTML = html || '';
+    div.querySelectorAll<HTMLImageElement>('img[src]').forEach(img => {
+      img.setAttribute('src', this.canonicalImageUrl(img.getAttribute('src') || img.src));
+    });
+    return div.innerHTML;
+  }
+
   async hasUsers() {
     const result = await firstValueFrom(this.http.get<{ hasUsers: boolean }>(`${this.apiUrl}/setup/status`));
     return result.hasUsers;

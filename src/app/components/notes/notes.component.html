@@ -128,7 +128,7 @@
             <div class="note-images">
                 @for (image of note.images || []; track image.id) {
                   @if (image.placement === 'top') {
-                    <img [src]="image.dataUrl" [alt]="image.name" loading="lazy" decoding="async">
+                    <img [src]="imageSrc(image.dataUrl)" [alt]="image.name" loading="lazy" decoding="async">
                   }
                 }
             </div>
@@ -202,7 +202,7 @@
             <div class="note-images">
               @for (image of note.images || []; track image.id) {
                 @if (image.placement === 'bottom') {
-                  <img [src]="image.dataUrl" [alt]="image.name" loading="lazy" decoding="async">
+                  <img [src]="imageSrc(image.dataUrl)" [alt]="image.name" loading="lazy" decoding="async">
                 }
               }
             </div>
