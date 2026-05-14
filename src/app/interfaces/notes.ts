@@ -10,6 +10,12 @@ export interface NoteI {
     ownerAvatarPreset?: string
     noteTitle: string
     noteBody?: string
+    previewText?: string
+    nextCursor?: string
+    isCardPreview?: boolean
+    hasMoreImages?: boolean
+    hasAttachments?: boolean
+    attachmentCount?: number
     pinned: boolean
     bgColor: string
     bgImage: string

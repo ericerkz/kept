@@ -12,6 +12,9 @@
       <ng-container [ngTemplateOutlet]="noteTemplate" [ngTemplateOutletContext]="{notes:Shared.note.unpinned}">
       </ng-container>
     </div>
+    @if (hasMoreServerNotes()) {
+      <div #loadMoreSentinel class="load-more-notes" aria-hidden="true">Loading more...</div>
+    }
   </section>
 </section>
 
@@ -86,7 +89,8 @@
 <!--*  note template -->
 <ng-template #noteTemplate let-notes="notes">
   <div #noteEl [class.mx-auto]="Shared.noteViewType.value === 'list' ">
-    @for (note of notes | notesTools:currentPageName:Shared.searchQuery | slice:0:visibleNoteLimit ; track note.id) {
+    @let filteredNotes = notes | notesTools:currentPageName:Shared.searchQuery;
+    @for (note of visibleNotes(filteredNotes); track note.id) {
       <div #noteEL class="note-container" [class.selected]="Shared.isNoteSelected(note.id)"
         [class.note-dragging]="draggedNoteId === note.id"
         [attr.data-note-id]="note.id"
@@ -307,7 +311,7 @@
       [attr.data-pop]="!note.pinned ? 'Pin note':'Unpin note' "></div>
     </div>
   }
-  @if ((notes | notesTools:currentPageName:Shared.searchQuery).length > visibleNoteLimit) {
+  @if (canShowMoreLoadedNotes(filteredNotes)) {
     <button type="button" class="load-more-notes" (click)="increaseVisibleNoteLimit()">Load more</button>
   }
 </div>

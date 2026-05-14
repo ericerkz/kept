@@ -851,6 +851,92 @@ function dbNoteToApi(row) {
   };
 }
 
+function notePreviewText(row) {
+  const bodyText = plainText(row.noteBody || '');
+  const checkBoxes = parseJson(row.checkBoxes || '[]', []);
+  const checklistText = Array.isArray(checkBoxes)
+    ? checkBoxes.map(item => plainText(item?.data || '')).filter(Boolean).join(' ')
+    : '';
+  return (bodyText || checklistText || '').slice(0, 280);
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function firstNoteImage(images) {
+  const parsed = parseJson(images || '[]', []);
+  if (!Array.isArray(parsed)) return null;
+  return parsed.find(Boolean) || null;
+}
+
+function dbNoteToCard(row) {
+  const labels = parseJson(row.labels || '[]', []);
+  const checkBoxes = parseJson(row.checkBoxes || '[]', []);
+  const parsedImages = parseJson(row.images || '[]', []);
+  const firstImage = firstNoteImage(row.images);
+  const previewText = notePreviewText(row);
+  return {
+    id: row.id,
+    ownerUserId: row.ownerUserId,
+    noteTitle: row.noteTitle,
+    noteBody: escapeHtml(previewText),
+    previewText,
+    pinned: Boolean(row.pinned),
+    bgColor: row.bgColor || '',
+    bgImage: row.bgImage || '',
+    checkBoxes: Array.isArray(checkBoxes) ? checkBoxes.slice(0, 8) : [],
+    images: firstImage ? [firstImage] : [],
+    hasMoreImages: Array.isArray(parsedImages) && parsedImages.length > (firstImage ? 1 : 0),
+    isCbox: Boolean(row.isCbox),
+    labels,
+    archived: Boolean(row.archived),
+    trashed: Boolean(row.trashed),
+    trashedAt: row.trashedAt || '',
+    sortOrder: Number(row.effectiveSortOrder || row.sortOrder || row.id || 0),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    attachments: [],
+    hasAttachments: Number(row.attachmentCount || 0) > 0,
+    attachmentCount: Number(row.attachmentCount || 0),
+    collaborators: parseJson(row.collaborators || '[]', []),
+    ownerDisplayName: row.ownerDisplayName || undefined,
+    ownerUsername: row.ownerUsername || undefined,
+    ownerAvatarDataUrl: row.ownerAvatarDataUrl || undefined,
+    ownerAvatarPreset: row.ownerAvatarPreset || undefined,
+    lastEditorUserId: row.lastEditorUserId || undefined,
+    lastEditorDisplayName: row.lastEditorDisplayName || undefined,
+    isDemo: Boolean(row.isDemo),
+    isCardPreview: true
+  };
+}
+
+function encodeNotesCursor(row) {
+  if (!row) return null;
+  return Buffer.from(JSON.stringify({
+    sortOrder: Number(row.effectiveSortOrder || row.sortOrder || row.id || 0),
+    id: Number(row.id)
+  })).toString('base64url');
+}
+
+function decodeNotesCursor(cursor) {
+  if (!cursor) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'));
+    const sortOrder = Number(parsed.sortOrder);
+    const id = Number(parsed.id);
+    if (!Number.isFinite(sortOrder) || !Number.isFinite(id)) return null;
+    return { sortOrder, id };
+  } catch {
+    return null;
+  }
+}
+
 async function cleanupUnusedLabels(userId) {
   try {
     const notes = await all('SELECT labels FROM notes WHERE ownerUserId = ?', [userId]);
@@ -2342,6 +2428,62 @@ app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, asyncRou
 
 app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
   await purgeExpiredTrashedNotes();
+
+  if (req.query.view === 'card') {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 80, 1), 200);
+    const cursor = decodeNotesCursor(req.query.cursor);
+    const cursorWhere = cursor
+      ? 'WHERE effectiveSortOrder < ? OR (effectiveSortOrder = ? AND id < ?)'
+      : '';
+    const cursorParams = cursor ? [cursor.sortOrder, cursor.sortOrder, cursor.id] : [];
+    const rows = await all(
+      `WITH accessible_notes AS (
+        SELECT notes.*,
+               COALESCE(pos.sortOrder, notes.sortOrder) AS effectiveSortOrder,
+               CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS pinned,
+               owner.displayName AS ownerDisplayName,
+               owner.username AS ownerUsername,
+               owner.avatarPreset AS ownerAvatarPreset,
+               (SELECT GROUP_CONCAT(nc.userId) FROM note_collaborators nc WHERE nc.noteId = notes.id) AS collaboratorIds,
+               lastEditor.displayName AS lastEditorDisplayName,
+               (SELECT COUNT(*) FROM note_attachments na WHERE na.noteId = notes.id) AS attachmentCount
+        FROM notes
+        LEFT JOIN users owner ON owner.id = notes.ownerUserId
+        LEFT JOIN users lastEditor ON lastEditor.id = notes.lastEditorUserId
+        LEFT JOIN user_pins ON user_pins.noteId = notes.id AND user_pins.userId = ?
+        LEFT JOIN user_note_positions pos ON pos.noteId = notes.id AND pos.userId = ?
+        LEFT JOIN note_collaborators access ON access.noteId = notes.id AND access.userId = ?
+        WHERE notes.ownerUserId = ? OR access.userId IS NOT NULL
+      )
+      SELECT * FROM accessible_notes
+      ${cursorWhere}
+      ORDER BY effectiveSortOrder DESC, id DESC
+      LIMIT ?`,
+      [req.user.id, req.user.id, req.user.id, req.user.id, ...cursorParams, limit + 1]
+    );
+    const page = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+    const me = req.user.id;
+    const notes = page.map(row => {
+      const collabIds = row.collaboratorIds
+        ? String(row.collaboratorIds).split(',').map(Number).filter(Boolean)
+        : [];
+      row.collaborators = JSON.stringify(collabIds.map(id => ({ id, online: realtimeClients.has(id) })));
+      const note = dbNoteToCard(row);
+      note.ownerOnline = realtimeClients.has(note.ownerUserId);
+      note.collaborators = (note.collaborators || []).filter(Boolean).map(c => ({
+        ...c,
+        online: realtimeClients.has(c.id)
+      }));
+      if (note.ownerUserId === me) {
+        note.ownerDisplayName = undefined;
+        note.ownerUsername = undefined;
+      }
+      return note;
+    });
+    return res.json({ notes, nextCursor: hasMore ? encodeNotesCursor(page[page.length - 1]) : null });
+  }
+
   // Avatars (data URLs) can be hundreds of KB each. Joining `owner.avatarDataUrl`
   // and per-collaborator avatars onto every note row produces a payload that
   // grows quadratically with note count × avatar size — easily 100 MB+ for a
