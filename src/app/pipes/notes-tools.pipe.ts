@@ -186,7 +186,7 @@ export class NotesToolsPipe implements PipeTransform {
   }
 
   private noteHasAttachment(note: NoteI) {
-    return !!(note.attachments || []).length
+    return !!(note.hasAttachments || note.attachmentCount || (note.attachments || []).length)
   }
 
   private labelSlug(label: string) {

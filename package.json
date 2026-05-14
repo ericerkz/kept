@@ -1,6 +1,6 @@
 {
   "name": "keep",
-  "version": "1.1",
+  "version": "1.2",
   "scripts": {
     "ng": "ng",
     "start": "concurrently \"npm run api\" \"npm run client\"",

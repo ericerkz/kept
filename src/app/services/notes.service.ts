@@ -19,6 +19,11 @@ export interface TakeoutImportResult {
   total: number;
   fieldPresence?: Record<string, number>;
 }
+
+interface NotesCardPage {
+  notes: NoteI[];
+  nextCursor: string | null;
+}
 import { environment } from 'src/environments/environment';
 import { NoteAttachmentI, NoteI, UpdateKeyI } from './../interfaces/notes';
 import { AuthService } from './auth.service';
@@ -36,6 +41,9 @@ export class NotesService {
   private realtimeReconnect?: ReturnType<typeof setTimeout>;
   private readonly authSubscription: Subscription;
   private isLoading = false;
+  private isLoadingNextPage = false;
+  private nextCursor: string | null = null;
+  private readonly cardPageSize = 80;
   private shouldReconnectRealtime = false;
   private preloadedPreviewUrls = new Set<string>();
   private previewPreloadQueue: string[] = [];
@@ -52,11 +60,38 @@ export class NotesService {
     if (this.isLoading) return;
     this.isLoading = true;
     try {
-      const notes = await firstValueFrom(this.http.get<NoteI[]>(this.apiUrl, { headers: this.auth.authHeaders() }));
-      this.notesList$.next(notes);
-      this.queueLinkPreviewPreload(notes);
+      const page = await firstValueFrom(this.http.get<NotesCardPage>(this.apiUrl, {
+        headers: this.auth.authHeaders(),
+        params: { view: 'card', limit: String(this.cardPageSize) }
+      }));
+      this.nextCursor = page.nextCursor;
+      this.notesList$.next(page.notes);
+      this.queueLinkPreviewPreload(page.notes);
     } finally {
       this.isLoading = false;
+    }
+  }
+
+  get hasMoreNotes() {
+    return !!this.nextCursor;
+  }
+
+  async loadNextPage() {
+    if (!this.nextCursor || this.isLoading || this.isLoadingNextPage) return;
+    this.isLoadingNextPage = true;
+    try {
+      const page = await firstValueFrom(this.http.get<NotesCardPage>(this.apiUrl, {
+        headers: this.auth.authHeaders(),
+        params: { view: 'card', limit: String(this.cardPageSize), cursor: this.nextCursor }
+      }));
+      this.nextCursor = page.nextCursor;
+      const current = this.notesList$.value || [];
+      const seen = new Set(current.map(note => note.id).filter(Boolean));
+      const merged = [...current, ...page.notes.filter(note => !note.id || !seen.has(note.id))];
+      this.notesList$.next(merged);
+      this.queueLinkPreviewPreload(page.notes);
+    } finally {
+      this.isLoadingNextPage = false;
     }
   }
 
@@ -155,6 +190,7 @@ export class NotesService {
 
   async deleteImage(note: NoteI, image: any, event?: Event) {
     if (event) event.stopPropagation();
+    if (note.isCardPreview && note.id) note = await this.get(note.id);
     note.images = (note.images || []).filter(img => img.id !== image.id);
     await this.update(note, note.id!);
   }
@@ -263,8 +299,20 @@ export class NotesService {
 
   async get(id: number) {
     if (id !== -1) {
-      return await firstValueFrom(this.http.get<NoteI>(`${this.apiUrl}/${id}`, { headers: this.auth.authHeaders() }));
+      const note = await firstValueFrom(this.http.get<NoteI>(`${this.apiUrl}/${id}`, { headers: this.auth.authHeaders() }));
+      this.mergeNoteIntoList(note);
+      return note;
     } else return {} as NoteI
+  }
+
+  private mergeNoteIntoList(note: NoteI) {
+    const current = this.notesList$.value;
+    if (!current || !note.id) return;
+    const index = current.findIndex(item => item.id === note.id);
+    if (index < 0) return;
+    const next = [...current];
+    next[index] = { ...next[index], ...note, isCardPreview: false };
+    this.notesList$.next(next);
   }
 
   async getAll() {

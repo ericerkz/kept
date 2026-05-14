@@ -32,6 +32,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   @ViewChild("modal") modal!: ElementRef<HTMLInputElement>
   @ViewChild('overviewImageInput') overviewImageInput?: ElementRef<HTMLInputElement>
   @ViewChild('globalReminderTime') globalReminderTime?: ElementRef<HTMLInputElement>
+  @ViewChild('loadMoreSentinel') loadMoreSentinel?: ElementRef<HTMLDivElement>
   private pendingPickerNote: NoteI | null = null
   @ViewChildren('noteEl') noteEl!: QueryList<ElementRef<HTMLDivElement>>
   @ViewChildren('title') title!: QueryList<ElementRef<HTMLDivElement>>
@@ -112,6 +113,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   private readonly initialNoteRenderChunk = 24
   private didInitialExpand = false
   private lastRenderContext = ''
+  private loadMoreObserver?: IntersectionObserver
   //? -----------------------------------------------------
   trackBy(_index: number, item: any) { return item.id }
 
@@ -431,7 +433,24 @@ export class NotesComponent implements OnInit, OnDestroy {
 
   increaseVisibleNoteLimit() {
     this.visibleNoteLimit += this.noteRenderChunk
+    if (this.Shared.note.all.length - this.visibleNoteLimit < this.noteRenderChunk) this.loadMoreNotesIfNeeded()
     this.scheduleBuildMasonry(true)
+  }
+
+  visibleNotes(notes: NoteI[]) {
+    return notes.slice(0, this.visibleNoteLimit)
+  }
+
+  canShowMoreLoadedNotes(notes: NoteI[]) {
+    return notes.length > this.visibleNoteLimit
+  }
+
+  hasMoreServerNotes() {
+    return this.notesService.hasMoreNotes
+  }
+
+  loadMoreNotesIfNeeded() {
+    if (this.notesService.hasMoreNotes) this.notesService.loadNextPage().catch(console.error)
   }
 
   @HostListener('window:scroll')
@@ -442,7 +461,7 @@ export class NotesComponent implements OnInit, OnDestroy {
 
   //? modal  -----------------------------------------------------------
 
-  openModal(clickedNote: HTMLDivElement, noteData: NoteI, openImagePicker = false) {
+  async openModal(clickedNote: HTMLDivElement, noteData: NoteI, openImagePicker = false) {
     if (this.suppressNextOpen) {
       this.suppressNextOpen = false
       return
@@ -453,7 +472,7 @@ export class NotesComponent implements OnInit, OnDestroy {
     }
     this.openImagePickerOnModal = openImagePicker
     this.Shared.note.id = noteData.id!
-    this.clickedNoteData = noteData
+    this.clickedNoteData = noteData.isCardPreview ? await this.notesService.get(noteData.id!).catch(() => noteData) : noteData
     this.clickedNoteEl = clickedNote
     const source = clickedNote.getBoundingClientRect()
     const modalContainer = this.modalContainer.nativeElement
@@ -590,21 +609,24 @@ export class NotesComponent implements OnInit, OnDestroy {
     return actions
   }
 
-  toggleOverviewCheckbox(note: NoteI, cb: CheckboxI, event: Event) {
+  async toggleOverviewCheckbox(note: NoteI, cb: CheckboxI, event: Event) {
     event.stopPropagation()
     event.preventDefault()
+    if (note.isCardPreview && note.id) note = await this.notesService.get(note.id).catch(() => note)
+    const target = note.checkBoxes?.find(item => item.id === cb.id) || cb
     this.Shared.note.id = note.id!
-    cb.done = !cb.done
+    target.done = !target.done
     this.Shared.note.db.updateKey({ checkBoxes: note.checkBoxes })
     this.scheduleBuildMasonry(true)
   }
 
-  removeOverviewCheckbox(note: NoteI, cb: CheckboxI, event: Event) {
+  async removeOverviewCheckbox(note: NoteI, cb: CheckboxI, event: Event) {
     event.stopPropagation()
     event.preventDefault()
+    if (note.isCardPreview && note.id) note = await this.notesService.get(note.id).catch(() => note)
     this.Shared.note.id = note.id!
-    const index = note.checkBoxes?.findIndex(x => x === cb)
-    if (index !== undefined) note.checkBoxes?.splice(index, 1)
+    const index = note.checkBoxes?.findIndex(x => x.id === cb.id)
+    if (index !== undefined && index >= 0) note.checkBoxes?.splice(index, 1)
     this.Shared.note.db.updateKey({ checkBoxes: note.checkBoxes })
     this.scheduleBuildMasonry(true)
   }
@@ -941,7 +963,7 @@ export class NotesComponent implements OnInit, OnDestroy {
 
   async overviewImageInputChange(event: Event) {
     const input = event.target as HTMLInputElement
-    const note = this.overviewImageNote
+    let note = this.overviewImageNote
     this.overviewImageNote = null
     if (!note?.id || !input.files?.length) {
       input.value = ''
@@ -951,9 +973,14 @@ export class NotesComponent implements OnInit, OnDestroy {
     input.value = ''
     if (!files.length) return
     const imageData = await Promise.all(files.map(file => this.fileToNoteImage(file, 'bottom')))
+    if (note.isCardPreview) {
+      const fullNote = await this.notesService.get(note.id).catch(() => note)
+      if (!fullNote) return
+      note = fullNote
+    }
     note.images = [...(note.images || []), ...imageData]
     this.masonrySignatureToken++
-    this.Shared.note.id = note.id
+    this.Shared.note.id = note.id!
     await this.Shared.note.db.updateKey({
       images: note.images,
       isCbox: false
@@ -1086,9 +1113,10 @@ export class NotesComponent implements OnInit, OnDestroy {
     const files = Array.from(event.dataTransfer.files).filter(file => file.type.startsWith('image/'))
     if (!files.length) return
     const imageData = await Promise.all(files.map(file => this.fileToNoteImage(file, 'bottom')))
+    if (note.isCardPreview && note.id) note = await this.notesService.get(note.id).catch(() => note)
     note.images = [...(note.images || []), ...imageData]
     this.masonrySignatureToken++
-    this.Shared.note.id = note.id
+    this.Shared.note.id = note.id!
     await this.Shared.note.db.updateKey({
       images: note.images,
       isCbox: false
@@ -1772,7 +1800,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   // ?--------------------------------------------------------------
 
   ngAfterViewChecked() {
-    const renderContext = `${this.currentPageName}:${this.Shared.searchQuery}:${this.Shared.note.all.length}:${this.Shared.note.pinned.length}:${this.Shared.note.unpinned.length}`
+    const renderContext = `${this.currentPageName}:${this.Shared.searchQuery}:${this.Shared.noteViewType.value}`
     if (renderContext !== this.lastRenderContext) {
       this.lastRenderContext = renderContext
       // Reset to the small initial chunk so the new context paints fast.
@@ -1835,7 +1863,22 @@ export class NotesComponent implements OnInit, OnDestroy {
     )
   }
 
+  ngAfterViewInit() {
+    if (!('IntersectionObserver' in window)) return
+    this.loadMoreObserver = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return
+      this.zone.run(() => {
+        if (this.hasMoreServerNotes()) this.loadMoreNotesIfNeeded()
+        else this.increaseVisibleNoteLimit()
+      })
+    }, { root: null, rootMargin: '70% 0px', threshold: 0 })
+    setTimeout(() => {
+      if (this.loadMoreSentinel?.nativeElement) this.loadMoreObserver?.observe(this.loadMoreSentinel.nativeElement)
+    })
+  }
+
   ngOnDestroy(): void {
+    this.loadMoreObserver?.disconnect()
     this.closeReminderPicker()
     this.subscriptions.forEach(s => s.unsubscribe())
     this.subscriptions = []
