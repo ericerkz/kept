@@ -440,7 +440,16 @@ export class InputComponent implements OnInit {
   }
 
 
-  pasteEvent(event: ClipboardEvent) {
+  async pasteEvent(event: ClipboardEvent) {
+    const imageFiles = this.clipboardImageFiles(event)
+    if (imageFiles.length) {
+      event.preventDefault()
+      if (this.noteMain.nativeElement.hidden) this.notePhClick()
+      this.rememberBodySelection()
+      await this.addImageFiles(imageFiles)
+      return
+    }
+
     // to remove text styling -> before : https://prnt.sc/a7M5g-kbofba, after : https://prnt.sc/D7KEV6rdlm_7
     event.preventDefault()
     let text = event.clipboardData?.getData('text/plain');
@@ -455,6 +464,16 @@ export class InputComponent implements OnInit {
     sel?.collapseToEnd()
     // document.execCommand('insertText', false, text)
     // ! TODO, when u paste, yji fel <br> => so ywali maybanch
+  }
+
+  private clipboardImageFiles(event: ClipboardEvent): File[] {
+    const items = Array.from(event.clipboardData?.items || [])
+    const files = items
+      .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+      .map(item => item.getAsFile())
+      .filter((file): file is File => !!file)
+    if (files.length) return files
+    return Array.from(event.clipboardData?.files || []).filter(file => file.type.startsWith('image/'))
   }
 
   @HostListener('document:selectionchange')
@@ -522,7 +541,7 @@ export class InputComponent implements OnInit {
     this.draggedInlineObject = undefined
   }
 
-  async addImageFiles(fileList: FileList | null, event?: DragEvent) {
+  async addImageFiles(fileList: FileList | File[] | null, event?: DragEvent) {
     if (!fileList?.length) return
     const files = Array.from(fileList).filter(file => file.type.startsWith('image/'))
     if (!files.length) return
