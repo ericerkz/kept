@@ -12,6 +12,7 @@ import { ShareUserI } from 'src/app/interfaces/users';
 import { ReminderService } from 'src/app/services/reminder.service';
 import { NotesService } from 'src/app/services/notes.service';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
+import { NotesToolsPipe } from 'src/app/pipes/notes-tools.pipe';
 
 declare var Snackbar: any;
 type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string }
@@ -19,11 +20,12 @@ type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: s
     selector: 'app-notes',
     templateUrl: './notes.component.html',
     styleUrls: ['./notes.component.scss'],
+    providers: [NotesToolsPipe],
     standalone: false
 })
 export class NotesComponent implements OnInit, OnDestroy {
   activeNote: NoteI | null = null
-  constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, private notesService: NotesService, private cd: ChangeDetectorRef) { }
+  constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, private notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe) { }
 
   private subscriptions: Subscription[] = []
 
@@ -114,6 +116,8 @@ export class NotesComponent implements OnInit, OnDestroy {
   private didInitialExpand = false
   private lastRenderContext = ''
   private loadMoreObserver?: IntersectionObserver
+  private isBackfillingFilteredPage = false
+  private lastBackfillContext = ''
   //? -----------------------------------------------------
   trackBy(_index: number, item: any) { return item.id }
 
@@ -451,6 +455,36 @@ export class NotesComponent implements OnInit, OnDestroy {
 
   loadMoreNotesIfNeeded() {
     if (this.notesService.hasMoreNotes) this.notesService.loadNextPage().catch(console.error)
+  }
+
+  private pageNotes() {
+    return this.notesTools.transform(this.Shared.note.all || [], this.currentPageName, this.Shared.searchQuery)
+  }
+
+  private maybeBackfillFilteredPage() {
+    const notes = this.Shared.note.all || []
+    if (!notes.length || !this.notesService.hasMoreNotes || this.isBackfillingFilteredPage) return
+    if (this.pageNotes().length) return
+
+    const context = `${this.currentPageName}:${this.Shared.searchQuery}:${notes.length}`
+    if (context === this.lastBackfillContext) return
+    this.lastBackfillContext = context
+    this.isBackfillingFilteredPage = true
+    Promise.resolve().then(async () => {
+      try {
+        while (this.notesService.hasMoreNotes && !this.pageNotes().length) {
+          const before = this.Shared.note.all?.length || 0
+          await this.notesService.loadNextPage()
+          const after = this.Shared.note.all?.length || 0
+          if (after <= before) break
+        }
+      } catch (error) {
+        console.error(error)
+      } finally {
+        this.isBackfillingFilteredPage = false
+        this.scheduleBuildMasonry(true)
+      }
+    })
   }
 
   @HostListener('window:scroll')
@@ -1816,6 +1850,7 @@ export class NotesComponent implements OnInit, OnDestroy {
       this.didInitialExpand = true
       this.scheduleProgressiveExpand()
     }
+    this.maybeBackfillFilteredPage()
     this.scheduleBuildMasonry()
   }
 

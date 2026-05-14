@@ -118,6 +118,7 @@ export class SharedService {
 
   setSearchQuery(query: string) {
     this.searchQuery = query
+    this.Notes.setSearchQuery(query)
   }
 
   async refreshData() {

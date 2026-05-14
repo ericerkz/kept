@@ -860,6 +860,46 @@ function notePreviewText(row) {
   return (bodyText || checklistText || '').slice(0, 280);
 }
 
+function searchTextFromQuery(query) {
+  return String(query || '')
+    .split(/\s+/)
+    .filter(token => token &&
+      !/^!i(?:m(?:a(?:g(?:e)?)?)?)?$/i.test(token) &&
+      !/^!l(?:a(?:b(?:e(?:l(?::[a-z0-9_-]+)?)?)?)?)?$/i.test(token) &&
+      !/^!label:[a-z0-9_-]+$/i.test(token) &&
+      !/^!d(?:r(?:a(?:w(?:ing)?)?)?)?$/i.test(token) &&
+      !/^!t(?:o(?:d(?:o)?)?)?$/i.test(token) &&
+      !/^!a(?:t(?:t(?:a(?:c(?:h(?:m(?:e(?:n(?:t)?)?)?)?)?)?)?)?)?$/i.test(token) &&
+      !/^!url?$/i.test(token)
+    )
+    .join(' ')
+    .trim();
+}
+
+function searchTokensFromQuery(query) {
+  return searchTextFromQuery(query)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s/:\-]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function noteSearchWhere(tokens) {
+  const params = [];
+  const conditions = tokens.map(token => {
+    const like = `%${token}%`;
+    params.push(like, like, like, like, like);
+    return `(LOWER(COALESCE(noteTitle, '')) LIKE ?
+      OR LOWER(COALESCE(noteBody, '')) LIKE ?
+      OR LOWER(COALESCE(checkBoxes, '')) LIKE ?
+      OR LOWER(COALESCE(labels, '')) LIKE ?
+      OR LOWER(COALESCE(attachmentNames, '')) LIKE ?)`;
+  });
+  return { clause: conditions.join(' AND '), params };
+}
+
 function escapeHtml(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -876,7 +916,18 @@ function cardNoteBody(row, previewText) {
   return escapeHtml(previewText);
 }
 
-function dbNoteToCard(row) {
+function cardSearchText(row) {
+  return [
+    row.noteTitle || '',
+    row.noteBody || '',
+    row.checkBoxes || '',
+    row.labels || '',
+    row.attachmentNames || ''
+  ].join(' ');
+}
+
+function dbNoteToCard(row, options = {}) {
+  const includeSearchText = !!options.includeSearchText;
   const labels = parseJson(row.labels || '[]', []);
   const checkBoxes = parseJson(row.checkBoxes || '[]', []);
   const parsedImages = parseJson(row.images || '[]', []);
@@ -887,6 +938,7 @@ function dbNoteToCard(row) {
     ownerUserId: row.ownerUserId,
     noteTitle: row.noteTitle,
     noteBody: cardNoteBody(row, previewText),
+    searchText: includeSearchText ? cardSearchText(row) : undefined,
     previewText,
     pinned: Boolean(row.pinned),
     bgColor: row.bgColor || '',
@@ -2433,10 +2485,20 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
   if (req.query.view === 'card') {
     const limit = Math.min(Math.max(Number(req.query.limit) || 80, 1), 200);
     const cursor = decodeNotesCursor(req.query.cursor);
-    const cursorWhere = cursor
-      ? 'WHERE effectiveSortOrder < ? OR (effectiveSortOrder = ? AND id < ?)'
-      : '';
+    const searchTokens = searchTokensFromQuery(req.query.q);
+    const searchWhere = noteSearchWhere(searchTokens);
+    const whereClauses = [];
     const cursorParams = cursor ? [cursor.sortOrder, cursor.sortOrder, cursor.id] : [];
+    const queryParams = [req.user.id, req.user.id, req.user.id, req.user.id];
+    if (cursor) {
+      whereClauses.push('(effectiveSortOrder < ? OR (effectiveSortOrder = ? AND id < ?))');
+      queryParams.push(...cursorParams);
+    }
+    if (searchWhere.clause) {
+      whereClauses.push(searchWhere.clause);
+      queryParams.push(...searchWhere.params);
+    }
+    const pageWhere = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
     const rows = await all(
       `WITH accessible_notes AS (
         SELECT notes.*,
@@ -2447,7 +2509,8 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
                owner.avatarPreset AS ownerAvatarPreset,
                (SELECT GROUP_CONCAT(nc.userId) FROM note_collaborators nc WHERE nc.noteId = notes.id) AS collaboratorIds,
                lastEditor.displayName AS lastEditorDisplayName,
-               (SELECT COUNT(*) FROM note_attachments na WHERE na.noteId = notes.id) AS attachmentCount
+               (SELECT COUNT(*) FROM note_attachments na WHERE na.noteId = notes.id) AS attachmentCount,
+               (SELECT GROUP_CONCAT(na.originalName, ' ') FROM note_attachments na WHERE na.noteId = notes.id) AS attachmentNames
         FROM notes
         LEFT JOIN users owner ON owner.id = notes.ownerUserId
         LEFT JOIN users lastEditor ON lastEditor.id = notes.lastEditorUserId
@@ -2457,10 +2520,10 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
         WHERE notes.ownerUserId = ? OR access.userId IS NOT NULL
       )
       SELECT * FROM accessible_notes
-      ${cursorWhere}
+      ${pageWhere}
       ORDER BY effectiveSortOrder DESC, id DESC
       LIMIT ?`,
-      [req.user.id, req.user.id, req.user.id, req.user.id, ...cursorParams, limit + 1]
+      [...queryParams, limit + 1]
     );
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
@@ -2470,7 +2533,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
         ? String(row.collaboratorIds).split(',').map(Number).filter(Boolean)
         : [];
       row.collaborators = JSON.stringify(collabIds.map(id => ({ id, online: realtimeClients.has(id) })));
-      const note = dbNoteToCard(row);
+      const note = dbNoteToCard(row, { includeSearchText: !!searchTokens.length });
       note.ownerOnline = realtimeClients.has(note.ownerUserId);
       note.collaborators = (note.collaborators || []).filter(Boolean).map(c => ({
         ...c,

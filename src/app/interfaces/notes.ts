@@ -10,6 +10,7 @@ export interface NoteI {
     ownerAvatarPreset?: string
     noteTitle: string
     noteBody?: string
+    searchText?: string
     previewText?: string
     nextCursor?: string
     isCardPreview?: boolean
