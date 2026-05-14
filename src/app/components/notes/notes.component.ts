@@ -555,15 +555,16 @@ export class NotesComponent implements OnInit, OnDestroy {
   closeModal() {
     document.removeEventListener('mousedown', this.mouseDownEvent)
     let modalContainer = this.modalContainer.nativeElement
+    const isMobileModal = window.innerWidth < 660
     this.prepareModalCloseAnimation()
     setTimeout(() => {
       this.clickedNoteEl.classList.remove('hide')
-    }, 200)
+    }, isMobileModal ? 90 : 200)
     setTimeout(() => {
       modalContainer.style.display = 'none'
       this.openImagePickerOnModal = false
       this.modal.nativeElement.removeAttribute('style')
-    }, 400)
+    }, isMobileModal ? 180 : 400)
   }
 
   private prepareModalOpenAnimation(source: DOMRect) {
@@ -618,7 +619,7 @@ export class NotesComponent implements OnInit, OnDestroy {
     const translateX = source.left - target.left
     const translateY = source.top - target.top
     modal.style.transformOrigin = 'top left'
-    modal.style.transition = animate ? '' : 'none'
+    modal.style.transition = animate ? (window.innerWidth < 660 ? 'transform 0.16s ease, opacity 0.12s ease' : '') : 'none'
     modal.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`
     modal.style.opacity = animate ? '0.98' : '1'
   }
