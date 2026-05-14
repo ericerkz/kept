@@ -861,6 +861,20 @@ function notePreviewText(row) {
   return (bodyText || checklistText || '').slice(0, 280);
 }
 
+function noteLinkCount(row) {
+  const urls = new Set();
+  const addUrls = (value) => {
+    for (const match of String(value || '').matchAll(/https?:\/\/[^\s"'<>]+/gi)) {
+      const url = match[0].replace(/[),.;:!?]+$/, '');
+      if (url) urls.add(url);
+    }
+  };
+  addUrls(row.noteBody || '');
+  const checkBoxes = parseJson(row.checkBoxes || '[]', []);
+  if (Array.isArray(checkBoxes)) checkBoxes.forEach(item => addUrls(item?.data || ''));
+  return urls.size;
+}
+
 function searchTextFromQuery(query) {
   return String(query || '')
     .split(/\s+/)
@@ -942,6 +956,7 @@ function dbNoteToCard(row, options = {}) {
     noteBody: cardNoteBody(row, previewText),
     searchText: includeSearchText ? cardSearchText(row) : undefined,
     previewText,
+    linkCount: noteLinkCount(row),
     pinned: Boolean(pinned),
     bgColor: row.bgColor || '',
     bgImage: row.bgImage || '',

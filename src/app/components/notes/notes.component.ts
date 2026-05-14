@@ -16,7 +16,7 @@ import { NotesToolsPipe } from 'src/app/pipes/notes-tools.pipe';
 
 declare var Snackbar: any;
 type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string }
-type ModalScrollAnchor = { noteId: number; viewportTop: number; scrollY: number; visibleLimit: number }
+type NoteBodyPreview = { segments: NoteBodySegment[]; urls: string[] }
 @Component({
     selector: 'app-notes',
     templateUrl: './notes.component.html',
@@ -119,13 +119,10 @@ export class NotesComponent implements OnInit, OnDestroy {
   private loadMoreObserver?: IntersectionObserver
   private isBackfillingFilteredPage = false
   private lastBackfillContext = ''
-  private modalScrollAnchor?: ModalScrollAnchor
+  private modalScrollRestoreTimers: ReturnType<typeof setTimeout>[] = []
+  private modalOpenScrollY = 0
   //? -----------------------------------------------------
   trackBy(_index: number, item: any) { return item.id }
-
-  noteUrls(note: NoteI): string[] {
-    return this.noteMeta(note).urls
-  }
 
   isLinkOnlyNote(note: NoteI): boolean {
     return this.noteMeta(note).linkOnly
@@ -154,6 +151,19 @@ export class NotesComponent implements OnInit, OnDestroy {
     return this.noteMeta(note).bodySegments
   }
 
+  visibleLinkUrls(note: NoteI): string[] {
+    return this.noteMeta(note).urls.slice(0, 3)
+  }
+
+  hiddenLinkCount(note: NoteI): number {
+    const count = this.totalLinkCount(note) - this.visibleLinkUrls(note).length
+    return count > 0 ? count : 0
+  }
+
+  private totalLinkCount(note: NoteI) {
+    return Math.max(note.linkCount || 0, this.noteMeta(note).urls.length)
+  }
+
   imageSrc(src: string) {
     return this.auth.authenticatedImageUrl(src)
   }
@@ -178,10 +188,12 @@ export class NotesComponent implements OnInit, OnDestroy {
     const cached = this.noteMetaCache.get(note)
     if (cached && cached.body === body && cached.title === title && cached.bgKey === bgKey) return cached
 
-    const bodySegments = this.buildBodySegments(body)
-    const urls = bodySegments.filter((s): s is { type: 'url'; value: string } => s.type === 'url').map(s => s.value)
+    const bodyPreview = this.buildBodySegments(body)
+    const bodySegments = bodyPreview.segments
+    const urls = bodyPreview.urls
     const plainBody = body.replace(/<[^>]+>/g, ' ')
-    const linkOnly = !note.isCbox && !!body && !title.trim() && /^\s*https?:\/\/\S+\s*$/.test(plainBody)
+    const bodyWithoutUrls = plainBody.replace(/https?:\/\/\S+/g, '').replace(/&nbsp;/g, ' ').trim()
+    const linkOnly = !note.isCbox && urls.length > 0 && !title.trim() && !bodyWithoutUrls
     const isLightMode = document.body.classList.contains('light-theme');
     const defaultTextColor = isLightMode ? '#202124' : '#e8eaed';
     const textColor = note.bgImage || (note.bgColor && this.isLightColor(note.bgColor)) ? '#202124' : (note.bgColor ? '#e8eaed' : defaultTextColor);
@@ -192,7 +204,7 @@ export class NotesComponent implements OnInit, OnDestroy {
     return next
   }
 
-  private buildBodySegments(html: string): NoteBodySegment[] {
+  private buildBodySegments(html: string): NoteBodyPreview {
     const div = document.createElement('div')
     div.innerHTML = html || ''
     div.querySelectorAll('app-link-preview, .editor-link-previews, .editor-link-preview-slot, .lp-card').forEach(el => el.remove())
@@ -233,7 +245,9 @@ export class NotesComponent implements OnInit, OnDestroy {
     })
 
     const segments: NoteBodySegment[] = []
+    const urls: string[] = []
     const seenUrls = new Set<string>()
+    const renderedUrls = new Set<string>()
     let buffer = document.createElement('div')
 
     const flushBuffer = () => {
@@ -246,10 +260,14 @@ export class NotesComponent implements OnInit, OnDestroy {
       for (const node of Array.from(root.childNodes)) {
         if (node.nodeType === 1 && (node as HTMLElement).dataset?.['previewUrl']) {
           const url = (node as HTMLElement).dataset['previewUrl']!
-          if (!seenUrls.has(url) && seenUrls.size < 3) {
+          if (!seenUrls.has(url)) {
+            seenUrls.add(url)
+            urls.push(url)
+          }
+          if (!renderedUrls.has(url) && renderedUrls.size < 3) {
             flushBuffer()
             segments.push({ type: 'url', value: url })
-            seenUrls.add(url)
+            renderedUrls.add(url)
           }
         } else if (node.nodeType === 1) {
           const placeholders = (node as Element).querySelectorAll('[data-preview-url]')
@@ -269,7 +287,7 @@ export class NotesComponent implements OnInit, OnDestroy {
     walk(div)
     flushBuffer()
 
-    return segments
+    return { segments, urls }
   }
 
   private hideLinksInHtml(html: string) {
@@ -510,8 +528,8 @@ export class NotesComponent implements OnInit, OnDestroy {
     this.Shared.note.id = noteData.id!
     this.clickedNoteEl = clickedNote
     const source = clickedNote.getBoundingClientRect()
-    this.captureModalScrollAnchor(noteData, source)
-    this.clickedNoteData = noteData.isCardPreview ? await this.notesService.get(noteData.id!).catch(() => noteData) : noteData
+    this.captureModalScrollPosition()
+    this.clickedNoteData = noteData.isCardPreview ? await this.notesService.get(noteData.id!, { merge: false }).catch(() => noteData) : noteData
     const modalContainer = this.modalContainer.nativeElement
     modalContainer.style.display = 'block';
     this.cd.detectChanges()
@@ -567,47 +585,30 @@ export class NotesComponent implements OnInit, OnDestroy {
       modalContainer.style.display = 'none'
       this.openImagePickerOnModal = false
       this.modal.nativeElement.removeAttribute('style')
-      this.restoreModalScrollAnchor()
+      this.restoreModalScrollPosition()
     }, isMobileModal ? 180 : 400)
   }
 
-  private captureModalScrollAnchor(note: NoteI, source: DOMRect) {
-    if (!note.id) return
-    this.modalScrollAnchor = {
-      noteId: note.id,
-      viewportTop: source.top,
-      scrollY: window.scrollY,
-      visibleLimit: this.visibleNoteLimit
-    }
-    this.ensureNoteVisible(note.id)
+  private captureModalScrollPosition() {
+    this.clearModalScrollRestoreTimers()
+    this.modalOpenScrollY = window.scrollY
   }
 
-  private ensureNoteVisible(noteId: number) {
-    const index = this.pageNotes().findIndex(note => note.id === noteId)
-    if (index < 0) return
-    this.visibleNoteLimit = Math.max(this.visibleNoteLimit, index + 1)
+  private restoreModalScrollPosition() {
+    this.queueModalScrollRestore(0)
+    this.queueModalScrollRestore(80)
   }
 
-  private restoreModalScrollAnchor() {
-    const anchor = this.modalScrollAnchor
-    this.modalScrollAnchor = undefined
-    if (!anchor) return
+  private queueModalScrollRestore(delay: number) {
+    const timer = setTimeout(() => {
+      requestAnimationFrame(() => window.scrollTo({ top: this.modalOpenScrollY }))
+    }, delay)
+    this.modalScrollRestoreTimers.push(timer)
+  }
 
-    this.visibleNoteLimit = Math.max(this.visibleNoteLimit, anchor.visibleLimit)
-    this.ensureNoteVisible(anchor.noteId)
-    this.cd.detectChanges()
-    this.scheduleBuildMasonry(true)
-
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      const noteEl = document.querySelector<HTMLElement>(`[data-note-id="${anchor.noteId}"]`)
-      if (!noteEl) {
-        window.scrollTo({ top: anchor.scrollY })
-        return
-      }
-      const nextTop = window.scrollY + noteEl.getBoundingClientRect().top - anchor.viewportTop
-      window.scrollTo({ top: Math.max(0, nextTop) })
-      this.scheduleBuildMasonry(true)
-    }))
+  private clearModalScrollRestoreTimers() {
+    this.modalScrollRestoreTimers.forEach(timer => clearTimeout(timer))
+    this.modalScrollRestoreTimers = []
   }
 
   private prepareModalOpenAnimation(source: DOMRect) {
@@ -1137,10 +1138,16 @@ export class NotesComponent implements OnInit, OnDestroy {
     setTimeout(() => this.suppressNextOpen = false)
   }
 
-  private persistNoteOrder(notes: NoteI[]) {
+  private persistNoteOrder(_notes: NoteI[]) {
     if (!this.noteOrderChanged) return
     this.noteOrderChanged = false
-    this.Shared.note.db.reorder(notes.map(note => note.id).filter((id): id is number => !!id))
+    this.Shared.note.db.reorder(this.loadedNoteOrderIds())
+  }
+
+  private loadedNoteOrderIds() {
+    return [...this.Shared.note.pinned, ...this.Shared.note.unpinned]
+      .map(note => note.id)
+      .filter((id): id is number => !!id)
   }
 
   private getNoteRects() {
@@ -1961,6 +1968,7 @@ export class NotesComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.loadMoreObserver?.disconnect()
+    this.clearModalScrollRestoreTimers()
     this.closeReminderPicker()
     this.subscriptions.forEach(s => s.unsubscribe())
     this.subscriptions = []

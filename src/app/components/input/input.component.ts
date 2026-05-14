@@ -453,17 +453,59 @@ export class InputComponent implements OnInit {
     // to remove text styling -> before : https://prnt.sc/a7M5g-kbofba, after : https://prnt.sc/D7KEV6rdlm_7
     event.preventDefault()
     let text = event.clipboardData?.getData('text/plain');
-    let target = event.target as HTMLDivElement
-    target.innerText += text
+    let target = event.currentTarget as HTMLDivElement
+    this.insertPlainTextAtCursor(target, text || '')
     if (this.noteBody?.nativeElement === target) {
-      this.decorateCurrentBodyLinks()
-      this.onNoteBodyInput(target)
+      this.queueEditorLinkDecoration()
+    } else if (this.noteTitle?.nativeElement === target) {
+      this.onNoteTitleInput()
     }
-    let sel = window.getSelection()
-    sel?.selectAllChildren(target)
-    sel?.collapseToEnd()
     // document.execCommand('insertText', false, text)
     // ! TODO, when u paste, yji fel <br> => so ywali maybanch
+  }
+
+  private insertPlainTextAtCursor(target: HTMLElement, text: string) {
+    target.focus()
+    const selection = window.getSelection()
+    let range: Range
+    if (selection?.rangeCount && target.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+      range = selection.getRangeAt(0)
+      const common = range.commonAncestorContainer
+      const commonEl = common.nodeType === Node.ELEMENT_NODE ? common as Element : common.parentElement
+      const previewSlot = commonEl?.closest('.editor-link-preview-slot')
+      if (previewSlot) {
+        range = document.createRange()
+        range.setStartAfter(previewSlot)
+        range.collapse(true)
+      } else {
+        range.deleteContents()
+      }
+    } else {
+      range = document.createRange()
+      range.selectNodeContents(target)
+      range.collapse(false)
+    }
+
+    const fragment = document.createDocumentFragment()
+    const lines = text.replace(/\r\n?/g, '\n').split('\n')
+    let lastNode: Node | null = null
+    lines.forEach((line, index) => {
+      if (index > 0) {
+        lastNode = document.createElement('br')
+        fragment.append(lastNode)
+      }
+      if (line) {
+        lastNode = document.createTextNode(line)
+        fragment.append(lastNode)
+      }
+    })
+    range.insertNode(fragment)
+    if (!lastNode) return
+    range = document.createRange()
+    range.setStartAfter(lastNode)
+    range.collapse(true)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
   }
 
   private clipboardImageFiles(event: ClipboardEvent): File[] {
@@ -1074,7 +1116,10 @@ export class InputComponent implements OnInit {
   }
 
   private removePreviewMarkup(root: HTMLElement) {
-    root.querySelectorAll('app-link-preview, .editor-link-previews, .lp-card').forEach(el => el.remove())
+    root.querySelectorAll<HTMLElement>('.editor-link-preview-slot').forEach(marker => {
+      marker.querySelectorAll('.editor-link-preview-card').forEach(el => el.remove())
+    })
+    root.querySelectorAll<HTMLElement>('app-link-preview, .editor-link-previews, .lp-card, .editor-link-preview-card').forEach(el => el.remove())
   }
 
   private decorateCurrentBodyLinks() {
@@ -1082,6 +1127,15 @@ export class InputComponent implements OnInit {
     if (!body) return
     body.innerHTML = this.decorateLinksForEditor(this.cleanEditorBodyForSave(body.innerHTML))
     this.hydrateEditorLinkPreviews()
+  }
+
+  private queueEditorLinkDecoration() {
+    requestAnimationFrame(() => {
+      const body = this.noteBody?.nativeElement
+      if (!body) return
+      this.decorateCurrentBodyLinks()
+      this.onNoteBodyInput(body)
+    })
   }
 
   private hydrateEditorLinkPreviews() {
@@ -1101,19 +1155,23 @@ export class InputComponent implements OnInit {
   private editorPreviewShell(url: string) {
     const card = document.createElement('span')
     card.className = 'editor-link-preview-card loading'
+    card.contentEditable = 'false'
     card.textContent = this.linkDomain(url)
+    card.prepend(this.editorPreviewRemoveButton())
     return card
   }
 
   private editorPreviewCard(url: string, preview?: LinkPreviewData) {
     const card = document.createElement('span')
     card.className = 'editor-link-preview-card'
+    card.contentEditable = 'false'
     card.draggable = true
     card.title = preview?.url || url
     card.addEventListener('click', event => {
       event.stopPropagation()
       window.open(preview?.url || url, '_blank', 'noopener,noreferrer')
     })
+    card.append(this.editorPreviewRemoveButton())
 
     if (preview?.image) {
       const img = document.createElement('img')
@@ -1158,6 +1216,24 @@ export class InputComponent implements OnInit {
     })
     card.append(copy, open)
     return card
+  }
+
+  private editorPreviewRemoveButton() {
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.className = 'editor-link-preview-remove'
+    remove.title = 'Remove link preview'
+    remove.setAttribute('aria-label', 'Remove link preview')
+    remove.innerHTML = '<span class="material-symbols-outlined">close</span>'
+    remove.addEventListener('mousedown', event => event.stopPropagation())
+    remove.addEventListener('click', event => {
+      event.preventDefault()
+      event.stopPropagation()
+      const slot = remove.closest('.editor-link-preview-slot')
+      slot?.remove()
+      if (this.noteBody?.nativeElement) this.onNoteBodyInput(this.noteBody.nativeElement)
+    })
+    return remove
   }
 
   private async copyLink(url: string) {

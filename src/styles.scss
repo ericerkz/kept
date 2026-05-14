@@ -1343,7 +1343,7 @@ app-navbar .pwa-install-card .pwa-close:hover {
 app-input .editor-link-preview-slot {
   cursor: default;
   display: block;
-  margin: 8px 0;
+  margin: 12px 0 8px;
   user-select: none;
 }
 
@@ -1359,7 +1359,8 @@ app-input .editor-link-preview-card {
   display: flex;
   gap: 10px;
   min-height: 52px;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
   transition: background 0.15s;
 }
 
@@ -1447,6 +1448,40 @@ app-input .editor-link-preview-action .material-symbols-outlined {
   line-height: 1;
 }
 
+app-input .editor-link-preview-remove {
+  align-items: center;
+  background: rgb(32 33 36 / 82%);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  height: 22px;
+  justify-content: center;
+  left: -7px;
+  opacity: 0;
+  padding: 0;
+  position: absolute;
+  top: -7px;
+  transition: opacity 0.12s, background 0.12s;
+  width: 22px;
+  z-index: 2;
+}
+
+app-input .editor-link-preview-card:hover .editor-link-preview-remove,
+app-input .editor-link-preview-remove:focus-visible {
+  opacity: 1;
+}
+
+app-input .editor-link-preview-remove:hover {
+  background: rgb(32 33 36 / 95%);
+}
+
+app-input .editor-link-preview-remove .material-symbols-outlined {
+  font-size: 16px;
+  line-height: 1;
+}
+
 .light-theme app-input .editor-link-preview-card {
   border-color: rgb(0 0 0 / 12%);
 }
@@ -1464,6 +1499,16 @@ app-input .editor-link-preview-action .material-symbols-outlined {
   background: rgb(60 64 67 / 8%);
   border-color: rgb(60 64 67 / 28%);
   color: #202124;
+}
+
+.light-theme app-input .editor-link-preview-remove {
+  background: rgb(255 255 255 / 92%);
+  border-color: rgb(60 64 67 / 28%);
+  color: #3c4043;
+}
+
+.light-theme app-input .editor-link-preview-remove:hover {
+  background: #fff;
 }
 
 .icons-container .icons .material-restore {

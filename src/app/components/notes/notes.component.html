@@ -14,7 +14,9 @@
       </ng-container>
     </div>
     @if (hasMoreServerNotes() && pageNotes.length) {
-      <div #loadMoreSentinel class="load-more-notes" aria-hidden="true">Loading more...</div>
+      <div #loadMoreSentinel class="load-more-notes load-more-notes--sentinel" aria-hidden="true">
+        <img src="/assets/images/loadinganim.gif" alt="">
+      </div>
     }
   </section>
 </section>
@@ -109,7 +111,6 @@
           [innerText]="note.archived ? 'archive': (note.trashed ? 'trash' : '') "></span>
         }
           @let noteIsLinkOnly = isLinkOnlyNote(note);
-          @let noteUrlList = noteUrls(note);
           <div class="note-main" [class.note-main--link-only]="noteIsLinkOnly"
           [ngStyle]="{'background-color':note.bgColor,'border-color':note.bgColor,'background-image' : note.bgImage, 'color': noteTextColor(note)}">
           @if (note.ownerUserId && auth.currentUser?.id && note.ownerUserId !== auth.currentUser?.id) {
@@ -128,7 +129,14 @@
           }
           <div (click)="openModal(noteEL,note)">
             @if (noteIsLinkOnly) {
-                <app-link-preview [url]="noteUrlList[0]" [cardMode]="true"></app-link-preview>
+                <div class="link-preview-stack link-preview-stack--only">
+                  @for (url of visibleLinkUrls(note); track url) {
+                    <app-link-preview [url]="url" [cardMode]="true"></app-link-preview>
+                  }
+                </div>
+                @if (hiddenLinkCount(note)) {
+                  <div class="link-overflow-chip">+{{hiddenLinkCount(note)}} link{{hiddenLinkCount(note) === 1 ? '' : 's'}}</div>
+                }
             } @else {
             <div class="note-images">
                 @for (image of note.images || []; track image.id) {
@@ -150,6 +158,9 @@
                       <app-link-preview [url]="segment.value"></app-link-preview>
                     </div>
                   }
+                }
+                @if (hiddenLinkCount(note)) {
+                  <div class="link-overflow-chip">+{{hiddenLinkCount(note)}} link{{hiddenLinkCount(note) === 1 ? '' : 's'}}</div>
                 }
               </section>
             }
