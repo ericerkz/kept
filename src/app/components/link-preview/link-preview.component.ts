@@ -1,4 +1,4 @@
-import { Component, Input, OnInit } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, Input, OnDestroy } from '@angular/core';
 import { NotesService, LinkPreviewData } from 'src/app/services/notes.service';
 import { AuthService } from 'src/app/services/auth.service';
 import { environment } from 'src/environments/environment';
@@ -9,12 +9,13 @@ import { environment } from 'src/environments/environment';
   styleUrls: ['./link-preview.component.scss'],
   standalone: false
 })
-export class LinkPreviewComponent implements OnInit {
+export class LinkPreviewComponent implements AfterViewInit, OnDestroy {
   private _url!: string;
   @Input() set url(value: string) {
     if (this._url !== value) {
       this._url = value;
-      this.fetchPreview();
+      this.resetPreview();
+      this.maybeFetchPreview();
     }
   }
   get url() { return this._url; }
@@ -28,10 +29,35 @@ export class LinkPreviewComponent implements OnInit {
   failed = false;
   imageError = false;
   copied = false;
+  private observer?: IntersectionObserver;
+  private viewReady = false;
+  private nearViewport = false;
+  private fetchStarted = false;
+  private destroyed = false;
 
-  constructor(private notesService: NotesService, private auth: AuthService) {}
+  constructor(private notesService: NotesService, private auth: AuthService, private host: ElementRef<HTMLElement>) {}
 
-  ngOnInit() {}
+  ngAfterViewInit() {
+    this.viewReady = true;
+    if (!('IntersectionObserver' in window)) {
+      this.nearViewport = true;
+      this.maybeFetchPreview();
+      return;
+    }
+    this.observer = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return;
+      this.nearViewport = true;
+      this.observer?.disconnect();
+      this.observer = undefined;
+      this.maybeFetchPreview();
+    }, { root: null, rootMargin: '3000px 0px', threshold: 0 });
+    this.observer.observe(this.host.nativeElement);
+  }
+
+  ngOnDestroy() {
+    this.destroyed = true;
+    this.observer?.disconnect();
+  }
 
   linkDomain(url: string) {
     try {
@@ -49,21 +75,36 @@ export class LinkPreviewComponent implements OnInit {
     return `${environment.apiUrl}/proxy-image?url=${encodeURIComponent(url)}${tokenPart}`;
   }
 
+  private resetPreview() {
+    this.preview = null;
+    this.loading = true;
+    this.failed = false;
+    this.imageError = false;
+    this.fetchStarted = false;
+  }
+
+  private maybeFetchPreview() {
+    if (!this.viewReady || !this.nearViewport || this.fetchStarted) return;
+    this.fetchPreview();
+  }
+
   async fetchPreview() {
     const url = this._url;
     if (!url) return;
 
+    this.fetchStarted = true;
     this.loading = true;
     this.failed = false;
     this.imageError = false;
     try {
-      this.preview = await this.notesService.getLinkPreview(url);
-      if (this._url !== url) return; // Stale request
+      const preview = await this.notesService.getLinkPreview(url);
+      if (this.destroyed || this._url !== url) return; // Stale request
+      this.preview = preview;
     } catch (err) {
-      if (this._url !== url) return;
+      if (this.destroyed || this._url !== url) return;
       this.failed = true;
     } finally {
-      if (this._url === url) {
+      if (!this.destroyed && this._url === url) {
         this.loading = false;
       }
     }

@@ -17,6 +17,7 @@ import { NotesToolsPipe } from 'src/app/pipes/notes-tools.pipe';
 declare var Snackbar: any;
 type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string }
 type NoteBodyPreview = { segments: NoteBodySegment[]; urls: string[] }
+type NoteMeta = { rawBody: string; title: string; bgKey: string; urls: string[]; linkOnly: boolean; textColor: string; displayBody: string; bodySegments: NoteBodySegment[]; hiddenLinkCount: number; visibleUrls: string[] }
 @Component({
     selector: 'app-notes',
     templateUrl: './notes.component.html',
@@ -99,7 +100,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   private lastMasonrySignature = ''
   private masonrySignatureToken = 0
   private masonryQueued = false
-  private noteMetaCache = new WeakMap<NoteI, { body: string; title: string; bgKey: string; urls: string[]; linkOnly: boolean; textColor: string; displayBody: string; bodySegments: NoteBodySegment[] }>()
+  private noteMetaCache = new WeakMap<NoteI, NoteMeta>()
   private reminderLookupCache?: { reminders: any[]; byNoteId: Map<number, any> }
   private trashCountdownCache = new WeakMap<NoteI, { trashedAt: string; bucket: number; value: string }>()
   private reminderDateCache = new Map<string, string>()
@@ -152,16 +153,11 @@ export class NotesComponent implements OnInit, OnDestroy {
   }
 
   visibleLinkUrls(note: NoteI): string[] {
-    return this.noteMeta(note).urls.slice(0, 3)
+    return this.noteMeta(note).visibleUrls
   }
 
   hiddenLinkCount(note: NoteI): number {
-    const count = this.totalLinkCount(note) - this.visibleLinkUrls(note).length
-    return count > 0 ? count : 0
-  }
-
-  private totalLinkCount(note: NoteI) {
-    return Math.max(note.linkCount || 0, this.noteMeta(note).urls.length)
+    return this.noteMeta(note).hiddenLinkCount
   }
 
   imageSrc(src: string) {
@@ -181,16 +177,20 @@ export class NotesComponent implements OnInit, OnDestroy {
   }
 
   private noteMeta(note: NoteI) {
-    const body = this.auth.authenticatedImageHtml(note.noteBody || '')
+    const rawBody = note.noteBody || ''
     const title = note.noteTitle || ''
     const themeKey = document.body.classList.contains('light-theme') ? 'l' : 'd'
     const bgKey = `${note.bgColor || ''}|${note.bgImage || ''}|${note.isCbox ? 1 : 0}|${themeKey}`
     const cached = this.noteMetaCache.get(note)
-    if (cached && cached.body === body && cached.title === title && cached.bgKey === bgKey) return cached
+    if (cached && cached.rawBody === rawBody && cached.title === title && cached.bgKey === bgKey) return cached
 
+    const body = this.auth.authenticatedImageHtml(rawBody)
     const bodyPreview = this.buildBodySegments(body)
     const bodySegments = bodyPreview.segments
     const urls = bodyPreview.urls
+    const visibleUrls = urls.slice(0, 3)
+    const totalLinkCount = Math.max(note.linkCount || 0, urls.length)
+    const hiddenLinkCount = Math.max(0, totalLinkCount - visibleUrls.length)
     const plainBody = body.replace(/<[^>]+>/g, ' ')
     const bodyWithoutUrls = plainBody.replace(/https?:\/\/\S+/g, '').replace(/&nbsp;/g, ' ').trim()
     const linkOnly = !note.isCbox && urls.length > 0 && !title.trim() && !bodyWithoutUrls
@@ -199,7 +199,7 @@ export class NotesComponent implements OnInit, OnDestroy {
     const textColor = note.bgImage || (note.bgColor && this.isLightColor(note.bgColor)) ? '#202124' : (note.bgColor ? '#e8eaed' : defaultTextColor);
 
     const displayBody = urls.length ? this.hideLinksInHtml(body) : body
-    const next = { body, title, bgKey, urls, linkOnly, textColor, displayBody, bodySegments }
+    const next = { rawBody, title, bgKey, urls, linkOnly, textColor, displayBody, bodySegments, hiddenLinkCount, visibleUrls }
     this.noteMetaCache.set(note, next)
     return next
   }
