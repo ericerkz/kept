@@ -363,9 +363,9 @@ export class SharedService {
           'so receipts, manuals, and anything else you want to keep next\n' +
           'to a note are just a click away.\n\n' +
           '— Kept ✨\n';
-        const file = new File([welcomeText], 'welcome.txt', { type: 'text/plain' });
+        const file = new Blob([welcomeText], { type: 'text/plain' });
         try {
-          await this.Notes.uploadAttachment(attachmentNoteId, file);
+          await this.Notes.uploadAttachment(attachmentNoteId, file, 'welcome.txt');
         } catch (e) {
           console.warn('Could not attach demo welcome.txt', e);
         }
