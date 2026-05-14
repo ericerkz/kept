@@ -2512,7 +2512,6 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
         SELECT notes.*,
                COALESCE(
                  pos.sortOrder,
-                 CAST(strftime('%s', COALESCE(notes.createdAt, notes.updatedAt)) AS REAL) * 1000,
                  notes.sortOrder,
                  notes.id
                ) AS effectiveSortOrder,
