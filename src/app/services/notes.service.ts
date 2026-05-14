@@ -296,9 +296,9 @@ export class NotesService {
     ));
   }
 
-  async uploadAttachment(noteId: number, file: File) {
+  async uploadAttachment(noteId: number, file: File | Blob, filename?: string) {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', file, filename || (file instanceof File ? file.name : 'attachment'));
     return await firstValueFrom(this.http.post<NoteAttachmentI>(
       `${environment.apiUrl}/notes/${noteId}/attachments`,
       formData,

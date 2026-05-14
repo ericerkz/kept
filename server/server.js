@@ -2557,6 +2557,37 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
       }
       return note;
     });
+    const attachmentNoteIds = notes.filter(note => note.hasAttachments).map(note => note.id);
+    if (attachmentNoteIds.length) {
+      const placeholders = attachmentNoteIds.map(() => '?').join(',');
+      const attachmentRows = await all(
+        `SELECT id, noteId, originalName, fileSize, mimeType, uploadedAt
+         FROM note_attachments
+         WHERE noteId IN (${placeholders})
+         ORDER BY uploadedAt DESC`,
+        attachmentNoteIds
+      );
+      const attachmentsByNoteId = new Map();
+      for (const attachment of attachmentRows) {
+        if (!attachmentsByNoteId.has(attachment.noteId)) {
+          attachmentsByNoteId.set(attachment.noteId, []);
+        }
+        attachmentsByNoteId.get(attachment.noteId).push({
+          id: attachment.id,
+          originalName: attachment.originalName,
+          fileSize: attachment.fileSize,
+          mimeType: attachment.mimeType,
+          uploadedAt: attachment.uploadedAt
+        });
+      }
+      for (const note of notes) {
+        const attachments = attachmentsByNoteId.get(note.id);
+        if (!attachments) continue;
+        note.attachments = attachments;
+        note.hasAttachments = true;
+        note.attachmentCount = attachments.length;
+      }
+    }
     return res.json({ notes, nextCursor: hasMore ? encodeNotesCursor(page[page.length - 1]) : null });
   }
 
@@ -3661,19 +3692,34 @@ async function resolvePublicIp(hostname) {
   throw new Error('Private network targets are blocked');
 }
 
-
+async function publicRequestOptions(targetUrl, baseOptions = {}) {
+  const parsed = new URL(targetUrl);
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Unsupported protocol');
+  const resolved = await resolvePublicIp(parsed.hostname);
+  return {
+    ...baseOptions,
+    lookup: (_hostname, options, callback) => {
+      const done = typeof options === 'function' ? options : callback;
+      done(null, resolved.address, resolved.family);
+    }
+  };
+}
 
 function fetchHtml(url, maxRedirects = 4) {
   return new Promise((resolve, reject) => {
-    function doFetch(currentUrl, hopsLeft) {
+    async function doFetch(currentUrl, hopsLeft) {
       let parsed;
       try { parsed = new URL(currentUrl); } catch (e) { return reject(e); }
       if (!['http:', 'https:'].includes(parsed.protocol)) return reject(new Error('Unsupported protocol'));
+      let requestOptions;
+      try {
+        requestOptions = await publicRequestOptions(currentUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Kept/1.0)', Accept: 'text/html' },
+          timeout: 8000
+        });
+      } catch (e) { return reject(e); }
       const mod = parsed.protocol === 'https:' ? require('https') : require('http');
-      const req = mod.get(currentUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Kept/1.0)', Accept: 'text/html' },
-        timeout: 8000
-      }, res => {
+      const req = mod.get(currentUrl, requestOptions, res => {
         if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && hopsLeft > 0) {
           res.resume();
           const next = res.headers.location.startsWith('http') ? res.headers.location : new URL(res.headers.location, currentUrl).href;
@@ -3840,7 +3886,7 @@ app.get('/api/proxy-image', requireAuthOrQueryToken, asyncRoute(async (req, res)
   const { url } = req.query;
   if (!url) return res.status(400).send('URL required');
 
-  function doProxy(targetUrl, redirectsLeft = 3) {
+  async function doProxy(targetUrl, redirectsLeft = 3) {
     let parsed;
     try { parsed = new URL(targetUrl); }
     catch { if (!res.headersSent) res.status(400).send('Invalid URL'); return; }
@@ -3850,17 +3896,25 @@ app.get('/api/proxy-image', requireAuthOrQueryToken, asyncRoute(async (req, res)
     }
 
     const transport = parsed.protocol === 'https:' ? https : http;
-    const proxyReq = transport.get(targetUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': parsed.origin,
-        'Cache-Control': 'no-cache'
-      },
-      timeout: 10000
-    }, (proxyRes) => {
+    let requestOptions;
+    try {
+      requestOptions = await publicRequestOptions(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': parsed.origin,
+          'Cache-Control': 'no-cache'
+        },
+        timeout: 10000
+      });
+    } catch {
+      if (!res.headersSent) res.status(400).send('Private network targets are blocked');
+      return;
+    }
+    const proxyReq = transport.get(targetUrl, requestOptions, (proxyRes) => {
       if ([301, 302, 303, 307, 308].includes(proxyRes.statusCode) && proxyRes.headers.location && redirectsLeft > 0) {
+        proxyRes.resume();
         return doProxy(absolutizeUrl(proxyRes.headers.location, targetUrl), redirectsLeft - 1);
       }
 
@@ -3887,7 +3941,7 @@ app.get('/api/proxy-image', requireAuthOrQueryToken, asyncRoute(async (req, res)
     });
   }
 
-  doProxy(url);
+  await doProxy(url);
 }));
 
 // ─── Google Takeout import ───────────────────────────────────────────────────
