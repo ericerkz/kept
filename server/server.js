@@ -2488,11 +2488,10 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     const searchTokens = searchTokensFromQuery(req.query.q);
     const searchWhere = noteSearchWhere(searchTokens);
     const whereClauses = [];
-    const cursorParams = cursor ? [cursor.sortOrder, cursor.sortOrder, cursor.id] : [];
     const queryParams = [req.user.id, req.user.id, req.user.id, req.user.id];
     if (cursor) {
       whereClauses.push('(effectiveSortOrder < ? OR (effectiveSortOrder = ? AND id < ?))');
-      queryParams.push(...cursorParams);
+      queryParams.push(cursor.sortOrder, cursor.sortOrder, cursor.id);
     }
     if (searchWhere.clause) {
       whereClauses.push(searchWhere.clause);
@@ -2502,7 +2501,12 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     const rows = await all(
       `WITH accessible_notes AS (
         SELECT notes.*,
-               COALESCE(pos.sortOrder, notes.sortOrder) AS effectiveSortOrder,
+               COALESCE(
+                 pos.sortOrder,
+                 CAST(strftime('%s', COALESCE(notes.createdAt, notes.updatedAt)) AS REAL) * 1000,
+                 notes.sortOrder,
+                 notes.id
+               ) AS effectiveSortOrder,
                CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS pinned,
                owner.displayName AS ownerDisplayName,
                owner.username AS ownerUsername,
@@ -2680,6 +2684,10 @@ app.get('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
     mimeType: att.mimeType,
     uploadedAt: att.uploadedAt
   }));
+  note.hasAttachments = note.attachments.length > 0;
+  note.attachmentCount = note.attachments.length;
+  note.collaborators = await getCollaboratorsForNote(note.id);
+  note.ownerOnline = realtimeClients.has(note.ownerUserId);
 
   res.json(note);
 }));
