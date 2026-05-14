@@ -110,14 +110,14 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
         exit 1
     fi
 
-    SERVICE_FILE="/etc/systemd/system/keep-clone.service"
+    SERVICE_FILE="/etc/systemd/system/kept.service"
     USER_NAME=$(logname || echo $SUDO_USER || echo $USER)
     WORK_DIR=$(pwd)
     
     echo "Creating systemd service at $SERVICE_FILE..."
     cat > "$SERVICE_FILE" << EOF
 [Unit]
-Description=Google Keep Clone API
+Description=Kept API
 After=network.target
 
 [Service]
@@ -136,12 +136,12 @@ EOF
     echo "Reloading systemd daemon..."
     systemctl daemon-reload
     echo "Enabling service to start on boot..."
-    systemctl enable keep-clone
+    systemctl enable kept
     echo "Starting service..."
-    systemctl start keep-clone
+    systemctl start kept
     
     echo "Service installed and started! You can check its status with:"
-    echo "systemctl status keep-clone"
+    echo "systemctl status kept"
     echo "The application is running at http://localhost:6767"
 else
     echo "Skipping system service setup."
