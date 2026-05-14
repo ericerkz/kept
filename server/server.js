@@ -869,30 +869,31 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function firstNoteImage(images) {
-  const parsed = parseJson(images || '[]', []);
-  if (!Array.isArray(parsed)) return null;
-  return parsed.find(Boolean) || null;
+function cardNoteBody(row, previewText) {
+  const body = row.noteBody || '';
+  if (/<img\b/i.test(body)) return body;
+  if (row.isCbox && !plainText(body).trim()) return '';
+  return escapeHtml(previewText);
 }
 
 function dbNoteToCard(row) {
   const labels = parseJson(row.labels || '[]', []);
   const checkBoxes = parseJson(row.checkBoxes || '[]', []);
   const parsedImages = parseJson(row.images || '[]', []);
-  const firstImage = firstNoteImage(row.images);
+  const images = Array.isArray(parsedImages) ? parsedImages.filter(Boolean) : [];
   const previewText = notePreviewText(row);
   return {
     id: row.id,
     ownerUserId: row.ownerUserId,
     noteTitle: row.noteTitle,
-    noteBody: escapeHtml(previewText),
+    noteBody: cardNoteBody(row, previewText),
     previewText,
     pinned: Boolean(row.pinned),
     bgColor: row.bgColor || '',
     bgImage: row.bgImage || '',
     checkBoxes: Array.isArray(checkBoxes) ? checkBoxes.slice(0, 8) : [],
-    images: firstImage ? [firstImage] : [],
-    hasMoreImages: Array.isArray(parsedImages) && parsedImages.length > (firstImage ? 1 : 0),
+    images,
+    hasMoreImages: false,
     isCbox: Boolean(row.isCbox),
     labels,
     archived: Boolean(row.archived),
