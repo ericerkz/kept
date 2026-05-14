@@ -12,6 +12,7 @@ export interface NoteI {
     noteBody?: string
     searchText?: string
     previewText?: string
+    linkCount?: number
     nextCursor?: string
     isCardPreview?: boolean
     hasMoreImages?: boolean

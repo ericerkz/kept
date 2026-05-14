@@ -108,6 +108,7 @@
     overflow: hidden !important;
     white-space: pre-wrap;
     word-wrap: break-word;
+    overflow-wrap: anywhere;
   }
 
   .note-main {
@@ -214,6 +215,32 @@
 
   .link-previews {
     margin: 0 10px 10px;
+  }
+
+  .link-preview-stack {
+    display: grid;
+    gap: 8px;
+  }
+
+  .link-preview-stack--only {
+    padding: 0;
+  }
+
+  .link-overflow-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: calc(100% - 20px);
+    min-height: 24px;
+    margin: 0 10px 10px;
+    padding: 3px 9px;
+    border: 1px solid rgb(154 160 166 / 45%);
+    border-radius: 999px;
+    color: #9aa0a6;
+    font-family: Roboto, Arial, sans-serif;
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   .link-only-wrap {
@@ -564,6 +591,26 @@
   }
 }
 
+.load-more-notes--sentinel {
+  align-items: center;
+  border: 0;
+  cursor: default;
+  display: flex;
+  height: 84px;
+  justify-content: center;
+  padding: 10px;
+
+  &:hover {
+    background: transparent;
+  }
+
+  img {
+    display: block;
+    height: 64px;
+    width: 64px;
+  }
+}
+
 
 // alarm button active state
 .alarm-active::after {
@@ -813,4 +860,3 @@
     box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
   }
 }
-

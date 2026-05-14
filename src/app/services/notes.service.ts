@@ -51,6 +51,8 @@ export class NotesService {
   private preloadedPreviewUrls = new Set<string>();
   private previewPreloadQueue: string[] = [];
   private previewPreloadRunning = false;
+  private suppressedRealtimeReloads = new Map<number, number>();
+  private suppressNextReorderReloadUntil = 0;
 
   constructor(private http: HttpClient, private auth: AuthService, private reminders: ReminderService) {
     this.authSubscription = this.auth.currentUser$.subscribe(user => {
@@ -154,7 +156,14 @@ export class NotesService {
     this.realtimeSocket.onmessage = event => {
       try {
         const message = JSON.parse(event.data);
-        if (message.type === 'notes-changed') this.load();
+        if (message.type === 'notes-changed') {
+          if (message.action === 'reordered' && this.suppressNextReorderReloadUntil > Date.now()) {
+            this.suppressNextReorderReloadUntil = 0;
+            return;
+          }
+          if (this.consumeSuppressedRealtimeReload(message.noteId)) return;
+          this.load();
+        }
         if (message.type === 'reminder-fired') this.reminders.handleFired(message);
         if (message.type === 'presence-update') this.activeEditors$.next({ noteId: message.noteId, editors: message.activeEditors || [] });
         if (message.type === 'global-presence') this.updateGlobalPresence(message.userId, message.online);
@@ -258,7 +267,8 @@ export class NotesService {
     if (id !== -1) {
       try {
         await firstValueFrom(this.http.put(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() }));
-        await this.load();
+        this.suppressRealtimeReload(id);
+        this.mergeNoteIntoList({ ...object, id });
       } catch (error) {
         console.log(error)
       }
@@ -269,7 +279,8 @@ export class NotesService {
     if (id !== -1) {
       try {
         await firstValueFrom(this.http.patch(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() }));
-        await this.load();
+        this.suppressRealtimeReload(id);
+        this.mergeNoteIntoList({ ...object, id } as NoteI);
       } catch (error) {
         console.log(error)
       }
@@ -279,11 +290,24 @@ export class NotesService {
   async reorder(ids: number[]) {
     if (!ids.length) return;
     try {
+      this.suppressNextReorderReloadUntil = Date.now() + 5000;
+      this.reorderLoadedNotes(ids);
       await firstValueFrom(this.http.patch(`${this.apiUrl}/reorder`, { ids }, { headers: this.auth.authHeaders() }));
-      await this.load();
     } catch (error) {
+      this.suppressNextReorderReloadUntil = 0;
       console.log(error)
+      await this.load();
     }
+  }
+
+  private reorderLoadedNotes(ids: number[]) {
+    const current = this.notesList$.value;
+    if (!current) return;
+    const byId = new Map(current.map(note => [note.id, note]));
+    const ordered = ids.map(id => byId.get(id)).filter((note): note is NoteI => !!note);
+    const orderedIds = new Set(ids);
+    const remaining = current.filter(note => !note.id || !orderedIds.has(note.id));
+    this.notesList$.next([...ordered, ...remaining]);
   }
 
   async uploadImage(file: File) {
@@ -328,10 +352,10 @@ export class NotesService {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  async get(id: number) {
+  async get(id: number, options: { merge?: boolean } = {}) {
     if (id !== -1) {
       const note = await firstValueFrom(this.http.get<NoteI>(`${this.apiUrl}/${id}`, { headers: this.auth.authHeaders() }));
-      this.mergeNoteIntoList(note);
+      if (options.merge !== false) this.mergeNoteIntoList(note);
       return note;
     } else return {} as NoteI
   }
@@ -353,9 +377,21 @@ export class NotesService {
       hasAttachments: !!(attachments?.length || existing.hasAttachments),
       attachmentCount: attachments?.length ?? existing.attachmentCount,
       searchText: existing.searchText,
-      isCardPreview: false
+      isCardPreview: note.isCardPreview ?? (note.noteBody !== undefined ? false : existing.isCardPreview)
     };
     this.notesList$.next(next);
+  }
+
+  private suppressRealtimeReload(noteId: number) {
+    this.suppressedRealtimeReloads.set(noteId, Date.now() + 5000);
+  }
+
+  private consumeSuppressedRealtimeReload(noteId: number) {
+    const id = Number(noteId);
+    const expiresAt = this.suppressedRealtimeReloads.get(id);
+    if (!expiresAt) return false;
+    this.suppressedRealtimeReloads.delete(id);
+    return expiresAt > Date.now();
   }
 
   async getAll() {
