@@ -265,11 +265,12 @@ export class NotesService {
 
   async update(object: NoteI, id: number) {
     if (id !== -1) {
+      this.suppressRealtimeReload(id);
       try {
         await firstValueFrom(this.http.put(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() }));
-        this.suppressRealtimeReload(id);
         this.mergeNoteIntoList({ ...object, id });
       } catch (error) {
+        this.suppressedRealtimeReloads.delete(id);
         console.log(error)
       }
     }
@@ -277,11 +278,12 @@ export class NotesService {
 
   async updateKey(object: UpdateKeyI, id: number) {
     if (id !== -1) {
+      this.suppressRealtimeReload(id);
       try {
         await firstValueFrom(this.http.patch(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() }));
-        this.suppressRealtimeReload(id);
         this.mergeNoteIntoList({ ...object, id } as NoteI);
       } catch (error) {
+        this.suppressedRealtimeReloads.delete(id);
         console.log(error)
       }
     }
