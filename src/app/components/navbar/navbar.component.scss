@@ -533,8 +533,7 @@
       }
 
       @media (max-width:599px) {
-        .admin-link,
-        .logout {
+        .admin-link {
           display: none;
         }
       }
@@ -699,13 +698,6 @@
           display: none;
         }
 
-        .crop-note {
-          color: #bdc1c6;
-          font-size: 0.8125rem;
-          line-height: 1.25rem;
-          margin: -2px 0 2px;
-        }
-
         .profile-error {
           color: #f6aea9;
           font-size: 0.8125rem;
@@ -849,8 +841,7 @@
 
       }
 
-      .admin-link,
-      .logout {
+      .admin-link {
         align-items: center;
         background: transparent;
         border: 0;
@@ -865,8 +856,7 @@
         white-space: nowrap;
       }
 
-      .admin-link:hover,
-      .logout:hover {
+      .admin-link:hover {
         background-color: rgba(232, 234, 237, 0.08);
         cursor: pointer;
       }
@@ -1000,7 +990,7 @@
         display: flex;
         padding-left: 8px;
 
-        .logout, .admin-link, .install-pwa {
+        .admin-link, .install-pwa {
           display: none;
         }
 
@@ -1142,13 +1132,11 @@
           color: #5f6368;
         }
 
-        .admin-link,
-        .logout {
+        .admin-link {
           color: #3c4043;
         }
 
-        .admin-link:hover,
-        .logout:hover {
+        .admin-link:hover {
           background-color: rgba(60, 64, 67, 0.08);
         }
 
@@ -1158,8 +1146,7 @@
           box-shadow: 0 8px 24px rgb(60 64 67 / 22%);
           color: #202124;
 
-          label span,
-          .crop-note {
+          label span {
             color: #5f6368;
           }
 

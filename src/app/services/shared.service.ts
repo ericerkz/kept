@@ -297,7 +297,7 @@ export class SharedService {
       // 4. Drawing Demo Card
       await this.Notes.add({
         noteTitle: 'Doodle Corner (Canvas Note!) 🖍️',
-        noteBody: 'I can\'t wait to see what you draw! Click the paint icon to start your first masterpiece. You can even draw lists like this one! ✨',
+        noteBody: 'Click the paint icon to start your first masterpiece. You can even draw lists like this one! ✨',
         bgColor: bgColors.mint,
         images: [{
           id: 'drawing', // Using the reserved 'drawing' ID to trigger canvas-note behavior
