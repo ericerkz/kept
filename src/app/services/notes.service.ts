@@ -341,8 +341,20 @@ export class NotesService {
     if (!current || !note.id) return;
     const index = current.findIndex(item => item.id === note.id);
     if (index < 0) return;
+    const existing = current[index];
+    const attachments = note.attachments ?? existing.attachments;
+    const collaborators = note.collaborators?.length ? note.collaborators : existing.collaborators;
     const next = [...current];
-    next[index] = { ...next[index], ...note, isCardPreview: false };
+    next[index] = {
+      ...existing,
+      ...note,
+      attachments,
+      collaborators,
+      hasAttachments: !!(attachments?.length || existing.hasAttachments),
+      attachmentCount: attachments?.length ?? existing.attachmentCount,
+      searchText: existing.searchText,
+      isCardPreview: false
+    };
     this.notesList$.next(next);
   }
 

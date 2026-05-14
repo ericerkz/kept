@@ -1882,7 +1882,10 @@ export class NotesComponent implements OnInit, OnDestroy {
       this.Shared.closeSideBar.subscribe(() => { setTimeout(() => { this.scheduleBuildMasonry(true) }, 200) }),
       this.Shared.closeModal.subscribe(x => { if (x) this.closeModal() }),
       this.Shared.noteViewType.subscribe(() => { setTimeout(() => this.scheduleBuildMasonry(true), 300); }),
-      this.notesService.notesList$.subscribe(() => { this.masonrySignatureToken++ }),
+      this.notesService.notesList$.subscribe(() => {
+        this.masonrySignatureToken++
+        this.lastBackfillContext = ''
+      }),
       this.reminderService.reminders$.subscribe(() => { this.masonrySignatureToken++ }),
       this.router.events.subscribe(url => {
         if (url instanceof NavigationEnd) {
