@@ -136,7 +136,6 @@
         @if (auth.isAdmin) {
           <a routerLink="/users" class="admin-link">Users</a>
         }
-        <button class="logout" type="button" (click)="logout()">Sign out</button>
           <div class="user-pic-container" (click)="toggleProfile($event)">
             @if (auth.currentUser?.avatarDataUrl) {
               <img class="user-pic" [src]="auth.currentUser?.avatarDataUrl"
@@ -172,13 +171,12 @@
                 <span>Display name</span>
                 <input #displayNameInput type="text" [value]="auth.currentUser?.displayName || ''">
               </label>
-              <p class="crop-note">Images are center-cropped into the circle.</p>
               @if (profileError) {
                 <div class="profile-error">{{profileError}}</div>
               }
-              <button class="profile-refresh-btn" type="button" (click)="refresh()">
-                <span class="material-symbols-outlined">refresh</span>
-                Refresh notes
+              <button class="profile-refresh-btn" type="button" (click)="logout()">
+                <span class="material-symbols-outlined">logout</span>
+                Sign out
               </button>
               <div class="password-reset-section">
                 <button class="pw-reset-toggle" type="button" (click)="togglePasswordReset()">

@@ -75,11 +75,6 @@ export class NavbarComponent implements OnInit {
 
   closeSideBar() { this.Shared.closeSideBar.next(true) }
 
-  async refresh() {
-    await this.Shared.refreshData()
-    this.closeProfile()
-  }
-
   view() {
     this.Shared.noteViewType.value === 'grid' ? this.Shared.noteViewType.next('list') : this.Shared.noteViewType.next('grid')
   }
