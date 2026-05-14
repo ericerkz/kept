@@ -91,7 +91,7 @@ if ($response -match "^[Yy]$") {
         exit 1
     }
 
-    $taskName = "GoogleKeepCloneAPI"
+    $taskName = "KeptAPI"
     $nodePath = (Get-Command "node").Source
     $scriptPath = Join-Path $PWD "server\server.js"
     $workingDir = $PWD.Path
@@ -109,7 +109,7 @@ if ($response -match "^[Yy]$") {
     $trigger = New-ScheduledTaskTrigger -AtStartup
     $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
     
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Description "Google Keep Clone API Server on port 6767" | Out-Null
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Description "Kept API Server on port 6767" | Out-Null
     
     Write-Host "Starting the service now..."
     Start-ScheduledTask -TaskName $taskName
