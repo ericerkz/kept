@@ -56,7 +56,7 @@ export class SharedService {
         // *before* the first notes load. That way the user lands on a
         // populated grid on first login — they shouldn't have to refresh
         // or sign out/in to see the starter content.
-        const needsDemos = !user.demoNotesCreatedAt || user.username === 'abby'
+        const needsDemos = !user.demoNotesCreatedAt
         if (needsDemos) {
           await this.createExampleNotes()
         }
