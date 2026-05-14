@@ -129,13 +129,14 @@
           }
           <div (click)="openModal(noteEL,note)">
             @if (noteIsLinkOnly) {
+                @let extraLinks = hiddenLinkCount(note);
                 <div class="link-preview-stack link-preview-stack--only">
                   @for (url of visibleLinkUrls(note); track url) {
                     <app-link-preview [url]="url" [cardMode]="true"></app-link-preview>
                   }
                 </div>
-                @if (hiddenLinkCount(note)) {
-                  <div class="link-overflow-chip">+{{hiddenLinkCount(note)}} link{{hiddenLinkCount(note) === 1 ? '' : 's'}}</div>
+                @if (extraLinks) {
+                  <div class="link-overflow-chip">+{{extraLinks}} link{{extraLinks === 1 ? '' : 's'}}</div>
                 }
             } @else {
             <div class="note-images">
@@ -159,8 +160,9 @@
                     </div>
                   }
                 }
-                @if (hiddenLinkCount(note)) {
-                  <div class="link-overflow-chip">+{{hiddenLinkCount(note)}} link{{hiddenLinkCount(note) === 1 ? '' : 's'}}</div>
+                @let extraLinks = hiddenLinkCount(note);
+                @if (extraLinks) {
+                  <div class="link-overflow-chip">+{{extraLinks}} link{{extraLinks === 1 ? '' : 's'}}</div>
                 }
               </section>
             }
