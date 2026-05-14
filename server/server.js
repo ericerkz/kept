@@ -822,12 +822,13 @@ function extractNoteImageFilenames(note) {
 }
 
 function dbNoteToApi(row) {
+  const pinned = row.userPinned !== undefined ? row.userPinned : row.pinned;
   return {
     id: row.id,
     ownerUserId: row.ownerUserId,
     noteTitle: row.noteTitle,
     noteBody: row.noteBody || '',
-    pinned: Boolean(row.pinned),
+    pinned: Boolean(pinned),
     bgColor: row.bgColor || '',
     bgImage: row.bgImage || '',
     checkBoxes: parseJson(row.checkBoxes, []),
@@ -928,6 +929,7 @@ function cardSearchText(row) {
 
 function dbNoteToCard(row, options = {}) {
   const includeSearchText = !!options.includeSearchText;
+  const pinned = row.userPinned !== undefined ? row.userPinned : row.pinned;
   const labels = parseJson(row.labels || '[]', []);
   const checkBoxes = parseJson(row.checkBoxes || '[]', []);
   const parsedImages = parseJson(row.images || '[]', []);
@@ -940,7 +942,7 @@ function dbNoteToCard(row, options = {}) {
     noteBody: cardNoteBody(row, previewText),
     searchText: includeSearchText ? cardSearchText(row) : undefined,
     previewText,
-    pinned: Boolean(row.pinned),
+    pinned: Boolean(pinned),
     bgColor: row.bgColor || '',
     bgImage: row.bgImage || '',
     checkBoxes: Array.isArray(checkBoxes) ? checkBoxes.slice(0, 8) : [],
@@ -971,7 +973,9 @@ function dbNoteToCard(row, options = {}) {
 
 function encodeNotesCursor(row) {
   if (!row) return null;
+  const pinned = row.userPinned !== undefined ? row.userPinned : row.pinned;
   return Buffer.from(JSON.stringify({
+    pinned: Number(pinned || 0),
     sortOrder: Number(row.effectiveSortOrder || row.sortOrder || row.id || 0),
     id: Number(row.id)
   })).toString('base64url');
@@ -981,10 +985,11 @@ function decodeNotesCursor(cursor) {
   if (!cursor) return null;
   try {
     const parsed = JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'));
+    const pinned = Number(parsed.pinned || 0);
     const sortOrder = Number(parsed.sortOrder);
     const id = Number(parsed.id);
-    if (!Number.isFinite(sortOrder) || !Number.isFinite(id)) return null;
-    return { sortOrder, id };
+    if (!Number.isFinite(pinned) || !Number.isFinite(sortOrder) || !Number.isFinite(id)) return null;
+    return { pinned, sortOrder, id };
   } catch {
     return null;
   }
@@ -1215,7 +1220,7 @@ function requireAdmin(req, res, next) {
 
 async function getAccessibleNote(noteId, userId) {
   return await get(
-    `SELECT notes.*, CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS pinned,
+    `SELECT notes.*, CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
      lastEditor.displayName AS lastEditorDisplayName FROM notes
      LEFT JOIN note_collaborators ON note_collaborators.noteId = notes.id AND note_collaborators.userId = ?
      LEFT JOIN user_pins ON user_pins.noteId = notes.id AND user_pins.userId = ?
@@ -2490,8 +2495,12 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     const whereClauses = [];
     const queryParams = [req.user.id, req.user.id, req.user.id, req.user.id];
     if (cursor) {
-      whereClauses.push('(effectiveSortOrder < ? OR (effectiveSortOrder = ? AND id < ?))');
-      queryParams.push(cursor.sortOrder, cursor.sortOrder, cursor.id);
+      whereClauses.push(`(
+        userPinned < ?
+        OR (userPinned = ? AND effectiveSortOrder < ?)
+        OR (userPinned = ? AND effectiveSortOrder = ? AND id < ?)
+      )`);
+      queryParams.push(cursor.pinned, cursor.pinned, cursor.sortOrder, cursor.pinned, cursor.sortOrder, cursor.id);
     }
     if (searchWhere.clause) {
       whereClauses.push(searchWhere.clause);
@@ -2507,7 +2516,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
                  notes.sortOrder,
                  notes.id
                ) AS effectiveSortOrder,
-               CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS pinned,
+               CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
                owner.displayName AS ownerDisplayName,
                owner.username AS ownerUsername,
                owner.avatarPreset AS ownerAvatarPreset,
@@ -2525,7 +2534,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
       )
       SELECT * FROM accessible_notes
       ${pageWhere}
-      ORDER BY effectiveSortOrder DESC, id DESC
+      ORDER BY userPinned DESC, effectiveSortOrder DESC, id DESC
       LIMIT ?`,
       [...queryParams, limit + 1]
     );
@@ -2560,7 +2569,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
   const rows = await all(
     `SELECT notes.*,
             COALESCE(pos.sortOrder, notes.sortOrder) AS effectiveSortOrder,
-            CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS pinned,
+            CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
             owner.displayName AS ownerDisplayName,
             owner.username AS ownerUsername,
             owner.avatarPreset AS ownerAvatarPreset,
