@@ -1,3 +1,4 @@
+@let pageNotes = Shared.note.all | notesTools:currentPageName:Shared.searchQuery;
 <section>
   <input #overviewImageInput class="overview-image-input" type="file" accept="image/*" multiple
     (change)="overviewImageInputChange($event)">
@@ -12,13 +13,13 @@
       <ng-container [ngTemplateOutlet]="noteTemplate" [ngTemplateOutletContext]="{notes:Shared.note.unpinned}">
       </ng-container>
     </div>
-    @if (hasMoreServerNotes()) {
+    @if (hasMoreServerNotes() && pageNotes.length) {
       <div #loadMoreSentinel class="load-more-notes" aria-hidden="true">Loading more...</div>
     }
   </section>
 </section>
 
-@if (!(this.Shared.note.all | notesTools:currentPageName:Shared.searchQuery).length) {
+@if (!pageNotes.length) {
   <section>
     <div class="no-notes">
       <div class="image"></div>

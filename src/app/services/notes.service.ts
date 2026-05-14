@@ -43,6 +43,9 @@ export class NotesService {
   private isLoading = false;
   private isLoadingNextPage = false;
   private nextCursor: string | null = null;
+  private searchQuery = '';
+  private searchReloadTimer?: ReturnType<typeof setTimeout>;
+  private pendingLoadQuery?: string;
   private readonly cardPageSize = 80;
   private shouldReconnectRealtime = false;
   private preloadedPreviewUrls = new Set<string>();
@@ -56,20 +59,44 @@ export class NotesService {
     });
   }
 
-  async load() {
-    if (this.isLoading) return;
+  async load(searchQuery = this.searchQuery) {
+    if (this.isLoading) {
+      this.pendingLoadQuery = searchQuery;
+      return;
+    }
     this.isLoading = true;
     try {
+      this.searchQuery = searchQuery;
+      const requestedQuery = searchQuery;
+      const params: Record<string, string> = { view: 'card', limit: String(this.cardPageSize) };
+      if (this.searchQuery.trim()) params['q'] = this.searchQuery.trim();
       const page = await firstValueFrom(this.http.get<NotesCardPage>(this.apiUrl, {
         headers: this.auth.authHeaders(),
-        params: { view: 'card', limit: String(this.cardPageSize) }
+        params
       }));
+      if (requestedQuery !== this.searchQuery) return;
       this.nextCursor = page.nextCursor;
       this.notesList$.next(page.notes);
       this.queueLinkPreviewPreload(page.notes);
     } finally {
       this.isLoading = false;
+      if (this.pendingLoadQuery !== undefined) {
+        const pending = this.pendingLoadQuery;
+        this.pendingLoadQuery = undefined;
+        this.load(pending).catch(console.error);
+      }
     }
+  }
+
+  setSearchQuery(query: string) {
+    const next = query || '';
+    if (next === this.searchQuery) return;
+    this.searchQuery = next;
+    if (this.searchReloadTimer) clearTimeout(this.searchReloadTimer);
+    this.searchReloadTimer = setTimeout(() => {
+      this.searchReloadTimer = undefined;
+      this.load(next).catch(console.error);
+    }, 250);
   }
 
   get hasMoreNotes() {
@@ -80,10 +107,14 @@ export class NotesService {
     if (!this.nextCursor || this.isLoading || this.isLoadingNextPage) return;
     this.isLoadingNextPage = true;
     try {
+      const requestedQuery = this.searchQuery;
+      const params: Record<string, string> = { view: 'card', limit: String(this.cardPageSize), cursor: this.nextCursor };
+      if (this.searchQuery.trim()) params['q'] = this.searchQuery.trim();
       const page = await firstValueFrom(this.http.get<NotesCardPage>(this.apiUrl, {
         headers: this.auth.authHeaders(),
-        params: { view: 'card', limit: String(this.cardPageSize), cursor: this.nextCursor }
+        params
       }));
+      if (requestedQuery !== this.searchQuery) return;
       this.nextCursor = page.nextCursor;
       const current = this.notesList$.value || [];
       const seen = new Set(current.map(note => note.id).filter(Boolean));
