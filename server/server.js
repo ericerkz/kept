@@ -4113,10 +4113,9 @@ app.post('/api/import/google-takeout', requireAuth, uploadZip.single('takeout'),
         const pinnedFlag = (note.isPinned || note.pinned) ? 1 : 0;
         const archivedFlag = (note.isArchived || note.archived) ? 1 : 0;
         if (pinnedFlag) pinnedCount++;
-        // Pinned notes are sorted by sortOrder DESC within the pinned section,
-        // so newer-imported pinned notes should land at the top. Use a single
-        // increasing counter (Date.now() base + index) to preserve import order.
-        const importSortOrder = Date.now() + imported;
+        // Keep imported notes in their original Keep recency order instead of
+        // treating the import itself as the note date.
+        const importSortOrder = new Date(updatedAt || createdAt || now).getTime() || Date.now();
         const insertResult = await run(
           `INSERT INTO notes (ownerUserId, noteTitle, noteBody, pinned, bgColor, bgImage, checkBoxes, images, isCbox, labels, archived, trashed, sortOrder, createdAt, updatedAt)
            VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
