@@ -16,6 +16,7 @@ import { NotesToolsPipe } from 'src/app/pipes/notes-tools.pipe';
 
 declare var Snackbar: any;
 type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string }
+type ModalScrollAnchor = { noteId: number; viewportTop: number; scrollY: number; visibleLimit: number }
 @Component({
     selector: 'app-notes',
     templateUrl: './notes.component.html',
@@ -118,6 +119,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   private loadMoreObserver?: IntersectionObserver
   private isBackfillingFilteredPage = false
   private lastBackfillContext = ''
+  private modalScrollAnchor?: ModalScrollAnchor
   //? -----------------------------------------------------
   trackBy(_index: number, item: any) { return item.id }
 
@@ -506,9 +508,10 @@ export class NotesComponent implements OnInit, OnDestroy {
     }
     this.openImagePickerOnModal = openImagePicker
     this.Shared.note.id = noteData.id!
-    this.clickedNoteData = noteData.isCardPreview ? await this.notesService.get(noteData.id!).catch(() => noteData) : noteData
     this.clickedNoteEl = clickedNote
     const source = clickedNote.getBoundingClientRect()
+    this.captureModalScrollAnchor(noteData, source)
+    this.clickedNoteData = noteData.isCardPreview ? await this.notesService.get(noteData.id!).catch(() => noteData) : noteData
     const modalContainer = this.modalContainer.nativeElement
     modalContainer.style.display = 'block';
     this.cd.detectChanges()
@@ -564,7 +567,47 @@ export class NotesComponent implements OnInit, OnDestroy {
       modalContainer.style.display = 'none'
       this.openImagePickerOnModal = false
       this.modal.nativeElement.removeAttribute('style')
+      this.restoreModalScrollAnchor()
     }, isMobileModal ? 180 : 400)
+  }
+
+  private captureModalScrollAnchor(note: NoteI, source: DOMRect) {
+    if (!note.id) return
+    this.modalScrollAnchor = {
+      noteId: note.id,
+      viewportTop: source.top,
+      scrollY: window.scrollY,
+      visibleLimit: this.visibleNoteLimit
+    }
+    this.ensureNoteVisible(note.id)
+  }
+
+  private ensureNoteVisible(noteId: number) {
+    const index = this.pageNotes().findIndex(note => note.id === noteId)
+    if (index < 0) return
+    this.visibleNoteLimit = Math.max(this.visibleNoteLimit, index + 1)
+  }
+
+  private restoreModalScrollAnchor() {
+    const anchor = this.modalScrollAnchor
+    this.modalScrollAnchor = undefined
+    if (!anchor) return
+
+    this.visibleNoteLimit = Math.max(this.visibleNoteLimit, anchor.visibleLimit)
+    this.ensureNoteVisible(anchor.noteId)
+    this.cd.detectChanges()
+    this.scheduleBuildMasonry(true)
+
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const noteEl = document.querySelector<HTMLElement>(`[data-note-id="${anchor.noteId}"]`)
+      if (!noteEl) {
+        window.scrollTo({ top: anchor.scrollY })
+        return
+      }
+      const nextTop = window.scrollY + noteEl.getBoundingClientRect().top - anchor.viewportTop
+      window.scrollTo({ top: Math.max(0, nextTop) })
+      this.scheduleBuildMasonry(true)
+    }))
   }
 
   private prepareModalOpenAnimation(source: DOMRect) {
