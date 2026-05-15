@@ -122,6 +122,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   private lastBackfillContext = ''
   private modalScrollRestoreTimers: ReturnType<typeof setTimeout>[] = []
   private modalOpenScrollY = 0
+  private modalClosing = false
   //? -----------------------------------------------------
   trackBy(_index: number, item: any) { return item.id }
 
@@ -557,7 +558,6 @@ export class NotesComponent implements OnInit, OnDestroy {
     }
 
     this.Shared.saveNote.next(true)
-    this.closeModal()
   }
 
   clickedNoteEl!: HTMLDivElement // needed in setModalStyling()
@@ -568,12 +568,13 @@ export class NotesComponent implements OnInit, OnDestroy {
       let isTooltipOpen = document.querySelector('[data-is-tooltip-open="true"]')
       if (!isTooltipOpen) {
         this.Shared.saveNote.next(true)
-        this.closeModal()
       }
     }
   }
 
   closeModal() {
+    if (this.modalClosing) return
+    this.modalClosing = true
     document.removeEventListener('mousedown', this.mouseDownEvent)
     let modalContainer = this.modalContainer.nativeElement
     const isMobileModal = window.innerWidth < 660
@@ -587,6 +588,7 @@ export class NotesComponent implements OnInit, OnDestroy {
       this.modal.nativeElement.removeAttribute('style')
       this.restoreModalScrollPosition()
       this.scheduleIPadMasonrySettle()
+      this.modalClosing = false
     }, isMobileModal ? 180 : 400)
   }
 
