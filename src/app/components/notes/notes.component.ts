@@ -586,6 +586,7 @@ export class NotesComponent implements OnInit, OnDestroy {
       this.openImagePickerOnModal = false
       this.modal.nativeElement.removeAttribute('style')
       this.restoreModalScrollPosition()
+      this.scheduleIPadMasonrySettle()
     }, isMobileModal ? 180 : 400)
   }
 
@@ -609,6 +610,17 @@ export class NotesComponent implements OnInit, OnDestroy {
   private clearModalScrollRestoreTimers() {
     this.modalScrollRestoreTimers.forEach(timer => clearTimeout(timer))
     this.modalScrollRestoreTimers = []
+  }
+
+  private isIPadLikeViewport() {
+    const ua = navigator.userAgent || ''
+    const platform = navigator.platform || ''
+    return /iPad/.test(ua) || /iPad/.test(platform) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  }
+
+  private scheduleIPadMasonrySettle() {
+    if (!this.isIPadLikeViewport()) return
+    setTimeout(() => this.scheduleBuildMasonry(true), 220)
   }
 
   private prepareModalOpenAnimation(source: DOMRect) {
@@ -1932,7 +1944,10 @@ export class NotesComponent implements OnInit, OnDestroy {
     this.subscriptions.push(
       this.Shared.closeSideBar.subscribe(() => { setTimeout(() => { this.scheduleBuildMasonry(true) }, 200) }),
       this.Shared.closeModal.subscribe(x => { if (x) this.closeModal() }),
-      this.Shared.noteViewType.subscribe(() => { setTimeout(() => this.scheduleBuildMasonry(true), 300); }),
+      this.Shared.noteViewType.subscribe(() => {
+        setTimeout(() => this.scheduleBuildMasonry(true), 300);
+        this.scheduleIPadMasonrySettle()
+      }),
       this.notesService.notesList$.subscribe(() => {
         this.masonrySignatureToken++
         this.lastBackfillContext = ''
