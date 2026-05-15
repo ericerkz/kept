@@ -123,6 +123,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   private modalScrollRestoreTimers: ReturnType<typeof setTimeout>[] = []
   private modalOpenScrollY = 0
   private modalClosing = false
+  private suppressScrollPaginationUntil = 0
   //? -----------------------------------------------------
   trackBy(_index: number, item: any) { return item.id }
 
@@ -510,6 +511,8 @@ export class NotesComponent implements OnInit, OnDestroy {
 
   @HostListener('window:scroll')
   onWindowScroll() {
+    if (Date.now() < this.suppressScrollPaginationUntil) return
+    if (this.modalContainer?.nativeElement?.style.display === 'block' || this.modalClosing) return
     const remaining = document.documentElement.scrollHeight - (window.innerHeight + window.scrollY)
     if (remaining < 900) this.increaseVisibleNoteLimit()
   }
@@ -529,6 +532,7 @@ export class NotesComponent implements OnInit, OnDestroy {
     this.Shared.note.id = noteData.id!
     this.clickedNoteEl = clickedNote
     const source = clickedNote.getBoundingClientRect()
+    this.suppressScrollPagination()
     this.captureModalScrollPosition()
     this.clickedNoteData = noteData.isCardPreview ? await this.notesService.get(noteData.id!, { merge: false }).catch(() => noteData) : noteData
     const modalContainer = this.modalContainer.nativeElement
@@ -575,6 +579,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   closeModal() {
     if (this.modalClosing) return
     this.modalClosing = true
+    this.suppressScrollPagination()
     document.removeEventListener('mousedown', this.mouseDownEvent)
     let modalContainer = this.modalContainer.nativeElement
     const isMobileModal = window.innerWidth < 660
@@ -588,8 +593,13 @@ export class NotesComponent implements OnInit, OnDestroy {
       this.modal.nativeElement.removeAttribute('style')
       this.restoreModalScrollPosition()
       this.scheduleIPadMasonrySettle()
+      this.suppressScrollPagination()
       this.modalClosing = false
     }, isMobileModal ? 180 : 400)
+  }
+
+  private suppressScrollPagination(durationMs = 1200) {
+    this.suppressScrollPaginationUntil = Math.max(this.suppressScrollPaginationUntil, Date.now() + durationMs)
   }
 
   private captureModalScrollPosition() {
