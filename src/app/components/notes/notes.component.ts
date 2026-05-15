@@ -596,6 +596,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   }
 
   private restoreModalScrollPosition() {
+    if (Math.abs(window.scrollY - this.modalOpenScrollY) < 2) return
     this.queueModalScrollRestore(0)
     this.queueModalScrollRestore(80)
   }
