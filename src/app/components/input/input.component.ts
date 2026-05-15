@@ -351,6 +351,10 @@ export class InputComponent implements OnInit {
     }
     if (noteObj.noteTitle.length || noteObj.noteBody && noteObj.noteBody?.length || this.checkBoxes.length || this.images.length || this.attachments.length || this.pendingAttachmentFiles.length || this.isDrawingNote) {
       if (this.isEditing) {
+        if (!this.noteChangedForSave(noteObj)) {
+          if (closeAfterSave) this.Shared.closeModal.next(true)
+          return
+        }
         if (!closeAfterSave && this.coEditSaveInFlight) {
           this.coEditSaveQueued = true
           return
@@ -394,6 +398,34 @@ export class InputComponent implements OnInit {
         this.closeNote()
       }
     }
+  }
+
+  private noteChangedForSave(noteObj: NoteI) {
+    if (!this.isEditing || !this.noteToEdit?.id) return true
+    if (this.pendingAttachmentFiles.length) return true
+    const normalizeImages = (images: any[] = []) => images.map(image => ({
+      id: image.id,
+      dataUrl: this.auth.canonicalImageUrl(image.dataUrl || ''),
+      name: image.name || '',
+      placement: image.placement || 'bottom'
+    }))
+    const normalizeLabels = (labels: any[] = []) => labels
+      .filter(label => label.added !== false)
+      .map(label => ({ id: label.id, name: label.name, added: label.added !== false }))
+    const snapshot = (note: NoteI) => ({
+      noteTitle: note.noteTitle || '',
+      noteBody: this.auth.canonicalImageHtml(note.noteBody || ''),
+      pinned: !!note.pinned,
+      bgColor: note.bgColor || '',
+      bgImage: note.bgImage || '',
+      checkBoxes: note.checkBoxes || [],
+      images: normalizeImages(note.images || []),
+      isCbox: !!note.isCbox,
+      labels: normalizeLabels(note.labels || []),
+      archived: !!note.archived,
+      trashed: !!note.trashed
+    })
+    return JSON.stringify(snapshot(noteObj)) !== JSON.stringify(snapshot(this.noteToEdit))
   }
 
   private notePlainText(value?: string | null) {
