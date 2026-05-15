@@ -141,6 +141,9 @@ export class InputComponent implements OnInit {
   private coEditSaveInFlight = false;
   private coEditSaveQueued = false;
   private lastBodyRange?: Range
+  private destroyed = false
+  private editorPreviewGeneration = 0
+  private editorLinkDecorationFrame?: number
   mobileComposeMode = false
   lastEditedTime = ''
   //
@@ -349,33 +352,37 @@ export class InputComponent implements OnInit {
       archived: this.isArchived,
       trashed: this.isTrashed
     }
-    if (noteObj.noteTitle.length || noteObj.noteBody && noteObj.noteBody?.length || this.checkBoxes.length || this.images.length || this.attachments.length || this.pendingAttachmentFiles.length || this.isDrawingNote) {
-      if (this.isEditing) {
-        if (!this.noteChangedForSave(noteObj)) {
-          if (closeAfterSave) this.Shared.closeModal.next(true)
-          return
-        }
-        if (!closeAfterSave && this.coEditSaveInFlight) {
-          this.coEditSaveQueued = true
-          return
-        }
-        if (!closeAfterSave) {
-          this.coEditSaveInFlight = true
-          try {
-            await this.Shared.note.db.update(noteObj)
-          } finally {
-            this.coEditSaveInFlight = false
-            if (this.coEditSaveQueued) {
-              this.coEditSaveQueued = false
-              this.saveNote(false)
-            }
-          }
-        } else {
-          await this.Shared.note.db.update(noteObj)
-          this.updateLastEditedTime();
-        }
+    const hasContent = !!(noteObj.noteTitle.length || noteObj.noteBody && noteObj.noteBody?.length || this.checkBoxes.length || this.images.length || this.attachments.length || this.pendingAttachmentFiles.length || this.isDrawingNote)
+
+    if (this.isEditing) {
+      if (!this.noteChangedForSave(noteObj)) {
         if (closeAfterSave) this.Shared.closeModal.next(true)
+        return
+      }
+      if (!closeAfterSave && this.coEditSaveInFlight) {
+        this.coEditSaveQueued = true
+        return
+      }
+      if (!closeAfterSave) {
+        this.coEditSaveInFlight = true
+        try {
+          await this.Shared.note.db.update(noteObj)
+        } finally {
+          this.coEditSaveInFlight = false
+          if (this.coEditSaveQueued) {
+            this.coEditSaveQueued = false
+            this.saveNote(false)
+          }
+        }
       } else {
+        await this.Shared.note.db.update(noteObj)
+        this.updateLastEditedTime();
+      }
+      if (closeAfterSave) this.Shared.closeModal.next(true)
+      return
+    }
+
+    if (hasContent) {
         let id = await this.Shared.note.db.add(noteObj)
         await this.uploadPendingAttachments(id)
         if (this.pendingReminderDate) {
@@ -396,7 +403,6 @@ export class InputComponent implements OnInit {
           this.Shared.snackBar({ action: 'trashed', opposite: 'untrashed' }, { trashed: false }, id)
         }
         this.closeNote()
-      }
     }
   }
 
@@ -1156,13 +1162,17 @@ export class InputComponent implements OnInit {
 
   private decorateCurrentBodyLinks() {
     const body = this.noteBody?.nativeElement
-    if (!body) return
+    if (!body || this.destroyed) return
+    this.editorPreviewGeneration++
     body.innerHTML = this.decorateLinksForEditor(this.cleanEditorBodyForSave(body.innerHTML))
     this.hydrateEditorLinkPreviews()
   }
 
   private queueEditorLinkDecoration() {
-    requestAnimationFrame(() => {
+    if (this.editorLinkDecorationFrame) cancelAnimationFrame(this.editorLinkDecorationFrame)
+    this.editorLinkDecorationFrame = requestAnimationFrame(() => {
+      this.editorLinkDecorationFrame = undefined
+      if (this.destroyed) return
       const body = this.noteBody?.nativeElement
       if (!body) return
       this.decorateCurrentBodyLinks()
@@ -1172,16 +1182,32 @@ export class InputComponent implements OnInit {
 
   private hydrateEditorLinkPreviews() {
     const body = this.noteBody?.nativeElement
-    if (!body) return
+    if (!body || this.destroyed) return
+    const generation = this.editorPreviewGeneration
     body.querySelectorAll<HTMLElement>('.editor-link-preview-slot:not([data-hydrated])').forEach(slot => {
       const url = slot.dataset['url']
       if (!url) return
       slot.dataset['hydrated'] = 'true'
       slot.replaceChildren(this.editorPreviewShell(url))
       this.notesService.getLinkPreview(url)
-        .then(preview => slot.replaceChildren(this.editorPreviewCard(url, preview)))
-        .catch(() => slot.replaceChildren(this.editorPreviewCard(url)))
+        .then(preview => {
+          if (!this.isLiveEditorPreviewSlot(slot, generation)) return
+          slot.replaceChildren(this.editorPreviewCard(url, preview))
+        })
+        .catch(() => {
+          if (!this.isLiveEditorPreviewSlot(slot, generation)) return
+          slot.replaceChildren(this.editorPreviewCard(url))
+        })
     })
+  }
+
+  private isLiveEditorPreviewSlot(slot: HTMLElement, generation: number) {
+    const body = this.noteBody?.nativeElement
+    return !this.destroyed
+      && generation === this.editorPreviewGeneration
+      && !!body
+      && slot.isConnected
+      && body.contains(slot)
   }
 
   private editorPreviewShell(url: string) {
@@ -2423,6 +2449,12 @@ export class InputComponent implements OnInit {
   }
 
   ngOnDestroy() {
+    this.destroyed = true;
+    this.editorPreviewGeneration++;
+    if (this.editorLinkDecorationFrame) {
+      cancelAnimationFrame(this.editorLinkDecorationFrame);
+      this.editorLinkDecorationFrame = undefined;
+    }
     this.saveNoteSubscription?.unsubscribe();
     if (this.isEditing && this.noteToEdit.id) {
       this.notesService.leaveNote(this.noteToEdit.id);
