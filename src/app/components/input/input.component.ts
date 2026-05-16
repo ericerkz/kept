@@ -276,7 +276,8 @@ export class InputComponent implements OnInit {
     const currentBodyHtml = this.noteBody?.nativeElement.innerHTML || ''
     if (this.isCbox.value) {
       if (this.checkBoxes.length) {
-        this.isHybridNote = true
+        this.isHybridNote = false
+        this.isCbox.next(false)
         this.cd.detectChanges()
         this.restoreBodyHtmlAfterTemplateSwap(currentBodyHtml)
         this.noteBody?.nativeElement.focus()
