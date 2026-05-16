@@ -38,7 +38,12 @@ const KEPT_VERSION = (() => {
 })();
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/ericerkz/kept/releases/latest';
 
-let db = new sqlite3.Database(dbPath);
+function configureDatabase(database) {
+  database.configure('busyTimeout', 5000);
+  return database;
+}
+
+let db = configureDatabase(new sqlite3.Database(dbPath));
 const SAFE_IMAGE_TYPES = new Map([
   ['image/png', '.png'],
   ['image/jpeg', '.jpg'],
@@ -1877,13 +1882,13 @@ app.post('/api/setup/restore', setupLimiter, multer({ dest: path.join(dataDir, '
     fs.unlinkSync(tempPath);
 
     // Re-open and re-init
-    db = new sqlite3.Database(dbPath);
+    db = configureDatabase(new sqlite3.Database(dbPath));
     await init();
 
     res.json({ success: true });
   } catch (e) {
     // Attempt to recover current DB if possible
-    db = new sqlite3.Database(dbPath);
+    db = configureDatabase(new sqlite3.Database(dbPath));
     res.status(500).json({ error: 'Restore failed: ' + e.message });
   }
 }));
