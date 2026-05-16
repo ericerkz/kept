@@ -813,6 +813,23 @@
   }
 }
 
+.icons-container.min.archive-actions {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+@media (max-width: 1024px), (pointer: coarse) {
+  .note-container {
+    .icons-container.min.archive-actions,
+    &:hover .icons-container.min.archive-actions {
+      display: flex !important;
+      opacity: 1 !important;
+      pointer-events: auto;
+    }
+  }
+}
+
 .note-collaborators-list {
   display: flex;
   flex-wrap: wrap;

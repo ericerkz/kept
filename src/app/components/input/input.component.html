@@ -161,8 +161,8 @@
             (click)="alarmIconTapped($event)">
             <span class="material-symbols-outlined">{{ !!getActiveReminder() ? 'notifications_active' : 'notifications' }}</span>
           </div>
-          <div class="mobile-icon archive" (click)="isArchived = true;saveNote()">
-            <span class="material-symbols-outlined">archive</span>
+          <div class="mobile-icon archive" (click)="isArchived = !isArchived;saveNote()">
+            <span class="material-symbols-outlined">{{isArchived ? 'unarchive' : 'archive'}}</span>
           </div>
         </div>
         @if (pendingDateConfirm) {
@@ -244,7 +244,9 @@
         </div>
         <div class="image H pop" data-pop="Add image" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)"></div>
         <div class="attachment H pop" data-pop="Attachments" (click)="openAttachmentPicker($event)"></div>
-        <div class="archive H pop" (click)="isArchived = true;saveNote()" data-pop="Archive"></div>
+        <div [ngClass]="isArchived ? 'unarchive' : 'archive'" class="H pop"
+          (click)="isArchived = !isArchived;saveNote()"
+          [attr.data-pop]="isArchived ? 'Unarchive' : 'Archive'"></div>
         <div #moreMenuTtBtn class="more H pop" data-pop="More" (click)="openTooltip(moreMenuTtBtn,moreMenuTt)">
         </div>
         <div class="undo disabled pop" data-pop="Undo"></div>
@@ -473,7 +475,12 @@
         (dragstart)="cboxDragStart(cb.id, $event)" (dragend)="cboxDragEnd()"
         (drag)="cboxDrag($event)"
         (dragover)="cboxDragOver(cb.id, isDone, $event)" (drop)="cboxDrop(cb.id, isDone, $event)">
-        <div class="cbox-move-icon" (mousedown)="cboxPrepareDrag(cb.id)" (mouseup)="cboxCancelDrag()"></div>
+        <div class="cbox-move-icon"
+          (mousedown)="cboxPrepareDrag(cb.id)" (mouseup)="cboxCancelDrag()"
+          (touchstart)="cboxTouchStart(cb.id, isDone, $event)"
+          (touchmove)="cboxTouchMove($event)"
+          (touchend)="cboxTouchEnd()"
+          (touchcancel)="cboxTouchEnd()"></div>
         <div [class.done]="cb.done" class="cbox-icon" (click)="cboxTools(cb.id).check()"></div>
         <div class="cbox-note-container">
           <div #cboxInput [attr.data-cbox-last]="last" [attr.data-cbox-id]="cb.id" [class.cbox-done]="cb.done"

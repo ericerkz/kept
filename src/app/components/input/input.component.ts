@@ -125,6 +125,11 @@ export class InputComponent implements OnInit {
   cboxDragOrderChanged = false;
   cboxDragImage?: HTMLElement;
   cboxDragImageOffset = { x: 0, y: 0 };
+  private cboxTouchTimer?: ReturnType<typeof setTimeout>;
+  private cboxTouchDragging = false;
+  private cboxTouchIsDone = false;
+  private cboxTouchStartX = 0;
+  private cboxTouchStartY = 0;
   activePointers: Map<number, { x: number, y: number }> = new Map();
   drawingTransform = { scale: 1, x: 0, y: 0 };
   private isPanning = false;
@@ -1969,10 +1974,69 @@ export class InputComponent implements OnInit {
     event.stopPropagation()
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
     this.moveCboxDragImage(event)
+    this.reorderCboxAround(id, isDone, event.clientY)
+  }
+
+  cboxTouchStart(id: number, isDone: boolean, event: TouchEvent) {
+    event.stopPropagation()
+    const touch = event.touches[0]
+    if (!touch) return
+    this.cboxTouchStartX = touch.clientX
+    this.cboxTouchStartY = touch.clientY
+    this.cboxTouchIsDone = isDone
+    this.cboxTouchDragging = false
+    this.cboxDragOrderChanged = false
+    if (this.cboxTouchTimer) clearTimeout(this.cboxTouchTimer)
+    this.cboxTouchTimer = setTimeout(() => {
+      this.draggedCboxId = id
+      this.dragReadyCboxId = id
+      this.cboxTouchDragging = true
+      try { (navigator as any).vibrate?.(10) } catch {}
+    }, 280)
+  }
+
+  cboxTouchMove(event: TouchEvent) {
+    const touch = event.touches[0]
+    if (!touch) return
+    const dx = Math.abs(touch.clientX - this.cboxTouchStartX)
+    const dy = Math.abs(touch.clientY - this.cboxTouchStartY)
+
+    if (!this.cboxTouchDragging) {
+      if ((dx > 8 || dy > 8) && this.cboxTouchTimer) {
+        clearTimeout(this.cboxTouchTimer)
+        this.cboxTouchTimer = undefined
+      }
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    const row = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('[data-cbox-row-id]') as HTMLElement | null
+    const id = Number(row?.dataset['cboxRowId'])
+    if (!id) return
+    this.reorderCboxAround(id, this.cboxTouchIsDone, touch.clientY)
+  }
+
+  cboxTouchEnd() {
+    if (this.cboxTouchTimer) {
+      clearTimeout(this.cboxTouchTimer)
+      this.cboxTouchTimer = undefined
+    }
+    if (this.cboxTouchDragging) this.persistCboxDragOrder()
+    this.clearCboxDragState()
+    this.cboxTouchDragging = false
+  }
+
+  private reorderCboxAround(id: number, isDone: boolean, clientY: number) {
+    if (this.draggedCboxId === undefined) return
+    const draggedCb = this.checkBoxes.find(cb => cb.id === this.draggedCboxId)
+    if (!draggedCb || draggedCb.done !== isDone) return
     if (id === this.draggedCboxId) return
 
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    const placement: 'before' | 'after' = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+    const row = document.querySelector<HTMLElement>(`[data-cbox-row-id="${id}"]`)
+    if (!row) return
+    const rect = row.getBoundingClientRect()
+    const placement: 'before' | 'after' = clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 
     const fromIdx = this.checkBoxes.indexOf(draggedCb)
     const targetIdx = this.checkBoxes.findIndex(cb => cb.id === id)
@@ -2013,11 +2077,15 @@ export class InputComponent implements OnInit {
   private persistCboxDragOrder() {
     if (!this.cboxDragOrderChanged || !this.isEditing || !this.noteToEdit.id) return
     this.noteToEdit.checkBoxes = this.checkBoxes
-    this.Shared.note.id = this.noteToEdit.id
-    this.Shared.note.db.updateKey({ checkBoxes: this.checkBoxes })
+    this.saveBaselineSnapshot = this.noteSaveSnapshot({ ...this.noteToEdit, checkBoxes: this.checkBoxes })
+    this.notesService.updateKey({ checkBoxes: this.checkBoxes }, this.noteToEdit.id)
   }
 
   private clearCboxDragState() {
+    if (this.cboxTouchTimer) {
+      clearTimeout(this.cboxTouchTimer)
+      this.cboxTouchTimer = undefined
+    }
     this.draggedCboxId = undefined
     this.dragReadyCboxId = undefined
     this.cboxDragOrderChanged = false
