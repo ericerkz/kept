@@ -253,7 +253,7 @@ export class SharedService {
       // 1. Link Card (Pinned!)
       await this.Notes.add({
         noteTitle: 'Saved Links 🔗',
-        noteBody: 'You can save links in Kept and they\'ll automatically generate a ful preview for you! Check out the project here: https://github.com/ericerkz/kept',
+        noteBody: 'You can save links in Kept and they\'ll automatically generate a full preview for you! Check out the project here: https://github.com/ericerkz/kept',
         bgColor: bgColors.sky,
         pinned: true, archived: false, trashed: false, isCbox: false, labels: [],
         isDemo: true

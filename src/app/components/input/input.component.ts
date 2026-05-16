@@ -130,6 +130,7 @@ export class InputComponent implements OnInit {
   private cboxTouchIsDone = false;
   private cboxTouchStartX = 0;
   private cboxTouchStartY = 0;
+  private lastCboxTouchToggleAt = 0;
   activePointers: Map<number, { x: number, y: number }> = new Map();
   drawingTransform = { scale: 1, x: 0, y: 0 };
   private isPanning = false;
@@ -372,7 +373,7 @@ export class InputComponent implements OnInit {
       if (!closeAfterSave) {
         this.coEditSaveInFlight = true
         try {
-          await this.Shared.note.db.update(noteObj)
+          await this.notesService.update(noteObj, this.noteToEdit.id!)
           this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
         } finally {
           this.coEditSaveInFlight = false
@@ -382,7 +383,7 @@ export class InputComponent implements OnInit {
           }
         }
       } else {
-        await this.Shared.note.db.update(noteObj)
+        await this.notesService.update(noteObj, this.noteToEdit.id!)
         this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
         this.updateLastEditedTime();
       }
@@ -1065,15 +1066,7 @@ export class InputComponent implements OnInit {
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move'
       const row = event.currentTarget as HTMLElement
-      const rect = row.getBoundingClientRect()
-      const dragImage = row.cloneNode(true) as HTMLElement
-      dragImage.classList.add('cbox-drag-image')
-      dragImage.removeAttribute('data-cbox-row-id')
-      dragImage.style.width = `${rect.width}px`
-      dragImage.style.transform = `translate(${rect.left}px, ${rect.top}px)`
-      document.body.appendChild(dragImage)
-      this.cboxDragImage = dragImage
-      this.cboxDragImageOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+      this.createCboxDragImage(row, event.clientX, event.clientY)
       this.moveCboxDragImage(event)
       event.dataTransfer.setDragImage(this.getTransparentDragImage(), 0, 0)
     }
@@ -1991,8 +1984,13 @@ export class InputComponent implements OnInit {
       this.draggedCboxId = id
       this.dragReadyCboxId = id
       this.cboxTouchDragging = true
+      const row = document.querySelector<HTMLElement>(`[data-cbox-row-id="${id}"]`)
+      if (row) {
+        this.createCboxDragImage(row, this.cboxTouchStartX, this.cboxTouchStartY)
+        this.moveCboxDragImageToPoint(this.cboxTouchStartX, this.cboxTouchStartY)
+      }
       try { (navigator as any).vibrate?.(10) } catch {}
-    }, 280)
+    }, 240)
   }
 
   cboxTouchMove(event: TouchEvent) {
@@ -2002,7 +2000,7 @@ export class InputComponent implements OnInit {
     const dy = Math.abs(touch.clientY - this.cboxTouchStartY)
 
     if (!this.cboxTouchDragging) {
-      if ((dx > 8 || dy > 8) && this.cboxTouchTimer) {
+      if ((dx > 14 || dy > 14) && this.cboxTouchTimer) {
         clearTimeout(this.cboxTouchTimer)
         this.cboxTouchTimer = undefined
       }
@@ -2011,6 +2009,7 @@ export class InputComponent implements OnInit {
 
     event.preventDefault()
     event.stopPropagation()
+    this.moveCboxDragImageToPoint(touch.clientX, touch.clientY)
     const row = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('[data-cbox-row-id]') as HTMLElement | null
     const id = Number(row?.dataset['cboxRowId'])
     if (!id) return
@@ -2093,9 +2092,27 @@ export class InputComponent implements OnInit {
     this.cboxDragImage = undefined
   }
 
+  private createCboxDragImage(row: HTMLElement, clientX: number, clientY: number) {
+    this.cboxDragImage?.remove()
+    const rect = row.getBoundingClientRect()
+    const dragImage = row.cloneNode(true) as HTMLElement
+    dragImage.classList.add('cbox-drag-image')
+    dragImage.removeAttribute('data-cbox-row-id')
+    dragImage.style.width = `${rect.width}px`
+    dragImage.style.transform = `translate(${rect.left}px, ${rect.top}px)`
+    document.body.appendChild(dragImage)
+    this.cboxDragImage = dragImage
+    this.cboxDragImageOffset = { x: clientX - rect.left, y: clientY - rect.top }
+  }
+
   private moveCboxDragImage(event: DragEvent) {
     if (!this.cboxDragImage || (event.clientX === 0 && event.clientY === 0)) return
-    this.cboxDragImage.style.transform = `translate(${event.clientX - this.cboxDragImageOffset.x}px, ${event.clientY - this.cboxDragImageOffset.y}px)`
+    this.moveCboxDragImageToPoint(event.clientX, event.clientY)
+  }
+
+  private moveCboxDragImageToPoint(clientX: number, clientY: number) {
+    if (!this.cboxDragImage) return
+    this.cboxDragImage.style.transform = `translate(${clientX - this.cboxDragImageOffset.x}px, ${clientY - this.cboxDragImageOffset.y}px)`
   }
 
   private getTransparentDragImage() {
@@ -2169,6 +2186,20 @@ export class InputComponent implements OnInit {
       }
     }
     return actions
+  }
+
+  toggleCboxDone(id: number, event?: Event) {
+    event?.preventDefault()
+    event?.stopPropagation()
+    if (event?.type === 'touchend') {
+      this.lastCboxTouchToggleAt = Date.now()
+    } else if (Date.now() - this.lastCboxTouchToggleAt < 700) {
+      return
+    }
+    if (!this.checkBoxes.some(cb => cb.id === id)) return
+    this.cboxTools(id).check()
+    this.noteToEdit.checkBoxes = this.checkBoxes
+    this.cd.detectChanges()
   }
 
   //? isEditing  -----------------------------------------------------------
