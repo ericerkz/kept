@@ -21,6 +21,13 @@ If you've been hunting for that *Google Keep feeling* in something self-hosted a
 
 I've spent years bouncing between open-source note apps trying to find one that felt like Google Keep — quick, colorful, easy to glance at, never in the way. Most are capable but slow, or powerful but fiddly. Kept is the version I wanted: the speed and clean visual feel of Keep, with everything that comes from owning your own data.
 
+
+If you want to show support/appreciation for Kept, I do enjoy coffee:
+<!-- Ko-fi badge -->
+<a href="https://ko-fi.com/kept_notes">
+  <img src="https://img.shields.io/badge/Ko--fi-Support%20Me-ff5e5b?logo=ko-fi&logoColor=white" alt="Ko-fi">
+</a>
+
 ## What you get
 
 📝 **All the kinds of notes you actually use** — text, checklists, doodles you draw right in the app, photos, file attachments. Drag checklist items to reorder. Drag note cards to rearrange. Pin the important ones to the top.
