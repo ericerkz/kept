@@ -73,6 +73,8 @@
   pointer-events: none;
   position: fixed;
   top: 0;
+  -webkit-touch-callout: none;
+  user-select: none;
   visibility: visible;
   z-index: 9999;
 }
@@ -260,6 +262,7 @@
   margin-right: -6px;
   opacity: 0.54;
   touch-action: none;
+  -webkit-touch-callout: none;
   visibility: visible;
   user-select: none;
   -webkit-user-drag: element;

@@ -1971,6 +1971,7 @@ export class InputComponent implements OnInit {
   }
 
   cboxTouchStart(id: number, isDone: boolean, event: TouchEvent) {
+    if (event.cancelable) event.preventDefault()
     event.stopPropagation()
     const touch = event.touches[0]
     if (!touch) return

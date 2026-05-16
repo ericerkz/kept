@@ -42,10 +42,12 @@ export class SharedService {
     this.Notes.notesList$.subscribe({
       next: (result: NoteI[] | null) => {
         if (result === null) return;
-        const ordered = [...result]
-        this.note.pinned = ordered.filter(x => x.pinned === true)
-        this.note.unpinned = ordered.filter(x => x.pinned === false)
-        this.note.all = ordered
+        this.ngZone.run(() => {
+          const ordered = [...result]
+          this.note.pinned = ordered.filter(x => x.pinned === true)
+          this.note.unpinned = ordered.filter(x => x.pinned === false)
+          this.note.all = ordered
+        })
       },
       error: error => console.error(error)
     })
