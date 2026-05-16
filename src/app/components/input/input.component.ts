@@ -2013,7 +2013,7 @@ export class InputComponent implements OnInit {
     this.moveCboxDragImageToPoint(touch.clientX, touch.clientY)
     const row = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('[data-cbox-row-id]') as HTMLElement | null
     const id = Number(row?.dataset['cboxRowId'])
-    if (!id) return
+    if (Number.isNaN(id)) return
     this.reorderCboxAround(id, this.cboxTouchIsDone, touch.clientY)
   }
 
