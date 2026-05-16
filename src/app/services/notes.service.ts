@@ -42,6 +42,9 @@ export class NotesService {
   private readonly authSubscription: Subscription;
   private isLoading = false;
   private isLoadingNextPage = false;
+  loading = false;
+  hasLoaded = false;
+  loadError = false;
   private nextCursor: string | null = null;
   private searchQuery = '';
   private searchReloadTimer?: ReturnType<typeof setTimeout>;
@@ -57,7 +60,15 @@ export class NotesService {
   constructor(private http: HttpClient, private auth: AuthService, private reminders: ReminderService) {
     this.authSubscription = this.auth.currentUser$.subscribe(user => {
       this.disconnectRealtime();
-      if (user?.token) this.connectRealtime(user.token);
+      if (user?.token) {
+        this.connectRealtime(user.token);
+      } else {
+        this.loading = false;
+        this.hasLoaded = false;
+        this.loadError = false;
+        this.nextCursor = null;
+        this.notesList$.next(null);
+      }
     });
   }
 
@@ -67,27 +78,52 @@ export class NotesService {
       return;
     }
     this.isLoading = true;
+    this.loading = true;
+    this.loadError = false;
     try {
       this.searchQuery = searchQuery;
       const requestedQuery = searchQuery;
-      const params: Record<string, string> = { view: 'card', limit: String(this.cardPageSize) };
-      if (this.searchQuery.trim()) params['q'] = this.searchQuery.trim();
-      const page = await firstValueFrom(this.http.get<NotesCardPage>(this.apiUrl, {
-        headers: this.auth.authHeaders(),
-        params
-      }));
+      const page = await this.loadCardPageWithRetry(requestedQuery);
       if (requestedQuery !== this.searchQuery) return;
       this.nextCursor = page.nextCursor;
+      this.hasLoaded = true;
       this.notesList$.next(page.notes);
       this.queueLinkPreviewPreload(page.notes);
+    } catch (error) {
+      this.loadError = true;
+      console.error(error);
     } finally {
       this.isLoading = false;
+      this.loading = false;
       if (this.pendingLoadQuery !== undefined) {
         const pending = this.pendingLoadQuery;
         this.pendingLoadQuery = undefined;
         this.load(pending).catch(console.error);
       }
     }
+  }
+
+  private async loadCardPageWithRetry(searchQuery: string) {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const params: Record<string, string> = { view: 'card', limit: String(this.cardPageSize) };
+        if (searchQuery.trim()) params['q'] = searchQuery.trim();
+        return await firstValueFrom(this.http.get<NotesCardPage>(this.apiUrl, {
+          headers: this.auth.authHeaders(),
+          params
+        }));
+      } catch (error) {
+        lastError = error;
+        if (attempt === 2 || searchQuery !== this.searchQuery) break;
+        await this.delay(250 * (attempt + 1));
+      }
+    }
+    throw lastError;
+  }
+
+  private delay(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   setSearchQuery(query: string) {
@@ -422,9 +458,20 @@ export class NotesService {
         { userIds },
         { headers: this.auth.authHeaders() }
       ));
-      await this.load();
+      this.mergeCollaboratorsIntoList(id, users);
+      this.load().catch(console.error);
       return users;
     } else return []
+  }
+
+  private mergeCollaboratorsIntoList(id: number, collaborators: ShareUserI[]) {
+    const current = this.notesList$.value;
+    if (!current) return;
+    const index = current.findIndex(note => note.id === id);
+    if (index < 0) return;
+    const next = [...current];
+    next[index] = { ...next[index], collaborators };
+    this.notesList$.next(next);
   }
 
   async clone(id: number) {

@@ -27,7 +27,7 @@ type NoteMeta = { rawBody: string; title: string; bgKey: string; urls: string[];
 })
 export class NotesComponent implements OnInit, OnDestroy {
   activeNote: NoteI | null = null
-  constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, private notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe) { }
+  constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, public notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe) { }
 
   private subscriptions: Subscription[] = []
 
@@ -1361,7 +1361,7 @@ export class NotesComponent implements OnInit, OnDestroy {
     try {
       this.collaboratorUsers = await this.Shared.note.db.listShareUsers()
       if (this.canManageCollaborators()) {
-        const collaborators = await this.Shared.note.db.getCollaborators()
+        const collaborators = await this.notesService.getCollaborators(note.id!)
         this.selectedCollaboratorIds = collaborators.map(user => user.id)
       }
     } catch (error: any) {
@@ -1390,7 +1390,9 @@ export class NotesComponent implements OnInit, OnDestroy {
     }
     // Auto-save
     try {
-      const collaborators = await this.Shared.note.db.updateCollaborators(this.selectedCollaboratorIds)
+      const noteId = this.collaboratorNote?.id
+      if (!noteId) return
+      const collaborators = await this.notesService.updateCollaborators(noteId, this.selectedCollaboratorIds)
       if (this.activeNote) this.activeNote.collaborators = collaborators
       if (this.collaboratorNote) this.collaboratorNote.collaborators = collaborators
     } catch (error: any) {
@@ -1403,7 +1405,9 @@ export class NotesComponent implements OnInit, OnDestroy {
     this.isSavingCollaborators = true
     this.collaboratorError = ''
     try {
-      const collaborators = await this.Shared.note.db.updateCollaborators(this.selectedCollaboratorIds)
+      const noteId = this.collaboratorNote?.id
+      if (!noteId) return
+      const collaborators = await this.notesService.updateCollaborators(noteId, this.selectedCollaboratorIds)
       if (this.activeNote) this.activeNote.collaborators = collaborators
       if (this.collaboratorNote) this.collaboratorNote.collaborators = collaborators
       this.Shared.closeTooltip(tooltipEl)

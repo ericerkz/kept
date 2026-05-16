@@ -144,6 +144,7 @@ export class InputComponent implements OnInit {
   private destroyed = false
   private editorPreviewGeneration = 0
   private editorLinkDecorationFrame?: number
+  private saveBaselineSnapshot?: string
   mobileComposeMode = false
   lastEditedTime = ''
   //
@@ -327,7 +328,7 @@ export class InputComponent implements OnInit {
     if (this.isCbox.value && this.cboxPh?.nativeElement.innerHTML.trim()) {
       this.addCheckBoxFromPlaceholder()
     }
-    const allCboxElements = document.querySelectorAll('[data-cbox-id]')
+    const allCboxElements = this.noteContainer.nativeElement.querySelectorAll('[data-cbox-id]')
     allCboxElements.forEach((el: Element) => {
       const cboxEl = el as HTMLDivElement
       const idAttr = cboxEl.getAttribute('data-cbox-id')
@@ -367,6 +368,7 @@ export class InputComponent implements OnInit {
         this.coEditSaveInFlight = true
         try {
           await this.Shared.note.db.update(noteObj)
+          this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
         } finally {
           this.coEditSaveInFlight = false
           if (this.coEditSaveQueued) {
@@ -376,6 +378,7 @@ export class InputComponent implements OnInit {
         }
       } else {
         await this.Shared.note.db.update(noteObj)
+        this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
         this.updateLastEditedTime();
       }
       if (closeAfterSave) this.Shared.closeModal.next(true)
@@ -409,29 +412,47 @@ export class InputComponent implements OnInit {
   private noteChangedForSave(noteObj: NoteI) {
     if (!this.isEditing || !this.noteToEdit?.id) return true
     if (this.pendingAttachmentFiles.length) return true
-    const normalizeImages = (images: any[] = []) => images.map(image => ({
-      id: image.id,
-      dataUrl: this.auth.canonicalImageUrl(image.dataUrl || ''),
-      name: image.name || '',
-      placement: image.placement || 'bottom'
-    }))
-    const normalizeLabels = (labels: any[] = []) => labels
-      .filter(label => label.added !== false)
-      .map(label => ({ id: label.id, name: label.name, added: label.added !== false }))
-    const snapshot = (note: NoteI) => ({
+    const baseline = this.saveBaselineSnapshot ?? this.noteSaveSnapshot(this.noteToEdit)
+    return this.noteSaveSnapshot(noteObj) !== baseline
+  }
+
+  private noteSaveSnapshot(note: NoteI) {
+    return JSON.stringify({
       noteTitle: note.noteTitle || '',
       noteBody: this.auth.canonicalImageHtml(note.noteBody || ''),
       pinned: !!note.pinned,
       bgColor: note.bgColor || '',
       bgImage: note.bgImage || '',
-      checkBoxes: note.checkBoxes || [],
-      images: normalizeImages(note.images || []),
+      checkBoxes: this.normalizeCheckBoxes(note.checkBoxes || []),
+      images: this.normalizeImages(note.images || []),
       isCbox: !!note.isCbox,
-      labels: normalizeLabels(note.labels || []),
+      labels: this.normalizeLabels(note.labels || []),
       archived: !!note.archived,
       trashed: !!note.trashed
     })
-    return JSON.stringify(snapshot(noteObj)) !== JSON.stringify(snapshot(this.noteToEdit))
+  }
+
+  private normalizeImages(images: any[] = []) {
+    return images.map(image => ({
+      id: image.id,
+      dataUrl: this.auth.canonicalImageUrl(image.dataUrl || ''),
+      name: image.name || '',
+      placement: image.placement || 'bottom'
+    }))
+  }
+
+  private normalizeLabels(labels: any[] = []) {
+    return labels
+      .filter(label => label.added !== false)
+      .map(label => ({ id: label.id, name: label.name, added: label.added !== false }))
+  }
+
+  private normalizeCheckBoxes(checkBoxes: CheckboxI[] = []) {
+    return checkBoxes.map(item => ({
+      id: item.id,
+      done: !!item.done,
+      data: item.data || ''
+    }))
   }
 
   private notePlainText(value?: string | null) {
@@ -2097,7 +2118,7 @@ export class InputComponent implements OnInit {
     this.noteMain.nativeElement.style.backgroundColor = note.bgColor
     this.noteMain.nativeElement.style.borderColor = note.bgColor
     this.updateTextColor(note.bgColor)
-    if (note.checkBoxes) this.checkBoxes = note.checkBoxes
+    this.checkBoxes = JSON.parse(JSON.stringify(note.checkBoxes || []))
     // Hybrid: latch BEFORE flipping isCbox so the noteBody ViewChild is
     // present after change detection (otherwise the body assignment below
     // would silently no-op when loading a hybrid note from a checklist-only
@@ -2106,6 +2127,7 @@ export class InputComponent implements OnInit {
     this.isCbox.next(note.isCbox)
     this.isArchived = note.archived
     this.isTrashed = note.trashed
+    this.saveBaselineSnapshot = this.noteSaveSnapshot(note)
     //
     this.inputLength.next({ title: note.noteTitle.length, body: (note.noteBody ? note.noteBody?.length : 0) + this.images.length + this.attachments.length, cb: note.checkBoxes?.length! })
     note.labels.forEach(noteLabel => {
@@ -2137,7 +2159,7 @@ export class InputComponent implements OnInit {
     try {
       this.collaboratorUsers = await this.Shared.note.db.listShareUsers()
       if (this.canManageCollaborators()) {
-        const collaborators = await this.Shared.note.db.getCollaborators()
+        const collaborators = await this.notesService.getCollaborators(this.noteToEdit.id!)
         this.selectedCollaboratorIds = collaborators.map(user => user.id)
       }
     } catch (error: any) {
@@ -2171,7 +2193,7 @@ export class InputComponent implements OnInit {
     this.isSavingCollaborators = true
     this.collaboratorError = ''
     try {
-      const collaborators = await this.Shared.note.db.updateCollaborators(this.selectedCollaboratorIds)
+      const collaborators = await this.notesService.updateCollaborators(this.noteToEdit.id!, this.selectedCollaboratorIds)
       this.noteToEdit.collaborators = collaborators
       this.Shared.closeTooltip(tooltipEl)
     } catch (error: any) {

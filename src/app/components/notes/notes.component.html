@@ -21,7 +21,7 @@
   </section>
 </section>
 
-@if (!pageNotes.length) {
+@if (notesService.hasLoaded && !notesService.loading && !notesService.loadError && !pageNotes.length) {
   <section>
     <div class="no-notes">
       <div class="image"></div>
