@@ -172,7 +172,8 @@
                 @let completedCboxes = note.checkBoxes! | cboxDone:true;
                 @for (cb of activeCboxes | slice:0:7; track cb.id; let i = $index) {
                   <div class="cbox-container">
-                    <div (mousedown)="$event.stopPropagation()" (mouseup)="toggleOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()" [class.done]="cb.done"
+                    <div (touchstart)="$event.stopPropagation()" (touchend)="toggleOverviewCheckbox(note, cb, $event)"
+                    (mousedown)="$event.stopPropagation()" (mouseup)="toggleOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()" [class.done]="cb.done"
                     class="cbox-icon"></div>
                     <div class="cbox-note-container min">
                       <div [attr.data-id]="cb.id" [class.cbox-done]="cb.done"
@@ -180,7 +181,8 @@
                         [innerHTML]="cb.data">
                       </div>
                     </div>
-                    <div (mousedown)="$event.stopPropagation()" (mouseup)="removeOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()"
+                    <div (touchstart)="$event.stopPropagation()" (touchend)="removeOverviewCheckbox(note, cb, $event)"
+                    (mousedown)="$event.stopPropagation()" (mouseup)="removeOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()"
                       class="cbox-cancel-icon min H">
                     </div>
                   </div>
@@ -201,7 +203,8 @@
                   </div>
                   @for (cb of completedCboxes | slice:0:7; track cb.id) {
                     <div class="cbox-container">
-                      <div (mousedown)="$event.stopPropagation()" (mouseup)="toggleOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()" [class.done]="cb.done"
+                      <div (touchstart)="$event.stopPropagation()" (touchend)="toggleOverviewCheckbox(note, cb, $event)"
+                      (mousedown)="$event.stopPropagation()" (mouseup)="toggleOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()" [class.done]="cb.done"
                       class="cbox-icon"></div>
                       <div class="cbox-note-container min">
                         <div [attr.data-id]="cb.id" [class.cbox-done]="cb.done"
@@ -209,8 +212,9 @@
                           [innerHTML]="cb.data">
                         </div>
                       </div>
-                      <div (mousedown)="$event.stopPropagation()" (mouseup)="removeOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()"
-                        class="cbox-cancel-icon min H">
+                      <div (touchstart)="$event.stopPropagation()" (touchend)="removeOverviewCheckbox(note, cb, $event)"
+                      (mousedown)="$event.stopPropagation()" (mouseup)="removeOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()"
+                      class="cbox-cancel-icon min H">
                       </div>
                     </div>
                   }
@@ -305,6 +309,14 @@
               </div>
             </div>
           </div>
+          @if (note.archived) {
+            <div class="icons-container min archive-actions" (mousedown)="$event.stopPropagation()" (touchstart)="$event.stopPropagation()">
+              <div class="icons">
+                <div class="unarchive H pop" data-pop="Unarchive" (click)="$event.stopPropagation(); toggleArchive(note.id!, note.archived)">
+                </div>
+              </div>
+            </div>
+          }
         } @else {
           <div class="trash-countdown"><img src="./assets/images/svg/exclaimwarn.svg" alt="warn"> {{trashCountdown(note)}} before permanent deletion</div>
           <div class="icons-container min trash-actions" (mousedown)="$event.stopPropagation()" (touchstart)="$event.stopPropagation()">

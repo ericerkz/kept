@@ -124,6 +124,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   private modalOpenScrollY = 0
   private modalClosing = false
   private suppressScrollPaginationUntil = 0
+  private lastOverviewCheckboxTouchAt = 0
   //? -----------------------------------------------------
   trackBy(_index: number, item: any) { return item.id }
 
@@ -716,23 +717,31 @@ export class NotesComponent implements OnInit, OnDestroy {
   async toggleOverviewCheckbox(note: NoteI, cb: CheckboxI, event: Event) {
     event.stopPropagation()
     event.preventDefault()
+    if (this.ignoreSyntheticOverviewCheckboxMouse(event)) return
     if (note.isCardPreview && note.id) note = await this.notesService.get(note.id).catch(() => note)
     const target = note.checkBoxes?.find(item => item.id === cb.id) || cb
-    this.Shared.note.id = note.id!
     target.done = !target.done
-    this.Shared.note.db.updateKey({ checkBoxes: note.checkBoxes })
+    await this.notesService.updateKey({ checkBoxes: note.checkBoxes }, note.id!)
     this.scheduleBuildMasonry(true)
   }
 
   async removeOverviewCheckbox(note: NoteI, cb: CheckboxI, event: Event) {
     event.stopPropagation()
     event.preventDefault()
+    if (this.ignoreSyntheticOverviewCheckboxMouse(event)) return
     if (note.isCardPreview && note.id) note = await this.notesService.get(note.id).catch(() => note)
-    this.Shared.note.id = note.id!
     const index = note.checkBoxes?.findIndex(x => x.id === cb.id)
     if (index !== undefined && index >= 0) note.checkBoxes?.splice(index, 1)
-    this.Shared.note.db.updateKey({ checkBoxes: note.checkBoxes })
+    await this.notesService.updateKey({ checkBoxes: note.checkBoxes }, note.id!)
     this.scheduleBuildMasonry(true)
+  }
+
+  private ignoreSyntheticOverviewCheckboxMouse(event: Event) {
+    if (event.type === 'touchend') {
+      this.lastOverviewCheckboxTouchAt = Date.now()
+      return false
+    }
+    return event.type.startsWith('mouse') && Date.now() - this.lastOverviewCheckboxTouchAt < 500
   }
 
   //? pin note  -----------------------------------------------------------
@@ -838,7 +847,7 @@ export class NotesComponent implements OnInit, OnDestroy {
 
     if (wasTap) {
       const target = event.target as HTMLElement
-      if (target.closest('button, a, .reminder-chip, .reminder-picker, .check-icon, .pin-icon, .icons-container')) return
+      if (target.closest('button, a, .reminder-chip, .reminder-picker, .check-icon, .cbox-icon, .cbox-cancel-icon, .pin-icon, .icons-container')) return
       event.preventDefault()
       this.openModal(noteEl, note)
       this.suppressNextOpen = true
