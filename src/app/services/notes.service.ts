@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { BehaviorSubject, firstValueFrom, Subscription } from 'rxjs';
 
 export interface LinkPreviewData {
@@ -300,29 +300,53 @@ export class NotesService {
   }
 
   async update(object: NoteI, id: number) {
-    if (id !== -1) {
-      this.suppressRealtimeReload(id);
-      try {
-        await firstValueFrom(this.http.put(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() }));
-        this.mergeNoteIntoList({ ...object, id });
-      } catch (error) {
-        this.suppressedRealtimeReloads.delete(id);
-        console.log(error)
-      }
+    if (id === -1) return;
+    this.suppressRealtimeReload(id);
+    try {
+      await this.noteWriteWithRetry(
+        () => firstValueFrom(this.http.put(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() })),
+        `update note ${id}`
+      );
+      this.mergeNoteIntoList({ ...object, id });
+    } catch (error) {
+      this.suppressedRealtimeReloads.delete(id);
+      console.log(error)
     }
   }
 
   async updateKey(object: UpdateKeyI, id: number) {
-    if (id !== -1) {
-      this.suppressRealtimeReload(id);
+    if (id === -1) return;
+    this.suppressRealtimeReload(id);
+    try {
+      await this.noteWriteWithRetry(
+        () => firstValueFrom(this.http.patch(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() })),
+        `update note fields ${id}`
+      );
+      this.mergeNoteIntoList({ ...object, id } as NoteI);
+    } catch (error) {
+      this.suppressedRealtimeReloads.delete(id);
+      console.log(error)
+    }
+  }
+
+  private async noteWriteWithRetry(write: () => Promise<unknown>, label: string) {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        await firstValueFrom(this.http.patch(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() }));
-        this.mergeNoteIntoList({ ...object, id } as NoteI);
+        return await write();
       } catch (error) {
-        this.suppressedRealtimeReloads.delete(id);
-        console.log(error)
+        lastError = error;
+        if (attempt === 2 || !this.isRetryableNoteWriteError(error)) break;
+        await this.delay(350 * (attempt + 1));
       }
     }
+    console.warn(`Failed to ${label} after retries`, lastError);
+    throw lastError;
+  }
+
+  private isRetryableNoteWriteError(error: unknown) {
+    if (!(error instanceof HttpErrorResponse)) return true;
+    return error.status === 0 || error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500;
   }
 
   async reorder(ids: number[]) {
