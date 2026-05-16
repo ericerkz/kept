@@ -251,12 +251,15 @@
   background-color: currentColor;
   cursor: move;
   height: 24px;
-  flex: 0 0 24px;
-  width: 24px;
+  flex: 0 0 36px;
+  width: 36px;
   -webkit-mask: url(/assets/images/svg/move.svg) center / 18px 18px no-repeat;
   mask: url(/assets/images/svg/move.svg) center / 18px 18px no-repeat;
   left: 0;
+  margin-left: -6px;
+  margin-right: -6px;
   opacity: 0.54;
+  touch-action: none;
   visibility: visible;
   user-select: none;
   -webkit-user-drag: element;

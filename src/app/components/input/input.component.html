@@ -481,7 +481,9 @@
           (touchmove)="cboxTouchMove($event)"
           (touchend)="cboxTouchEnd()"
           (touchcancel)="cboxTouchEnd()"></div>
-        <div [class.done]="cb.done" class="cbox-icon" (click)="cboxTools(cb.id).check()"></div>
+        <div [class.done]="cb.done" class="cbox-icon"
+          (touchend)="toggleCboxDone(cb.id, $event)"
+          (click)="toggleCboxDone(cb.id, $event)"></div>
         <div class="cbox-note-container">
           <div #cboxInput [attr.data-cbox-last]="last" [attr.data-cbox-id]="cb.id" [class.cbox-done]="cb.done"
             (blur)="cboxTools(cb.id).update(cboxInput)" (keydown)="cBoxKeyDown($event,cb.id)"
