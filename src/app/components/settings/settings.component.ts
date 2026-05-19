@@ -1,6 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import * as JSZip from 'jszip';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { GoogleCalendarStatusI } from 'src/app/interfaces/reminder';
 import { ReminderService } from 'src/app/services/reminder.service';
 import { NotesService, TakeoutImportResult } from 'src/app/services/notes.service';
@@ -65,10 +65,17 @@ export class SettingsComponent implements OnInit {
   testResult: { ok: boolean; message: string } | null = null;
   isExporting = false;
 
+  // ── Account deletion ───────────────────────────────────────────────────
+  isDeletingAccount = false;
+  deleteAccountPassword = '';
+  deleteAccountConfirmation = '';
+  deleteAccountError = '';
+
   constructor(
     private reminderService: ReminderService,
     private notesService: NotesService,
     private route: ActivatedRoute,
+    private router: Router,
     public authService: AuthService
   ) {}
 
@@ -121,6 +128,7 @@ export class SettingsComponent implements OnInit {
         this.caldavEnabled = caldav.enabled;
       }
     } catch {}
+
   }
 
   // ── Two-Factor Authentication ────────────────────────────────────────────
@@ -470,5 +478,27 @@ export class SettingsComponent implements OnInit {
     link.download = filename;
     link.click();
     window.URL.revokeObjectURL(url);
+  }
+
+  async deleteMyAccount() {
+    this.deleteAccountError = '';
+    this.error = '';
+    this.success = '';
+    if (this.deleteAccountConfirmation !== 'DELETE') {
+      this.deleteAccountError = 'Type DELETE to confirm.';
+      return;
+    }
+    const finalConfirm = confirm('Permanently delete your account and all notes/data you own? This cannot be undone.');
+    if (!finalConfirm) return;
+
+    this.isDeletingAccount = true;
+    try {
+      await this.authService.deleteOwnAccount(this.deleteAccountPassword, this.deleteAccountConfirmation);
+      await this.router.navigateByUrl('/login');
+    } catch (e: any) {
+      this.deleteAccountError = e?.error?.error || 'Could not delete account.';
+    } finally {
+      this.isDeletingAccount = false;
+    }
   }
 }

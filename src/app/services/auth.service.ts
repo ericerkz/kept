@@ -111,6 +111,16 @@ export class AuthService {
     await firstValueFrom(this.http.delete(`${this.apiUrl}/users/${user.id}`, { headers: this.authHeaders() }));
   }
 
+  async deleteOwnAccount(currentPassword: string, confirmation: string) {
+    await firstValueFrom(this.http.delete(`${this.apiUrl}/users/me`, {
+      headers: this.authHeaders(),
+      body: { currentPassword, confirmation }
+    }));
+    localStorage.removeItem(this.sessionKey);
+    this.currentUser$.next(null);
+    this.applyTheme('light');
+  }
+
   async generateSetup2fa(username?: string) {
     const params = username ? `?username=${encodeURIComponent(username)}` : '';
     return await firstValueFrom(this.http.get<{ secret: string, qrCodeUrl: string }>(`${this.apiUrl}/setup/2fa/generate${params}`));

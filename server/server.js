@@ -595,6 +595,11 @@ async function init() {
       value TEXT
     )
   `);
+  const originalAdminUserId = await getAppSetting('originalAdminUserId', '');
+  if (!originalAdminUserId) {
+    const firstUser = await get('SELECT id FROM users ORDER BY id LIMIT 1');
+    if (firstUser) await setAppSetting('originalAdminUserId', String(firstUser.id));
+  }
 }
 
 function normalizeUsername(username) {
@@ -707,6 +712,34 @@ async function getAppSetting(key, defaultValue) {
 
 async function setAppSetting(key, value) {
   await run('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)', [key, String(value)]);
+}
+
+async function isOriginalAdminUser(userId) {
+  const originalAdminUserId = Number(await getAppSetting('originalAdminUserId', '0'));
+  return Number(userId) === originalAdminUserId;
+}
+
+async function deleteOwnedFilesForUser(userId) {
+  const ownedNotes = await all('SELECT id FROM notes WHERE ownerUserId = ?', [userId]);
+  for (const note of ownedNotes) {
+    await deleteAttachmentFilesForNote(note.id);
+    await deleteImageFilesForNote(note.id);
+  }
+
+  const unlinkedImages = await all('SELECT storedFilename FROM note_images WHERE ownerUserId = ? AND noteId IS NULL', [userId]);
+  await run('DELETE FROM note_images WHERE ownerUserId = ? AND noteId IS NULL', [userId]);
+  for (const row of unlinkedImages) {
+    const filename = safeStoredImageFilename(row.storedFilename);
+    if (!filename) continue;
+    const stillUsed = await get('SELECT id FROM note_images WHERE storedFilename = ? LIMIT 1', [filename]);
+    if (stillUsed) continue;
+    try { fs.unlinkSync(path.join(uploadDir, filename)); } catch {}
+  }
+}
+
+async function deleteUserAndOwnedData(userId) {
+  await deleteOwnedFilesForUser(userId);
+  await run('DELETE FROM users WHERE id = ?', [userId]);
 }
 
 async function createUser({ username, displayName, password, role, email, enabled, totpSecret, totpBackupCodes }) {
@@ -1835,6 +1868,7 @@ app.post('/api/setup/admin', setupLimiter, asyncRoute(async (req, res) => {
   }
 
   const user = await createUser({ ...userData, role: 'admin', totpSecret: totpSecret || null, totpBackupCodes: backupCodes ? JSON.stringify(backupCodes) : null });
+  await setAppSetting('originalAdminUserId', String(user.id));
   res.status(201).json({ user: publicUser(user), backupCodes });
 }));
 
@@ -2033,6 +2067,22 @@ app.patch('/api/users/me/profile', requireAuth, asyncRoute(async (req, res) => {
   res.json(publicUser(user));
 }));
 
+app.delete('/api/users/me', requireAuth, asyncRoute(async (req, res) => {
+  const currentPassword = String(req.body.currentPassword || '');
+  const confirmation = String(req.body.confirmation || '');
+  if (confirmation !== 'DELETE') {
+    return res.status(400).json({ error: 'Type DELETE to confirm account deletion.' });
+  }
+  if (hashPassword(currentPassword, req.user.passwordSalt) !== req.user.passwordHash) {
+    return res.status(400).json({ error: 'Current password is incorrect.' });
+  }
+
+  const deletedUserId = req.user.id;
+  await deleteUserAndOwnedData(deletedUserId);
+  broadcastRealtime([deletedUserId], { type: 'account-deleted' });
+  res.status(204).end();
+}));
+
 app.get('/api/users', requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
   const users = await all('SELECT * FROM users ORDER BY username');
   res.json(users.map(publicUser));
@@ -2050,13 +2100,16 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, asyncRoute(async (req, r
 
   const user = await get('SELECT * FROM users WHERE id = ?', [userId]);
   if (!user) return res.status(404).json({ error: 'User not found.' });
+  if (await isOriginalAdminUser(userId)) {
+    return res.status(403).json({ error: 'The original administrator account cannot be deleted.' });
+  }
 
   if (user.role === 'admin') {
     const admins = await get(`SELECT COUNT(*) AS count FROM users WHERE role = 'admin'`);
     if (admins.count <= 1) return res.status(400).json({ error: 'At least one administrator account is required.' });
   }
 
-  await run('DELETE FROM users WHERE id = ?', [userId]);
+  await deleteUserAndOwnedData(userId);
   res.status(204).end();
 }));
 

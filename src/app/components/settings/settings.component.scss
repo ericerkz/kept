@@ -70,6 +70,9 @@ h1 { margin-bottom: 0; }
 .group-title.color-purple { border-bottom-color: #d7aefb; }
 .group-title.color-purple .material-symbols-outlined { color: #d7aefb; font-size: 28px; }
 
+.group-title.color-red { border-bottom-color: #f6aea9; }
+.group-title.color-red .material-symbols-outlined { color: #f6aea9; font-size: 28px; }
+
 .intro-section > .section-title,
 .takeout-section > .section-title {
   font-size: 17px;
@@ -227,6 +230,26 @@ h1 { margin-bottom: 0; }
 
 .google-actions { display: flex; gap: 8px; margin-left: auto; }
 
+.danger-section {
+  border-top: none;
+  margin-top: 20px;
+}
+
+.danger-warning {
+  background: rgb(246 174 169 / 10%);
+  border: 1px solid rgb(246 174 169 / 35%);
+  border-radius: 6px;
+  color: #f6aea9;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+}
+
+.delete-account-form {
+  max-width: 480px;
+}
+
 
 .instructions-section {
   margin-bottom: 8px;
@@ -308,9 +331,17 @@ h1 { margin-bottom: 0; }
   .group-title.color-green .material-symbols-outlined { color: #0d652d; }
   .group-title.color-purple { border-bottom-color: #d7aefb; }
   .group-title.color-purple .material-symbols-outlined { color: #8430ce; }
+  .group-title.color-red { border-bottom-color: #f6aea9; }
+  .group-title.color-red .material-symbols-outlined { color: #d93025; }
 
   .section-title { color: #202124; }
   .section-desc  { color: #5f6368; }
+
+  .danger-warning {
+    background: rgb(217 48 37 / 6%);
+    border-color: rgb(217 48 37 / 20%);
+    color: #b3261e;
+  }
 
   .btn-secondary {
     border-color: #dadce0 !important;

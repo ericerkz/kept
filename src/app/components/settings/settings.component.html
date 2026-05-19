@@ -350,5 +350,48 @@
 
     </div>
 
+    <!-- ── Group: Advanced ──────────────────────────────────────────────── -->
+    <div class="settings-group">
+      <h2 class="group-title color-red">
+        <span class="material-symbols-outlined">warning</span>
+        Advanced
+      </h2>
+
+      <section class="settings-section danger-section">
+        <div class="section-title">Delete your account</div>
+        <p class="section-desc">
+          Permanently delete your account and everything you own in Kept. This removes your notes, uploads,
+          attachments, reminders, calendar settings, sessions, and sharing access. Shared notes owned by other
+          users are not deleted.
+        </p>
+
+        <div class="danger-warning">
+          This cannot be undone. Export anything you want to keep before continuing.
+        </div>
+
+        <form class="auth-form delete-account-form" (ngSubmit)="deleteMyAccount()">
+          <label>
+            <span>Current password</span>
+            <input name="deleteAccountPassword" type="password" [(ngModel)]="deleteAccountPassword"
+              autocomplete="current-password">
+          </label>
+          <label>
+            <span>Type DELETE to confirm</span>
+            <input name="deleteAccountConfirmation" type="text" [(ngModel)]="deleteAccountConfirmation"
+              autocomplete="off">
+          </label>
+          @if (deleteAccountError) {
+            <div class="error">{{deleteAccountError}}</div>
+          }
+          <div class="caldav-actions">
+            <button type="submit" class="btn-danger"
+              [disabled]="isDeletingAccount || !deleteAccountPassword || deleteAccountConfirmation !== 'DELETE'">
+              {{isDeletingAccount ? 'Deleting…' : 'Delete my account permanently'}}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
   </section>
 </main>
