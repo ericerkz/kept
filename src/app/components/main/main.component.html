@@ -13,6 +13,12 @@
     <button class="mobile-compose-fab" type="button" aria-label="New note" (click)="openMobileComposer()">
       <span class="material-symbols-outlined">edit_note</span>
     </button>
+    @if (Shared.isIos) {
+      <button class="smart-capture-fab" type="button" aria-label="Smart Capture" (click)="startSmartCapture()">
+        <span class="material-symbols-outlined">mic</span>
+        <span class="smart-capture-label">Smart Capture</span>
+      </button>
+    }
     @if ((Shared.showInstallButton | async) && !Shared.isInstallFabDismissed()) {
       <div class="mobile-install-fab" role="region" aria-label="Install Kept">
         <button type="button" class="mobile-install-main" (click)="installPwa()">
@@ -42,4 +48,89 @@
       <p>Use your browser menu to install Kept as an app.</p>
     }
   </div>
+}
+
+@if (Shared.isIos && smartCaptureOpen) {
+  <div class="smart-capture-backdrop" (click)="closeSmartCapture()"></div>
+  <section class="smart-capture-panel" (click)="$event.stopPropagation()" aria-label="Smart Capture plan">
+    <div class="smart-capture-header">
+      <div>
+        <span class="eyebrow">Smart Capture</span>
+        <h3>{{smartCapturePlan?.summary || 'Proposed actions'}}</h3>
+      </div>
+      <button type="button" aria-label="Close Smart Capture" (click)="closeSmartCapture()">×</button>
+    </div>
+
+    @if (smartCaptureTranscript) {
+      <p class="smart-transcript">{{smartCaptureTranscript}}</p>
+    }
+
+    @if (!smartCapturePlan && smartCaptureError) {
+      <div class="smart-status">{{smartCaptureError}}</div>
+    }
+
+    @if (smartCaptureLoading) {
+      <div class="smart-status">Checking plan…</div>
+    } @else {
+      @if (smartCaptureValidation?.warnings?.length) {
+        <div class="smart-warning">{{smartCaptureValidation?.warnings?.join(' ')}}</div>
+      }
+      @if (smartCaptureValidation?.errors?.length) {
+        <div class="smart-error">{{smartCaptureValidation?.errors?.join(' ')}}</div>
+      }
+      @if (smartCapturePlan && smartCaptureError) {
+        <div class="smart-error">{{smartCaptureError}}</div>
+      }
+      @if (smartCaptureResult) {
+        <div class="smart-success">
+          Done. {{smartCaptureResult.executed.length}} action(s) ran.
+          @if (smartCaptureResult.failed.length) { <span>{{smartCaptureResult.failed.length}} failed.</span> }
+        </div>
+      }
+
+      @if (smartCapturePlan?.unresolvedQuestions?.length) {
+        <div class="smart-warning">
+          {{smartCapturePlan?.unresolvedQuestions?.join(' ')}}
+        </div>
+      }
+
+      @if (smartCapturePlan?.actions?.length) {
+        <div class="smart-action-list">
+          @for (action of smartCapturePlan?.actions || []; track $index) {
+            <article class="smart-action-card" [class.invalid]="smartCaptureValidation?.errors?.length">
+              <label class="smart-action-select">
+                <input type="checkbox" [checked]="selectedSmartActions.has($index)"
+                  (change)="toggleSmartAction($index, $any($event.target).checked)">
+              </label>
+              <div class="smart-action-copy">
+                <div class="smart-action-type">{{actionTitle(action)}}</div>
+                <div class="smart-action-summary">{{actionSummary(action)}}</div>
+                @if (actionMeta(action)) {
+                  <div class="smart-action-meta">{{actionMeta(action)}}</div>
+                }
+              </div>
+            </article>
+          }
+        </div>
+      }
+    }
+
+    @if (smartCapturePlan) {
+      <div class="smart-capture-actions">
+        <button type="button" class="secondary" (click)="closeSmartCapture()">Cancel</button>
+        <button type="button" class="secondary" [disabled]="smartCaptureRunning || !selectedSmartActions.size || !smartCaptureValidation?.valid"
+          (click)="runSmartCapture(true)">
+          Run selected
+        </button>
+        <button type="button" [disabled]="smartCaptureRunning || !smartCaptureValidation?.valid"
+          (click)="runSmartCapture(false)">
+          {{smartCaptureRunning ? 'Running…' : 'Confirm all'}}
+        </button>
+      </div>
+    } @else {
+      <div class="smart-capture-actions">
+        <button type="button" class="secondary" (click)="closeSmartCapture()">Cancel</button>
+      </div>
+    }
+  </section>
 }

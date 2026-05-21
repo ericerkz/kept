@@ -4,7 +4,7 @@
   "scripts": {
     "ng": "ng",
     "start": "concurrently \"npm run api\" \"npm run client\"",
-    "client": "set NG_SASS_VERBOSE_DEPRECATIONS=0&& ng serve --host 127.0.0.1 --port 6767 --proxy-config proxy.conf.json",
+    "client": "set NG_SASS_VERBOSE_DEPRECATIONS=0&& ng serve --host 0.0.0.0 --port 6767 --proxy-config proxy.conf.json",
     "api": "nodemon --no-deprecation server/server.js",
     "build": "ng build && npm run purgecss",
     "purgecss": "purgecss -c purgecss.config.js",
