@@ -595,6 +595,17 @@ async function init() {
       value TEXT
     )
   `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS ai_action_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      transcript TEXT NOT NULL,
+      proposedPlanJson TEXT NOT NULL,
+      executedPlanJson TEXT,
+      status TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    )
+  `);
   const originalAdminUserId = await getAppSetting('originalAdminUserId', '');
   if (!originalAdminUserId) {
     const firstUser = await get('SELECT id FROM users ORDER BY id LIMIT 1');
@@ -1022,6 +1033,486 @@ function dbNoteToCard(row, options = {}) {
     isDemo: Boolean(row.isDemo),
     isCardPreview: true
   };
+}
+
+function noteSummaryFromRow(row) {
+  const checkBoxes = parseJson(row.checkBoxes || '[]', []);
+  const labels = parseJson(row.labels || '[]', []);
+  const collaboratorIds = row.collaboratorIds
+    ? String(row.collaboratorIds).split(',').map(Number).filter(Boolean)
+    : [];
+  const hasChecklist = Array.isArray(checkBoxes) && checkBoxes.length > 0;
+  const hasDrawing = String(row.images || '').includes('"id":"drawing"') || String(row.images || '').includes('"id": "drawing"');
+  return {
+    id: row.id,
+    title: row.noteTitle || '',
+    bodyPreview: notePreviewText(row),
+    type: hasDrawing ? 'drawing' : (row.isCbox || hasChecklist ? 'todo' : 'text'),
+    labels,
+    checklistPreview: hasChecklist ? checkBoxes.slice(0, 6).map(item => ({
+      id: item.id,
+      data: plainText(item.data || ''),
+      done: !!item.done
+    })) : [],
+    updatedAt: row.updatedAt,
+    ownerUserId: row.ownerUserId,
+    collaboratorUserIds: collaboratorIds
+  };
+}
+
+async function accessibleNoteSummaryRows(userId, options = {}) {
+  const limit = Math.min(Math.max(Number(options.limit) || 20, 1), 50);
+  const query = String(options.query || '').trim();
+  const noteId = Number(options.noteId || 0);
+  const searchTokens = searchTokensFromQuery(query);
+  const searchWhere = noteSearchWhere(searchTokens);
+  const whereClauses = [];
+  const params = [userId, userId, userId, userId];
+
+  if (noteId) {
+    whereClauses.push('id = ?');
+    params.push(noteId);
+  }
+  if (searchWhere.clause) {
+    whereClauses.push(searchWhere.clause);
+    params.push(...searchWhere.params);
+  }
+  const extraWhere = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+  return await all(
+    `WITH accessible_notes AS (
+      SELECT notes.*,
+             COALESCE(pos.sortOrder, notes.sortOrder, notes.id) AS effectiveSortOrder,
+             CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
+             (SELECT GROUP_CONCAT(nc.userId) FROM note_collaborators nc WHERE nc.noteId = notes.id) AS collaboratorIds,
+             (SELECT GROUP_CONCAT(na.originalName, ' ') FROM note_attachments na WHERE na.noteId = notes.id) AS attachmentNames
+      FROM notes
+      LEFT JOIN user_pins ON user_pins.noteId = notes.id AND user_pins.userId = ?
+      LEFT JOIN user_note_positions pos ON pos.noteId = notes.id AND pos.userId = ?
+      LEFT JOIN note_collaborators access ON access.noteId = notes.id AND access.userId = ?
+      WHERE notes.ownerUserId = ? OR access.userId IS NOT NULL
+    )
+    SELECT * FROM accessible_notes
+    ${extraWhere}
+    ORDER BY updatedAt DESC, id DESC
+    LIMIT ?`,
+    [...params, limit]
+  );
+}
+
+async function accessibleNoteSummaries(userId, options = {}) {
+  const rows = await accessibleNoteSummaryRows(userId, options);
+  return rows.map(noteSummaryFromRow);
+}
+
+const SMART_ACTION_TYPES = new Set([
+  'create_text_note',
+  'create_todo_note',
+  'append_to_note',
+  'add_checklist_items',
+  'add_labels',
+  'set_reminder',
+  'share_note'
+]);
+
+const NOTE_TARGET_ACTION_TYPES = new Set([
+  'append_to_note',
+  'add_checklist_items',
+  'add_labels',
+  'share_note'
+]);
+
+function asArray(value) {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null || value === '') return [];
+  return [value];
+}
+
+function actionNoteId(action) {
+  return Number(action.noteId || action.targetNoteId || action.targetId || 0);
+}
+
+function resolveActionNoteId(action, state) {
+  return action.noteId || state.lastCreatedNoteId || null;
+}
+
+function actionText(action) {
+  return String(action.text ?? action.body ?? action.content ?? action.noteBody ?? '').trim();
+}
+
+function actionTitle(action) {
+  return String(action.title ?? action.noteTitle ?? '').trim();
+}
+
+function actionChecklistItems(action) {
+  return asArray(action.items ?? action.checklistItems ?? action.todos).map(item => {
+    if (typeof item === 'string') return item.trim();
+    return String(item?.data ?? item?.text ?? item?.title ?? '').trim();
+  }).filter(Boolean);
+}
+
+function actionLabelNames(action) {
+  return asArray(action.labels ?? action.labelNames ?? action.names).map(label => {
+    if (typeof label === 'string') return label.trim();
+    return String(label?.name ?? '').trim();
+  }).filter(Boolean);
+}
+
+function actionUserIds(action) {
+  return asArray(action.userIds ?? action.users ?? action.collaboratorUserIds ?? action.shareWithUserIds)
+    .map(user => Number(typeof user === 'object' ? user?.id : user))
+    .filter(Boolean);
+}
+
+function normalizeAction(action) {
+  const type = String(action?.type || '').trim();
+  const normalized = { ...action, type };
+  if (actionNoteId(action)) normalized.noteId = actionNoteId(action);
+  const title = actionTitle(action);
+  if (title) normalized.title = title;
+  const text = actionText(action);
+  if (text) normalized.text = text;
+  const checklistItems = actionChecklistItems(action);
+  if (checklistItems.length) normalized.items = checklistItems;
+  const labelNames = actionLabelNames(action);
+  if (labelNames.length) normalized.labels = labelNames;
+  const userIds = actionUserIds(action);
+  if (userIds.length) normalized.userIds = userIds;
+  if (action.dueAtUtc || action.dueAt || action.datetime || action.dateTime) {
+    normalized.dueAtUtc = String(action.dueAtUtc || action.dueAt || action.datetime || action.dateTime);
+  }
+  if (action.timezone) normalized.timezone = String(action.timezone);
+  if (action.repeatRule) normalized.repeatRule = String(action.repeatRule);
+  if (action.createMissingLabels !== undefined) normalized.createMissingLabels = !!action.createMissingLabels;
+  return normalized;
+}
+
+function normalizeActionPlan(actionPlan) {
+  const input = actionPlan && typeof actionPlan === 'object' ? actionPlan : {};
+  const actions = Array.isArray(input.actions) ? input.actions.map(normalizeAction) : [];
+  const confidence = ['low', 'medium', 'high'].includes(input.confidence) ? input.confidence : 'medium';
+  return {
+    summary: String(input.summary || '').trim(),
+    confidence,
+    requiresConfirmation: !!input.requiresConfirmation,
+    actions,
+    unresolvedQuestions: asArray(input.unresolvedQuestions).map(String).filter(Boolean)
+  };
+}
+
+async function findOrCreateLabelForUser(userId, rawName) {
+  const name = String(rawName || '').trim();
+  if (!name) {
+    const error = new Error('Label name is required.');
+    error.status = 400;
+    throw error;
+  }
+  const existing = await get('SELECT id, name FROM labels WHERE userId = ? AND lower(name) = lower(?)', [userId, name]);
+  if (existing) return { ...existing, created: false };
+  const result = await run('INSERT INTO labels (name, userId) VALUES (?, ?)', [name, userId]);
+  return { id: result.id, name, created: true };
+}
+
+async function findLabelForUser(userId, rawName) {
+  const name = String(rawName || '').trim();
+  if (!name) return null;
+  return await get('SELECT id, name FROM labels WHERE userId = ? AND lower(name) = lower(?)', [userId, name]);
+}
+
+async function validateKeptActionPlan(userId, transcript, actionPlan) {
+  const normalizedPlan = normalizeActionPlan(actionPlan);
+  const errors = [];
+  const warnings = [];
+  const noteCache = new Map();
+  let risky = normalizedPlan.requiresConfirmation || normalizedPlan.confidence === 'low' || normalizedPlan.actions.length > 1;
+
+  if (!String(transcript || '').trim()) warnings.push('Transcript is empty.');
+  if (!normalizedPlan.summary) warnings.push('Plan summary is empty.');
+  if (!Array.isArray(actionPlan?.actions)) errors.push('actions must be an array.');
+  if (!normalizedPlan.actions.length) errors.push('At least one action is required.');
+
+  let createdNoteAvailable = false;
+  for (let index = 0; index < normalizedPlan.actions.length; index += 1) {
+    const action = normalizedPlan.actions[index];
+    const label = `actions[${index}]`;
+    if (!SMART_ACTION_TYPES.has(action.type)) {
+      errors.push(`${label}.type is not supported.`);
+      continue;
+    }
+
+    if (NOTE_TARGET_ACTION_TYPES.has(action.type) && !action.noteId && !createdNoteAvailable) {
+      errors.push(`${label}.noteId is required unless a previous action creates a note.`);
+    }
+    if (action.type === 'set_reminder' && !action.noteId && !createdNoteAvailable) {
+      errors.push(`${label}.noteId is required unless a previous action creates a note.`);
+    }
+    if (['append_to_note'].includes(action.type) && !action.text) errors.push(`${label}.text is required.`);
+    if (action.type === 'create_text_note' && !action.title && !action.text) errors.push(`${label}.title or text is required.`);
+    if (action.type === 'create_todo_note' && !action.items?.length) errors.push(`${label}.items are required.`);
+    if (action.type === 'add_checklist_items' && !action.items?.length) errors.push(`${label}.items are required.`);
+    if (action.type === 'add_labels' && !action.labels?.length) errors.push(`${label}.labels are required.`);
+    if (action.type === 'set_reminder' && !action.dueAtUtc) {
+      risky = true;
+      warnings.push(`${label}.dueAtUtc is missing; ask for a reminder time before executing.`);
+      if (!normalizedPlan.unresolvedQuestions.includes('When should Kept remind you?')) {
+        normalizedPlan.unresolvedQuestions.push('When should Kept remind you?');
+      }
+    }
+    if (action.type === 'share_note') {
+      risky = true;
+      if (!action.userIds?.length) errors.push(`${label}.userIds are required.`);
+    }
+
+    if (action.noteId && !noteCache.has(action.noteId)) {
+      noteCache.set(action.noteId, await getAccessibleNote(action.noteId, userId));
+    }
+    const note = action.noteId ? noteCache.get(action.noteId) : null;
+    if (action.noteId && !note) errors.push(`${label}.noteId is not accessible.`);
+    if (action.type === 'share_note' && note && note.ownerUserId !== userId) {
+      errors.push(`${label}.noteId must be owned by you to share it.`);
+    }
+
+    if (action.type === 'share_note') {
+      for (const userIdTarget of action.userIds || []) {
+        const user = await get('SELECT id FROM users WHERE id = ? AND enabled = 1', [userIdTarget]);
+        if (!user) errors.push(`${label}.userIds contains an unknown user: ${userIdTarget}.`);
+        if (userIdTarget === userId) warnings.push(`${label}.userIds includes the current user; it will be ignored.`);
+      }
+    }
+
+    if (action.type === 'add_labels' && !action.createMissingLabels) {
+      for (const labelName of action.labels || []) {
+        const existingLabel = await findLabelForUser(userId, labelName);
+        if (!existingLabel) errors.push(`${label}.labels contains an unknown label: ${labelName}.`);
+      }
+    }
+
+    if (action.type === 'set_reminder' && action.dueAtUtc) {
+      const due = new Date(action.dueAtUtc);
+      if (Number.isNaN(due.getTime())) errors.push(`${label}.dueAtUtc must be a valid date.`);
+      else action.dueAtUtc = due.toISOString();
+    }
+
+    if (action.type === 'create_text_note' || action.type === 'create_todo_note') {
+      createdNoteAvailable = true;
+    }
+  }
+
+  normalizedPlan.requiresConfirmation = risky;
+  return {
+    valid: errors.length === 0,
+    ok: errors.length === 0,
+    errors,
+    warnings,
+    normalizedPlan,
+    requiresConfirmation: normalizedPlan.requiresConfirmation
+  };
+}
+
+async function insertAiActionHistory(userId, transcript, proposedPlan, executedPlan, status) {
+  await run(
+    `INSERT INTO ai_action_history (userId, transcript, proposedPlanJson, executedPlanJson, status, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      userId,
+      String(transcript || ''),
+      JSON.stringify(proposedPlan || null),
+      executedPlan ? JSON.stringify(executedPlan) : null,
+      status,
+      new Date().toISOString()
+    ]
+  );
+}
+
+async function smartCreateNote(userId, action, options = {}) {
+  const now = new Date().toISOString();
+  const isTodo = action.type === 'create_todo_note';
+  const labels = [];
+  for (const name of action.labels || []) {
+    const label = await findOrCreateLabelForUser(userId, name);
+    labels.push({ id: label.id, name: label.name, added: true });
+    if (label.created) options.createdLabelIds?.add(label.id);
+  }
+  const checkBoxes = isTodo
+    ? (action.items || []).map((item, index) => ({ id: Date.now() + index, data: item, done: false }))
+    : [];
+  const result = await run(
+    `INSERT INTO notes
+     (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
+     VALUES (?, ?, ?, '', '', ?, '[]', ?, ?, 0, 0, NULL, ?, ?, ?, ?, 0)`,
+    [
+      userId,
+      action.title || '',
+      isTodo ? (action.text || '') : (action.text || ''),
+      JSON.stringify(checkBoxes),
+      isTodo ? 1 : 0,
+      JSON.stringify(labels),
+      Date.now(),
+      now,
+      now,
+      userId
+    ]
+  );
+  return result.id;
+}
+
+async function smartAppendToNote(userId, noteId, text) {
+  const note = await getAccessibleNote(noteId, userId);
+  if (!note) throw new Error(`Note ${noteId} is not accessible.`);
+  const separator = note.noteBody && String(note.noteBody).trim() ? '<br>' : '';
+  const nextBody = `${note.noteBody || ''}${separator}${escapeHtml(text)}`;
+  await run('UPDATE notes SET noteBody = ?, updatedAt = ?, lastEditorUserId = ? WHERE id = ?', [
+    nextBody,
+    new Date().toISOString(),
+    userId,
+    noteId
+  ]);
+  await syncNoteImagesForNote(noteId, note.ownerUserId, { noteBody: nextBody, images: parseJson(note.images || '[]', []) });
+}
+
+async function smartAddChecklistItems(userId, noteId, items) {
+  const note = await getAccessibleNote(noteId, userId);
+  if (!note) throw new Error(`Note ${noteId} is not accessible.`);
+  const current = parseJson(note.checkBoxes || '[]', []);
+  const base = Date.now();
+  const next = [
+    ...current,
+    ...items.map((item, index) => ({ id: base + index, data: item, done: false }))
+  ];
+  await run('UPDATE notes SET checkBoxes = ?, isCbox = 1, updatedAt = ?, lastEditorUserId = ? WHERE id = ?', [
+    JSON.stringify(next),
+    new Date().toISOString(),
+    userId,
+    noteId
+  ]);
+}
+
+async function smartAddLabels(userId, noteId, labelNames, createdLabelIds, createMissingLabels = false) {
+  const note = await getAccessibleNote(noteId, userId);
+  if (!note) throw new Error(`Note ${noteId} is not accessible.`);
+  if (note.ownerUserId !== userId) throw new Error(`Only the note owner can change labels for note ${noteId}.`);
+  const labels = parseJson(note.labels || '[]', []);
+  const byName = new Map(labels.map(label => [String(label.name || '').toLowerCase(), label]));
+  for (const name of labelNames) {
+    const label = createMissingLabels
+      ? await findOrCreateLabelForUser(userId, name)
+      : await findLabelForUser(userId, name);
+    if (!label) throw new Error(`Label does not exist: ${name}`);
+    if (createMissingLabels && label.created) createdLabelIds.add(label.id);
+    const key = label.name.toLowerCase();
+    if (!byName.has(key)) {
+      const entry = { id: label.id, name: label.name, added: true };
+      labels.push(entry);
+      byName.set(key, entry);
+    }
+  }
+  await run('UPDATE notes SET labels = ?, updatedAt = ?, lastEditorUserId = ? WHERE id = ?', [
+    JSON.stringify(labels),
+    new Date().toISOString(),
+    userId,
+    noteId
+  ]);
+}
+
+async function smartSetReminder(userId, action, fallbackNoteId) {
+  const noteId = action.noteId || fallbackNoteId || null;
+  if (noteId) {
+    const note = await getAccessibleNote(Number(noteId), userId);
+    if (!note) throw new Error(`Note ${noteId} is not accessible.`);
+  }
+  const now = new Date().toISOString();
+  const result = await run(
+    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    [
+      noteId || null,
+      userId,
+      new Date(action.dueAtUtc).toISOString(),
+      action.timezone || 'UTC',
+      action.repeatRule || null,
+      plainText(action.title) || null,
+      plainText(action.text) || null,
+      String(action.imageUrl || '') || null,
+      now,
+      now
+    ]
+  );
+  return await get('SELECT * FROM reminders WHERE id = ?', [result.id]);
+}
+
+async function smartShareNote(userId, noteId, userIds) {
+  const note = await getOwnedNote(noteId, userId);
+  if (!note) throw new Error(`Note ${noteId} is not owned by you.`);
+  const previousRecipients = await getNoteRecipientIds(noteId);
+  for (const targetUserId of new Set(userIds.filter(id => id !== userId))) {
+    const exists = await get('SELECT id FROM users WHERE id = ? AND enabled = 1', [targetUserId]);
+    if (!exists) throw new Error(`User ${targetUserId} does not exist.`);
+    await run(
+      'INSERT OR IGNORE INTO note_collaborators (noteId, userId, createdAt) VALUES (?, ?, ?)',
+      [noteId, targetUserId, new Date().toISOString()]
+    );
+  }
+  return previousRecipients;
+}
+
+async function executeSmartAction(userId, action, state) {
+  const result = { type: action.type, ok: true };
+  if (action.type === 'create_text_note' || action.type === 'create_todo_note') {
+    const noteId = await smartCreateNote(userId, action, state);
+    state.createdNoteIds.push(noteId);
+    state.lastCreatedNoteId = noteId;
+    result.noteId = noteId;
+    return result;
+  }
+  if (action.type === 'append_to_note') {
+    const noteId = resolveActionNoteId(action, state);
+    await smartAppendToNote(userId, noteId, action.text);
+    state.updatedNoteIds.add(noteId);
+    result.noteId = noteId;
+    return result;
+  }
+  if (action.type === 'add_checklist_items') {
+    const noteId = resolveActionNoteId(action, state);
+    await smartAddChecklistItems(userId, noteId, action.items || []);
+    state.updatedNoteIds.add(noteId);
+    result.noteId = noteId;
+    return result;
+  }
+  if (action.type === 'add_labels') {
+    const noteId = resolveActionNoteId(action, state);
+    await smartAddLabels(userId, noteId, action.labels || [], state.createdLabelIds, !!action.createMissingLabels);
+    state.updatedNoteIds.add(noteId);
+    result.noteId = noteId;
+    return result;
+  }
+  if (action.type === 'set_reminder') {
+    const reminder = await smartSetReminder(userId, action, state.lastCreatedNoteId);
+    state.reminderIds.push(reminder.id);
+    state.remindersToSync.push(reminder);
+    if (reminder.noteId) state.updatedNoteIds.add(reminder.noteId);
+    result.reminderId = reminder.id;
+    result.noteId = reminder.noteId || null;
+    return result;
+  }
+  if (action.type === 'share_note') {
+    const noteId = resolveActionNoteId(action, state);
+    const previousRecipients = await smartShareNote(userId, noteId, action.userIds || []);
+    state.updatedNoteIds.add(noteId);
+    state.shareBroadcasts.push({ noteId, previousRecipients });
+    result.noteId = noteId;
+    result.userIds = (action.userIds || []).filter(id => id !== userId);
+    return result;
+  }
+  throw new Error(`Unsupported action type: ${action.type}`);
+}
+
+async function syncSmartReminderIntegrations(userId, reminders) {
+  if (!reminders.length) return;
+  const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [userId]);
+  for (const reminder of reminders) {
+    if (caldav) pushReminderToCaldav(caldav, reminder).catch(err => console.error('CalDAV push failed:', err.message));
+    gcalPushReminder(userId, reminder).catch(err => console.error('GCal push failed:', err.message));
+  }
 }
 
 function encodeNotesCursor(row) {
@@ -2385,8 +2876,29 @@ app.get('/api/sharing/users', requireAuth, asyncRoute(async (req, res) => {
   })));
 }));
 
+app.get('/api/users/search', requireAuth, asyncRoute(async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.json([]);
+  const like = `%${q.toLowerCase()}%`;
+  const users = await all(
+    `SELECT id, username, displayName, avatarDataUrl, avatarPreset
+     FROM users
+     WHERE id != ? AND enabled = 1
+       AND (lower(username) LIKE ? OR lower(displayName) LIKE ? OR lower(COALESCE(email, '')) LIKE ?)
+     ORDER BY displayName COLLATE NOCASE, username COLLATE NOCASE
+     LIMIT 20`,
+    [req.user.id, like, like, like]
+  );
+  res.json(users.map(publicCollaborator));
+}));
+
 app.get('/api/labels', requireAuth, asyncRoute(async (req, res) => {
   res.json(await all('SELECT id, name FROM labels WHERE userId = ? ORDER BY id', [req.user.id]));
+}));
+
+app.post('/api/labels/find-or-create', requireAuth, asyncRoute(async (req, res) => {
+  const label = await findOrCreateLabelForUser(req.user.id, req.body.name);
+  res.status(200).json(label);
 }));
 
 app.post('/api/labels', requireAuth, asyncRoute(async (req, res) => {
@@ -2777,6 +3289,146 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     }));
     return note;
   }));
+}));
+
+app.get('/api/notes/search', requireAuth, asyncRoute(async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.json([]);
+  res.json(await accessibleNoteSummaries(req.user.id, { query: q, limit: 20 }));
+}));
+
+app.get('/api/ai/context', requireAuth, asyncRoute(async (req, res) => {
+  const query = String(req.query.query || req.query.q || '').trim();
+  const labels = await all('SELECT id, name FROM labels WHERE userId = ? ORDER BY name COLLATE NOCASE', [req.user.id]);
+  const users = await all(
+    `SELECT id, username, displayName, avatarDataUrl, avatarPreset
+     FROM users
+     WHERE id != ? AND enabled = 1
+     ORDER BY displayName COLLATE NOCASE, username COLLATE NOCASE
+     LIMIT 50`,
+    [req.user.id]
+  );
+  const recentNotes = await accessibleNoteSummaries(req.user.id, { limit: 20 });
+  let candidateNotes = query
+    ? await accessibleNoteSummaries(req.user.id, { query, limit: 20 })
+    : recentNotes;
+  if (!candidateNotes.length) candidateNotes = recentNotes;
+
+  let currentOpenNote = null;
+  const currentOpenNoteId = Number(req.query.currentOpenNoteId || 0);
+  if (currentOpenNoteId) {
+    const rows = await accessibleNoteSummaryRows(req.user.id, { noteId: currentOpenNoteId, limit: 1 });
+    currentOpenNote = rows[0] ? noteSummaryFromRow(rows[0]) : null;
+  }
+
+  res.json({
+    currentUser: publicUser(req.user),
+    labels,
+    users: users.map(publicCollaborator),
+    recentNotes,
+    candidateNotes,
+    currentOpenNote
+  });
+}));
+
+app.post('/api/ai/action-plan/validate', requireAuth, asyncRoute(async (req, res) => {
+  const transcript = String(req.body.transcript || '');
+  const actionPlan = req.body.actionPlan;
+  const validation = await validateKeptActionPlan(req.user.id, transcript, actionPlan);
+  await insertAiActionHistory(
+    req.user.id,
+    transcript,
+    actionPlan,
+    validation.normalizedPlan,
+    validation.valid ? 'validated' : 'failed'
+  );
+  res.json(validation);
+}));
+
+app.post('/api/ai/action-plan/execute', requireAuth, asyncRoute(async (req, res) => {
+  const transcript = String(req.body.transcript || '');
+  const actionPlan = req.body.actionPlan;
+  const executeOptions = req.body.executeOptions || req.body.options || {};
+  const validation = await validateKeptActionPlan(req.user.id, transcript, actionPlan);
+  if (!validation.valid) {
+    await insertAiActionHistory(req.user.id, transcript, actionPlan, validation.normalizedPlan, 'failed');
+    return res.status(400).json({ ok: false, errors: validation.errors, validation });
+  }
+  if (validation.requiresConfirmation && executeOptions.confirmed !== true) {
+    await insertAiActionHistory(req.user.id, transcript, actionPlan, validation.normalizedPlan, 'failed');
+    return res.status(409).json({
+      ok: false,
+      errors: ['This action plan requires confirmation before execution.'],
+      requiresConfirmation: true,
+      normalizedPlan: validation.normalizedPlan
+    });
+  }
+
+  const allowPartial = !!executeOptions.allowPartial;
+  const selected = Array.isArray(executeOptions.selectedActionIndexes)
+    ? new Set(executeOptions.selectedActionIndexes.map(Number).filter(Number.isInteger))
+    : null;
+  const actions = selected
+    ? validation.normalizedPlan.actions.filter((_action, index) => selected.has(index))
+    : validation.normalizedPlan.actions;
+  const state = {
+    createdNoteIds: [],
+    updatedNoteIds: new Set(),
+    createdLabelIds: new Set(),
+    reminderIds: [],
+    remindersToSync: [],
+    shareBroadcasts: [],
+    lastCreatedNoteId: null
+  };
+  const executed = [];
+  const failed = [];
+
+  await run('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    for (let index = 0; index < actions.length; index += 1) {
+      const action = actions[index];
+      try {
+        const result = await executeSmartAction(req.user.id, action, state);
+        executed.push({ index, ...result });
+      } catch (error) {
+        failed.push({ index, type: action.type, error: error.message || 'Action failed.' });
+        if (!allowPartial) throw error;
+      }
+    }
+    await run('COMMIT');
+  } catch (error) {
+    await run('ROLLBACK');
+    await insertAiActionHistory(req.user.id, transcript, actionPlan, { executed, failed }, 'failed');
+    return res.status(400).json({
+      ok: false,
+      executed: [],
+      failed: failed.length ? failed : [{ error: error.message || 'Execution failed.' }],
+      createdNoteIds: [],
+      updatedNoteIds: [],
+      createdLabelIds: [],
+      reminderIds: []
+    });
+  }
+
+  const status = failed.length ? 'partial' : 'success';
+  const response = {
+    ok: failed.length === 0,
+    executed,
+    failed,
+    createdNoteIds: state.createdNoteIds,
+    updatedNoteIds: Array.from(state.updatedNoteIds),
+    createdLabelIds: Array.from(state.createdLabelIds),
+    reminderIds: state.reminderIds
+  };
+  await insertAiActionHistory(req.user.id, transcript, actionPlan, response, status);
+
+  for (const noteId of state.createdNoteIds) await broadcastNoteChange(noteId, 'created', [req.user.id]);
+  for (const noteId of state.updatedNoteIds) await broadcastNoteChange(noteId, 'updated');
+  for (const share of state.shareBroadcasts) await broadcastNoteChange(share.noteId, 'collaborators-updated', share.previousRecipients);
+  if (state.createdLabelIds.size) await cleanupUnusedLabels(req.user.id);
+  await syncSmartReminderIntegrations(req.user.id, state.remindersToSync);
+
+  res.status(failed.length ? 207 : 200).json(response);
 }));
 
 app.get('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
