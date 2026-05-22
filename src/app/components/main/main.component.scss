@@ -387,6 +387,29 @@
   margin-top: 4px;
 }
 
+.smart-reminder-button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid #5f6368;
+  border-radius: 6px;
+  color: #fbbc04;
+  cursor: pointer;
+  display: inline-flex;
+  font: 600 12px/1 "Google Sans", Roboto, Arial, sans-serif;
+  height: 32px;
+  justify-content: center;
+  margin-top: 10px;
+  padding: 0 12px;
+
+  &:hover {
+    background: rgba(251, 188, 4, 0.1);
+  }
+}
+
+.smart-reminder-dialog {
+  z-index: 1700;
+}
+
 .smart-capture-actions {
   display: flex;
   gap: 8px;
@@ -432,6 +455,15 @@
   }
 
   .smart-action-summary { color: #202124; }
+
+  .smart-reminder-button {
+    border-color: #dadce0;
+    color: #1a73e8;
+
+    &:hover {
+      background: rgba(26, 115, 232, 0.08);
+    }
+  }
 
   .smart-capture-actions button.secondary {
     border-color: #dadce0;

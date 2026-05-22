@@ -1,4 +1,5 @@
 import { Component, NgZone, OnDestroy, OnInit } from '@angular/core';
+import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 import { KeptAction, KeptActionPlan, KeptPlanExecution, KeptPlanValidation } from 'src/app/interfaces/ai';
 import { AiService } from 'src/app/services/ai.service';
 import { ReminderService } from 'src/app/services/reminder.service';
@@ -23,6 +24,13 @@ export class MainComponent implements OnInit, OnDestroy {
   smartCaptureResult: KeptPlanExecution | null = null;
   smartCaptureError = '';
   selectedSmartActions = new Set<number>();
+  smartReminderActionIndex: number | null = null;
+  smartReminderDate = '';
+  smartReminderTime = '';
+  readonly calendarWeekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  calendarMonth = this.startOfMonth(new Date());
+  private smartReminderTimePicker?: TimepickerUI;
+  private smartReminderTimePickerInput?: HTMLInputElement;
   private smartCaptureEventHandler = (event: Event) => this.handleSmartCaptureEvent(event as CustomEvent);
 
   constructor(
@@ -106,18 +114,22 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureError = '';
     this.smartCaptureValidation = null;
     this.smartCaptureOpen = true;
+    this.closeSmartReminderPicker();
     this.selectedSmartActions = new Set((actionPlan.actions || []).map((_action, index) => index));
     await this.validateSmartCapture();
   }
 
   async validateSmartCapture() {
     if (!this.smartCapturePlan) return;
+    const selectedBefore = new Set(this.selectedSmartActions);
     this.smartCaptureLoading = true;
     this.smartCaptureError = '';
     try {
       this.smartCaptureValidation = await this.ai.validatePlan(this.smartCaptureTranscript, this.smartCapturePlan);
       this.smartCapturePlan = this.smartCaptureValidation.normalizedPlan;
-      this.selectedSmartActions = new Set((this.smartCapturePlan.actions || []).map((_action, index) => index));
+      this.selectedSmartActions = new Set((this.smartCapturePlan.actions || [])
+        .map((_action, index) => index)
+        .filter(index => selectedBefore.has(index)));
     } catch (error: any) {
       this.smartCaptureError = error?.error?.error || error?.error?.errors?.join(' ') || 'Could not validate Smart Capture plan.';
     } finally {
@@ -166,50 +178,13 @@ export class MainComponent implements OnInit, OnDestroy {
       if (selected && !selected.has(index)) continue;
       const action = plan.actions[index] as any;
       if (action.type !== 'set_reminder' || action.dueAtUtc) continue;
-      const answer = window.prompt('When should Kept remind you? Enter a date and time, like 2026-05-20 3:30 PM.');
-      if (!answer) {
-        this.smartCaptureError = 'Reminder time is required before Kept can create that reminder.';
-        return null;
-      }
-      const dueAtUtc = this.parseReminderPrompt(answer);
-      if (!dueAtUtc) {
-        this.smartCaptureError = 'Could not understand that reminder time. Try YYYY-MM-DD HH:MM.';
-        return null;
-      }
-      action.dueAtUtc = dueAtUtc;
-      action.timezone = action.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      this.smartCaptureError = 'Pick a reminder date and time before running Smart Capture.';
+      this.openSmartReminderPicker(index);
+      return null;
     }
 
     this.smartCapturePlan = plan;
     return plan;
-  }
-
-  private parseReminderPrompt(value: string) {
-    const raw = value.trim();
-    if (!raw) return '';
-    const explicit = raw.match(/^(\d{4}-\d{2}-\d{2})[ T]+(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
-    if (explicit) {
-      let hour = Number(explicit[2]);
-      const minute = Number(explicit[3] || 0);
-      const meridiem = explicit[4]?.toUpperCase();
-      if (meridiem === 'PM' && hour < 12) hour += 12;
-      if (meridiem === 'AM' && hour === 12) hour = 0;
-      if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
-        const [year, month, day] = explicit[1].split('-').map(Number);
-        const parsed = new Date(year, month - 1, day, hour, minute, 0, 0);
-        return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
-      }
-    }
-    const normalized = raw
-      .replace(/^today\b/i, new Date().toISOString().slice(0, 10))
-      .replace(/^tomorrow\b/i, () => {
-        const d = new Date();
-        d.setDate(d.getDate() + 1);
-        return d.toISOString().slice(0, 10);
-      })
-      .replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})/i, '$1T$2');
-    const parsed = new Date(normalized);
-    return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
   }
 
   closeSmartCapture() {
@@ -221,6 +196,171 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureResult = null;
     this.smartCaptureError = '';
     this.selectedSmartActions.clear();
+    this.closeSmartReminderPicker();
+  }
+
+  openSmartReminderPicker(index: number, event?: Event) {
+    event?.stopPropagation();
+    const action = this.smartCapturePlan?.actions?.[index] as any;
+    const existing = action?.dueAtUtc ? new Date(action.dueAtUtc) : null;
+    const baseDate = existing && !Number.isNaN(existing.getTime()) ? existing : new Date();
+    this.smartReminderActionIndex = index;
+    this.smartReminderDate = existing && !Number.isNaN(existing.getTime()) ? this.formatLocalDateInput(existing) : '';
+    this.smartReminderTime = existing && !Number.isNaN(existing.getTime()) ? this.formatTimeInput(existing) : '';
+    this.calendarMonth = this.startOfMonth(baseDate);
+    this.destroySmartReminderTimePicker();
+  }
+
+  closeSmartReminderPicker() {
+    this.smartReminderActionIndex = null;
+    this.smartReminderDate = '';
+    this.smartReminderTime = '';
+    this.destroySmartReminderTimePicker();
+  }
+
+  confirmSmartReminderDate(timeInput: HTMLInputElement) {
+    if (!this.smartReminderDate) return;
+    this.createSmartReminderTimePicker(timeInput);
+    this.smartReminderTimePicker?.open();
+  }
+
+  cancelSmartReminderDate() {
+    this.closeSmartReminderPicker();
+  }
+
+  calendarMonthLabel() {
+    return this.calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  }
+
+  calendarDays() {
+    const month = this.calendarMonth.getMonth();
+    const year = this.calendarMonth.getFullYear();
+    const first = new Date(year, month, 1);
+    const start = new Date(first);
+    start.setDate(1 - first.getDay());
+    const today = this.todayDateInput();
+    const selected = this.smartReminderDate;
+
+    return Array.from({ length: 42 }, (_value, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      const iso = this.formatLocalDateInput(date);
+      return {
+        date: iso,
+        day: date.getDate(),
+        currentMonth: date.getMonth() === month,
+        disabled: iso < today,
+        selected: iso === selected,
+        today: iso === today
+      };
+    });
+  }
+
+  shiftCalendarMonth(delta: number) {
+    const next = new Date(this.calendarMonth);
+    next.setMonth(next.getMonth() + delta);
+    this.calendarMonth = this.startOfMonth(next);
+  }
+
+  selectCalendarDate(date: string) {
+    if (date < this.todayDateInput()) return;
+    this.smartReminderDate = date;
+  }
+
+  private async applySmartReminderTime(timeInput: HTMLInputElement) {
+    if (this.smartReminderActionIndex === null || !this.smartCapturePlan) return;
+    const time = this.toTwentyFourHourTime(this.smartReminderTime || timeInput.value);
+    if (!this.smartReminderDate || !time) return;
+    const dueAt = new Date(`${this.smartReminderDate}T${time}`);
+    if (Number.isNaN(dueAt.getTime())) return;
+
+    const actions = this.smartCapturePlan.actions.map((action, index) => {
+      if (index !== this.smartReminderActionIndex) return { ...action };
+      return {
+        ...(action as any),
+        dueAtUtc: dueAt.toISOString(),
+        timezone: (action as any).timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+      };
+    });
+    this.smartCapturePlan = { ...this.smartCapturePlan, actions };
+    this.closeSmartReminderPicker();
+    await this.validateSmartCapture();
+  }
+
+  private createSmartReminderTimePicker(timeInput: HTMLInputElement) {
+    if (this.smartReminderTimePicker && this.smartReminderTimePickerInput === timeInput) return;
+    this.destroySmartReminderTimePicker();
+    this.smartReminderTimePickerInput = timeInput;
+    timeInput.value = this.smartReminderTime || this.currentTimeValue();
+    this.smartReminderTimePicker = new TimepickerUI(timeInput, {
+      clock: { currentTime: { time: new Date(), updateInput: true } },
+      ui: { editable: true },
+      callbacks: {
+        onConfirm: (data: ConfirmEventData) => {
+          this.ngZone.run(() => {
+            const hour = String(data.hour || '').padStart(2, '0');
+            const minutes = String(data.minutes || '').padStart(2, '0');
+            const period = data.type ? ` ${data.type}` : '';
+            this.smartReminderTime = `${hour}:${minutes}${period}`;
+            setTimeout(() => this.applySmartReminderTime(timeInput), 0);
+          });
+        }
+      }
+    });
+    this.smartReminderTimePicker.create();
+  }
+
+  private destroySmartReminderTimePicker() {
+    this.smartReminderTimePicker?.destroy({ keepInputValue: true });
+    this.smartReminderTimePicker = undefined;
+    this.smartReminderTimePickerInput = undefined;
+  }
+
+  private todayDateInput() {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    return this.formatLocalDateInput(date);
+  }
+
+  private formatLocalDateInput(date: Date) {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  private formatTimeInput(date: Date) {
+    let hour = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const period = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12 || 12;
+    return `${String(hour).padStart(2, '0')}:${minutes} ${period}`;
+  }
+
+  private currentTimeValue() {
+    return this.formatTimeInput(new Date());
+  }
+
+  private startOfMonth(date: Date) {
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  }
+
+  private toTwentyFourHourTime(value: string) {
+    if (!value) return '';
+    const time = value.trim().toUpperCase().replace(/\./g, '');
+    const twelveHour = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+    if (twelveHour) {
+      let hour = Number(twelveHour[1]);
+      if (twelveHour[3] === 'PM' && hour < 12) hour += 12;
+      if (twelveHour[3] === 'AM' && hour === 12) hour = 0;
+      return `${String(hour).padStart(2, '0')}:${twelveHour[2]}`;
+    }
+    const twentyFourHour = time.match(/^(\d{1,2}):(\d{2})$/);
+    if (!twentyFourHour) return '';
+    const hour = Number(twentyFourHour[1]);
+    const minutes = Number(twentyFourHour[2]);
+    if (hour > 23 || minutes > 59) return '';
+    return `${String(hour).padStart(2, '0')}:${twentyFourHour[2]}`;
   }
 
   actionTitle(action: KeptAction) {

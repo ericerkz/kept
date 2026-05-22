@@ -66,6 +66,7 @@ export class InputComponent implements OnInit {
     '.odt', '.ods', '.odp'
   ].join(',')
   labels: LabelI[] = []
+  private labelsDirty = false
   isArchived = false
   isTrashed = false
   isCboxCompletedListCollapsed = false
@@ -201,6 +202,7 @@ export class InputComponent implements OnInit {
       document.addEventListener('mousedown', this.mouseDownEvent)
     }
     this.labels = JSON.parse(JSON.stringify(this.Shared.label.list))
+    this.labelsDirty = false
     /*
     the correct way is to use `mousedown` because : 
     https://www.javascripttutorial.net/javascript-dom/javascript-mouse-events/
@@ -347,6 +349,7 @@ export class InputComponent implements OnInit {
         }
       }
     })
+    const labelsForSave = await this.labelsForSave()
     let noteObj: NoteI = {
       noteTitle: this.noteTitle.nativeElement.innerHTML,
       noteBody: this.noteBody?.nativeElement.innerHTML ? this.cleanEditorBodyForSave(this.noteBody.nativeElement.innerHTML) : '',
@@ -356,7 +359,7 @@ export class InputComponent implements OnInit {
       checkBoxes: this.checkBoxes,
       images: this.images.map(image => ({ ...image, dataUrl: this.auth.canonicalImageUrl(image.dataUrl) })),
       isCbox: this.isCbox.value,
-      labels: this.labels.filter(x => x.added),
+      labels: labelsForSave,
       archived: this.isArchived,
       trashed: this.isTrashed
     }
@@ -376,6 +379,7 @@ export class InputComponent implements OnInit {
         try {
           await this.notesService.update(noteObj, this.noteToEdit.id!)
           this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
+          this.labelsDirty = false
         } finally {
           this.coEditSaveInFlight = false
           if (this.coEditSaveQueued) {
@@ -386,6 +390,7 @@ export class InputComponent implements OnInit {
       } else {
         await this.notesService.update(noteObj, this.noteToEdit.id!)
         this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
+        this.labelsDirty = false
         this.updateLastEditedTime();
       }
       if (closeAfterSave) this.Shared.closeModal.next(true)
@@ -452,6 +457,18 @@ export class InputComponent implements OnInit {
     return labels
       .filter(label => label.added !== false)
       .map(label => ({ id: label.id, name: label.name, added: label.added !== false }))
+  }
+
+  private async labelsForSave() {
+    const selectedLabels = this.labels.filter(label => label.added)
+    if (!this.isEditing || !this.noteToEdit?.id || this.labelsDirty) return selectedLabels
+
+    try {
+      const fresh = await this.notesService.get(this.noteToEdit.id, { merge: true })
+      return this.normalizeLabels(fresh?.labels || [])
+    } catch {
+      return this.normalizeLabels(this.noteToEdit.labels || selectedLabels)
+    }
   }
 
   private normalizeCheckBoxes(checkBoxes: CheckboxI[] = []) {
@@ -2235,6 +2252,7 @@ export class InputComponent implements OnInit {
       let label = this.labels.find(x => x.name === noteLabel.name)
       if (label) label.added = noteLabel.added
     })
+    this.labelsDirty = false
     // Force the templates to materialize before we touch the body element.
     this.cd.detectChanges()
     if (this.noteBody) this.noteBody.nativeElement.innerHTML = this.decorateLinksForEditor(note.noteBody || '')
@@ -2311,6 +2329,7 @@ export class InputComponent implements OnInit {
     const existing = this.labels.find(label => label.name.toLowerCase() === name.toLowerCase())
     if (existing) {
       existing.added = true
+      this.labelsDirty = true
       input.value = ''
       this.labelMenuError = ''
       return
@@ -2319,18 +2338,25 @@ export class InputComponent implements OnInit {
     try {
       const id = await this.Shared.label.db.add({ name })
       this.labels = [{ id, name, added: true }, ...this.labels]
+      this.labelsDirty = true
       input.value = ''
       this.labelMenuError = ''
     } catch (error: any) {
       const matchingLabel = this.Shared.label.list.find(label => label.name.toLowerCase() === name.toLowerCase())
       if (matchingLabel) {
         this.labels = [{ ...matchingLabel, added: true }, ...this.labels]
+        this.labelsDirty = true
         input.value = ''
         this.labelMenuError = ''
         return
       }
       this.labelMenuError = error?.status === 409 ? 'Label already exists' : 'Could not create label'
     }
+  }
+
+  toggleLabel(label: LabelI) {
+    label.added = !label.added
+    this.labelsDirty = true
   }
 
   isSharedNoteForCurrentUser() {
