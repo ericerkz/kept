@@ -62,6 +62,16 @@ export interface ShareNoteAction extends BaseAction {
   userIds: number[];
 }
 
+export interface ArchiveNoteAction extends BaseAction {
+  type: 'archive_note';
+  noteId: number;
+}
+
+export interface TrashNoteAction extends BaseAction {
+  type: 'trash_note';
+  noteId: number;
+}
+
 export type KeptAction =
   | CreateTextNoteAction
   | CreateTodoNoteAction
@@ -70,6 +80,8 @@ export type KeptAction =
   | AddLabelsAction
   | SetReminderAction
   | ShareNoteAction
+  | ArchiveNoteAction
+  | TrashNoteAction
   | BaseAction;
 
 export interface KeptActionPlan {

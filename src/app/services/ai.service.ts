@@ -64,4 +64,20 @@ export class AiService {
       { headers: this.auth.authHeaders() }
     ));
   }
+
+  async archiveNote(noteId: number) {
+    return await firstValueFrom(this.http.post<{ ok: boolean; noteId: number; archived: boolean; trashed: boolean; trashedAt: string; updatedAt: string }>(
+      `${this.apiUrl}/ai/notes/${noteId}/archive`,
+      {},
+      { headers: this.auth.authHeaders() }
+    ));
+  }
+
+  async trashNote(noteId: number) {
+    return await firstValueFrom(this.http.post<{ ok: boolean; noteId: number; archived: boolean; trashed: boolean; trashedAt: string; updatedAt: string }>(
+      `${this.apiUrl}/ai/notes/${noteId}/trash`,
+      {},
+      { headers: this.auth.authHeaders() }
+    ));
+  }
 }

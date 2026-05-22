@@ -195,7 +195,7 @@
           @if (label.added) {
             <div class="label-container">
               <div class="label"><span>{{label.name}}</span>
-              <div class="cancel-icon" (click)="label.added = !label.added"></div>
+              <div class="cancel-icon" (click)="toggleLabel(label)"></div>
             </div>
           </div>
         }
@@ -602,7 +602,7 @@
   }
   <div class="label-list-container">
     @for (label of labels; track label) {
-      <div class="label-list" (click)="label.added = !label.added">
+      <div class="label-list" (click)="toggleLabel(label)">
         <div [class.done]='label.added' class="check-icon"></div>
         <div class="label-name">{{label.name}}</div>
       </div>

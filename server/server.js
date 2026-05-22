@@ -1112,14 +1112,18 @@ const SMART_ACTION_TYPES = new Set([
   'add_checklist_items',
   'add_labels',
   'set_reminder',
-  'share_note'
+  'share_note',
+  'archive_note',
+  'trash_note'
 ]);
 
 const NOTE_TARGET_ACTION_TYPES = new Set([
   'append_to_note',
   'add_checklist_items',
   'add_labels',
-  'share_note'
+  'share_note',
+  'archive_note',
+  'trash_note'
 ]);
 
 function asArray(value) {
@@ -1165,7 +1169,9 @@ function actionUserIds(action) {
 }
 
 function normalizeAction(action) {
-  const type = String(action?.type || '').trim();
+  let type = String(action?.type || '').trim();
+  if (['archive', 'archiveNote'].includes(type)) type = 'archive_note';
+  if (['trash', 'trashNote'].includes(type)) type = 'trash_note';
   const normalized = { ...action, type };
   if (actionNoteId(action)) normalized.noteId = actionNoteId(action);
   const title = actionTitle(action);
@@ -1270,6 +1276,9 @@ async function validateKeptActionPlan(userId, transcript, actionPlan) {
     if (action.noteId && !note) errors.push(`${label}.noteId is not accessible.`);
     if (action.type === 'share_note' && note && note.ownerUserId !== userId) {
       errors.push(`${label}.noteId must be owned by you to share it.`);
+    }
+    if ((action.type === 'archive_note' || action.type === 'trash_note') && note && note.ownerUserId !== userId) {
+      errors.push(`${label}.noteId must be owned by you to ${action.type === 'archive_note' ? 'archive' : 'trash'} it.`);
     }
 
     if (action.type === 'share_note') {
@@ -1455,6 +1464,28 @@ async function smartShareNote(userId, noteId, userIds) {
   return previousRecipients;
 }
 
+async function setOwnedNoteLifecycleState(userId, noteId, updates) {
+  const note = await getOwnedNote(noteId, userId);
+  if (!note) throw new Error(`Note ${noteId} is not owned by you.`);
+  const now = new Date().toISOString();
+  const next = {
+    archived: updates.archived === undefined ? !!note.archived : !!updates.archived,
+    trashed: updates.trashed === undefined ? !!note.trashed : !!updates.trashed
+  };
+  const trashedAt = nextTrashedAt(note, next);
+  await run(
+    'UPDATE notes SET archived = ?, trashed = ?, trashedAt = ?, updatedAt = ?, lastEditorUserId = ? WHERE id = ?',
+    [next.archived ? 1 : 0, next.trashed ? 1 : 0, trashedAt, now, userId, noteId]
+  );
+  return {
+    noteId,
+    archived: next.archived,
+    trashed: next.trashed,
+    trashedAt: trashedAt || '',
+    updatedAt: now
+  };
+}
+
 async function executeSmartAction(userId, action, state) {
   const result = { type: action.type, ok: true };
   if (action.type === 'create_text_note' || action.type === 'create_todo_note') {
@@ -1502,6 +1533,18 @@ async function executeSmartAction(userId, action, state) {
     result.noteId = noteId;
     result.userIds = (action.userIds || []).filter(id => id !== userId);
     return result;
+  }
+  if (action.type === 'archive_note') {
+    const noteId = resolveActionNoteId(action, state);
+    const status = await setOwnedNoteLifecycleState(userId, noteId, { archived: true, trashed: false });
+    state.updatedNoteIds.add(noteId);
+    return { ...result, ...status };
+  }
+  if (action.type === 'trash_note') {
+    const noteId = resolveActionNoteId(action, state);
+    const status = await setOwnedNoteLifecycleState(userId, noteId, { archived: false, trashed: true });
+    state.updatedNoteIds.add(noteId);
+    return { ...result, ...status };
   }
   throw new Error(`Unsupported action type: ${action.type}`);
 }
@@ -3429,6 +3472,32 @@ app.post('/api/ai/action-plan/execute', requireAuth, asyncRoute(async (req, res)
   await syncSmartReminderIntegrations(req.user.id, state.remindersToSync);
 
   res.status(failed.length ? 207 : 200).json(response);
+}));
+
+app.post('/api/ai/notes/:id/archive', requireAuth, asyncRoute(async (req, res) => {
+  const noteId = Number(req.params.id);
+  if (!noteId) return res.status(400).json({ error: 'noteId is required.' });
+  try {
+    const status = await setOwnedNoteLifecycleState(req.user.id, noteId, { archived: true, trashed: false });
+    await broadcastNoteChange(noteId, 'updated');
+    res.json({ ok: true, ...status });
+  } catch (error) {
+    if (/not owned by you/i.test(error.message || '')) return res.status(404).json({ error: 'Note not found.' });
+    throw error;
+  }
+}));
+
+app.post('/api/ai/notes/:id/trash', requireAuth, asyncRoute(async (req, res) => {
+  const noteId = Number(req.params.id);
+  if (!noteId) return res.status(400).json({ error: 'noteId is required.' });
+  try {
+    const status = await setOwnedNoteLifecycleState(req.user.id, noteId, { archived: false, trashed: true });
+    await broadcastNoteChange(noteId, 'updated');
+    res.json({ ok: true, ...status });
+  } catch (error) {
+    if (/not owned by you/i.test(error.message || '')) return res.status(404).json({ error: 'Note not found.' });
+    throw error;
+  }
 }));
 
 app.get('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
