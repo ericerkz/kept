@@ -680,6 +680,44 @@
   padding-top: 12px;
 }
 
+.smart-share-overlay {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.smart-share-recipient {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(60, 64, 67, 0.16);
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(60, 64, 67, 0.08);
+  color: #202124;
+  display: inline-grid;
+  font: 700 13px/1.2 "Google Sans", Roboto, Arial, sans-serif;
+  gap: 8px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  justify-self: start;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 4px 10px 4px 4px;
+
+  img,
+  .avatar-fallback {
+    border-radius: 50%;
+    display: block;
+    height: 28px;
+    overflow: hidden;
+    width: 28px;
+  }
+
+  > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .smart-reminder-button {
   align-items: center;
   background: transparent;

@@ -5,6 +5,7 @@ import { AiService } from 'src/app/services/ai.service';
 import { ReminderService } from 'src/app/services/reminder.service';
 import { SharedService } from 'src/app/services/shared.service';
 import { NotesService } from 'src/app/services/notes.service';
+import { ShareUserI } from 'src/app/interfaces/users';
 
 interface SmartCaptureEstimateAction {
   type: string;
@@ -39,6 +40,7 @@ export class MainComponent implements OnInit, OnDestroy {
   smartCaptureValidation: KeptPlanValidation | null = null;
   smartCaptureResult: KeptPlanExecution | null = null;
   smartCaptureError = '';
+  smartShareUsers: ShareUserI[] = [];
   selectedSmartActions = new Set<number>();
   smartReminderActionIndex: number | null = null;
   smartReminderDate = '';
@@ -80,6 +82,7 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureValidation = null;
     this.smartCaptureResult = null;
     this.selectedSmartActions.clear();
+    this.smartShareUsers = [];
     this.closeSmartReminderPicker();
   }
 
@@ -175,6 +178,7 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureListening = false;
     this.closeSmartReminderPicker();
     this.selectedSmartActions = new Set((actionPlan.actions || []).map((_action, index) => index));
+    this.loadSmartShareUsers();
     await this.validateSmartCapture();
   }
 
@@ -197,8 +201,11 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   toggleSmartAction(index: number, checked: boolean) {
-    if (checked) this.selectedSmartActions.add(index);
-    else this.selectedSmartActions.delete(index);
+    const indexes = [index, ...this.connectedShareActionIndexes(index)];
+    for (const actionIndex of indexes) {
+      if (checked) this.selectedSmartActions.add(actionIndex);
+      else this.selectedSmartActions.delete(actionIndex);
+    }
   }
 
   async runSmartCapture(selectedOnly = false) {
@@ -214,11 +221,13 @@ export class MainComponent implements OnInit, OnDestroy {
         confirmed: true,
         selectedActionIndexes
       });
-      window.dispatchEvent(new CustomEvent('kept-smart-capture-notes-reloading'));
       await this.notes.load();
       await this.reminders.load();
-      window.dispatchEvent(new CustomEvent('kept-smart-capture-notes-added'));
-      setTimeout(() => this.closeSmartCapture(), 1200);
+      this.closeSmartCapture();
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent('kept-smart-capture-notes-added'));
+        window.dispatchEvent(new Event('resize'));
+      }));
     } catch (error: any) {
       const errors = error?.error?.errors || error?.error?.failed?.map((f: any) => f.error);
       this.smartCaptureError = Array.isArray(errors) ? errors.join(' ') : (error?.error?.error || 'Could not run Smart Capture plan.');
@@ -263,6 +272,7 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureValidation = null;
     this.smartCaptureResult = null;
     this.smartCaptureError = '';
+    this.smartShareUsers = [];
     this.selectedSmartActions.clear();
     this.closeSmartReminderPicker();
   }
@@ -575,6 +585,66 @@ export class MainComponent implements OnInit, OnDestroy {
     const anyAction = action as any;
     if (anyAction.bgColor) return anyAction.bgColor;
     return this.smartProposalColors[index % this.smartProposalColors.length];
+  }
+
+  proposalDisplayActions() {
+    return (this.smartCapturePlan?.actions || [])
+      .map((action, index) => ({ action, index }))
+      .filter(item => !this.shouldHideShareAction(item.index));
+  }
+
+  private shouldHideShareAction(index: number) {
+    const action = this.smartCapturePlan?.actions?.[index] as any;
+    if (action?.type !== 'share_note') return false;
+    return this.findConnectedProposalIndex(index) !== null;
+  }
+
+  private connectedShareActionIndexes(index: number) {
+    const actions = this.smartCapturePlan?.actions || [];
+    return actions
+      .map((action, shareIndex) => ({ action: action as any, shareIndex }))
+      .filter(item => item.action.type === 'share_note' && this.findConnectedProposalIndex(item.shareIndex) === index)
+      .map(item => item.shareIndex);
+  }
+
+  private findConnectedProposalIndex(shareIndex: number) {
+    const actions = this.smartCapturePlan?.actions || [];
+    const share = actions[shareIndex] as any;
+    if (!share || share.type !== 'share_note') return null;
+    const shareNoteId = share.noteId;
+    if (shareNoteId) {
+      const targetIndex = actions.findIndex((action, index) =>
+        index !== shareIndex && (action as any).type !== 'share_note' && (action as any).noteId === shareNoteId
+      );
+      return targetIndex >= 0 ? targetIndex : null;
+    }
+    for (let index = shareIndex - 1; index >= 0; index--) {
+      const action = actions[index];
+      if (action.type === 'create_text_note' || action.type === 'create_todo_note') return index;
+    }
+    return null;
+  }
+
+  shareRecipientsForAction(index: number) {
+    const userIds = this.connectedShareActionIndexes(index)
+      .flatMap(shareIndex => ((this.smartCapturePlan?.actions?.[shareIndex] as any)?.userIds || []) as number[]);
+    return [...new Set(userIds)]
+      .map(userId => this.smartShareUsers.find(user => user.id === userId) || {
+        id: userId,
+        username: `User ${userId}`,
+        displayName: `User ${userId}`,
+        avatarDataUrl: '',
+        avatarPreset: 'cat',
+        shareCount: 0
+      });
+  }
+
+  private loadSmartShareUsers() {
+    const hasShareAction = !!this.smartCapturePlan?.actions?.some(action => action.type === 'share_note');
+    if (!hasShareAction) return;
+    this.notes.listShareUsers()
+      .then(users => { this.smartShareUsers = users; })
+      .catch(error => console.error('Could not load Smart Capture share users', error));
   }
 
   estimateActions() {

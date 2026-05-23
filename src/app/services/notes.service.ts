@@ -49,6 +49,7 @@ export class NotesService {
   private searchQuery = '';
   private searchReloadTimer?: ReturnType<typeof setTimeout>;
   private pendingLoadQuery?: string;
+  private pendingLoadWaiters: Array<() => void> = [];
   private readonly cardPageSize = 80;
   private shouldReconnectRealtime = false;
   private preloadedPreviewUrls = new Set<string>();
@@ -75,7 +76,7 @@ export class NotesService {
   async load(searchQuery = this.searchQuery) {
     if (this.isLoading) {
       this.pendingLoadQuery = searchQuery;
-      return;
+      return new Promise<void>(resolve => this.pendingLoadWaiters.push(resolve));
     }
     this.isLoading = true;
     this.loading = true;
@@ -97,8 +98,10 @@ export class NotesService {
       this.loading = false;
       if (this.pendingLoadQuery !== undefined) {
         const pending = this.pendingLoadQuery;
+        const waiters = this.pendingLoadWaiters.splice(0);
         this.pendingLoadQuery = undefined;
-        this.load(pending).catch(console.error);
+        await this.load(pending).catch(console.error);
+        waiters.forEach(resolve => resolve());
       }
     }
   }
