@@ -214,6 +214,7 @@ export class MainComponent implements OnInit, OnDestroy {
         confirmed: true,
         selectedActionIndexes
       });
+      window.dispatchEvent(new CustomEvent('kept-smart-capture-notes-reloading'));
       await this.notes.load();
       await this.reminders.load();
       window.dispatchEvent(new CustomEvent('kept-smart-capture-notes-added'));
@@ -284,8 +285,7 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureLoading = true;
     this.smartCaptureError = '';
     try {
-      const transcript = await this.stopNativeVoiceCapture();
-      const command = (transcript || this.smartCaptureTranscript || '').trim();
+      const command = await this.commandForSmartCapturePlanning();
       if (!command) {
         this.smartCaptureError = 'Say something first, then tap Done.';
         return;
@@ -358,6 +358,21 @@ export class MainComponent implements OnInit, OnDestroy {
     const result = await plugin.stopVoiceCapture();
     if (result?.text) this.smartCaptureTranscript = result.text;
     return result?.text || this.smartCaptureTranscript;
+  }
+
+  private async commandForSmartCapturePlanning() {
+    const liveTranscript = (this.smartCaptureTranscript || '').trim();
+    if (liveTranscript) {
+      this.smartVoiceCapturing = false;
+      this.smartCaptureListening = false;
+      this.keptIntelligencePlugin()?.stopVoiceCapture?.()
+        .then((result: any) => {
+          if (result?.text) this.ngZone.run(() => { this.smartCaptureTranscript = result.text; });
+        })
+        .catch(console.error);
+      return liveTranscript;
+    }
+    return (await this.stopNativeVoiceCapture() || '').trim();
   }
 
   private async cancelNativeVoiceCapture() {
