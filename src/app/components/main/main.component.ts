@@ -201,6 +201,7 @@ export class MainComponent implements OnInit, OnDestroy {
       this.selectedSmartActions = previousActionCount === nextIndexes.length
         ? new Set(nextIndexes.filter(index => selectedBefore.has(index)))
         : new Set(nextIndexes);
+      this.selectReminderActions();
     } catch (error: any) {
       this.smartCaptureError = error?.error?.error || error?.error?.errors?.join(' ') || 'Could not validate Smart Capture plan.';
     } finally {
@@ -215,6 +216,12 @@ export class MainComponent implements OnInit, OnDestroy {
     for (const actionIndex of indexes) {
       if (checked) this.selectedSmartActions.add(actionIndex);
       else this.selectedSmartActions.delete(actionIndex);
+    }
+  }
+
+  private selectReminderActions() {
+    for (const [index, action] of (this.smartCapturePlan?.actions || []).entries()) {
+      if (action.type === 'set_reminder') this.selectedSmartActions.add(index);
     }
   }
 
