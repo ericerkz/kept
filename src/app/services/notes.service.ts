@@ -61,6 +61,7 @@ export class NotesService {
   private suppressedRealtimeReloads = new Map<number, number>();
   private suppressNextReorderReloadUntil = 0;
   private optimisticNotes = new Map<number, NoteI>();
+  private lastNonEmptyNotes: NoteI[] = [];
 
   constructor(private http: HttpClient, private auth: AuthService, private reminders: ReminderService) {
     this.authSubscription = this.auth.currentUser$.subscribe(user => {
@@ -72,6 +73,7 @@ export class NotesService {
         this.hasLoaded = false;
         this.loadError = false;
         this.nextCursor = null;
+        this.lastNonEmptyNotes = [];
         this.notesList$.next(null);
       }
     });
@@ -93,7 +95,7 @@ export class NotesService {
       this.nextCursor = page.nextCursor;
       this.hasLoaded = true;
       const notes = this.withOptimisticNotes(page.notes);
-      this.notesList$.next(notes);
+      this.publishNotes(notes);
       this.queueLinkPreviewPreload(notes);
     } catch (error) {
       this.loadError = true;
@@ -166,7 +168,7 @@ export class NotesService {
       const current = this.notesList$.value || [];
       const seen = new Set(current.map(note => note.id).filter(Boolean));
       const merged = [...current, ...page.notes.filter(note => !note.id || !seen.has(note.id))];
-      this.notesList$.next(merged);
+      this.publishNotes(merged);
       this.queueLinkPreviewPreload(page.notes);
     } finally {
       this.isLoadingNextPage = false;
@@ -271,7 +273,7 @@ export class NotesService {
       }
       if (noteChanged) changed = true;
     });
-    if (changed) this.notesList$.next([...notes]);
+    if (changed) this.publishNotes([...notes]);
   }
 
   private updateUserProfile(user: ShareUserI) {
@@ -312,7 +314,7 @@ export class NotesService {
         if (noteChanged) changed = true;
         return updated;
       });
-      if (changed) this.notesList$.next(next);
+      if (changed) this.publishNotes(next);
     }
 
     const activeEditors = this.activeEditors$.value;
@@ -436,7 +438,7 @@ export class NotesService {
     const ordered = ids.map(id => byId.get(id)).filter((note): note is NoteI => !!note);
     const orderedIds = new Set(ids);
     const remaining = current.filter(note => !note.id || !orderedIds.has(note.id));
-    this.notesList$.next([...ordered, ...remaining]);
+    this.publishNotes([...ordered, ...remaining]);
   }
 
   async uploadImage(file: File) {
@@ -503,14 +505,20 @@ export class NotesService {
 
   private prependNotesIntoList(notes: NoteI[]) {
     if (!notes.length) return;
-    const current = this.notesList$.value || [];
+    const currentValue = this.notesList$.value || [];
+    const current = currentValue.length ? currentValue : this.lastNonEmptyNotes;
     const incomingIds = new Set(notes.map(note => note.id).filter(Boolean));
     const next = [
       ...notes,
       ...current.filter(note => !note.id || !incomingIds.has(note.id))
     ];
-    this.notesList$.next(next);
+    this.publishNotes(next);
     this.queueLinkPreviewPreload(notes);
+  }
+
+  private publishNotes(notes: NoteI[]) {
+    if (notes.length) this.lastNonEmptyNotes = notes;
+    this.notesList$.next(notes);
   }
 
   private withOptimisticNotes(notes: NoteI[]) {
@@ -542,7 +550,7 @@ export class NotesService {
       searchText: existing.searchText,
       isCardPreview: note.isCardPreview ?? (note.noteBody !== undefined ? false : existing.isCardPreview)
     };
-    this.notesList$.next(next);
+    this.publishNotes(next);
   }
 
   private suppressRealtimeReload(noteId: number) {
@@ -596,7 +604,7 @@ export class NotesService {
     if (index < 0) return;
     const next = [...current];
     next[index] = { ...next[index], collaborators };
-    this.notesList$.next(next);
+    this.publishNotes(next);
   }
 
   async clone(id: number) {
