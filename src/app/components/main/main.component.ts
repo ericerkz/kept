@@ -616,13 +616,20 @@ export class MainComponent implements OnInit, OnDestroy {
       const targetIndex = actions.findIndex((action, index) =>
         index !== shareIndex && (action as any).type !== 'share_note' && this.numericNoteId((action as any).noteId) === shareNoteId
       );
-      return targetIndex >= 0 ? targetIndex : null;
+      if (targetIndex >= 0) return targetIndex;
     }
     for (let index = shareIndex - 1; index >= 0; index--) {
-      const action = actions[index];
-      if (action.type === 'create_text_note' || action.type === 'create_todo_note') return index;
+      const action = actions[index] as any;
+      if (this.isNoteProposalAction(action)) return index;
     }
     return null;
+  }
+
+  private isNoteProposalAction(action: any) {
+    return action?.type === 'create_text_note'
+      || action?.type === 'create_todo_note'
+      || action?.type === 'append_to_note'
+      || action?.type === 'add_checklist_items';
   }
 
   shareRecipientsForAction(index: number) {
