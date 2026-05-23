@@ -1239,6 +1239,29 @@ function normalizeActionPlan(actionPlan) {
   };
 }
 
+function actionRequiresCreatedNote(action) {
+  return !action.noteId && (
+    NOTE_TARGET_ACTION_TYPES.has(action.type) ||
+    action.type === 'set_reminder'
+  );
+}
+
+function selectedActionsWithDependencies(actions, selected) {
+  if (!selected) return actions;
+  const expanded = new Set(selected);
+  let latestCreateIndex = null;
+  for (let index = 0; index < actions.length; index += 1) {
+    const action = actions[index];
+    if (expanded.has(index) && actionRequiresCreatedNote(action) && latestCreateIndex !== null) {
+      expanded.add(latestCreateIndex);
+    }
+    if (action.type === 'create_text_note' || action.type === 'create_todo_note') {
+      latestCreateIndex = index;
+    }
+  }
+  return actions.filter((_action, index) => expanded.has(index));
+}
+
 async function findOrCreateLabelForUser(userId, rawName) {
   const name = String(rawName || '').trim();
   if (!name) {
@@ -3636,9 +3659,7 @@ app.post('/api/ai/action-plan/execute', requireAuth, asyncRoute(async (req, res)
   const selected = Array.isArray(executeOptions.selectedActionIndexes)
     ? new Set(executeOptions.selectedActionIndexes.map(Number).filter(Number.isInteger))
     : null;
-  const actions = selected
-    ? validation.normalizedPlan.actions.filter((_action, index) => selected.has(index))
-    : validation.normalizedPlan.actions;
+  const actions = selectedActionsWithDependencies(validation.normalizedPlan.actions, selected);
   const state = {
     createdNoteIds: [],
     updatedNoteIds: new Set(),

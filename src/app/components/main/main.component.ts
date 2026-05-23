@@ -191,14 +191,16 @@ export class MainComponent implements OnInit, OnDestroy {
   async validateSmartCapture() {
     if (!this.smartCapturePlan) return;
     const selectedBefore = new Set(this.selectedSmartActions);
+    const previousActionCount = this.smartCapturePlan.actions?.length || 0;
     this.smartCaptureLoading = true;
     this.smartCaptureError = '';
     try {
       this.smartCaptureValidation = await this.ai.validatePlan(this.smartCaptureTranscript, this.smartCapturePlan);
       this.smartCapturePlan = this.smartCaptureValidation.normalizedPlan;
-      this.selectedSmartActions = new Set((this.smartCapturePlan.actions || [])
-        .map((_action, index) => index)
-        .filter(index => selectedBefore.has(index)));
+      const nextIndexes = (this.smartCapturePlan.actions || []).map((_action, index) => index);
+      this.selectedSmartActions = previousActionCount === nextIndexes.length
+        ? new Set(nextIndexes.filter(index => selectedBefore.has(index)))
+        : new Set(nextIndexes);
     } catch (error: any) {
       this.smartCaptureError = error?.error?.error || error?.error?.errors?.join(' ') || 'Could not validate Smart Capture plan.';
     } finally {
@@ -207,7 +209,9 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   toggleSmartAction(index: number, checked: boolean) {
-    const indexes = [index, ...this.connectedShareActionIndexes(index)];
+    const indexes = checked
+      ? [index, ...this.connectedShareActionIndexes(index), ...this.prerequisiteActionIndexes(index)]
+      : [index, ...this.connectedShareActionIndexes(index), ...this.dependentActionIndexes(index)];
     for (const actionIndex of indexes) {
       if (checked) this.selectedSmartActions.add(actionIndex);
       else this.selectedSmartActions.delete(actionIndex);
@@ -661,6 +665,42 @@ export class MainComponent implements OnInit, OnDestroy {
       .map((action, shareIndex) => ({ action: action as any, shareIndex }))
       .filter(item => item.action.type === 'share_note' && this.findConnectedProposalIndex(item.shareIndex) === index)
       .map(item => item.shareIndex);
+  }
+
+  private prerequisiteActionIndexes(index: number) {
+    const actions = this.smartCapturePlan?.actions || [];
+    const action = actions[index] as any;
+    if (!action) return [];
+    if (this.requiresPreviousCreatedNote(action)) {
+      const dependencyIndex = this.previousCreateActionIndex(index);
+      return dependencyIndex === null ? [] : [dependencyIndex];
+    }
+    return [];
+  }
+
+  private dependentActionIndexes(index: number) {
+    const actions = this.smartCapturePlan?.actions || [];
+    const action = actions[index] as any;
+    if (action?.type !== 'create_text_note' && action?.type !== 'create_todo_note') return [];
+    return actions
+      .map((candidate, candidateIndex) => ({ candidate: candidate as any, candidateIndex }))
+      .filter(item => item.candidateIndex > index && this.requiresPreviousCreatedNote(item.candidate)
+        && this.previousCreateActionIndex(item.candidateIndex) === index)
+      .map(item => item.candidateIndex);
+  }
+
+  private requiresPreviousCreatedNote(action: any) {
+    return !this.numericNoteId(action?.noteId)
+      && ['set_reminder', 'share_note', 'add_labels', 'append_to_note', 'add_checklist_items'].includes(action?.type);
+  }
+
+  private previousCreateActionIndex(beforeIndex: number) {
+    const actions = this.smartCapturePlan?.actions || [];
+    for (let index = beforeIndex - 1; index >= 0; index--) {
+      const action = actions[index] as any;
+      if (action?.type === 'create_text_note' || action?.type === 'create_todo_note') return index;
+    }
+    return null;
   }
 
   private findConnectedProposalIndex(shareIndex: number) {
