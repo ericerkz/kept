@@ -27,6 +27,10 @@ If you want to show support/appreciation for Kept, I do enjoy coffee:
 <a href="https://ko-fi.com/kept_notes">
   <img src="https://img.shields.io/badge/Ko--fi-Support%20Me-ff5e5b?logo=ko-fi&logoColor=white" alt="Ko-fi">
 </a>
+<br>
+<a href="https://apps.apple.com/ca/app/kept-notes/id6768974473">
+  <img src="https://img.shields.io/badge/App%20Store-Kept%20Notes-000000?logo=apple&logoColor=white" alt="Download Kept Notes on the App Store">
+</a>
 
 ## What you get
 
@@ -43,6 +47,12 @@ If you want to show support/appreciation for Kept, I do enjoy coffee:
 📱 **Install it like an app** — Kept supports PWA installs on iOS and Android, including push notifications for reminders. The short setup guide lives on the [Kept website](https://www.keepitkept.xyz/#pwa-mobile).
 
 🍎 **Native iPhone and iPad companion app** — [Kept Notes is available on the App Store](https://apps.apple.com/ca/app/kept-notes/id6768974473). It connects to your self-hosted Kept server and adds deeper iOS integration: native Apple Reminders support, a smoother iPhone/iPad shell, and Apple Intelligence-powered Smart Capture for local, private AI-assisted note creation and modification. The app has a small one-time cost, mostly because distributing software through the App Store is not free.
+
+<p>
+  <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473">
+    <img src="https://img.shields.io/badge/Download%20on%20the-App%20Store-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download Kept Notes on the App Store">
+  </a>
+</p>
 
 🤝 **Share notes with people on your instance** — collaborative editing in real time, like a doc editor. Both people typing in the same note see each other's changes live.
 
