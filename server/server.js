@@ -1289,7 +1289,12 @@ async function validateKeptActionPlan(userId, transcript, actionPlan) {
     if (action.noteId && !noteCache.has(action.noteId)) {
       noteCache.set(action.noteId, await getAccessibleNote(action.noteId, userId));
     }
-    const note = action.noteId ? noteCache.get(action.noteId) : null;
+    let note = action.noteId ? noteCache.get(action.noteId) : null;
+    if (action.type === 'share_note' && action.noteId && createdNoteAvailable && (!note || note.ownerUserId !== userId)) {
+      warnings.push(`${label}.noteId was ignored because a previous action creates the note to share.`);
+      delete action.noteId;
+      note = null;
+    }
     if (action.noteId && !note) errors.push(`${label}.noteId is not accessible.`);
     if (action.type === 'share_note' && note && note.ownerUserId !== userId) {
       errors.push(`${label}.noteId must be owned by you to share it.`);
