@@ -227,7 +227,7 @@ export class MainComponent implements OnInit, OnDestroy {
 
   isSmartActionSelected(index: number) {
     const action = this.smartCapturePlan?.actions?.[index];
-    return this.selectedSmartActions.has(index) || this.isReminderAction(action);
+    return this.selectedSmartActions.has(index) || this.isReminderProposal(action);
   }
 
   selectedActionIndexes() {
@@ -241,6 +241,10 @@ export class MainComponent implements OnInit, OnDestroy {
       || action?.type === 'reminder'
       || action?.intent === 'reminder'
       || !!(action?.dueAtUtc || action?.dueAt || action?.datetime || action?.dateTime);
+  }
+
+  isReminderProposal(action: any) {
+    return this.isReminderAction(action) || this.proposalBadge(action) === 'Reminder';
   }
 
   async runSmartCapture(selectedOnly = false) {

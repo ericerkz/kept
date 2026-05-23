@@ -151,8 +151,9 @@
               [style.--proposal-bg]="proposalColor(action, actionIndex)">
               <button type="button" class="smart-proposal-check"
                 [class.checked]="isSmartActionSelected(actionIndex)"
-                [attr.aria-label]="isSmartActionSelected(actionIndex) ? 'Unselect proposal' : 'Select proposal'"
-                (click)="toggleSmartAction(actionIndex, !isSmartActionSelected(actionIndex))">
+                [disabled]="isReminderProposal(action)"
+                [attr.aria-label]="isReminderProposal(action) ? 'Reminder proposal is required' : (isSmartActionSelected(actionIndex) ? 'Unselect proposal' : 'Select proposal')"
+                (click)="!isReminderProposal(action) && toggleSmartAction(actionIndex, !isSmartActionSelected(actionIndex))">
                 @if (isSmartActionSelected(actionIndex)) {
                   <span class="material-symbols-outlined">check</span>
                 }
