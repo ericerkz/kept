@@ -1629,8 +1629,9 @@ async function executeSmartAction(userId, action, state) {
 
 async function syncSmartReminderIntegrations(userId, reminders) {
   if (!reminders.length) return;
+  const enrichedReminders = await enrichReminderResponses(reminders);
   const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [userId]);
-  for (const reminder of reminders) {
+  for (const reminder of enrichedReminders) {
     if (caldav) pushReminderToCaldav(caldav, reminder).catch(err => console.error('CalDAV push failed:', err.message));
     gcalPushReminder(userId, reminder).catch(err => console.error('GCal push failed:', err.message));
   }
@@ -2224,6 +2225,7 @@ function buildReminderPushPayload(reminder) {
     body: plainText(reminder.body),
     imageUrl: reminder.imageUrl || null,
     icon: '/assets/images/keep2x.png',
+    deepLink: reminder.deepLink || (reminder.noteId ? `kept://note/${reminder.noteId}` : null),
     url: '/'
   });
 }
@@ -2478,7 +2480,8 @@ function startReminderScheduler() {
     try {
       const now = new Date().toISOString();
       const due = await all(`SELECT * FROM reminders WHERE status = 'pending' AND dueAtUtc <= ?`, [now]);
-      for (const reminder of due) {
+      const enrichedDue = await enrichReminderResponses(due);
+      for (const reminder of enrichedDue) {
         await run(`UPDATE reminders SET status = 'fired', updatedAt = ? WHERE id = ?`, [now, reminder.id]);
         broadcastRealtime([reminder.userId], {
           type: 'reminder-fired',
@@ -4282,9 +4285,44 @@ app.delete('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
 
 // ─── Reminder routes ───────────────────────────────────────────────────────
 
+async function reminderNoteMap(reminders) {
+  const noteIds = [...new Set((reminders || []).map(reminder => Number(reminder.noteId || 0)).filter(Boolean))];
+  if (!noteIds.length) return new Map();
+  const placeholders = noteIds.map(() => '?').join(',');
+  const notes = await all(
+    `SELECT id, noteTitle, noteBody FROM notes WHERE id IN (${placeholders})`,
+    noteIds
+  );
+  return new Map(notes.map(note => [Number(note.id), note]));
+}
+
+function reminderResponse(reminder, notesById = new Map()) {
+  const noteId = Number(reminder.noteId || 0) || null;
+  const note = noteId ? notesById.get(noteId) : null;
+  const explicitTitle = plainText(reminder.title || '');
+  const explicitBody = plainText(reminder.body || '');
+  const noteTitle = plainText(note?.noteTitle || '');
+  const noteBody = plainText(note?.noteBody || '').slice(0, 500);
+  return {
+    ...reminder,
+    title: explicitTitle || noteTitle || null,
+    body: explicitBody || noteBody || null,
+    deepLink: noteId ? `kept://note/${noteId}` : null
+  };
+}
+
+async function enrichReminderResponses(reminders) {
+  const notesById = await reminderNoteMap(reminders);
+  return reminders.map(reminder => reminderResponse(reminder, notesById));
+}
+
+async function enrichReminderResponse(reminder) {
+  return (await enrichReminderResponses([reminder]))[0];
+}
+
 app.get('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
   const reminders = await all('SELECT * FROM reminders WHERE userId = ? ORDER BY dueAtUtc', [req.user.id]);
-  res.json(reminders);
+  res.json(await enrichReminderResponses(reminders));
 }));
 
 // ─── ICS feed routes ───────────────────────────────────────────────────────
@@ -4309,12 +4347,13 @@ const handleIcsFeed = asyncRoute(async (req, res) => {
   const user = await get('SELECT id FROM users WHERE icsFeedToken = ?', [req.params.token]);
   if (!user) return res.status(404).type('text').send('Feed not found.');
   const reminders = await all('SELECT * FROM reminders WHERE userId = ? ORDER BY dueAtUtc', [user.id]);
+  const enrichedReminders = await enrichReminderResponses(reminders);
   res.set({
     'Content-Type': 'text/calendar; charset=utf-8',
     'Content-Disposition': 'attachment; filename="kept-reminders.ics"',
     'Cache-Control': 'no-cache, no-store'
   });
-  res.send(buildIcsFeed(reminders));
+  res.send(buildIcsFeed(enrichedReminders));
 });
 
 // Friendly route: token in the middle, kept-reminders.ics at the end so
@@ -4388,10 +4427,11 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
      plainText(title) || null, plainText(body) || null, String(imageUrl || '') || null, now, now]
   );
   const reminder = await get('SELECT * FROM reminders WHERE id = ?', [result.id]);
+  const enrichedReminder = await enrichReminderResponse(reminder);
   const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [req.user.id]);
-  if (caldav) pushReminderToCaldav(caldav, reminder).catch(err => console.error('CalDAV push failed:', err.message));
-  gcalPushReminder(req.user.id, reminder).catch(err => console.error('GCal push failed:', err.message));
-  res.status(201).json(reminder);
+  if (caldav) pushReminderToCaldav(caldav, enrichedReminder).catch(err => console.error('CalDAV push failed:', err.message));
+  gcalPushReminder(req.user.id, enrichedReminder).catch(err => console.error('GCal push failed:', err.message));
+  res.status(201).json(enrichedReminder);
 }));
 
 app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
@@ -4403,12 +4443,13 @@ app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
   const dueAtUtc = req.body.dueAtUtc || reminder.dueAtUtc;
   await run(`UPDATE reminders SET status = ?, dueAtUtc = ?, updatedAt = ? WHERE id = ?`, [status, dueAtUtc, now, reminder.id]);
   const updated = await get('SELECT * FROM reminders WHERE id = ?', [reminder.id]);
+  const enrichedUpdated = await enrichReminderResponse(updated);
   if (status === 'pending') {
     const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [req.user.id]);
-    if (caldav) pushReminderToCaldav(caldav, updated).catch(err => console.error('CalDAV push failed:', err.message));
-    gcalPushReminder(req.user.id, updated).catch(err => console.error('GCal push failed:', err.message));
+    if (caldav) pushReminderToCaldav(caldav, enrichedUpdated).catch(err => console.error('CalDAV push failed:', err.message));
+    gcalPushReminder(req.user.id, enrichedUpdated).catch(err => console.error('GCal push failed:', err.message));
   }
-  res.json(updated);
+  res.json(enrichedUpdated);
 }));
 
 app.delete('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
@@ -4466,7 +4507,8 @@ async function backfillCaldavReminders(settings) {
     `SELECT * FROM reminders WHERE userId = ? AND status = 'pending' ORDER BY dueAtUtc`,
     [settings.userId]
   );
-  for (const reminder of reminders) {
+  const enrichedReminders = await enrichReminderResponses(reminders);
+  for (const reminder of enrichedReminders) {
     try {
       await pushReminderToCaldav(settings, reminder);
     } catch (err) {
@@ -4591,7 +4633,8 @@ async function backfillGoogleCalendarReminders(userId) {
     `SELECT * FROM reminders WHERE userId = ? AND status = 'pending' AND gcalEventId IS NULL ORDER BY dueAtUtc`,
     [userId]
   );
-  for (const reminder of reminders) {
+  const enrichedReminders = await enrichReminderResponses(reminders);
+  for (const reminder of enrichedReminders) {
     try {
       await gcalCreateAndStore(userId, reminder, token);
     } catch (err) {
