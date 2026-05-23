@@ -2479,7 +2479,14 @@ function startReminderScheduler() {
   setInterval(async () => {
     try {
       const now = new Date().toISOString();
-      const due = await all(`SELECT * FROM reminders WHERE status = 'pending' AND dueAtUtc <= ?`, [now]);
+      const due = await all(
+        `SELECT reminders.* FROM reminders
+         ${visibleReminderJoin}
+         WHERE reminders.status = 'pending'
+         AND reminders.dueAtUtc <= ?
+         AND ${visibleReminderWhere}`,
+        [now]
+      );
       const enrichedDue = await enrichReminderResponses(due);
       for (const reminder of enrichedDue) {
         await run(`UPDATE reminders SET status = 'fired', updatedAt = ? WHERE id = ?`, [now, reminder.id]);
@@ -4320,8 +4327,17 @@ async function enrichReminderResponse(reminder) {
   return (await enrichReminderResponses([reminder]))[0];
 }
 
+const visibleReminderJoin = 'LEFT JOIN notes reminder_notes ON reminder_notes.id = reminders.noteId';
+const visibleReminderWhere = '(reminders.noteId IS NULL OR (COALESCE(reminder_notes.archived, 0) = 0 AND COALESCE(reminder_notes.trashed, 0) = 0))';
+
 app.get('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
-  const reminders = await all('SELECT * FROM reminders WHERE userId = ? ORDER BY dueAtUtc', [req.user.id]);
+  const reminders = await all(
+    `SELECT reminders.* FROM reminders
+     ${visibleReminderJoin}
+     WHERE reminders.userId = ? AND ${visibleReminderWhere}
+     ORDER BY reminders.dueAtUtc`,
+    [req.user.id]
+  );
   res.json(await enrichReminderResponses(reminders));
 }));
 
@@ -4346,7 +4362,13 @@ app.post('/api/reminders/ics-token', requireAuth, asyncRoute(async (req, res) =>
 const handleIcsFeed = asyncRoute(async (req, res) => {
   const user = await get('SELECT id FROM users WHERE icsFeedToken = ?', [req.params.token]);
   if (!user) return res.status(404).type('text').send('Feed not found.');
-  const reminders = await all('SELECT * FROM reminders WHERE userId = ? ORDER BY dueAtUtc', [user.id]);
+  const reminders = await all(
+    `SELECT reminders.* FROM reminders
+     ${visibleReminderJoin}
+     WHERE reminders.userId = ? AND ${visibleReminderWhere}
+     ORDER BY reminders.dueAtUtc`,
+    [user.id]
+  );
   const enrichedReminders = await enrichReminderResponses(reminders);
   res.set({
     'Content-Type': 'text/calendar; charset=utf-8',
@@ -4504,7 +4526,12 @@ app.put('/api/caldav/settings', requireAuth, asyncRoute(async (req, res) => {
 
 async function backfillCaldavReminders(settings) {
   const reminders = await all(
-    `SELECT * FROM reminders WHERE userId = ? AND status = 'pending' ORDER BY dueAtUtc`,
+    `SELECT reminders.* FROM reminders
+     ${visibleReminderJoin}
+     WHERE reminders.userId = ?
+     AND reminders.status = 'pending'
+     AND ${visibleReminderWhere}
+     ORDER BY reminders.dueAtUtc`,
     [settings.userId]
   );
   const enrichedReminders = await enrichReminderResponses(reminders);
@@ -4630,7 +4657,13 @@ async function backfillGoogleCalendarReminders(userId) {
   const token = await getValidGoogleToken(userId);
   if (!token) return;
   const reminders = await all(
-    `SELECT * FROM reminders WHERE userId = ? AND status = 'pending' AND gcalEventId IS NULL ORDER BY dueAtUtc`,
+    `SELECT reminders.* FROM reminders
+     ${visibleReminderJoin}
+     WHERE reminders.userId = ?
+     AND reminders.status = 'pending'
+     AND reminders.gcalEventId IS NULL
+     AND ${visibleReminderWhere}
+     ORDER BY reminders.dueAtUtc`,
     [userId]
   );
   const enrichedReminders = await enrichReminderResponses(reminders);
