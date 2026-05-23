@@ -251,6 +251,22 @@ a:hover {
   color: var(--text-main);
 }
 
+.app-store-callout {
+  background: linear-gradient(145deg, #eff6ff 0%, #fff7df 100%);
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  margin: 24px 0 32px;
+  padding: 24px;
+}
+
+.app-store-callout h3 {
+  margin-top: 0;
+}
+
+.app-store-callout .btn {
+  margin-top: 4px;
+}
+
 /* Code */
 code {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
