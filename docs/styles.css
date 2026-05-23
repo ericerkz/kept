@@ -375,6 +375,69 @@ details p, details pre {
   text-decoration: none;
 }
 
+.app-store-badge {
+  align-items: center;
+  background: #050505;
+  border: 1px solid #222;
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  color: #ffffff;
+  display: inline-flex;
+  gap: 12px;
+  min-height: 58px;
+  padding: 9px 18px 9px 14px;
+  text-decoration: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.app-store-badge:hover {
+  background: #111111;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.22);
+  color: #ffffff;
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.app-store-badge svg {
+  flex: 0 0 auto;
+  height: 30px;
+  width: 30px;
+}
+
+.app-store-badge span {
+  color: #ffffff;
+  display: grid;
+  font-size: 1.18rem;
+  font-weight: 700;
+  line-height: 1.04;
+  text-align: left;
+}
+
+.app-store-badge small {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.app-store-badge--compact {
+  min-height: 48px;
+  padding: 8px 14px 8px 12px;
+}
+
+.app-store-badge--compact svg {
+  height: 25px;
+  width: 25px;
+}
+
+.app-store-badge--compact span {
+  font-size: 1rem;
+}
+
+.app-store-badge--compact small {
+  font-size: 0.58rem;
+}
+
 /* Scrollbar */
 *::-webkit-scrollbar {
   height: 12px;
