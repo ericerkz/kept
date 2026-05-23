@@ -216,6 +216,7 @@ export class MainComponent implements OnInit, OnDestroy {
       });
       await this.notes.load();
       await this.reminders.load();
+      window.dispatchEvent(new CustomEvent('kept-smart-capture-notes-added'));
       setTimeout(() => this.closeSmartCapture(), 1200);
     } catch (error: any) {
       const errors = error?.error?.errors || error?.error?.failed?.map((f: any) => f.error);
