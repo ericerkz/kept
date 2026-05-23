@@ -227,6 +227,10 @@ export class MainComponent implements OnInit, OnDestroy {
         confirmed: true,
         selectedActionIndexes
       });
+      const confirmedActions = selectedActionIndexes
+        ? preparedPlan.actions.filter((_action, index) => selectedActionIndexes.includes(index))
+        : preparedPlan.actions;
+      await this.syncNativeConfirmedReminders(confirmedActions);
       await this.notes.ensureNotesVisible(this.smartCaptureResult.createdNoteIds || []);
       await this.notes.load(undefined, { cacheBust: true });
       await this.reminders.load();
@@ -349,6 +353,24 @@ export class MainComponent implements OnInit, OnDestroy {
 
   private keptIntelligencePlugin() {
     return (window as any).Capacitor?.Plugins?.KeptIntelligence;
+  }
+
+  private async syncNativeConfirmedReminders(actions: KeptAction[]) {
+    if (!actions.some(action => action.type === 'set_reminder')) return;
+
+    const plugin = this.keptIntelligencePlugin();
+    if (!plugin?.getCapabilities || !plugin?.syncConfirmedReminders) return;
+
+    try {
+      const capabilities = await plugin.getCapabilities();
+      const foundationModels = capabilities?.foundationModels;
+      const available = foundationModels?.isAvailable === true
+        || foundationModels?.availability === 'available';
+      if (!available) return;
+      await plugin.syncConfirmedReminders({ actions });
+    } catch (error) {
+      console.warn('Could not sync Smart Capture reminders to Apple Reminders', error);
+    }
   }
 
   private async refreshSmartCaptureAvailability() {
