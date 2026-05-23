@@ -268,6 +268,39 @@ function all(sql, params = []) {
   });
 }
 
+let perfRequestSeq = 0;
+function createPerfTrace(name, details = {}) {
+  const id = ++perfRequestSeq;
+  const start = process.hrtime.bigint();
+  let last = start;
+  const elapsed = (from = start) => Number(process.hrtime.bigint() - from) / 1e6;
+  const detailText = Object.keys(details).length ? ` ${JSON.stringify(details)}` : '';
+  console.log(`[KeptPerf:server] ${name}#${id} start${detailText}`);
+  return {
+    id,
+    mark(label, extra = {}) {
+      const now = process.hrtime.bigint();
+      const delta = Number(now - last) / 1e6;
+      last = now;
+      const extraText = Object.keys(extra).length ? ` ${JSON.stringify(extra)}` : '';
+      console.log(`[KeptPerf:server] ${name}#${id} ${label} +${delta.toFixed(1)}ms total=${elapsed().toFixed(1)}ms${extraText}`);
+    },
+    end(extra = {}) {
+      const extraText = Object.keys(extra).length ? ` ${JSON.stringify(extra)}` : '';
+      console.log(`[KeptPerf:server] ${name}#${id} end total=${elapsed().toFixed(1)}ms${extraText}`);
+    }
+  };
+}
+
+function sendJsonWithPerf(res, trace, payload) {
+  const serializeStart = process.hrtime.bigint();
+  const body = JSON.stringify(payload);
+  const serializeMs = Number(process.hrtime.bigint() - serializeStart) / 1e6;
+  trace.mark('serialize', { ms: Number(serializeMs.toFixed(1)), bytes: Buffer.byteLength(body) });
+  res.type('application/json').send(body);
+  trace.end({ bytes: Buffer.byteLength(body) });
+}
+
 function plainText(value) {
   return String(value || '')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
@@ -980,8 +1013,7 @@ function dbNoteToCard(row, options = {}) {
   const labels = parseJson(row.labels || '[]', []);
   const checkBoxes = parseJson(row.checkBoxes || '[]', []);
   const parsedImages = parseJson(row.images || '[]', []);
-  const allImages = Array.isArray(parsedImages) ? parsedImages.filter(Boolean) : [];
-  const images = allImages.slice(0, 4);
+  const images = Array.isArray(parsedImages) ? parsedImages.filter(Boolean) : [];
   const previewText = notePreviewText(row);
   return {
     id: row.id,
@@ -996,7 +1028,7 @@ function dbNoteToCard(row, options = {}) {
     bgImage: row.bgImage || '',
     checkBoxes: Array.isArray(checkBoxes) ? checkBoxes.slice(0, 8) : [],
     images,
-    hasMoreImages: allImages.length > images.length,
+    hasMoreImages: false,
     isCbox: Boolean(row.isCbox),
     labels,
     archived: Boolean(row.archived),
@@ -1786,6 +1818,7 @@ async function resolveSessionFromToken(token) {
 }
 
 async function requireAuth(req, res, next) {
+  const perfAuthStart = process.hrtime.bigint();
   try {
     const header = req.header('authorization') || '';
     // Token must be in the Authorization header — querystring tokens leak via
@@ -1800,6 +1833,10 @@ async function requireAuth(req, res, next) {
 
     req.user = session;
     req.token = token;
+    if (req.path === '/api/notes' || req.path === '/api/admin/update-status') {
+      const authMs = Number(process.hrtime.bigint() - perfAuthStart) / 1e6;
+      console.log(`[KeptPerf:server] auth ${req.method} ${req.path} ${authMs.toFixed(1)}ms`);
+    }
     next();
   } catch (error) {
     next(error);
@@ -2829,8 +2866,10 @@ app.post('/api/admin/users/:id/disable-2fa', requireAuth, requireAdmin, asyncRou
 }));
 
 app.get('/api/admin/update-status', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  const trace = createPerfTrace('admin-update-status');
   const latest = getCachedLatestRelease();
   refreshLatestReleaseInBackground();
+  trace.mark('cache');
 
   // Fetch any dismissals this admin has set for the current latest version.
   // A "forever" dismissal silences this version permanently for them; a
@@ -2842,6 +2881,7 @@ app.get('/api/admin/update-status', requireAuth, requireAdmin, asyncRoute(async 
       'SELECT dismissedAt, forever FROM update_dismissals WHERE userId = ? AND version = ?',
       [req.user.id, latest.version]
     );
+    trace.mark('dismissal-query', { latest: latest.version, hasDismissal: !!dismissal });
     if (dismissal) {
       dismissedForever = !!dismissal.forever;
       if (!dismissedForever && dismissal.dismissedAt) {
@@ -2849,6 +2889,8 @@ app.get('/api/admin/update-status', requireAuth, requireAdmin, asyncRoute(async 
         dismissedUntil = until.toISOString();
       }
     }
+  } else {
+    trace.mark('dismissal-query-skipped');
   }
 
   const isOutdated = latest?.version ? compareVersion(latest.version, KEPT_VERSION) > 0 : false;
@@ -2857,7 +2899,7 @@ app.get('/api/admin/update-status', requireAuth, requireAdmin, asyncRoute(async 
     dismissedForever ||
     (dismissedUntil && new Date(dismissedUntil) > now);
 
-  res.json({
+  sendJsonWithPerf(res, trace, {
     current: KEPT_VERSION,
     latest: latest?.version || null,
     releaseUrl: latest?.url || null,
@@ -3166,7 +3208,14 @@ app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, asyncRou
 
 
 app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
+  const trace = req.query.view === 'card' ? createPerfTrace('notes-card', {
+    view: req.query.view || '',
+    limit: req.query.limit || '',
+    cursor: !!req.query.cursor,
+    q: !!req.query.q
+  }) : null;
   scheduleTrashPurgeIfStale();
+  trace?.mark('scheduled-trash-purge');
 
   if (req.query.view === 'card') {
     const limit = Math.min(Math.max(Number(req.query.limit) || 80, 1), 200);
@@ -3212,9 +3261,10 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
         LIMIT ?`,
         [...queryParams, limit + 1]
       );
+      trace.mark('key-query', { rows: keyRows.length, limit });
       const pageKeys = keyRows.slice(0, limit);
       hasMore = keyRows.length > limit;
-      if (!pageKeys.length) return res.json({ notes: [], nextCursor: null });
+      if (!pageKeys.length) return sendJsonWithPerf(res, trace, { notes: [], nextCursor: null });
 
       const pageIds = pageKeys.map(row => row.id);
       const idPlaceholders = pageIds.map(() => '?').join(',');
@@ -3237,8 +3287,10 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
          WHERE notes.id IN (${idPlaceholders})`,
         [req.user.id, req.user.id, ...pageIds]
       );
+      trace.mark('detail-query', { rows: rows.length });
       const order = new Map(pageKeys.map((row, index) => [row.id, index]));
       page = rows.sort((a, b) => order.get(a.id) - order.get(b.id));
+      trace.mark('detail-sort');
     } else {
       const rows = await all(
         `WITH accessible_notes AS (
@@ -3270,6 +3322,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
         LIMIT ?`,
         [...queryParams, limit + 1]
       );
+      trace.mark('search-query', { rows: rows.length, limit, tokens: searchTokens.length });
       page = rows.slice(0, limit);
       hasMore = rows.length > limit;
     }
@@ -3293,6 +3346,9 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
         ids
       );
       userMap = new Map(userRows.map(u => [u.id, u]));
+      trace.mark('user-query', { rows: userRows.length });
+    } else {
+      trace.mark('user-query-skipped');
     }
     const notes = page.map(row => {
       const owner = userMap.get(row.ownerUserId);
@@ -3329,6 +3385,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
       }
       return note;
     });
+    trace.mark('map-cards', { notes: notes.length });
     const attachmentNoteIds = notes.filter(note => note.hasAttachments).map(note => note.id);
     if (attachmentNoteIds.length) {
       const placeholders = attachmentNoteIds.map(() => '?').join(',');
@@ -3339,6 +3396,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
          ORDER BY uploadedAt DESC`,
         attachmentNoteIds
       );
+      trace.mark('attachment-query', { rows: attachmentRows.length, notes: attachmentNoteIds.length });
       const attachmentsByNoteId = new Map();
       for (const attachment of attachmentRows) {
         if (!attachmentsByNoteId.has(attachment.noteId)) {
@@ -3359,8 +3417,10 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
         note.hasAttachments = true;
         note.attachmentCount = attachments.length;
       }
+    } else {
+      trace.mark('attachment-query-skipped');
     }
-    return res.json({ notes, nextCursor: hasMore ? encodeNotesCursor(page[page.length - 1]) : null });
+    return sendJsonWithPerf(res, trace, { notes, nextCursor: hasMore ? encodeNotesCursor(page[page.length - 1]) : null });
   }
 
   // Avatars (data URLs) can be hundreds of KB each. Joining `owner.avatarDataUrl`
