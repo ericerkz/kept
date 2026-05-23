@@ -53,6 +53,7 @@ export class MainComponent implements OnInit, OnDestroy {
   private smartVoiceTranscriptListener?: { remove: () => Promise<void> | void };
   private smartCaptureEventHandler = (event: Event) => this.handleSmartCaptureEvent(event as CustomEvent);
   private smartCaptureEstimateEventHandler = (event: Event) => this.handleSmartCaptureEstimateEvent(event as CustomEvent);
+  private smartTranscriptResolvers: Array<() => void> = [];
   readonly smartProposalColors = ['#e8f0fe', '#e6f4ea', '#f3e8fd', '#fef7e0', '#fce8e6', '#e4f7fb'];
 
   constructor(
@@ -380,7 +381,7 @@ export class MainComponent implements OnInit, OnDestroy {
     }
 
     const plugin = this.keptIntelligencePlugin();
-    if (!plugin?.startVoiceCapture || !plugin?.processTextCommand) {
+    if (!plugin?.startVoiceCapture || !plugin?.stopVoiceCapture || !plugin?.processTextCommand) {
       this.smartCaptureAvailable = false;
       return;
     }
@@ -404,7 +405,10 @@ export class MainComponent implements OnInit, OnDestroy {
     if (!plugin?.addListener || this.smartVoiceTranscriptListener) return;
     const listener = plugin.addListener('voiceTranscript', ({ text }: { text?: string; isFinal?: boolean }) => {
       this.ngZone.run(() => {
-        if (text) this.smartCaptureTranscript = text;
+        if (text) {
+          this.smartCaptureTranscript = text;
+          this.resolveSmartTranscriptWaiters();
+        }
       });
     });
     this.smartVoiceTranscriptListener = typeof listener?.then === 'function' ? await listener : listener;
@@ -422,7 +426,11 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureListening = false;
     if (!plugin?.stopVoiceCapture) return this.smartCaptureTranscript;
     const result = await plugin.stopVoiceCapture();
-    if (result?.text) this.smartCaptureTranscript = result.text;
+    const text = result?.text || result?.transcript || result?.command || '';
+    if (text) {
+      this.smartCaptureTranscript = text;
+      this.resolveSmartTranscriptWaiters();
+    }
     return result?.text || this.smartCaptureTranscript;
   }
 
@@ -438,7 +446,33 @@ export class MainComponent implements OnInit, OnDestroy {
         .catch(console.error);
       return liveTranscript;
     }
-    return (await this.stopNativeVoiceCapture() || '').trim();
+    const stoppedTranscript = (await this.stopNativeVoiceCapture() || '').trim();
+    if (stoppedTranscript) return stoppedTranscript;
+    return this.waitForSmartTranscript(900);
+  }
+
+  private waitForSmartTranscript(timeoutMs: number) {
+    const current = (this.smartCaptureTranscript || '').trim();
+    if (current) return Promise.resolve(current);
+
+    return new Promise<string>(resolve => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.smartTranscriptResolvers = this.smartTranscriptResolvers.filter(resolver => resolver !== finish);
+        resolve((this.smartCaptureTranscript || '').trim());
+      };
+      const timer = window.setTimeout(finish, timeoutMs);
+      this.smartTranscriptResolvers.push(finish);
+    });
+  }
+
+  private resolveSmartTranscriptWaiters() {
+    const resolvers = [...this.smartTranscriptResolvers];
+    this.smartTranscriptResolvers = [];
+    resolvers.forEach(resolve => resolve());
   }
 
   private async cancelNativeVoiceCapture() {
