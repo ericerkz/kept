@@ -48,15 +48,18 @@
   z-index: 1400;
 
   &::before {
-    content: "✨";
-    font-size: 20px;
-    left: 13px;
-    line-height: 1;
-    opacity: 0.55;
+    background:
+      radial-gradient(circle at 50% 50%, rgba(251, 188, 4, 0.38), rgba(251, 188, 4, 0.12) 58%, transparent 72%);
+    border-radius: 50%;
+    content: "";
+    height: 34px;
+    left: 11px;
+    opacity: 0.95;
     pointer-events: none;
     position: absolute;
-    top: 12px;
-    transform: rotate(-12deg);
+    top: 50%;
+    transform: translateY(-50%);
+    width: 34px;
     z-index: 0;
   }
 
@@ -69,9 +72,9 @@
 }
 
 :host-context(.light-theme) .smart-capture-fab {
-  background: #fff;
-  border-color: #dadce0;
-  box-shadow: 0 1px 3px 0 rgba(60,64,67,0.302), 0 4px 8px 3px rgba(60,64,67,0.149);
+  background: linear-gradient(145deg, #ffffff 0%, #fff8df 100%);
+  border-color: #fdd663;
+  box-shadow: 0 1px 3px 0 rgba(60,64,67,0.22), 0 4px 10px 3px rgba(60,64,67,0.13), 0 0 0 5px rgba(251,188,4,0.08);
   color: #1a73e8;
 }
 
@@ -118,8 +121,9 @@
     width: 56px;
 
     &::before {
-      left: 12px;
-      top: 10px;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
     }
 
     .smart-capture-label {
