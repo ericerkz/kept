@@ -3163,38 +3163,91 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
       queryParams.push(...searchWhere.params);
     }
     const pageWhere = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
-    const rows = await all(
-      `WITH accessible_notes AS (
-        SELECT notes.*,
-               COALESCE(
-                 pos.sortOrder,
-                 notes.sortOrder,
-                 notes.id
-               ) AS effectiveSortOrder,
-               CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
-               owner.displayName AS ownerDisplayName,
-               owner.username AS ownerUsername,
-               owner.avatarPreset AS ownerAvatarPreset,
-               (SELECT GROUP_CONCAT(nc.userId) FROM note_collaborators nc WHERE nc.noteId = notes.id) AS collaboratorIds,
-               lastEditor.displayName AS lastEditorDisplayName,
-               (SELECT COUNT(*) FROM note_attachments na WHERE na.noteId = notes.id) AS attachmentCount,
-               (SELECT GROUP_CONCAT(na.originalName, ' ') FROM note_attachments na WHERE na.noteId = notes.id) AS attachmentNames
-        FROM notes
-        LEFT JOIN users owner ON owner.id = notes.ownerUserId
-        LEFT JOIN users lastEditor ON lastEditor.id = notes.lastEditorUserId
-        LEFT JOIN user_pins ON user_pins.noteId = notes.id AND user_pins.userId = ?
-        LEFT JOIN user_note_positions pos ON pos.noteId = notes.id AND pos.userId = ?
-        LEFT JOIN note_collaborators access ON access.noteId = notes.id AND access.userId = ?
-        WHERE notes.ownerUserId = ? OR access.userId IS NOT NULL
-      )
-      SELECT * FROM accessible_notes
-      ${pageWhere}
-      ORDER BY userPinned DESC, effectiveSortOrder DESC, id DESC
-      LIMIT ?`,
-      [...queryParams, limit + 1]
-    );
-    const page = rows.slice(0, limit);
-    const hasMore = rows.length > limit;
+    let page;
+    let hasMore;
+    if (!searchTokens.length) {
+      const keyRows = await all(
+        `WITH accessible_notes AS (
+          SELECT notes.id,
+                 COALESCE(
+                   pos.sortOrder,
+                   notes.sortOrder,
+                   notes.id
+                 ) AS effectiveSortOrder,
+                 CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned
+          FROM notes
+          LEFT JOIN user_pins ON user_pins.noteId = notes.id AND user_pins.userId = ?
+          LEFT JOIN user_note_positions pos ON pos.noteId = notes.id AND pos.userId = ?
+          LEFT JOIN note_collaborators access ON access.noteId = notes.id AND access.userId = ?
+          WHERE notes.ownerUserId = ? OR access.userId IS NOT NULL
+        )
+        SELECT * FROM accessible_notes
+        ${pageWhere}
+        ORDER BY userPinned DESC, effectiveSortOrder DESC, id DESC
+        LIMIT ?`,
+        [...queryParams, limit + 1]
+      );
+      const pageKeys = keyRows.slice(0, limit);
+      hasMore = keyRows.length > limit;
+      if (!pageKeys.length) return res.json({ notes: [], nextCursor: null });
+
+      const pageIds = pageKeys.map(row => row.id);
+      const idPlaceholders = pageIds.map(() => '?').join(',');
+      const rows = await all(
+        `SELECT notes.*,
+                COALESCE(pos.sortOrder, notes.sortOrder, notes.id) AS effectiveSortOrder,
+                CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
+                owner.displayName AS ownerDisplayName,
+                owner.username AS ownerUsername,
+                owner.avatarPreset AS ownerAvatarPreset,
+                (SELECT GROUP_CONCAT(nc.userId) FROM note_collaborators nc WHERE nc.noteId = notes.id) AS collaboratorIds,
+                lastEditor.displayName AS lastEditorDisplayName,
+                (SELECT COUNT(*) FROM note_attachments na WHERE na.noteId = notes.id) AS attachmentCount,
+                (SELECT GROUP_CONCAT(na.originalName, ' ') FROM note_attachments na WHERE na.noteId = notes.id) AS attachmentNames
+         FROM notes
+         LEFT JOIN users owner ON owner.id = notes.ownerUserId
+         LEFT JOIN users lastEditor ON lastEditor.id = notes.lastEditorUserId
+         LEFT JOIN user_pins ON user_pins.noteId = notes.id AND user_pins.userId = ?
+         LEFT JOIN user_note_positions pos ON pos.noteId = notes.id AND pos.userId = ?
+         WHERE notes.id IN (${idPlaceholders})`,
+        [req.user.id, req.user.id, ...pageIds]
+      );
+      const order = new Map(pageKeys.map((row, index) => [row.id, index]));
+      page = rows.sort((a, b) => order.get(a.id) - order.get(b.id));
+    } else {
+      const rows = await all(
+        `WITH accessible_notes AS (
+          SELECT notes.*,
+                 COALESCE(
+                   pos.sortOrder,
+                   notes.sortOrder,
+                   notes.id
+                 ) AS effectiveSortOrder,
+                 CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
+                 owner.displayName AS ownerDisplayName,
+                 owner.username AS ownerUsername,
+                 owner.avatarPreset AS ownerAvatarPreset,
+                 (SELECT GROUP_CONCAT(nc.userId) FROM note_collaborators nc WHERE nc.noteId = notes.id) AS collaboratorIds,
+                 lastEditor.displayName AS lastEditorDisplayName,
+                 (SELECT COUNT(*) FROM note_attachments na WHERE na.noteId = notes.id) AS attachmentCount,
+                 (SELECT GROUP_CONCAT(na.originalName, ' ') FROM note_attachments na WHERE na.noteId = notes.id) AS attachmentNames
+          FROM notes
+          LEFT JOIN users owner ON owner.id = notes.ownerUserId
+          LEFT JOIN users lastEditor ON lastEditor.id = notes.lastEditorUserId
+          LEFT JOIN user_pins ON user_pins.noteId = notes.id AND user_pins.userId = ?
+          LEFT JOIN user_note_positions pos ON pos.noteId = notes.id AND pos.userId = ?
+          LEFT JOIN note_collaborators access ON access.noteId = notes.id AND access.userId = ?
+          WHERE notes.ownerUserId = ? OR access.userId IS NOT NULL
+        )
+        SELECT * FROM accessible_notes
+        ${pageWhere}
+        ORDER BY userPinned DESC, effectiveSortOrder DESC, id DESC
+        LIMIT ?`,
+        [...queryParams, limit + 1]
+      );
+      page = rows.slice(0, limit);
+      hasMore = rows.length > limit;
+    }
     const me = req.user.id;
     const userIds = new Set();
     for (const row of page) {
