@@ -125,6 +125,8 @@
             (click)="addLabel(labelInput)"></div>
         </div>
         <div #labelError class="error" hidden>Label already exists</div>
+      </div>
+      <div class="label-list">
         @for (label of Shared.label.list; track label) {
           <div class="labels-container">
             <div #labelIcon class="label-icon H" (click)="editLabel(label.id!).delete()"></div>
@@ -135,9 +137,9 @@
             <div class="pen-icon H" (click)="editLabel(label.id!).update(labelInput2.value)"></div>
           </div>
         }
-        <div class="footer">
-          <div (click)="hideModal()" type="submit" tabindex="0">Done</div>
-        </div>
+      </div>
+      <div class="footer">
+        <div (click)="hideModal()" type="submit" tabindex="0">Done</div>
       </div>
     </div>
   </div>

@@ -3196,11 +3196,49 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
     const me = req.user.id;
+    const userIds = new Set();
+    for (const row of page) {
+      if (row.ownerUserId) userIds.add(row.ownerUserId);
+      if (row.collaboratorIds) {
+        for (const id of String(row.collaboratorIds).split(',')) {
+          const n = Number(id);
+          if (n) userIds.add(n);
+        }
+      }
+    }
+    let userMap = new Map();
+    if (userIds.size) {
+      const ids = Array.from(userIds);
+      const placeholders = ids.map(() => '?').join(',');
+      const userRows = await all(
+        `SELECT id, username, displayName, avatarDataUrl, avatarPreset FROM users WHERE id IN (${placeholders})`,
+        ids
+      );
+      userMap = new Map(userRows.map(u => [u.id, u]));
+    }
     const notes = page.map(row => {
+      const owner = userMap.get(row.ownerUserId);
+      if (owner) {
+        row.ownerDisplayName = owner.displayName;
+        row.ownerUsername = owner.username;
+        row.ownerAvatarPreset = owner.avatarPreset || 'cat';
+        row.ownerAvatarDataUrl = owner.id === me ? '' : (owner.avatarDataUrl || '');
+      }
       const collabIds = row.collaboratorIds
         ? String(row.collaboratorIds).split(',').map(Number).filter(Boolean)
         : [];
-      row.collaborators = JSON.stringify(collabIds.map(id => ({ id, online: realtimeClients.has(id) })));
+      row.collaborators = JSON.stringify(collabIds.map(id => {
+        const u = userMap.get(id);
+        if (!u) return null;
+        return {
+          id: u.id,
+          username: u.username,
+          displayName: u.displayName,
+          avatarDataUrl: u.id === me ? '' : (u.avatarDataUrl || ''),
+          avatarPreset: u.avatarPreset || 'cat',
+          online: realtimeClients.has(u.id)
+        };
+      }).filter(Boolean));
       const note = dbNoteToCard(row, { includeSearchText: !!searchTokens.length });
       note.ownerOnline = realtimeClients.has(note.ownerUserId);
       note.collaborators = (note.collaborators || []).filter(Boolean).map(c => ({
