@@ -1,5 +1,5 @@
 import { CheckboxI, NoteAttachmentI, NoteI, NoteImageI } from './../../interfaces/notes';
-import { ChangeDetectorRef, Component, HostListener, NgZone, OnDestroy, OnInit, ViewChild, ElementRef, ViewChildren, QueryList } from '@angular/core';
+import { AfterViewChecked, ChangeDetectorRef, Component, HostListener, NgZone, OnDestroy, OnInit, ViewChild, ElementRef, ViewChildren, QueryList } from '@angular/core';
 // @ts-ignore
 import Bricks from 'bricks.js'
 import { Subscription } from 'rxjs';
@@ -25,7 +25,7 @@ type NoteMeta = { rawBody: string; title: string; bgKey: string; urls: string[];
     providers: [NotesToolsPipe],
     standalone: false
 })
-export class NotesComponent implements OnInit, OnDestroy {
+export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   activeNote: NoteI | null = null
   constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, public notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe) { }
 
@@ -130,6 +130,9 @@ export class NotesComponent implements OnInit, OnDestroy {
   private modalClosing = false
   private suppressScrollPaginationUntil = 0
   private lastOverviewCheckboxTouchAt = 0
+  private keptAppReadyQueued = false
+  private keptAppReadySent = false
+  private keptAppReadyRetry?: ReturnType<typeof setTimeout>
   //? -----------------------------------------------------
   trackBy(_index: number, item: any) { return item.id }
 
@@ -2014,6 +2017,50 @@ export class NotesComponent implements OnInit, OnDestroy {
     this.maybeBackfillFilteredPage()
     this.observeLoadMoreSentinelIfNeeded()
     this.scheduleBuildMasonry()
+    this.queueKeptAppReadySignal()
+  }
+
+  private queueKeptAppReadySignal() {
+    if (this.keptAppReadySent || this.keptAppReadyQueued) return
+    if (!this.notesService.hasLoaded || this.notesService.loading) return
+
+    this.keptAppReadyQueued = true
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      this.keptAppReadyQueued = false
+      if (this.trySignalKeptAppReady('notes-rendered')) return
+
+      if (this.keptAppReadyRetry) clearTimeout(this.keptAppReadyRetry)
+      this.keptAppReadyRetry = setTimeout(() => {
+        this.keptAppReadyRetry = undefined
+        this.trySignalKeptAppReady('notes-rendered-retry')
+      }, 80)
+    }))
+  }
+
+  private trySignalKeptAppReady(reason: string) {
+    if (this.keptAppReadySent) return true
+    if (!this.notesService.hasLoaded || this.notesService.loading) return false
+
+    const hasRenderableNotesState = !!document.querySelector('.note-container, .no-notes')
+    if (!hasRenderableNotesState) return false
+
+    this.keptAppReadySent = true
+    const payload = {
+      ready: true,
+      reason: 'angular-ready'
+    }
+
+    try {
+      ;(window as any).webkit?.messageHandlers?.keptAppReady?.postMessage(payload)
+    } catch (error) {
+      console.warn('[Kept] keptAppReady native signal failed', error)
+    }
+
+    try {
+      window.dispatchEvent(new CustomEvent('kept-app-ready', { detail: payload }))
+    } catch {}
+
+    return true
   }
 
   private scheduleProgressiveExpand() {
@@ -2086,6 +2133,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     window.removeEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
     this.loadMoreObserver?.disconnect()
+    if (this.keptAppReadyRetry) clearTimeout(this.keptAppReadyRetry)
     this.clearModalScrollRestoreTimers()
     this.closeReminderPicker()
     this.subscriptions.forEach(s => s.unsubscribe())
