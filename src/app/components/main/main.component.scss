@@ -680,14 +680,25 @@
   padding-top: 12px;
 }
 
-.smart-share-overlay {
-  align-items: start;
+.smart-share-block {
   border-top: 1px solid rgba(60, 64, 67, 0.16);
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 10px;
   margin-top: 18px;
   padding-top: 14px;
+}
+
+.smart-share-heading {
+  color: rgba(60, 64, 67, 0.72);
+  font: 700 12px/1 "Google Sans", Roboto, Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+.smart-share-overlay {
+  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .smart-share-recipient {
@@ -706,27 +717,6 @@
   min-height: 58px;
   min-width: min(100%, 188px);
   padding: 7px 12px 7px 7px;
-  position: relative;
-
-  &::before {
-    align-items: center;
-    background: #1a73e8;
-    border: 2px solid #fff;
-    border-radius: 50%;
-    color: #fff;
-    content: "group";
-    display: flex;
-    font-family: "Material Symbols Outlined";
-    font-size: 17px;
-    font-weight: 400;
-    height: 24px;
-    justify-content: center;
-    left: 37px;
-    line-height: 1;
-    position: absolute;
-    top: 34px;
-    width: 24px;
-  }
 
   img,
   .avatar-fallback {

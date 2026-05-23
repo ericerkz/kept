@@ -6,20 +6,12 @@
   max-width: 100%;
 
   // Desktop: the wrapper is `position: sticky; top: 94px`, so the drawer can
-  // never use more than the remaining viewport height. Cap it there and let it
-  // scroll — the scrollbar only shows up when the content (nav items + a long
-  // label list) actually exceeds that space, not otherwise.
+  // never use more than the remaining viewport height. Bound the drawer there
+  // and let only the labels region scroll when it runs out of space.
   @media (min-width: 600px) {
+    height: calc(100vh - 94px);
     max-height: calc(100vh - 94px);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
-
-    &::-webkit-scrollbar { width: 6px; }
-    &::-webkit-scrollbar-thumb {
-      background: rgba(154, 160, 166, 0.35);
-      border-radius: 3px;
-    }
+    overflow: hidden;
   }
 
   @media (max-width: 599px) {
@@ -46,19 +38,35 @@
     width: 80px;
 
     .sidenav-labels-header {
-      border-radius: 50%;
-      height: 48px;
+      border-radius: 16px;
+      flex-direction: column;
+      gap: 2px;
+      height: 46px;
       justify-content: center;
-      margin-left: 12px;
+      margin-left: 8px;
       overflow: hidden;
       padding-left: 0;
-      width: 48px;
+      width: 64px;
 
       .pic {
+        flex-basis: 16px;
+        height: 16px;
         margin: 0;
+        mask-size: 16px 16px;
+        -webkit-mask-size: 16px 16px;
+        width: 16px;
       }
 
-      .text,
+      .text {
+        display: block;
+        flex: 0 0 auto;
+        font-size: 0.55rem;
+        letter-spacing: 0.04em;
+        line-height: 1;
+        margin: 0;
+        padding: 0;
+      }
+
       .edit-labels-btn {
         display: none;
       }
@@ -88,6 +96,54 @@
         padding-left: 0;
         margin-left: 12px;
         border-radius: 50%;
+      }
+    }
+
+    .sidenav-labels {
+      align-items: center;
+      display: flex;
+      flex-direction: column;
+      padding-top: 4px;
+    }
+
+    .sidenav-labels .item.is-label {
+      border-radius: 16px;
+      height: 32px;
+      justify-content: center;
+      margin: 4px 8px;
+      padding: 0 7px;
+      width: 64px;
+
+      .pic.label {
+        display: none;
+      }
+
+      .text {
+        display: block;
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0;
+        line-height: 1;
+        margin: 0;
+        max-width: 50px;
+        opacity: 0.88;
+        padding: 0;
+        text-align: center;
+      }
+
+      &.active {
+        border-radius: 16px;
+        margin-left: 8px;
+        padding: 0 7px;
+        width: 64px;
+      }
+
+      &:hover:not(.active) {
+        border-radius: 16px;
+        height: 32px;
+        margin-left: 8px;
+        padding: 0 7px;
+        width: 64px;
       }
     }
   }
@@ -182,7 +238,9 @@
   // grows and scrolls so a long label list can never push the bottom items
   // (Edit labels / Archive / Trash / Users / Sign out) off the drawer.
   .sidenav-top,
-  .sidenav-bottom {
+  .sidenav-bottom,
+  .install-section,
+  .sidebar-branding {
     flex: 0 0 auto;
   }
 
@@ -256,8 +314,9 @@
   }
 
   .sidenav-labels-wrap {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-height: 0;
+    overflow: hidden;
     position: relative;
 
     // Top + bottom edge fades cue the user that there's more content to scroll
@@ -292,17 +351,15 @@
 
   .sidenav-labels {
     height: 100%;
+    max-height: 100%;
+    overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-width: thin;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 
     &::-webkit-scrollbar {
-      width: 6px;
-    }
-
-    &::-webkit-scrollbar-thumb {
-      background: rgba(154, 160, 166, 0.35);
-      border-radius: 3px;
+      display: none;
     }
   }
 

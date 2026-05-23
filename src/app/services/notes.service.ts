@@ -206,6 +206,7 @@ export class NotesService {
         if (message.type === 'reminder-fired') this.reminders.handleFired(message);
         if (message.type === 'presence-update') this.activeEditors$.next({ noteId: message.noteId, editors: message.activeEditors || [] });
         if (message.type === 'global-presence') this.updateGlobalPresence(message.userId, message.online);
+        if (message.type === 'profile-updated') this.updateUserProfile(message.user);
       } catch (error) {
         console.log(error);
       }
@@ -265,6 +266,62 @@ export class NotesService {
       if (noteChanged) changed = true;
     });
     if (changed) this.notesList$.next([...notes]);
+  }
+
+  private updateUserProfile(user: ShareUserI) {
+    if (!user?.id) return;
+    const notes = this.notesList$.value;
+    let changed = false;
+
+    if (notes) {
+      const next = notes.map(note => {
+        let noteChanged = false;
+        let updated = note;
+
+        if (note.ownerUserId === user.id) {
+          updated = {
+            ...updated,
+            ownerDisplayName: user.displayName,
+            ownerUsername: user.username,
+            ownerAvatarDataUrl: user.id === this.auth.currentUser?.id ? '' : (user.avatarDataUrl || ''),
+            ownerAvatarPreset: user.avatarPreset || 'cat'
+          };
+          noteChanged = true;
+        }
+
+        if (note.collaborators?.some(c => c.id === user.id)) {
+          updated = {
+            ...updated,
+            collaborators: note.collaborators.map(c => c.id === user.id ? {
+              ...c,
+              username: user.username,
+              displayName: user.displayName,
+              avatarDataUrl: user.id === this.auth.currentUser?.id ? '' : (user.avatarDataUrl || ''),
+              avatarPreset: user.avatarPreset || 'cat'
+            } : c)
+          };
+          noteChanged = true;
+        }
+
+        if (noteChanged) changed = true;
+        return updated;
+      });
+      if (changed) this.notesList$.next(next);
+    }
+
+    const activeEditors = this.activeEditors$.value;
+    if (activeEditors?.editors?.some(editor => editor.id === user.id)) {
+      this.activeEditors$.next({
+        ...activeEditors,
+        editors: activeEditors.editors.map(editor => editor.id === user.id ? {
+          ...editor,
+          username: user.username,
+          displayName: user.displayName,
+          avatarDataUrl: user.avatarDataUrl || '',
+          avatarPreset: user.avatarPreset || 'cat'
+        } : editor)
+      });
+    }
   }
 
   async deleteImage(note: NoteI, image: any, event?: Event) {

@@ -26,6 +26,7 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
   canScrollUp = false;
   canScrollDown = false;
   private labelsResizeObserver?: ResizeObserver;
+  private labelsMutationObserver?: MutationObserver;
   private subscriptions: Subscription[] = [];
 
   constructor(public Shared: SharedService, public router: Router, public auth: AuthService) {
@@ -135,10 +136,15 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
       this.labelsResizeObserver = new ResizeObserver(() => this.updateLabelsOverflowState());
       this.labelsResizeObserver.observe(el);
     }
+    if (typeof MutationObserver !== 'undefined') {
+      this.labelsMutationObserver = new MutationObserver(() => this.updateLabelsOverflowState());
+      this.labelsMutationObserver.observe(el, { childList: true });
+    }
   }
 
   ngOnDestroy() {
     this.labelsResizeObserver?.disconnect();
+    this.labelsMutationObserver?.disconnect();
     this.subscriptions.forEach(sub => sub.unsubscribe());
     this.subscriptions = [];
   }
