@@ -239,7 +239,8 @@ export class MainComponent implements OnInit, OnDestroy {
   private isReminderAction(action: any) {
     return action?.type === 'set_reminder'
       || action?.type === 'reminder'
-      || action?.intent === 'reminder';
+      || action?.intent === 'reminder'
+      || !!(action?.dueAtUtc || action?.dueAt || action?.datetime || action?.dateTime);
   }
 
   async runSmartCapture(selectedOnly = false) {
