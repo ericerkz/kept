@@ -221,13 +221,12 @@ export class MainComponent implements OnInit, OnDestroy {
 
   private selectReminderActions() {
     for (const [index, action] of (this.smartCapturePlan?.actions || []).entries()) {
-      if (this.isReminderAction(action)) this.selectedSmartActions.add(index);
+      if (this.isReminderProposal(action)) this.selectedSmartActions.add(index);
     }
   }
 
   isSmartActionSelected(index: number) {
-    const action = this.smartCapturePlan?.actions?.[index];
-    return this.selectedSmartActions.has(index) || this.isReminderProposal(action);
+    return this.selectedSmartActions.has(index);
   }
 
   selectedActionIndexes() {
