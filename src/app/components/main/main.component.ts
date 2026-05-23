@@ -221,13 +221,30 @@ export class MainComponent implements OnInit, OnDestroy {
 
   private selectReminderActions() {
     for (const [index, action] of (this.smartCapturePlan?.actions || []).entries()) {
-      if (action.type === 'set_reminder') this.selectedSmartActions.add(index);
+      if (this.isReminderAction(action)) this.selectedSmartActions.add(index);
     }
+  }
+
+  isSmartActionSelected(index: number) {
+    const action = this.smartCapturePlan?.actions?.[index];
+    return this.selectedSmartActions.has(index) || this.isReminderAction(action);
+  }
+
+  selectedActionIndexes() {
+    return (this.smartCapturePlan?.actions || [])
+      .map((_action, index) => index)
+      .filter(index => this.isSmartActionSelected(index));
+  }
+
+  private isReminderAction(action: any) {
+    return action?.type === 'set_reminder'
+      || action?.type === 'reminder'
+      || action?.intent === 'reminder';
   }
 
   async runSmartCapture(selectedOnly = false) {
     if (!this.smartCapturePlan || !this.smartCaptureValidation?.valid) return;
-    const selectedActionIndexes = selectedOnly ? Array.from(this.selectedSmartActions).sort((a, b) => a - b) : undefined;
+    const selectedActionIndexes = selectedOnly ? this.selectedActionIndexes() : undefined;
     const preparedPlan = this.prepareSmartCapturePlan(selectedActionIndexes);
     if (!preparedPlan) return;
     this.smartCaptureRunning = true;
@@ -355,7 +372,7 @@ export class MainComponent implements OnInit, OnDestroy {
 
   smartPrimaryDisabled() {
     if (!this.smartCapturePlan) return this.smartCaptureLoading || !!this.smartCaptureEstimate;
-    return this.smartCaptureRunning || !this.selectedSmartActions.size || !this.smartCaptureValidation?.valid;
+    return this.smartCaptureRunning || !this.selectedActionIndexes().length || !this.smartCaptureValidation?.valid;
   }
 
   smartVoiceIcon() {
