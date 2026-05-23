@@ -137,27 +137,23 @@
         @if (smartCaptureError) {
           <div class="smart-error">{{smartCaptureError}}</div>
         }
-        @if (smartCaptureResult) {
-          <div class="smart-success">
-            Saved {{smartCaptureResult.executed.length}} action(s).
-            @if (smartCaptureResult.failed.length) { <span>{{smartCaptureResult.failed.length}} failed.</span> }
-          </div>
-        }
         @if (smartCapturePlan?.unresolvedQuestions?.length) {
           <div class="smart-warning">{{smartCapturePlan?.unresolvedQuestions?.join(' ')}}</div>
         }
 
         <div class="smart-proposal-grid">
-          @for (action of smartCapturePlan?.actions || []; track $index) {
+          @for (proposal of proposalDisplayActions(); track proposal.index) {
+            @let action = proposal.action;
+            @let actionIndex = proposal.index;
             <article class="smart-proposal-card"
-              [class.is-selected]="selectedSmartActions.has($index)"
+              [class.is-selected]="selectedSmartActions.has(actionIndex)"
               [class.is-update]="proposalBadge(action) !== 'New'"
-              [style.--proposal-bg]="proposalColor(action, $index)">
+              [style.--proposal-bg]="proposalColor(action, actionIndex)">
               <button type="button" class="smart-proposal-check"
-                [class.checked]="selectedSmartActions.has($index)"
-                [attr.aria-label]="selectedSmartActions.has($index) ? 'Unselect proposal' : 'Select proposal'"
-                (click)="toggleSmartAction($index, !selectedSmartActions.has($index))">
-                @if (selectedSmartActions.has($index)) {
+                [class.checked]="selectedSmartActions.has(actionIndex)"
+                [attr.aria-label]="selectedSmartActions.has(actionIndex) ? 'Unselect proposal' : 'Select proposal'"
+                (click)="toggleSmartAction(actionIndex, !selectedSmartActions.has(actionIndex))">
+                @if (selectedSmartActions.has(actionIndex)) {
                   <span class="material-symbols-outlined">check</span>
                 }
               </button>
@@ -189,12 +185,29 @@
                 <div class="smart-proposal-meta">{{proposalExtra(action)}}</div>
               }
 
+              @if (shareRecipientsForAction(actionIndex).length) {
+                <div class="smart-share-overlay" aria-label="Share recipients">
+                  @for (user of shareRecipientsForAction(actionIndex); track user.id) {
+                    <div class="smart-share-recipient">
+                      @if (user.avatarDataUrl) {
+                        <img [src]="user.avatarDataUrl" [alt]="user.displayName">
+                      } @else {
+                        <span class="avatar-fallback animal-{{user.avatarPreset || 'cat'}}">
+                          <span class="head"><i></i></span>
+                        </span>
+                      }
+                      <span>{{user.displayName || user.username}}</span>
+                    </div>
+                  }
+                </div>
+              }
+
               @if (action.type === 'set_reminder' && !$any(action).dueAtUtc) {
                 <button type="button" class="smart-reminder-button"
-                  (click)="openSmartReminderPicker($index, $event)">
+                  (click)="openSmartReminderPicker(actionIndex, $event)">
                   Set reminder time
                 </button>
-                @if (smartReminderActionIndex === $index) {
+                @if (smartReminderActionIndex === actionIndex) {
                   <div class="reminder-date-dialog smart-reminder-dialog"
                     (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
                     role="dialog" aria-label="Set reminder date">

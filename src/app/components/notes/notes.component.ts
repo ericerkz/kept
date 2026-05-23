@@ -123,7 +123,6 @@ export class NotesComponent implements OnInit, OnDestroy {
   private searchLayoutQueued = false
   private smartCaptureLayoutQueued = false
   private pendingSmartCaptureReloadSettle = false
-  private smartCaptureNotesReloadingHandler = () => { this.pendingSmartCaptureReloadSettle = true }
   private smartCaptureNotesAddedHandler = () => this.handleSmartCaptureNotesAdded()
   private observedLoadMoreSentinel?: HTMLDivElement
   private modalScrollRestoreTimers: ReturnType<typeof setTimeout>[] = []
@@ -551,14 +550,15 @@ export class NotesComponent implements OnInit, OnDestroy {
     this.settleSmartCaptureResultsLayout()
   }
 
-  private settleSmartCaptureResultsLayout() {
+  private settleSmartCaptureResultsLayout(notes?: NoteI[] | null) {
     if (!this.pendingSmartCaptureReloadSettle || this.smartCaptureLayoutQueued) return
     this.smartCaptureLayoutQueued = true
     requestAnimationFrame(() => requestAnimationFrame(() => {
       this.zone.run(() => {
         this.smartCaptureLayoutQueued = false
         this.pendingSmartCaptureReloadSettle = false
-        const currentPageCount = this.pageNotes().length
+        const sourceNotes = notes || this.Shared.note.all || []
+        const currentPageCount = this.notesTools.transform(sourceNotes, this.currentPageName, this.Shared.searchQuery).length
         if (currentPageCount) {
           const firstPageTarget = Math.min(currentPageCount, this.noteRenderChunk * 2)
           this.visibleNoteLimit = Math.max(this.visibleNoteLimit, firstPageTarget, this.initialNoteRenderChunk)
@@ -568,6 +568,8 @@ export class NotesComponent implements OnInit, OnDestroy {
         this.masonrySignatureToken++
         this.scheduleBuildMasonry(true)
         setTimeout(() => this.scheduleBuildMasonry(true), 100)
+        setTimeout(() => this.scheduleBuildMasonry(true), 260)
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 320)
       })
     }))
   }
@@ -2038,7 +2040,6 @@ export class NotesComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.syncCurrentPage(this.router.url)
-    window.addEventListener('kept-smart-capture-notes-reloading', this.smartCaptureNotesReloadingHandler)
     window.addEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
     this.subscriptions.push(
       this.Shared.closeSideBar.subscribe(() => { setTimeout(() => { this.scheduleBuildMasonry(true) }, 200) }),
@@ -2047,11 +2048,11 @@ export class NotesComponent implements OnInit, OnDestroy {
         setTimeout(() => this.scheduleBuildMasonry(true), 300);
         this.scheduleIPadMasonrySettle()
       }),
-      this.notesService.notesList$.subscribe(() => {
+      this.notesService.notesList$.subscribe(notes => {
         this.masonrySignatureToken++
         this.lastBackfillContext = ''
         this.settleSearchResultsLayout()
-        this.settleSmartCaptureResultsLayout()
+        this.settleSmartCaptureResultsLayout(notes)
       }),
       this.reminderService.reminders$.subscribe(() => { this.masonrySignatureToken++ }),
       this.router.events.subscribe(url => {
@@ -2083,7 +2084,6 @@ export class NotesComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    window.removeEventListener('kept-smart-capture-notes-reloading', this.smartCaptureNotesReloadingHandler)
     window.removeEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
     this.loadMoreObserver?.disconnect()
     this.clearModalScrollRestoreTimers()
