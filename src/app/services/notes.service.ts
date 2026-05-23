@@ -51,6 +51,7 @@ export class NotesService {
   private pendingLoadQuery?: string;
   private pendingLoadWaiters: Array<() => void> = [];
   private readonly cardPageSize = 80;
+  private readonly iosInitialCardPageSize = 40;
   private shouldReconnectRealtime = false;
   private preloadedPreviewUrls = new Set<string>();
   private previewPreloadQueue: string[] = [];
@@ -110,7 +111,7 @@ export class NotesService {
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const params: Record<string, string> = { view: 'card', limit: String(this.cardPageSize) };
+        const params: Record<string, string> = { view: 'card', limit: String(this.initialCardPageSize()) };
         if (searchQuery.trim()) params['q'] = searchQuery.trim();
         return await firstValueFrom(this.http.get<NotesCardPage>(this.apiUrl, {
           headers: this.auth.authHeaders(),
@@ -127,6 +128,16 @@ export class NotesService {
 
   private delay(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private initialCardPageSize() {
+    return this.isIosLike() ? this.iosInitialCardPageSize : this.cardPageSize;
+  }
+
+  private isIosLike() {
+    const ua = navigator.userAgent || '';
+    const platform = navigator.platform || '';
+    return /iphone|ipad|ipod/i.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   }
 
   setSearchQuery(query: string) {

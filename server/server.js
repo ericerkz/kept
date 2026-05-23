@@ -980,7 +980,8 @@ function dbNoteToCard(row, options = {}) {
   const labels = parseJson(row.labels || '[]', []);
   const checkBoxes = parseJson(row.checkBoxes || '[]', []);
   const parsedImages = parseJson(row.images || '[]', []);
-  const images = Array.isArray(parsedImages) ? parsedImages.filter(Boolean) : [];
+  const allImages = Array.isArray(parsedImages) ? parsedImages.filter(Boolean) : [];
+  const images = allImages.slice(0, 4);
   const previewText = notePreviewText(row);
   return {
     id: row.id,
@@ -995,7 +996,7 @@ function dbNoteToCard(row, options = {}) {
     bgImage: row.bgImage || '',
     checkBoxes: Array.isArray(checkBoxes) ? checkBoxes.slice(0, 8) : [],
     images,
-    hasMoreImages: false,
+    hasMoreImages: allImages.length > images.length,
     isCbox: Boolean(row.isCbox),
     labels,
     archived: Boolean(row.archived),
@@ -1621,6 +1622,20 @@ async function purgeExpiredTrashedNotes() {
     await deleteImageFilesForNote(note.id);
   }
   await run('DELETE FROM notes WHERE trashed = 1 AND trashedAt IS NOT NULL AND trashedAt <= ?', [trashExpirationCutoff()]);
+}
+
+let trashPurgeRunning = false;
+let lastTrashPurgeAt = 0;
+function scheduleTrashPurgeIfStale() {
+  const now = Date.now();
+  if (trashPurgeRunning || now - lastTrashPurgeAt < 60 * 60 * 1000) return;
+  trashPurgeRunning = true;
+  lastTrashPurgeAt = now;
+  setTimeout(() => {
+    purgeExpiredTrashedNotes()
+      .catch(error => console.error('[Trash purge] failed:', error))
+      .finally(() => { trashPurgeRunning = false; });
+  }, 10000).unref?.();
 }
 
 async function syncNoteImagesForNote(noteId, ownerUserId, note) {
@@ -2814,7 +2829,8 @@ app.post('/api/admin/users/:id/disable-2fa', requireAuth, requireAdmin, asyncRou
 }));
 
 app.get('/api/admin/update-status', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
-  const latest = await getLatestRelease();
+  const latest = getCachedLatestRelease();
+  refreshLatestReleaseInBackground();
 
   // Fetch any dismissals this admin has set for the current latest version.
   // A "forever" dismissal silences this version permanently for them; a
@@ -3150,7 +3166,7 @@ app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, asyncRou
 
 
 app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
-  await purgeExpiredTrashedNotes();
+  scheduleTrashPurgeIfStale();
 
   if (req.query.view === 'card') {
     const limit = Math.min(Math.max(Number(req.query.limit) || 80, 1), 200);
@@ -4481,7 +4497,7 @@ app.delete('/api/google-calendar/credentials', requireAuth, asyncRoute(async (re
 
 // ─── Update check ───────────────────────────────────────────────────────────
 
-const updateCheckCache = { latest: null, fetchedAt: 0, error: null };
+const updateCheckCache = { latest: null, fetchedAt: 0, error: null, inFlight: null };
 const UPDATE_CHECK_TTL_MS = 12 * 60 * 60 * 1000;
 
 function compareVersion(a, b) {
@@ -4533,22 +4549,41 @@ async function getLatestRelease() {
   if (updateCheckCache.latest && now - updateCheckCache.fetchedAt < UPDATE_CHECK_TTL_MS) {
     return updateCheckCache.latest;
   }
-  try {
-    const latest = await fetchLatestRelease();
-    updateCheckCache.latest = latest;
-    updateCheckCache.fetchedAt = now;
-    updateCheckCache.error = null;
-    return latest;
-  } catch (e) {
-    updateCheckCache.error = e.message;
-    // If we have a stale value, keep returning it instead of null while we
-    // wait out a transient GitHub blip.
+  if (updateCheckCache.inFlight) return updateCheckCache.inFlight;
+  updateCheckCache.inFlight = fetchLatestRelease()
+    .then(latest => {
+      updateCheckCache.latest = latest;
+      updateCheckCache.fetchedAt = Date.now();
+      updateCheckCache.error = null;
+      return latest;
+    })
+    .catch(e => {
+      updateCheckCache.error = e.message;
+      return updateCheckCache.latest;
+    })
+    .finally(() => {
+      updateCheckCache.inFlight = null;
+    });
+  return updateCheckCache.inFlight;
+}
+
+function getCachedLatestRelease() {
+  const now = Date.now();
+  if (updateCheckCache.latest && now - updateCheckCache.fetchedAt < UPDATE_CHECK_TTL_MS) {
     return updateCheckCache.latest;
   }
+  return updateCheckCache.latest;
+}
+
+function refreshLatestReleaseInBackground() {
+  const now = Date.now();
+  if (updateCheckCache.inFlight) return;
+  if (updateCheckCache.latest && now - updateCheckCache.fetchedAt < UPDATE_CHECK_TTL_MS) return;
+  getLatestRelease().catch(() => undefined);
 }
 
 // Fire a check at startup so the first admin who logs in sees it without delay.
-getLatestRelease().catch(() => undefined);
+setTimeout(() => refreshLatestReleaseInBackground(), 5000).unref?.();
 
 // ─── Link preview ────────────────────────────────────────────────────────────
 
