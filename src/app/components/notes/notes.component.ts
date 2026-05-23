@@ -122,6 +122,8 @@ export class NotesComponent implements OnInit, OnDestroy {
   private lastBackfillContext = ''
   private searchLayoutQueued = false
   private smartCaptureLayoutQueued = false
+  private pendingSmartCaptureReloadSettle = false
+  private smartCaptureNotesReloadingHandler = () => { this.pendingSmartCaptureReloadSettle = true }
   private smartCaptureNotesAddedHandler = () => this.handleSmartCaptureNotesAdded()
   private observedLoadMoreSentinel?: HTMLDivElement
   private modalScrollRestoreTimers: ReturnType<typeof setTimeout>[] = []
@@ -545,14 +547,21 @@ export class NotesComponent implements OnInit, OnDestroy {
   }
 
   private handleSmartCaptureNotesAdded() {
-    if (this.smartCaptureLayoutQueued) return
+    this.pendingSmartCaptureReloadSettle = true
+    this.settleSmartCaptureResultsLayout()
+  }
+
+  private settleSmartCaptureResultsLayout() {
+    if (!this.pendingSmartCaptureReloadSettle || this.smartCaptureLayoutQueued) return
     this.smartCaptureLayoutQueued = true
     requestAnimationFrame(() => requestAnimationFrame(() => {
       this.zone.run(() => {
         this.smartCaptureLayoutQueued = false
+        this.pendingSmartCaptureReloadSettle = false
         const currentPageCount = this.pageNotes().length
         if (currentPageCount) {
-          this.visibleNoteLimit = Math.max(this.visibleNoteLimit, currentPageCount, this.initialNoteRenderChunk)
+          const firstPageTarget = Math.min(currentPageCount, this.noteRenderChunk * 2)
+          this.visibleNoteLimit = Math.max(this.visibleNoteLimit, firstPageTarget, this.initialNoteRenderChunk)
           this.didInitialExpand = true
         }
         this.suppressScrollPaginationUntil = Date.now() + 350
@@ -2029,6 +2038,7 @@ export class NotesComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.syncCurrentPage(this.router.url)
+    window.addEventListener('kept-smart-capture-notes-reloading', this.smartCaptureNotesReloadingHandler)
     window.addEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
     this.subscriptions.push(
       this.Shared.closeSideBar.subscribe(() => { setTimeout(() => { this.scheduleBuildMasonry(true) }, 200) }),
@@ -2041,6 +2051,7 @@ export class NotesComponent implements OnInit, OnDestroy {
         this.masonrySignatureToken++
         this.lastBackfillContext = ''
         this.settleSearchResultsLayout()
+        this.settleSmartCaptureResultsLayout()
       }),
       this.reminderService.reminders$.subscribe(() => { this.masonrySignatureToken++ }),
       this.router.events.subscribe(url => {
@@ -2072,6 +2083,7 @@ export class NotesComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    window.removeEventListener('kept-smart-capture-notes-reloading', this.smartCaptureNotesReloadingHandler)
     window.removeEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
     this.loadMoreObserver?.disconnect()
     this.clearModalScrollRestoreTimers()
