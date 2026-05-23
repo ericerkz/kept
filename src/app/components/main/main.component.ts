@@ -221,7 +221,8 @@ export class MainComponent implements OnInit, OnDestroy {
         confirmed: true,
         selectedActionIndexes
       });
-      await this.notes.load();
+      await this.notes.ensureNotesVisible(this.smartCaptureResult.createdNoteIds || []);
+      await this.notes.load(undefined, { cacheBust: true });
       await this.reminders.load();
       this.closeSmartCapture();
       requestAnimationFrame(() => requestAnimationFrame(() => {

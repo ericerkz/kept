@@ -24,6 +24,9 @@ interface NotesCardPage {
   notes: NoteI[];
   nextCursor: string | null;
 }
+interface NotesLoadOptions {
+  cacheBust?: boolean;
+}
 import { environment } from 'src/environments/environment';
 import { NoteAttachmentI, NoteI, UpdateKeyI } from './../interfaces/notes';
 import { AuthService } from './auth.service';
@@ -57,6 +60,7 @@ export class NotesService {
   private previewPreloadRunning = false;
   private suppressedRealtimeReloads = new Map<number, number>();
   private suppressNextReorderReloadUntil = 0;
+  private optimisticNotes = new Map<number, NoteI>();
 
   constructor(private http: HttpClient, private auth: AuthService, private reminders: ReminderService) {
     this.authSubscription = this.auth.currentUser$.subscribe(user => {
@@ -73,7 +77,7 @@ export class NotesService {
     });
   }
 
-  async load(searchQuery = this.searchQuery) {
+  async load(searchQuery = this.searchQuery, options: NotesLoadOptions = {}) {
     if (this.isLoading) {
       this.pendingLoadQuery = searchQuery;
       return new Promise<void>(resolve => this.pendingLoadWaiters.push(resolve));
@@ -84,12 +88,13 @@ export class NotesService {
     try {
       this.searchQuery = searchQuery;
       const requestedQuery = searchQuery;
-      const page = await this.loadCardPageWithRetry(requestedQuery);
+      const page = await this.loadCardPageWithRetry(requestedQuery, options.cacheBust);
       if (requestedQuery !== this.searchQuery) return;
       this.nextCursor = page.nextCursor;
       this.hasLoaded = true;
-      this.notesList$.next(page.notes);
-      this.queueLinkPreviewPreload(page.notes);
+      const notes = this.withOptimisticNotes(page.notes);
+      this.notesList$.next(notes);
+      this.queueLinkPreviewPreload(notes);
     } catch (error) {
       this.loadError = true;
       console.error(error);
@@ -100,18 +105,19 @@ export class NotesService {
         const pending = this.pendingLoadQuery;
         const waiters = this.pendingLoadWaiters.splice(0);
         this.pendingLoadQuery = undefined;
-        await this.load(pending).catch(console.error);
+        await this.load(pending, options).catch(console.error);
         waiters.forEach(resolve => resolve());
       }
     }
   }
 
-  private async loadCardPageWithRetry(searchQuery: string) {
+  private async loadCardPageWithRetry(searchQuery: string, cacheBust = false) {
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const params: Record<string, string> = { view: 'card', limit: String(this.cardPageSize) };
         if (searchQuery.trim()) params['q'] = searchQuery.trim();
+        if (cacheBust) params['_'] = String(Date.now());
         return await firstValueFrom(this.http.get<NotesCardPage>(this.apiUrl, {
           headers: this.auth.authHeaders(),
           params
@@ -351,7 +357,8 @@ export class NotesService {
   async add(noteObj: NoteI) {
     try {
       const result = await firstValueFrom(this.http.post<{ id: number }>(this.apiUrl, noteObj, { headers: this.auth.authHeaders() }));
-      await this.load();
+      await this.ensureNotesVisible([result.id]);
+      this.load(this.searchQuery, { cacheBust: true }).catch(console.error);
       return result.id;
     } catch (error) {
       console.log(error)
@@ -480,6 +487,40 @@ export class NotesService {
       if (options.merge !== false) this.mergeNoteIntoList(note);
       return note;
     } else return {} as NoteI
+  }
+
+  async ensureNotesVisible(ids: number[]) {
+    const uniqueIds = [...new Set(ids.map(id => Number(id)).filter(id => Number.isFinite(id) && id > 0))];
+    if (!uniqueIds.length) return;
+    const notes = await Promise.all(uniqueIds.map(id => this.get(id, { merge: false }).catch(error => {
+      console.error(error);
+      return null;
+    })));
+    const visibleNotes = notes.filter((note): note is NoteI => !!note?.id);
+    visibleNotes.forEach(note => this.optimisticNotes.set(note.id!, note));
+    this.prependNotesIntoList(visibleNotes);
+  }
+
+  private prependNotesIntoList(notes: NoteI[]) {
+    if (!notes.length) return;
+    const current = this.notesList$.value || [];
+    const incomingIds = new Set(notes.map(note => note.id).filter(Boolean));
+    const next = [
+      ...notes,
+      ...current.filter(note => !note.id || !incomingIds.has(note.id))
+    ];
+    this.notesList$.next(next);
+    this.queueLinkPreviewPreload(notes);
+  }
+
+  private withOptimisticNotes(notes: NoteI[]) {
+    if (!this.optimisticNotes.size) return notes;
+    const seen = new Set(notes.map(note => note.id).filter(Boolean));
+    for (const id of [...this.optimisticNotes.keys()]) {
+      if (seen.has(id)) this.optimisticNotes.delete(id);
+    }
+    const missing = [...this.optimisticNotes.values()].filter(note => note.id && !seen.has(note.id));
+    return missing.length ? [...missing, ...notes] : notes;
   }
 
   private mergeNoteIntoList(note: NoteI) {
