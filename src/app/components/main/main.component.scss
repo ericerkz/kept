@@ -29,6 +29,16 @@
   display: none;
 }
 
+.mobile-compose-fab,
+.smart-capture-fab {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  user-select: none;
+}
+
 .smart-capture-fab {
   align-items: center;
   background: #202124;
