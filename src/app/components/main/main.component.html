@@ -51,134 +51,169 @@
 }
 
 @if (Shared.isIos && smartCaptureOpen) {
-  <div class="smart-capture-backdrop" (click)="closeSmartCapture()"></div>
-  <section class="smart-capture-panel" (click)="$event.stopPropagation()" aria-label="Smart Capture plan">
-    <div class="smart-capture-header">
-      <div>
-        <span class="eyebrow">Smart Capture</span>
-        <h3>{{smartCapturePlan?.summary || 'Proposed actions'}}</h3>
-      </div>
-      <button type="button" aria-label="Close Smart Capture" (click)="closeSmartCapture()">×</button>
-    </div>
+  <section class="smart-capture-panel" [class.is-listening]="smartCaptureListening || !smartCapturePlan"
+    (click)="$event.stopPropagation()" aria-label="Smart Capture">
     <input #smartReminderTimeInp type="text" class="timepicker-ui-input rp-hidden-time" autocomplete="off" readonly
       [(ngModel)]="smartReminderTime" aria-hidden="true" tabindex="-1">
 
-    @if (smartCaptureTranscript) {
-      <p class="smart-transcript">{{smartCaptureTranscript}}</p>
-    }
+    <div class="smart-capture-chrome">
+      <span class="material-symbols-outlined">auto_awesome</span>
+      <button type="button" aria-label="Close Smart Capture" (click)="closeSmartCapture()">
+        <span class="material-symbols-outlined">more_vert</span>
+      </button>
+    </div>
 
-    @if (!smartCapturePlan && smartCaptureError) {
-      <div class="smart-status">{{smartCaptureError}}</div>
-    }
-
-    @if (smartCaptureLoading) {
-      <div class="smart-status">Checking plan…</div>
+    @if (!smartCapturePlan) {
+      <div class="smart-listening-stage">
+        <div class="smart-listening-art" aria-hidden="true">
+          <img src="./assets/images/thinking.gif" alt="">
+        </div>
+        <div class="smart-listening-copy">
+          <h2><span>Start talking</span> to create notes</h2>
+          <p>{{smartCaptureTranscript || '“Remind me to sign permission slips”'}}</p>
+          @if (smartCaptureError) {
+            <div class="smart-inline-error">{{smartCaptureError}}</div>
+          }
+        </div>
+      </div>
     } @else {
-      @if (smartCaptureValidation?.warnings?.length) {
-        <div class="smart-warning">{{smartCaptureValidation?.warnings?.join(' ')}}</div>
-      }
-      @if (smartCaptureValidation?.errors?.length) {
-        <div class="smart-error">{{smartCaptureValidation?.errors?.join(' ')}}</div>
-      }
-      @if (smartCapturePlan && smartCaptureError) {
-        <div class="smart-error">{{smartCaptureError}}</div>
-      }
-      @if (smartCaptureResult) {
-        <div class="smart-success">
-          Done. {{smartCaptureResult.executed.length}} action(s) ran.
-          @if (smartCaptureResult.failed.length) { <span>{{smartCaptureResult.failed.length}} failed.</span> }
-        </div>
-      }
+      <div class="smart-review-stage">
+        <header class="smart-review-header">
+          <span class="eyebrow">Review proposal</span>
+          <h2>{{smartCapturePlan.summary || 'Proposed notes'}}</h2>
+          @if (smartCaptureTranscript) {
+            <p>{{smartCaptureTranscript}}</p>
+          }
+        </header>
 
-      @if (smartCapturePlan?.unresolvedQuestions?.length) {
-        <div class="smart-warning">
-          {{smartCapturePlan?.unresolvedQuestions?.join(' ')}}
-        </div>
-      }
+        @if (smartCaptureLoading) {
+          <div class="smart-status">Preparing proposal…</div>
+        }
+        @if (smartCaptureValidation?.warnings?.length) {
+          <div class="smart-warning">{{smartCaptureValidation?.warnings?.join(' ')}}</div>
+        }
+        @if (smartCaptureValidation?.errors?.length) {
+          <div class="smart-error">{{smartCaptureValidation?.errors?.join(' ')}}</div>
+        }
+        @if (smartCaptureError) {
+          <div class="smart-error">{{smartCaptureError}}</div>
+        }
+        @if (smartCaptureResult) {
+          <div class="smart-success">
+            Saved {{smartCaptureResult.executed.length}} action(s).
+            @if (smartCaptureResult.failed.length) { <span>{{smartCaptureResult.failed.length}} failed.</span> }
+          </div>
+        }
+        @if (smartCapturePlan.unresolvedQuestions?.length) {
+          <div class="smart-warning">{{smartCapturePlan.unresolvedQuestions?.join(' ')}}</div>
+        }
 
-      @if (smartCapturePlan?.actions?.length) {
-        <div class="smart-action-list">
-          @for (action of smartCapturePlan?.actions || []; track $index) {
-            <article class="smart-action-card" [class.invalid]="smartCaptureValidation?.errors?.length">
-              <label class="smart-action-select">
-                <input type="checkbox" [checked]="selectedSmartActions.has($index)"
-                  (change)="toggleSmartAction($index, $any($event.target).checked)">
-              </label>
-              <div class="smart-action-copy">
-                <div class="smart-action-type">{{actionTitle(action)}}</div>
-                <div class="smart-action-summary">{{actionSummary(action)}}</div>
-                @if (actionMeta(action)) {
-                  <div class="smart-action-meta">{{actionMeta(action)}}</div>
+        <div class="smart-proposal-grid">
+          @for (action of smartCapturePlan.actions || []; track $index) {
+            <article class="smart-proposal-card"
+              [class.is-selected]="selectedSmartActions.has($index)"
+              [class.is-update]="proposalBadge(action) !== 'New'"
+              [style.--proposal-bg]="proposalColor(action, $index)">
+              <button type="button" class="smart-proposal-check"
+                [class.checked]="selectedSmartActions.has($index)"
+                [attr.aria-label]="selectedSmartActions.has($index) ? 'Unselect proposal' : 'Select proposal'"
+                (click)="toggleSmartAction($index, !selectedSmartActions.has($index))">
+                @if (selectedSmartActions.has($index)) {
+                  <span class="material-symbols-outlined">check</span>
                 }
-                @if (action.type === 'set_reminder' && !$any(action).dueAtUtc) {
-                  <button type="button" class="smart-reminder-button"
-                    (click)="openSmartReminderPicker($index, $event)">
-                    Set time
-                  </button>
-                  @if (smartReminderActionIndex === $index) {
-                    <div class="reminder-date-dialog smart-reminder-dialog"
-                      (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
-                      role="dialog" aria-label="Set reminder date">
-                      <div class="rd-title">Set reminder</div>
-                      <div class="rd-calendar" aria-label="Reminder date calendar">
-                        <div class="rd-calendar-head">
-                          <button type="button" class="rd-nav" aria-label="Previous month" (click)="shiftCalendarMonth(-1)">
-                            <span class="material-symbols-outlined">chevron_left</span>
-                          </button>
-                          <div class="rd-month">{{calendarMonthLabel()}}</div>
-                          <button type="button" class="rd-nav" aria-label="Next month" (click)="shiftCalendarMonth(1)">
-                            <span class="material-symbols-outlined">chevron_right</span>
-                          </button>
-                        </div>
-                        <div class="rd-weekdays">
-                          @for (weekday of calendarWeekdays; track $index) {
-                            <span>{{weekday}}</span>
-                          }
-                        </div>
-                        <div class="rd-days">
-                          @for (day of calendarDays(); track day.date) {
-                            <button type="button" class="rd-day"
-                              [class.outside]="!day.currentMonth"
-                              [class.today]="day.today"
-                              [class.selected]="day.selected"
-                              [disabled]="day.disabled"
-                              (click)="selectCalendarDate(day.date)">
-                              {{day.day}}
-                            </button>
-                          }
-                        </div>
-                      </div>
-                      <div class="rd-actions">
-                        <button type="button" class="rd-secondary" (click)="cancelSmartReminderDate()">Cancel</button>
-                        <button type="button" class="rd-primary" [disabled]="!smartReminderDate"
-                          (click)="confirmSmartReminderDate(smartReminderTimeInp)">Pick time</button>
-                      </div>
-                    </div>
-                  }
+              </button>
+
+              <div class="smart-proposal-topline">
+                <span class="smart-proposal-badge">{{proposalBadge(action)}}</span>
+                @if (action.type === 'trash_note') {
+                  <span class="material-symbols-outlined">delete</span>
+                } @else if (action.type === 'archive_note') {
+                  <span class="material-symbols-outlined">archive</span>
+                } @else if (proposalBadge(action) !== 'New') {
+                  <span class="material-symbols-outlined">undo</span>
                 }
               </div>
+
+              <h3>{{proposalTitle(action)}}</h3>
+
+              @if (proposalChecklistItems(action).length) {
+                <ul class="smart-proposal-checklist">
+                  @for (item of proposalChecklistItems(action); track $index) {
+                    <li><span class="material-symbols-outlined">add_box</span>{{item}}</li>
+                  }
+                </ul>
+              } @else if (proposalBody(action)) {
+                <p class="smart-proposal-body">{{proposalBody(action)}}</p>
+              }
+
+              @if (proposalExtra(action)) {
+                <div class="smart-proposal-meta">{{proposalExtra(action)}}</div>
+              }
+
+              @if (action.type === 'set_reminder' && !$any(action).dueAtUtc) {
+                <button type="button" class="smart-reminder-button"
+                  (click)="openSmartReminderPicker($index, $event)">
+                  Set reminder time
+                </button>
+                @if (smartReminderActionIndex === $index) {
+                  <div class="reminder-date-dialog smart-reminder-dialog"
+                    (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
+                    role="dialog" aria-label="Set reminder date">
+                    <div class="rd-title">Set reminder</div>
+                    <div class="rd-calendar" aria-label="Reminder date calendar">
+                      <div class="rd-calendar-head">
+                        <button type="button" class="rd-nav" aria-label="Previous month" (click)="shiftCalendarMonth(-1)">
+                          <span class="material-symbols-outlined">chevron_left</span>
+                        </button>
+                        <div class="rd-month">{{calendarMonthLabel()}}</div>
+                        <button type="button" class="rd-nav" aria-label="Next month" (click)="shiftCalendarMonth(1)">
+                          <span class="material-symbols-outlined">chevron_right</span>
+                        </button>
+                      </div>
+                      <div class="rd-weekdays">
+                        @for (weekday of calendarWeekdays; track $index) {
+                          <span>{{weekday}}</span>
+                        }
+                      </div>
+                      <div class="rd-days">
+                        @for (day of calendarDays(); track day.date) {
+                          <button type="button" class="rd-day"
+                            [class.outside]="!day.currentMonth"
+                            [class.today]="day.today"
+                            [class.selected]="day.selected"
+                            [disabled]="day.disabled"
+                            (click)="selectCalendarDate(day.date)">
+                            {{day.day}}
+                          </button>
+                        }
+                      </div>
+                    </div>
+                    <div class="rd-actions">
+                      <button type="button" class="rd-secondary" (click)="cancelSmartReminderDate()">Cancel</button>
+                      <button type="button" class="rd-primary" [disabled]="!smartReminderDate"
+                        (click)="confirmSmartReminderDate(smartReminderTimeInp)">Pick time</button>
+                    </div>
+                  </div>
+                }
+              }
             </article>
           }
         </div>
-      }
+      </div>
     }
 
-    @if (smartCapturePlan) {
-      <div class="smart-capture-actions">
-        <button type="button" class="secondary" (click)="closeSmartCapture()">Cancel</button>
-        <button type="button" class="secondary" [disabled]="smartCaptureRunning || !selectedSmartActions.size || !smartCaptureValidation?.valid"
-          (click)="runSmartCapture(true)">
-          Run selected
-        </button>
-        <button type="button" [disabled]="smartCaptureRunning || !smartCaptureValidation?.valid"
-          (click)="runSmartCapture(false)">
-          {{smartCaptureRunning ? 'Running…' : 'Confirm all'}}
-        </button>
-      </div>
-    } @else {
-      <div class="smart-capture-actions">
-        <button type="button" class="secondary" (click)="closeSmartCapture()">Cancel</button>
-      </div>
-    }
+    <div class="smart-capture-actions">
+      <button type="button" class="smart-round-action danger" aria-label="Cancel" (click)="closeSmartCapture()">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+      <button type="button" class="smart-round-action" aria-label="Smart Capture">
+        <span class="material-symbols-outlined">mic</span>
+      </button>
+      <button type="button" class="smart-approve-action"
+        [disabled]="!smartCapturePlan || smartCaptureRunning || !selectedSmartActions.size || !smartCaptureValidation?.valid"
+        (click)="runSmartCapture(true)">
+        {{smartCaptureRunning ? 'Saving…' : 'Approve'}}
+      </button>
+    </div>
   </section>
 }
