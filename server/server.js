@@ -447,22 +447,6 @@ async function init() {
   `);
   await run(`CREATE INDEX IF NOT EXISTS note_images_note_idx ON note_images(noteId)`);
   await run(`CREATE INDEX IF NOT EXISTS note_images_filename_idx ON note_images(storedFilename)`);
-  await backfillExistingNoteImages();
-  const now = new Date().toISOString();
-  const trashCutoff = trashExpirationCutoff();
-  await run(
-    `UPDATE notes
-     SET trashedAt = COALESCE(updatedAt, createdAt, ?)
-     WHERE trashed = 1 AND trashedAt IS NULL`,
-    [now]
-  );
-  await run('UPDATE notes SET trashedAt = NULL WHERE trashed = 0');
-  const expiredAtStartup = await all('SELECT id FROM notes WHERE trashed = 1 AND trashedAt IS NOT NULL AND trashedAt <= ?', [trashCutoff]);
-  for (const note of expiredAtStartup) {
-    await deleteAttachmentFilesForNote(note.id);
-    await deleteImageFilesForNote(note.id);
-  }
-  await run('DELETE FROM notes WHERE trashed = 1 AND trashedAt IS NOT NULL AND trashedAt <= ?', [trashCutoff]);
   await run(`
     CREATE TABLE IF NOT EXISTS note_collaborators (
       noteId INTEGER NOT NULL,
@@ -1695,6 +1679,31 @@ async function backfillExistingNoteImages() {
       await run('UPDATE notes SET noteBody = ?, images = ? WHERE id = ?', [note.noteBody, JSON.stringify(note.images), row.id]);
     }
   }
+}
+
+async function runStartupMaintenance() {
+  const imageBackfillCompleted = await getAppSetting('noteImagesBackfillCompleted', '');
+  if (!imageBackfillCompleted) {
+    await backfillExistingNoteImages();
+    await setAppSetting('noteImagesBackfillCompleted', new Date().toISOString());
+  }
+
+  const now = new Date().toISOString();
+  await run(
+    `UPDATE notes
+     SET trashedAt = COALESCE(updatedAt, createdAt, ?)
+     WHERE trashed = 1 AND trashedAt IS NULL`,
+    [now]
+  );
+  await run('UPDATE notes SET trashedAt = NULL WHERE trashed = 0');
+  await purgeExpiredTrashedNotes();
+}
+
+function scheduleStartupMaintenance() {
+  setTimeout(() => {
+    runStartupMaintenance()
+      .catch(error => console.error('[Startup maintenance] failed:', error));
+  }, 5000).unref?.();
 }
 
 function asyncRoute(handler) {
@@ -5263,6 +5272,7 @@ init().then(() => {
     console.log(`Keep API listening on http://127.0.0.1:${port}`);
     console.log(`Keep realtime listening on ws://127.0.0.1:${port}/api/realtime`);
     console.log(`SQLite database: ${dbPath}`);
+    scheduleStartupMaintenance();
   });
 }).catch(error => {
   console.error(error);
