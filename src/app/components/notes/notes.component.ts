@@ -120,6 +120,10 @@ export class NotesComponent implements OnInit, OnDestroy {
   private loadMoreObserver?: IntersectionObserver
   private isBackfillingFilteredPage = false
   private lastBackfillContext = ''
+  private searchLayoutQueued = false
+  private smartCaptureLayoutQueued = false
+  private smartCaptureNotesAddedHandler = () => this.handleSmartCaptureNotesAdded()
+  private observedLoadMoreSentinel?: HTMLDivElement
   private modalScrollRestoreTimers: ReturnType<typeof setTimeout>[] = []
   private modalOpenScrollY = 0
   private modalClosing = false
@@ -508,6 +512,55 @@ export class NotesComponent implements OnInit, OnDestroy {
         this.scheduleBuildMasonry(true)
       }
     })
+  }
+
+  private isSearchActive() {
+    return !!this.Shared.searchQuery.trim()
+  }
+
+  private settleSearchResultsLayout() {
+    if (!this.isSearchActive() || this.searchLayoutQueued) return
+    this.searchLayoutQueued = true
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      this.zone.run(() => {
+        this.searchLayoutQueued = false
+        const filteredCount = this.pageNotes().length
+        if (filteredCount) {
+          this.visibleNoteLimit = Math.max(this.visibleNoteLimit, filteredCount, this.initialNoteRenderChunk)
+        }
+        this.masonrySignatureToken++
+        this.scheduleBuildMasonry(true)
+        setTimeout(() => this.scheduleBuildMasonry(true), 80)
+      })
+    }))
+  }
+
+  private observeLoadMoreSentinelIfNeeded() {
+    if (!this.loadMoreObserver || !this.loadMoreSentinel?.nativeElement) return
+    const sentinel = this.loadMoreSentinel.nativeElement
+    if (this.observedLoadMoreSentinel === sentinel) return
+    if (this.observedLoadMoreSentinel) this.loadMoreObserver.unobserve(this.observedLoadMoreSentinel)
+    this.observedLoadMoreSentinel = sentinel
+    this.loadMoreObserver.observe(sentinel)
+  }
+
+  private handleSmartCaptureNotesAdded() {
+    if (this.smartCaptureLayoutQueued) return
+    this.smartCaptureLayoutQueued = true
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      this.zone.run(() => {
+        this.smartCaptureLayoutQueued = false
+        const currentPageCount = this.pageNotes().length
+        if (currentPageCount) {
+          this.visibleNoteLimit = Math.max(this.visibleNoteLimit, currentPageCount, this.initialNoteRenderChunk)
+          this.didInitialExpand = true
+        }
+        this.suppressScrollPaginationUntil = Date.now() + 350
+        this.masonrySignatureToken++
+        this.scheduleBuildMasonry(true)
+        setTimeout(() => this.scheduleBuildMasonry(true), 100)
+      })
+    }))
   }
 
   @HostListener('window:scroll')
@@ -1926,9 +1979,17 @@ export class NotesComponent implements OnInit, OnDestroy {
     const renderContext = `${this.currentPageName}:${this.Shared.searchQuery}:${this.Shared.noteViewType.value}`
     if (renderContext !== this.lastRenderContext) {
       this.lastRenderContext = renderContext
-      // Reset to the small initial chunk so the new context paints fast.
-      this.visibleNoteLimit = this.initialNoteRenderChunk
-      this.didInitialExpand = false
+      if (this.isSearchActive()) {
+        this.visibleNoteLimit = Math.max(this.initialNoteRenderChunk, this.pageNotes().length)
+        this.didInitialExpand = true
+        this.suppressScrollPaginationUntil = Date.now() + 350
+        window.scrollTo({ top: 0 })
+        this.settleSearchResultsLayout()
+      } else {
+        // Reset to the small initial chunk so the new context paints fast.
+        this.visibleNoteLimit = this.initialNoteRenderChunk
+        this.didInitialExpand = false
+      }
     }
     // After the small chunk has actually painted (two animation frames so the
     // browser commits paint, then idle / timeout fallback so we don't add
@@ -1940,6 +2001,7 @@ export class NotesComponent implements OnInit, OnDestroy {
       this.scheduleProgressiveExpand()
     }
     this.maybeBackfillFilteredPage()
+    this.observeLoadMoreSentinelIfNeeded()
     this.scheduleBuildMasonry()
   }
 
@@ -1967,6 +2029,7 @@ export class NotesComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.syncCurrentPage(this.router.url)
+    window.addEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
     this.subscriptions.push(
       this.Shared.closeSideBar.subscribe(() => { setTimeout(() => { this.scheduleBuildMasonry(true) }, 200) }),
       this.Shared.closeModal.subscribe(x => { if (x) this.closeModal() }),
@@ -1977,6 +2040,7 @@ export class NotesComponent implements OnInit, OnDestroy {
       this.notesService.notesList$.subscribe(() => {
         this.masonrySignatureToken++
         this.lastBackfillContext = ''
+        this.settleSearchResultsLayout()
       }),
       this.reminderService.reminders$.subscribe(() => { this.masonrySignatureToken++ }),
       this.router.events.subscribe(url => {
@@ -2003,11 +2067,12 @@ export class NotesComponent implements OnInit, OnDestroy {
       })
     }, { root: null, rootMargin: '70% 0px', threshold: 0 })
     setTimeout(() => {
-      if (this.loadMoreSentinel?.nativeElement) this.loadMoreObserver?.observe(this.loadMoreSentinel.nativeElement)
+      this.observeLoadMoreSentinelIfNeeded()
     })
   }
 
   ngOnDestroy(): void {
+    window.removeEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
     this.loadMoreObserver?.disconnect()
     this.clearModalScrollRestoreTimers()
     this.closeReminderPicker()
