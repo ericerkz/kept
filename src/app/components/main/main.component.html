@@ -13,7 +13,7 @@
     <button class="mobile-compose-fab" type="button" aria-label="New note" (click)="openMobileComposer()">
       <span class="material-symbols-outlined">edit_note</span>
     </button>
-    @if (Shared.isIos) {
+    @if (Shared.isIos && smartCaptureAvailable) {
       <button class="smart-capture-fab" type="button" aria-label="Smart Capture" (click)="startSmartCapture()">
         <span class="material-symbols-outlined">mic</span>
         <span class="smart-capture-label">Smart Capture</span>
@@ -50,7 +50,7 @@
   </div>
 }
 
-@if (Shared.isIos && smartCaptureOpen) {
+@if (Shared.isIos && smartCaptureAvailable && smartCaptureOpen) {
   <section class="smart-capture-panel" [class.is-listening]="smartCaptureListening || !smartCapturePlan"
     (click)="$event.stopPropagation()" aria-label="Smart Capture">
     <input #smartReminderTimeInp type="text" class="timepicker-ui-input rp-hidden-time" autocomplete="off" readonly

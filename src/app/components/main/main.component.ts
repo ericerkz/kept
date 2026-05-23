@@ -34,6 +34,7 @@ export class MainComponent implements OnInit, OnDestroy {
   smartCaptureLoading = false;
   smartCaptureRunning = false;
   smartVoiceCapturing = false;
+  smartCaptureAvailable = false;
   smartCaptureTranscript = '';
   smartCaptureEstimate: SmartCaptureEstimate | null = null;
   smartCapturePlan: KeptActionPlan | null = null;
@@ -67,6 +68,10 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   async startSmartCapture() {
+    if (!this.smartCaptureAvailable) {
+      await this.refreshSmartCaptureAvailability();
+      if (!this.smartCaptureAvailable) return;
+    }
     this.openSmartCaptureListening();
     await this.beginSmartCaptureListening();
   }
@@ -125,6 +130,7 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.refreshSmartCaptureAvailability();
     window.addEventListener('kept-smart-capture-estimate', this.smartCaptureEstimateEventHandler as EventListener);
     window.addEventListener('kept-smart-capture-plan', this.smartCaptureEventHandler as EventListener);
     window.addEventListener('smartCaptureCompleted', this.smartCaptureEventHandler as EventListener);
@@ -343,6 +349,33 @@ export class MainComponent implements OnInit, OnDestroy {
 
   private keptIntelligencePlugin() {
     return (window as any).Capacitor?.Plugins?.KeptIntelligence;
+  }
+
+  private async refreshSmartCaptureAvailability() {
+    if (!this.Shared.isIos) {
+      this.smartCaptureAvailable = false;
+      return;
+    }
+
+    const plugin = this.keptIntelligencePlugin();
+    if (!plugin?.startVoiceCapture || !plugin?.processTextCommand) {
+      this.smartCaptureAvailable = false;
+      return;
+    }
+
+    if (!plugin?.getCapabilities) {
+      this.smartCaptureAvailable = true;
+      return;
+    }
+
+    try {
+      const capabilities = await plugin.getCapabilities();
+      const foundationModels = capabilities?.foundationModels;
+      this.smartCaptureAvailable = foundationModels?.isAvailable === true
+        || foundationModels?.availability === 'available';
+    } catch {
+      this.smartCaptureAvailable = false;
+    }
   }
 
   private async bindVoiceTranscriptListener(plugin: any) {
