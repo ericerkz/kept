@@ -1210,17 +1210,33 @@ function normalizeAction(action) {
   return normalized;
 }
 
-function normalizeActionPlan(actionPlan) {
+function reminderNoteTextFromTranscript(transcript) {
+  return String(transcript || '')
+    .replace(/\b(can you|please|could you)\b/gi, ' ')
+    .replace(/\b(remind me|reminder|set a reminder|create a reminder)\b/gi, ' ')
+    .replace(/\b(today|tomorrow|tonight|this evening|this morning|this afternoon)\b/gi, ' ')
+    .replace(/\b(at|by|around)\s+\d{1,2}(?::\d{2})?\s*(am|pm)?\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^\s*to\s+/i, '')
+    .trim();
+}
+
+function fallbackReminderNoteText(action, transcript) {
+  return action.text || action.title || reminderNoteTextFromTranscript(transcript) || String(transcript || '').trim() || 'Reminder';
+}
+
+function normalizeActionPlan(actionPlan, transcript = '') {
   const input = actionPlan && typeof actionPlan === 'object' ? actionPlan : {};
   const rawActions = Array.isArray(input.actions) ? input.actions.map(normalizeAction) : [];
   const actions = [];
   let createdNoteAvailable = false;
   for (const action of rawActions) {
-    if (action.type === 'set_reminder' && !action.noteId && !createdNoteAvailable && (action.title || action.text)) {
+    if (action.type === 'set_reminder' && !action.noteId && !createdNoteAvailable) {
+      const noteText = fallbackReminderNoteText(action, transcript);
       actions.push({
         type: 'create_text_note',
-        title: action.title || 'Reminder',
-        text: action.text || action.title || ''
+        title: action.title || noteText,
+        text: action.text || noteText
       });
       createdNoteAvailable = true;
     }
@@ -1282,7 +1298,7 @@ async function findLabelForUser(userId, rawName) {
 }
 
 async function validateKeptActionPlan(userId, transcript, actionPlan) {
-  const normalizedPlan = normalizeActionPlan(actionPlan);
+  const normalizedPlan = normalizeActionPlan(actionPlan, transcript);
   const errors = [];
   const warnings = [];
   const noteCache = new Map();
