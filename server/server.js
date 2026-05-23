@@ -1212,7 +1212,23 @@ function normalizeAction(action) {
 
 function normalizeActionPlan(actionPlan) {
   const input = actionPlan && typeof actionPlan === 'object' ? actionPlan : {};
-  const actions = Array.isArray(input.actions) ? input.actions.map(normalizeAction) : [];
+  const rawActions = Array.isArray(input.actions) ? input.actions.map(normalizeAction) : [];
+  const actions = [];
+  let createdNoteAvailable = false;
+  for (const action of rawActions) {
+    if (action.type === 'set_reminder' && !action.noteId && !createdNoteAvailable && (action.title || action.text)) {
+      actions.push({
+        type: 'create_text_note',
+        title: action.title || 'Reminder',
+        text: action.text || action.title || ''
+      });
+      createdNoteAvailable = true;
+    }
+    actions.push(action);
+    if (action.type === 'create_text_note' || action.type === 'create_todo_note') {
+      createdNoteAvailable = true;
+    }
+  }
   const confidence = ['low', 'medium', 'high'].includes(input.confidence) ? input.confidence : 'medium';
   return {
     summary: String(input.summary || '').trim(),
