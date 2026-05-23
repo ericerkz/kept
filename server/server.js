@@ -1347,13 +1347,14 @@ async function smartCreateNote(userId, action, options = {}) {
     : [];
   const result = await run(
     `INSERT INTO notes
-     (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
-     VALUES (?, ?, ?, '', '', ?, '[]', ?, ?, 0, 0, NULL, ?, ?, ?, ?, 0)`,
-    [
-      userId,
-      action.title || '',
-      isTodo ? (action.text || '') : (action.text || ''),
-      JSON.stringify(checkBoxes),
+	     (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
+	     VALUES (?, ?, ?, ?, '', ?, '[]', ?, ?, 0, 0, NULL, ?, ?, ?, ?, 0)`,
+	    [
+	      userId,
+	      action.title || '',
+	      isTodo ? (action.text || '') : (action.text || ''),
+	      String(action.bgColor || ''),
+	      JSON.stringify(checkBoxes),
       isTodo ? 1 : 0,
       JSON.stringify(labels),
       Date.now(),

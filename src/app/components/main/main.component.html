@@ -58,21 +58,60 @@
 
     <div class="smart-capture-chrome">
       <span class="material-symbols-outlined">auto_awesome</span>
-      <button type="button" aria-label="Close Smart Capture" (click)="closeSmartCapture()">
+      <button type="button" aria-label="Close Smart Capture" (click)="cancelSmartCapture()">
         <span class="material-symbols-outlined">more_vert</span>
       </button>
     </div>
 
-    @if (!smartCapturePlan) {
+    @if (!smartCapturePlan && !smartCaptureEstimate) {
       <div class="smart-listening-stage">
         <div class="smart-listening-art" aria-hidden="true">
           <img src="./assets/images/thinking.gif" alt="">
         </div>
         <div class="smart-listening-copy">
           <h2><span>Start talking</span> to create notes</h2>
-          <p>{{smartCaptureTranscript || '“Remind me to sign permission slips”'}}</p>
+          <p>“Remind me to sign permission slips”</p>
           @if (smartCaptureError) {
             <div class="smart-inline-error">{{smartCaptureError}}</div>
+          }
+        </div>
+      </div>
+    } @else if (!smartCapturePlan && smartCaptureEstimate) {
+      <div class="smart-review-stage smart-estimate-stage">
+        <header class="smart-review-header">
+          <span class="eyebrow">Planning proposal</span>
+          <h2>Shaping your notes</h2>
+          @if (smartCaptureTranscript) {
+            <p>{{smartCaptureTranscript}}</p>
+          }
+        </header>
+
+        <div class="smart-status">Preparing proposal…</div>
+
+        <div class="smart-proposal-grid">
+          @for (action of estimateActions(); track $index) {
+            <article class="smart-proposal-card smart-ghost-card"
+              [style.--proposal-bg]="smartProposalColors[$index % smartProposalColors.length]">
+              <div class="smart-proposal-topline">
+                <span class="smart-proposal-badge">{{estimateBadge(action)}}</span>
+                <span class="material-symbols-outlined">{{estimateIcon(action)}}</span>
+              </div>
+              <div class="smart-ghost-title"></div>
+              @if (action.type === 'create_todo_note' || action.type === 'add_checklist_items') {
+                <div class="smart-ghost-list">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              } @else {
+                <div class="smart-ghost-lines">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              }
+            </article>
           }
         </div>
       </div>
@@ -80,7 +119,7 @@
       <div class="smart-review-stage">
         <header class="smart-review-header">
           <span class="eyebrow">Review proposal</span>
-          <h2>{{smartCapturePlan.summary || 'Proposed notes'}}</h2>
+          <h2>{{smartCapturePlan?.summary || 'Proposed notes'}}</h2>
           @if (smartCaptureTranscript) {
             <p>{{smartCaptureTranscript}}</p>
           }
@@ -104,12 +143,12 @@
             @if (smartCaptureResult.failed.length) { <span>{{smartCaptureResult.failed.length}} failed.</span> }
           </div>
         }
-        @if (smartCapturePlan.unresolvedQuestions?.length) {
-          <div class="smart-warning">{{smartCapturePlan.unresolvedQuestions?.join(' ')}}</div>
+        @if (smartCapturePlan?.unresolvedQuestions?.length) {
+          <div class="smart-warning">{{smartCapturePlan?.unresolvedQuestions?.join(' ')}}</div>
         }
 
         <div class="smart-proposal-grid">
-          @for (action of smartCapturePlan.actions || []; track $index) {
+          @for (action of smartCapturePlan?.actions || []; track $index) {
             <article class="smart-proposal-card"
               [class.is-selected]="selectedSmartActions.has($index)"
               [class.is-update]="proposalBadge(action) !== 'New'"
@@ -203,16 +242,16 @@
     }
 
     <div class="smart-capture-actions">
-      <button type="button" class="smart-round-action danger" aria-label="Cancel" (click)="closeSmartCapture()">
+      <button type="button" class="smart-round-action danger" aria-label="Cancel" (click)="cancelSmartCapture()">
         <span class="material-symbols-outlined">close</span>
       </button>
-      <button type="button" class="smart-round-action" aria-label="Smart Capture">
-        <span class="material-symbols-outlined">mic</span>
+      <button type="button" class="smart-round-action" aria-label="Smart Capture" (click)="toggleSmartVoiceCapture()">
+        <span class="material-symbols-outlined">{{smartVoiceIcon()}}</span>
       </button>
       <button type="button" class="smart-approve-action"
-        [disabled]="!smartCapturePlan || smartCaptureRunning || !selectedSmartActions.size || !smartCaptureValidation?.valid"
-        (click)="runSmartCapture(true)">
-        {{smartCaptureRunning ? 'Saving…' : 'Approve'}}
+        [disabled]="smartPrimaryDisabled()"
+        (click)="smartPrimaryAction()">
+        {{smartPrimaryLabel()}}
       </button>
     </div>
   </section>

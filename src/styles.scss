@@ -9,7 +9,8 @@
 // underneath, causing the notes grid to rubber-band/bounce behind the modal.
 // `position: fixed` plus zero offsets prevents both vertical and horizontal
 // rubber-banding on iOS Safari while keeping the editor reachable via z-index.
-body.kept-mobile-compose-open {
+body.kept-mobile-compose-open,
+body.kept-smart-capture-open {
   overflow: hidden;
   position: fixed;
   top: 0;

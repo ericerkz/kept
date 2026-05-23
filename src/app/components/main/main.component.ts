@@ -5,6 +5,19 @@ import { AiService } from 'src/app/services/ai.service';
 import { ReminderService } from 'src/app/services/reminder.service';
 import { SharedService } from 'src/app/services/shared.service';
 import { NotesService } from 'src/app/services/notes.service';
+
+interface SmartCaptureEstimateAction {
+  type: string;
+  intent?: string;
+  confidence?: number;
+}
+
+interface SmartCaptureEstimate {
+  transcript?: string;
+  status?: 'listening' | 'transcribing' | 'planning';
+  estimatedActions?: SmartCaptureEstimateAction[];
+}
+
 @Component({
     selector: 'app-main',
     templateUrl: './main.component.html',
@@ -19,7 +32,9 @@ export class MainComponent implements OnInit, OnDestroy {
   smartCaptureListening = false;
   smartCaptureLoading = false;
   smartCaptureRunning = false;
+  smartVoiceCapturing = false;
   smartCaptureTranscript = '';
+  smartCaptureEstimate: SmartCaptureEstimate | null = null;
   smartCapturePlan: KeptActionPlan | null = null;
   smartCaptureValidation: KeptPlanValidation | null = null;
   smartCaptureResult: KeptPlanExecution | null = null;
@@ -32,8 +47,10 @@ export class MainComponent implements OnInit, OnDestroy {
   calendarMonth = this.startOfMonth(new Date());
   private smartReminderTimePicker?: TimepickerUI;
   private smartReminderTimePickerInput?: HTMLInputElement;
+  private smartVoiceTranscriptListener?: { remove: () => Promise<void> | void };
   private smartCaptureEventHandler = (event: Event) => this.handleSmartCaptureEvent(event as CustomEvent);
-  private readonly smartProposalColors = ['#e8f0fe', '#e6f4ea', '#f3e8fd', '#fef7e0', '#fce8e6', '#e4f7fb'];
+  private smartCaptureEstimateEventHandler = (event: Event) => this.handleSmartCaptureEstimateEvent(event as CustomEvent);
+  readonly smartProposalColors = ['#e8f0fe', '#e6f4ea', '#f3e8fd', '#fef7e0', '#fce8e6', '#e4f7fb'];
 
   constructor(
     public Shared: SharedService,
@@ -48,29 +65,41 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   async startSmartCapture() {
+    this.openSmartCaptureListening();
+    await this.beginSmartCaptureListening();
+  }
+
+  private openSmartCaptureListening() {
+    this.setSmartCaptureDocumentLock(true);
     this.smartCaptureError = '';
     this.smartCaptureOpen = true;
     this.smartCaptureListening = true;
+    this.smartCaptureTranscript = '';
+    this.smartCaptureEstimate = null;
     this.smartCapturePlan = null;
     this.smartCaptureValidation = null;
     this.smartCaptureResult = null;
     this.selectedSmartActions.clear();
     this.closeSmartReminderPicker();
-    const bridge = (window as any).KeptSmartCapture;
-    if (bridge?.presentSmartCaptureModal) {
-      await bridge.presentSmartCaptureModal();
+  }
+
+  async beginSmartCaptureListening() {
+    this.openSmartCaptureListening();
+    const plugin = this.keptIntelligencePlugin();
+    if (!plugin?.startVoiceCapture) {
+      this.smartCaptureError = 'Smart Capture is waiting for the iOS voice capture plugin.';
       return;
     }
-    if (bridge?.startSmartCapture) {
-      await bridge.startSmartCapture();
-      return;
+
+    try {
+      await this.bindVoiceTranscriptListener(plugin);
+      await plugin.startVoiceCapture();
+      this.smartVoiceCapturing = true;
+    } catch (error: any) {
+      this.smartVoiceCapturing = false;
+      this.smartCaptureListening = false;
+      this.smartCaptureError = error?.message || 'Could not start Smart Capture voice input.';
     }
-    const webkitHandler = (window as any).webkit?.messageHandlers?.keptSmartCapture;
-    if (webkitHandler?.postMessage) {
-      webkitHandler.postMessage({ type: 'presentSmartCaptureModal' });
-      return;
-    }
-    this.smartCaptureError = 'Smart Capture is waiting for the iOS voice capture bridge.';
   }
 
   installPwa() {
@@ -93,21 +122,40 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    window.addEventListener('kept-smart-capture-estimate', this.smartCaptureEstimateEventHandler as EventListener);
     window.addEventListener('kept-smart-capture-plan', this.smartCaptureEventHandler as EventListener);
     window.addEventListener('smartCaptureCompleted', this.smartCaptureEventHandler as EventListener);
     (window as any).KeptSmartCapture = {
       ...((window as any).KeptSmartCapture || {}),
+      receiveEstimate: (payload: SmartCaptureEstimate) => this.ngZone.run(() => this.receiveSmartCaptureEstimate(payload)),
       receivePlan: (payload: any) => this.ngZone.run(() => this.receiveSmartCapture(payload))
     };
   }
 
   ngOnDestroy(): void {
+    window.removeEventListener('kept-smart-capture-estimate', this.smartCaptureEstimateEventHandler as EventListener);
     window.removeEventListener('kept-smart-capture-plan', this.smartCaptureEventHandler as EventListener);
     window.removeEventListener('smartCaptureCompleted', this.smartCaptureEventHandler as EventListener);
+    this.removeVoiceTranscriptListener();
+    this.setSmartCaptureDocumentLock(false);
+  }
+
+  private handleSmartCaptureEstimateEvent(event: CustomEvent) {
+    this.ngZone.run(() => this.receiveSmartCaptureEstimate(event.detail || (event as any).data || {}));
   }
 
   private handleSmartCaptureEvent(event: CustomEvent) {
     this.ngZone.run(() => this.receiveSmartCapture(event.detail || (event as any).data || {}));
+  }
+
+  receiveSmartCaptureEstimate(payload: SmartCaptureEstimate) {
+    if (!payload?.estimatedActions?.length) return;
+    if (payload.transcript) this.smartCaptureTranscript = payload.transcript;
+    this.smartCaptureEstimate = payload;
+    this.setSmartCaptureDocumentLock(true);
+    this.smartCaptureOpen = true;
+    this.smartCaptureListening = payload.status === 'listening';
+    this.smartCaptureError = '';
   }
 
   async receiveSmartCapture(payload: { transcript?: string; actionPlan?: KeptActionPlan; plan?: KeptActionPlan }) {
@@ -118,6 +166,8 @@ export class MainComponent implements OnInit, OnDestroy {
     }
     this.smartCaptureTranscript = payload.transcript || '';
     this.smartCapturePlan = actionPlan;
+    this.setSmartCaptureDocumentLock(true);
+    this.smartCaptureEstimate = null;
     this.smartCaptureResult = null;
     this.smartCaptureError = '';
     this.smartCaptureValidation = null;
@@ -186,6 +236,9 @@ export class MainComponent implements OnInit, OnDestroy {
     for (let index = 0; index < plan.actions.length; index++) {
       if (selected && !selected.has(index)) continue;
       const action = plan.actions[index] as any;
+      if ((action.type === 'create_text_note' || action.type === 'create_todo_note') && !action.bgColor) {
+        action.bgColor = this.proposalColor(action, index);
+      }
       if (action.type !== 'set_reminder' || action.dueAtUtc) continue;
       this.smartCaptureError = 'Pick a reminder date and time before running Smart Capture.';
       this.openSmartReminderPicker(index);
@@ -198,15 +251,123 @@ export class MainComponent implements OnInit, OnDestroy {
 
   closeSmartCapture() {
     this.smartCaptureOpen = false;
+    this.setSmartCaptureDocumentLock(false);
     this.smartCaptureListening = false;
     this.smartCaptureLoading = false;
     this.smartCaptureRunning = false;
+    this.smartVoiceCapturing = false;
+    this.smartCaptureEstimate = null;
     this.smartCapturePlan = null;
     this.smartCaptureValidation = null;
     this.smartCaptureResult = null;
     this.smartCaptureError = '';
     this.selectedSmartActions.clear();
     this.closeSmartReminderPicker();
+  }
+
+  async cancelSmartCapture() {
+    await this.cancelNativeVoiceCapture();
+    this.closeSmartCapture();
+  }
+
+  async toggleSmartVoiceCapture() {
+    if (this.smartVoiceCapturing) {
+      await this.stopNativeVoiceCapture();
+      return;
+    }
+    await this.beginSmartCaptureListening();
+  }
+
+  async finishSmartCaptureVoice() {
+    if (this.smartCaptureLoading) return;
+    this.smartCaptureLoading = true;
+    this.smartCaptureError = '';
+    try {
+      const transcript = await this.stopNativeVoiceCapture();
+      const command = (transcript || this.smartCaptureTranscript || '').trim();
+      if (!command) {
+        this.smartCaptureError = 'Say something first, then tap Done.';
+        return;
+      }
+      const plugin = this.keptIntelligencePlugin();
+      if (!plugin?.processTextCommand) {
+        this.smartCaptureError = 'Smart Capture is waiting for the iOS planning plugin.';
+        return;
+      }
+      const result = await plugin.processTextCommand({ command, context: {} });
+      if (!result?.actionPlan) {
+        this.smartCaptureError = 'Smart Capture did not return an action plan.';
+        return;
+      }
+      await this.receiveSmartCapture({ transcript: command, actionPlan: result?.actionPlan });
+    } catch (error: any) {
+      this.smartCaptureError = error?.message || 'Could not prepare the Smart Capture proposal.';
+    } finally {
+      this.smartCaptureLoading = false;
+    }
+  }
+
+  async smartPrimaryAction() {
+    if (this.smartCapturePlan) {
+      await this.runSmartCapture(true);
+      return;
+    }
+    await this.finishSmartCaptureVoice();
+  }
+
+  smartPrimaryLabel() {
+    if (!this.smartCapturePlan) return this.smartCaptureLoading || this.smartCaptureEstimate ? 'Planning…' : 'Done';
+    return this.smartCaptureRunning ? 'Saving…' : 'Approve';
+  }
+
+  smartPrimaryDisabled() {
+    if (!this.smartCapturePlan) return this.smartCaptureLoading || !!this.smartCaptureEstimate;
+    return this.smartCaptureRunning || !this.selectedSmartActions.size || !this.smartCaptureValidation?.valid;
+  }
+
+  smartVoiceIcon() {
+    return this.smartVoiceCapturing ? 'stop' : 'mic';
+  }
+
+  private keptIntelligencePlugin() {
+    return (window as any).Capacitor?.Plugins?.KeptIntelligence;
+  }
+
+  private async bindVoiceTranscriptListener(plugin: any) {
+    if (!plugin?.addListener || this.smartVoiceTranscriptListener) return;
+    const listener = plugin.addListener('voiceTranscript', ({ text }: { text?: string; isFinal?: boolean }) => {
+      this.ngZone.run(() => {
+        if (text) this.smartCaptureTranscript = text;
+      });
+    });
+    this.smartVoiceTranscriptListener = typeof listener?.then === 'function' ? await listener : listener;
+  }
+
+  private async removeVoiceTranscriptListener() {
+    const listener = this.smartVoiceTranscriptListener;
+    this.smartVoiceTranscriptListener = undefined;
+    await listener?.remove?.();
+  }
+
+  private async stopNativeVoiceCapture() {
+    const plugin = this.keptIntelligencePlugin();
+    this.smartVoiceCapturing = false;
+    this.smartCaptureListening = false;
+    if (!plugin?.stopVoiceCapture) return this.smartCaptureTranscript;
+    const result = await plugin.stopVoiceCapture();
+    if (result?.text) this.smartCaptureTranscript = result.text;
+    return result?.text || this.smartCaptureTranscript;
+  }
+
+  private async cancelNativeVoiceCapture() {
+    const plugin = this.keptIntelligencePlugin();
+    this.smartVoiceCapturing = false;
+    this.smartCaptureListening = false;
+    if (plugin?.cancelVoiceCapture) await plugin.cancelVoiceCapture();
+  }
+
+  private setSmartCaptureDocumentLock(locked: boolean) {
+    document.body.classList.toggle('kept-smart-capture-open', locked);
   }
 
   openSmartReminderPicker(index: number, event?: Event) {
@@ -398,6 +559,31 @@ export class MainComponent implements OnInit, OnDestroy {
     const anyAction = action as any;
     if (anyAction.bgColor) return anyAction.bgColor;
     return this.smartProposalColors[index % this.smartProposalColors.length];
+  }
+
+  estimateActions() {
+    return this.smartCaptureEstimate?.estimatedActions?.length
+      ? this.smartCaptureEstimate.estimatedActions
+      : [{ type: 'create_text_note', intent: 'new', confidence: 0.6 }];
+  }
+
+  estimateBadge(action: SmartCaptureEstimateAction) {
+    if (action.intent === 'new' || action.type === 'create_text_note' || action.type === 'create_todo_note') return 'New';
+    if (action.intent === 'share' || action.type === 'share_note') return 'Share';
+    if (action.intent === 'reminder' || action.type === 'set_reminder') return 'Reminder';
+    if (action.intent === 'archive' || action.type === 'archive_note') return 'Archive';
+    if (action.intent === 'trash' || action.type === 'trash_note') return 'Trash';
+    return 'Updates';
+  }
+
+  estimateIcon(action: SmartCaptureEstimateAction) {
+    if (action.type === 'create_todo_note') return 'checklist';
+    if (action.type === 'share_note') return 'group';
+    if (action.type === 'set_reminder') return 'notifications';
+    if (action.type === 'archive_note') return 'archive';
+    if (action.type === 'trash_note') return 'delete';
+    if (action.type === 'add_labels') return 'label';
+    return 'notes';
   }
 
   proposalBadge(action: KeptAction) {

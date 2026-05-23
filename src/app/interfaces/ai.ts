@@ -20,6 +20,7 @@ interface BaseAction {
   title?: string;
   text?: string;
   noteId?: number;
+  bgColor?: string;
 }
 
 export interface CreateTextNoteAction extends BaseAction {
