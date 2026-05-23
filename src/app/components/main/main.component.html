@@ -186,19 +186,22 @@
               }
 
               @if (shareRecipientsForAction(actionIndex).length) {
-                <div class="smart-share-overlay" aria-label="Share recipients">
-                  @for (user of shareRecipientsForAction(actionIndex); track user.id) {
-                    <div class="smart-share-recipient">
-                      @if (user.avatarDataUrl) {
-                        <img [src]="user.avatarDataUrl" [alt]="user.displayName">
-                      } @else {
-                        <span class="avatar-fallback animal-{{user.avatarPreset || 'cat'}}">
-                          <span class="head"><i></i></span>
-                        </span>
-                      }
-                      <span>{{user.displayName || user.username}}</span>
-                    </div>
-                  }
+                <div class="smart-share-block" aria-label="Share recipients">
+                  <div class="smart-share-heading">Shared with:</div>
+                  <div class="smart-share-overlay">
+                    @for (user of shareRecipientsForAction(actionIndex); track user.id) {
+                      <div class="smart-share-recipient">
+                        @if (user.avatarDataUrl) {
+                          <img [src]="user.avatarDataUrl" [alt]="user.displayName">
+                        } @else {
+                          <span class="avatar-fallback animal-{{user.avatarPreset || 'cat'}}">
+                            <span class="head"><i></i></span>
+                          </span>
+                        }
+                        <span>{{user.displayName || user.username}}</span>
+                      </div>
+                    }
+                  </div>
                 </div>
               }
 

@@ -1905,6 +1905,32 @@ async function broadcastNoteChange(noteId, action, userIds) {
   broadcastRealtime(recipients, { type: 'notes-changed', action, noteId });
 }
 
+async function broadcastProfileUpdate(user) {
+  const rows = await all(
+    `SELECT ? AS userId
+     UNION
+     SELECT nc.userId
+     FROM notes n
+     JOIN note_collaborators nc ON nc.noteId = n.id
+     WHERE n.ownerUserId = ?
+     UNION
+     SELECT n.ownerUserId
+     FROM notes n
+     JOIN note_collaborators nc ON nc.noteId = n.id
+     WHERE nc.userId = ?
+     UNION
+     SELECT nc2.userId
+     FROM note_collaborators nc
+     JOIN note_collaborators nc2 ON nc2.noteId = nc.noteId
+     WHERE nc.userId = ?`,
+    [user.id, user.id, user.id, user.id]
+  );
+  broadcastRealtime(rows.map(row => row.userId), {
+    type: 'profile-updated',
+    user: publicCollaborator(user)
+  });
+}
+
 const notePresence = new Map();
 const socketPresence = new Map();
 
@@ -2599,6 +2625,7 @@ app.patch('/api/users/me/profile', requireAuth, asyncRoute(async (req, res) => {
 
   await run('UPDATE users SET displayName = ?, avatarDataUrl = ?, avatarPreset = ? WHERE id = ?', [displayName, avatarDataUrl, avatarPreset, req.user.id]);
   const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+  await broadcastProfileUpdate(user);
   res.json(publicUser(user));
 }));
 
