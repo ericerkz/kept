@@ -681,34 +681,60 @@
 }
 
 .smart-share-overlay {
-  display: grid;
-  gap: 8px;
-  margin-top: 14px;
+  align-items: start;
+  border-top: 1px solid rgba(60, 64, 67, 0.16);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
 }
 
 .smart-share-recipient {
   align-items: center;
-  background: rgba(255, 255, 255, 0.68);
-  border: 1px solid rgba(60, 64, 67, 0.16);
-  border-radius: 999px;
-  box-shadow: 0 6px 18px rgba(60, 64, 67, 0.08);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(60, 64, 67, 0.18);
+  border-radius: 16px;
+  box-shadow: 0 10px 24px rgba(60, 64, 67, 0.12);
   color: #202124;
   display: inline-grid;
-  font: 700 13px/1.2 "Google Sans", Roboto, Arial, sans-serif;
-  gap: 8px;
-  grid-template-columns: 28px minmax(0, 1fr);
+  font: 700 15px/1.2 "Google Sans", Roboto, Arial, sans-serif;
+  gap: 10px;
+  grid-template-columns: 44px minmax(0, 1fr);
   justify-self: start;
   max-width: 100%;
-  min-height: 36px;
-  padding: 4px 10px 4px 4px;
+  min-height: 58px;
+  min-width: min(100%, 188px);
+  padding: 7px 12px 7px 7px;
+  position: relative;
+
+  &::before {
+    align-items: center;
+    background: #1a73e8;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    color: #fff;
+    content: "group";
+    display: flex;
+    font-family: "Material Symbols Outlined";
+    font-size: 17px;
+    font-weight: 400;
+    height: 24px;
+    justify-content: center;
+    left: 37px;
+    line-height: 1;
+    position: absolute;
+    top: 34px;
+    width: 24px;
+  }
 
   img,
   .avatar-fallback {
     border-radius: 50%;
     display: block;
-    height: 28px;
+    height: 44px;
     overflow: hidden;
-    width: 28px;
+    width: 44px;
   }
 
   > span:last-child {

@@ -611,10 +611,10 @@ export class MainComponent implements OnInit, OnDestroy {
     const actions = this.smartCapturePlan?.actions || [];
     const share = actions[shareIndex] as any;
     if (!share || share.type !== 'share_note') return null;
-    const shareNoteId = share.noteId;
+    const shareNoteId = this.numericNoteId(share.noteId);
     if (shareNoteId) {
       const targetIndex = actions.findIndex((action, index) =>
-        index !== shareIndex && (action as any).type !== 'share_note' && (action as any).noteId === shareNoteId
+        index !== shareIndex && (action as any).type !== 'share_note' && this.numericNoteId((action as any).noteId) === shareNoteId
       );
       return targetIndex >= 0 ? targetIndex : null;
     }
@@ -627,7 +627,7 @@ export class MainComponent implements OnInit, OnDestroy {
 
   shareRecipientsForAction(index: number) {
     const userIds = this.connectedShareActionIndexes(index)
-      .flatMap(shareIndex => ((this.smartCapturePlan?.actions?.[shareIndex] as any)?.userIds || []) as number[]);
+      .flatMap(shareIndex => this.actionUserIds(this.smartCapturePlan?.actions?.[shareIndex] as any));
     return [...new Set(userIds)]
       .map(userId => this.smartShareUsers.find(user => user.id === userId) || {
         id: userId,
@@ -645,6 +645,18 @@ export class MainComponent implements OnInit, OnDestroy {
     this.notes.listShareUsers()
       .then(users => { this.smartShareUsers = users; })
       .catch(error => console.error('Could not load Smart Capture share users', error));
+  }
+
+  private numericNoteId(value: any) {
+    const id = Number(value);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  }
+
+  private actionUserIds(action: any) {
+    const raw = action?.userIds ?? action?.shareWithUserIds ?? action?.collaboratorUserIds ?? [];
+    return (Array.isArray(raw) ? raw : [raw])
+      .map(userId => Number(userId))
+      .filter(userId => Number.isFinite(userId) && userId > 0);
   }
 
   estimateActions() {
