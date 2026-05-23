@@ -262,55 +262,50 @@
   .pwa-close { color: #5f6368; }
 }
 
-.smart-capture-backdrop {
-  background: rgba(0, 0, 0, 0.46);
-  inset: 0;
-  position: fixed;
-  z-index: 1600;
-}
-
 .smart-capture-panel {
-  background: #202124;
-  border: 1px solid #3c4043;
-  border-radius: 8px 8px 0 0;
-  bottom: 0;
-  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.35);
-  color: #e8eaed;
-  left: 0;
-  max-height: 82vh;
-  overflow: auto;
-  padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.9) 55%, rgba(138, 194, 255, 0.82) 100%),
+    radial-gradient(circle at 22% 18%, rgba(232, 240, 254, 0.9), transparent 28%),
+    #fff;
+  color: #202124;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  inset: 0;
+  overflow: hidden;
+  padding: max(20px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
   position: fixed;
-  right: 0;
   z-index: 1601;
 }
 
-.smart-capture-header {
-  align-items: flex-start;
+.smart-capture-chrome {
+  align-items: center;
   display: flex;
-  gap: 16px;
   justify-content: space-between;
+  min-height: 46px;
 
-  h3 {
-    font: 600 18px/1.25 "Google Sans", Roboto, Arial, sans-serif;
-    margin: 3px 0 0;
-  }
-
-  .eyebrow {
-    color: #fbbc04;
-    font: 600 11px/1 "Google Sans", Roboto, Arial, sans-serif;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+  > .material-symbols-outlined {
+    color: #3c4043;
+    font-size: 22px;
+    margin-left: auto;
+    margin-right: auto;
+    transform: translateX(18px);
   }
 
   button {
+    align-items: center;
     background: transparent;
     border: 0;
-    color: #9aa0a6;
+    color: #3c4043;
     cursor: pointer;
-    font-size: 28px;
-    line-height: 1;
-    padding: 0 4px;
+    display: inline-flex;
+    height: 40px;
+    justify-content: center;
+    padding: 0;
+    width: 40px;
+
+    .material-symbols-outlined {
+      font-size: 26px;
+    }
   }
 }
 
@@ -337,54 +332,255 @@
 .smart-error { background: rgba(246, 174, 169, 0.12); color: #f6aea9; }
 .smart-success { background: rgba(129, 201, 149, 0.12); color: #81c995; }
 
-.smart-action-list {
-  display: grid;
-  gap: 10px;
-  margin: 14px 0 18px;
+.smart-listening-stage,
+.smart-review-stage {
+  min-height: 0;
 }
 
-.smart-action-card {
-  align-items: flex-start;
-  background: #2b2c2f;
-  border: 1px solid #3c4043;
-  border-radius: 8px;
+.smart-listening-stage {
+  align-content: center;
+  animation: smartStageIn 240ms ease both;
   display: grid;
-  gap: 10px;
-  grid-template-columns: 28px 1fr;
-  padding: 12px;
-
-  &.invalid { opacity: 0.72; }
+  gap: 36px;
+  justify-items: center;
+  padding-bottom: 82px;
 }
 
-.smart-action-select {
+.smart-listening-art {
+  align-items: center;
+  aspect-ratio: 1;
+  background: rgba(232, 240, 254, 0.58);
+  border-radius: 28px;
+  box-shadow: 0 24px 58px rgba(26, 115, 232, 0.14);
   display: flex;
   justify-content: center;
-  padding-top: 2px;
+  opacity: 0.95;
+  width: min(178px, 42vw);
 
-  input {
-    accent-color: #fbbc04;
-    height: 18px;
-    width: 18px;
+  img {
+    display: block;
+    height: 74%;
+    object-fit: contain;
+    width: 74%;
   }
 }
 
-.smart-action-type {
-  color: #fbbc04;
-  font: 600 11px/1 "Google Sans", Roboto, Arial, sans-serif;
-  margin-bottom: 5px;
-  text-transform: uppercase;
+.smart-listening-copy {
+  color: #5f6368;
+  font-family: "Google Sans", Roboto, Arial, sans-serif;
+  text-align: center;
+
+  h2 {
+    color: #3c4043;
+    font-size: clamp(27px, 7vw, 38px);
+    font-weight: 500;
+    letter-spacing: 0;
+    line-height: 1.18;
+    margin: 0;
+
+    span {
+      color: #7ba4f6;
+      font-weight: 700;
+    }
+  }
+
+  p {
+    font-size: clamp(17px, 4.5vw, 24px);
+    line-height: 1.35;
+    margin: 26px 0 0;
+  }
 }
 
-.smart-action-summary {
-  color: #e8eaed;
-  font: 500 14px/1.35 Roboto, Arial, sans-serif;
+.smart-inline-error {
+  background: rgba(217, 48, 37, 0.08);
+  border: 1px solid rgba(217, 48, 37, 0.16);
+  border-radius: 8px;
+  color: #b3261e;
+  font-size: 13px;
+  line-height: 1.35;
+  margin-top: 18px;
+  padding: 10px 12px;
+}
+
+.smart-review-stage {
+  animation: smartStageIn 260ms ease both;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  overflow: hidden;
+  padding-bottom: 12px;
+}
+
+@keyframes smartStageIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.smart-review-header {
+  font-family: "Google Sans", Roboto, Arial, sans-serif;
+  padding: 12px 4px 14px;
+
+  .eyebrow {
+    color: #1a73e8;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  h2 {
+    color: #202124;
+    font-size: 25px;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.15;
+    margin: 5px 0 0;
+  }
+
+  p {
+    color: #5f6368;
+    font: 400 14px/1.35 Roboto, Arial, sans-serif;
+    margin: 8px 0 0;
+  }
+}
+
+.smart-proposal-grid {
+  align-content: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 2px 118px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.smart-proposal-card {
+  background: var(--proposal-bg);
+  border: 2px dashed rgba(60, 64, 67, 0.38);
+  border-radius: 18px;
+  color: #202124;
+  font-family: "Google Sans", Roboto, Arial, sans-serif;
+  min-height: 172px;
+  padding: 18px 16px 16px;
+  position: relative;
+  transition: opacity 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+
+  &.is-selected {
+    box-shadow: 0 12px 32px rgba(60, 64, 67, 0.14);
+  }
+
+  &:not(.is-selected) {
+    opacity: 0.52;
+    transform: scale(0.98);
+  }
+
+  &.is-update {
+    border-color: rgba(126, 87, 194, 0.45);
+  }
+
+  h3 {
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.25;
+    margin: 14px 0 12px;
+  }
+}
+
+.smart-proposal-check {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(60, 64, 67, 0.18);
+  border-radius: 50%;
+  box-shadow: 0 4px 12px rgba(60, 64, 67, 0.12);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  width: 32px;
+
+  &.checked {
+    background: #1a73e8;
+    border-color: #1a73e8;
+  }
+
+  .material-symbols-outlined {
+    font-size: 21px;
+  }
+}
+
+.smart-proposal-topline {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-height: 24px;
+
+  .material-symbols-outlined {
+    color: rgba(60, 64, 67, 0.76);
+    font-size: 23px;
+    margin-left: auto;
+    margin-right: 42px;
+  }
+}
+
+.smart-proposal-badge {
+  background: rgba(60, 64, 67, 0.8);
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
+.smart-proposal-checklist {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    align-items: flex-start;
+    display: grid;
+    font: 500 15px/1.35 Roboto, Arial, sans-serif;
+    gap: 10px;
+    grid-template-columns: 20px 1fr;
+  }
+
+  .material-symbols-outlined {
+    color: rgba(26, 115, 232, 0.48);
+    font-size: 20px;
+    line-height: 1;
+  }
+}
+
+.smart-proposal-body {
+  font: 400 16px/1.45 Roboto, Arial, sans-serif;
+  margin: 0;
   overflow-wrap: anywhere;
 }
 
-.smart-action-meta {
-  color: #9aa0a6;
-  font-size: 12px;
-  margin-top: 4px;
+.smart-proposal-meta {
+  align-items: center;
+  border-top: 1px solid rgba(60, 64, 67, 0.18);
+  color: rgba(60, 64, 67, 0.72);
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 16px;
+  padding-top: 12px;
 }
 
 .smart-reminder-button {
@@ -407,51 +603,152 @@
 }
 
 .smart-reminder-dialog {
-  z-index: 1700;
+  z-index: 3000;
 }
 
 .smart-capture-actions {
+  align-items: center;
+  bottom: max(18px, env(safe-area-inset-bottom));
   display: flex;
-  gap: 8px;
-  justify-content: flex-end;
+  gap: 14px;
+  justify-content: center;
+  left: 0;
+  padding: 0 22px;
+  pointer-events: none;
+  position: fixed;
+  right: 0;
+  z-index: 1602;
 
   button {
-    background: #fbbc04;
-    border: 0;
-    border-radius: 4px;
-    color: #202124;
-    cursor: pointer;
-    font: 600 13px/1 "Google Sans", Roboto, Arial, sans-serif;
-    min-height: 38px;
-    padding: 0 14px;
-
-    &.secondary {
-      background: transparent;
-      border: 1px solid #5f6368;
-      color: #e8eaed;
-    }
-
-    &:disabled {
-      cursor: default;
-      opacity: 0.5;
-    }
+    pointer-events: auto;
   }
 }
 
-:host-context(.light-theme) {
-  .smart-capture-panel {
-    background: #fff;
-    border-color: #dadce0;
-    color: #202124;
+.smart-round-action {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.92);
+  border: 0;
+  border-radius: 28px;
+  box-shadow: 0 12px 28px rgba(60, 64, 67, 0.16);
+  color: #202124;
+  cursor: pointer;
+  display: inline-flex;
+  height: 64px;
+  justify-content: center;
+  min-width: 74px;
+  padding: 0;
+
+  &.danger {
+    color: #b3261e;
   }
 
-  .smart-capture-header button,
-  .smart-transcript,
-  .smart-action-meta { color: #5f6368; }
+  .material-symbols-outlined {
+    font-size: 31px;
+  }
+}
 
-  .smart-action-card {
-    background: #fff;
-    border-color: #dadce0;
+.smart-approve-action {
+  background: #0b57d0;
+  border: 0;
+  border-radius: 32px;
+  box-shadow: 0 14px 30px rgba(11, 87, 208, 0.28);
+  color: #fff;
+  cursor: pointer;
+  font: 700 17px/1 "Google Sans", Roboto, Arial, sans-serif;
+  height: 64px;
+  min-width: 154px;
+  padding: 0 26px;
+
+  &:disabled {
+    background: rgba(95, 99, 104, 0.2);
+    box-shadow: none;
+    color: rgba(60, 64, 67, 0.42);
+    cursor: default;
+  }
+}
+
+@media (max-width: 360px) {
+  .smart-proposal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .smart-round-action {
+    min-width: 64px;
+  }
+
+  .smart-approve-action {
+    min-width: 132px;
+    padding: 0 20px;
+  }
+}
+
+/*
+  Keep older smart action class names styled enough for transitional states
+  while the visual proposal cards are the primary approval UI.
+*/
+.smart-action-list { display: grid; gap: 10px; margin: 14px 0 18px; }
+.smart-action-card {
+  align-items: flex-start;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 28px 1fr;
+  padding: 12px;
+
+  &.invalid { opacity: 0.72; }
+}
+.smart-action-select {
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+
+  input {
+    accent-color: #1a73e8;
+    height: 18px;
+    width: 18px;
+  }
+}
+.smart-action-type {
+  color: #1a73e8;
+  font: 600 11px/1 "Google Sans", Roboto, Arial, sans-serif;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+}
+.smart-action-summary {
+  color: #202124;
+  font: 500 14px/1.35 Roboto, Arial, sans-serif;
+  overflow-wrap: anywhere;
+}
+.smart-action-meta {
+  color: #5f6368;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/*
+  Legacy button styling for any remaining secondary action buttons outside the
+  fixed approval rail.
+*/
+.smart-capture-actions .secondary {
+    background: transparent;
+    border: 1px solid #dadce0;
+    color: #202124;
+}
+
+/*
+  Old nested button rules intentionally left out for the full-screen capture
+  rail; individual button classes above define their final shape.
+*/
+
+/*
+  Light theme overrides are small because Smart Capture now owns its visual
+  canvas regardless of app theme.
+*/
+:host-context(.light-theme) {
+  .smart-capture-panel {
+    color: #202124;
   }
 
   .smart-action-summary { color: #202124; }
@@ -464,9 +761,16 @@
       background: rgba(26, 115, 232, 0.08);
     }
   }
+}
 
-  .smart-capture-actions button.secondary {
-    border-color: #dadce0;
+/*
+  The old theme block below is intentionally replaced by the full-screen visual
+  treatment above.
+*/
+/*
+  .smart-capture-actions button {
+    border: 0;
+    border-radius: 4px; 
     color: #202124;
   }
-}
+*/

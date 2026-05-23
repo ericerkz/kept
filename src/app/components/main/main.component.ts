@@ -16,6 +16,7 @@ export class MainComponent implements OnInit, OnDestroy {
 
   installHelpOpen = false;
   smartCaptureOpen = false;
+  smartCaptureListening = false;
   smartCaptureLoading = false;
   smartCaptureRunning = false;
   smartCaptureTranscript = '';
@@ -32,6 +33,7 @@ export class MainComponent implements OnInit, OnDestroy {
   private smartReminderTimePicker?: TimepickerUI;
   private smartReminderTimePickerInput?: HTMLInputElement;
   private smartCaptureEventHandler = (event: Event) => this.handleSmartCaptureEvent(event as CustomEvent);
+  private readonly smartProposalColors = ['#e8f0fe', '#e6f4ea', '#f3e8fd', '#fef7e0', '#fce8e6', '#e4f7fb'];
 
   constructor(
     public Shared: SharedService,
@@ -47,6 +49,13 @@ export class MainComponent implements OnInit, OnDestroy {
 
   async startSmartCapture() {
     this.smartCaptureError = '';
+    this.smartCaptureOpen = true;
+    this.smartCaptureListening = true;
+    this.smartCapturePlan = null;
+    this.smartCaptureValidation = null;
+    this.smartCaptureResult = null;
+    this.selectedSmartActions.clear();
+    this.closeSmartReminderPicker();
     const bridge = (window as any).KeptSmartCapture;
     if (bridge?.presentSmartCaptureModal) {
       await bridge.presentSmartCaptureModal();
@@ -61,10 +70,6 @@ export class MainComponent implements OnInit, OnDestroy {
       webkitHandler.postMessage({ type: 'presentSmartCaptureModal' });
       return;
     }
-    this.smartCaptureOpen = true;
-    this.smartCapturePlan = null;
-    this.smartCaptureValidation = null;
-    this.smartCaptureResult = null;
     this.smartCaptureError = 'Smart Capture is waiting for the iOS voice capture bridge.';
   }
 
@@ -107,13 +112,17 @@ export class MainComponent implements OnInit, OnDestroy {
 
   async receiveSmartCapture(payload: { transcript?: string; actionPlan?: KeptActionPlan; plan?: KeptActionPlan }) {
     const actionPlan = payload.actionPlan || payload.plan;
-    if (!actionPlan) return;
+    if (!actionPlan) {
+      if (payload.transcript) this.smartCaptureTranscript = payload.transcript;
+      return;
+    }
     this.smartCaptureTranscript = payload.transcript || '';
     this.smartCapturePlan = actionPlan;
     this.smartCaptureResult = null;
     this.smartCaptureError = '';
     this.smartCaptureValidation = null;
     this.smartCaptureOpen = true;
+    this.smartCaptureListening = false;
     this.closeSmartReminderPicker();
     this.selectedSmartActions = new Set((actionPlan.actions || []).map((_action, index) => index));
     await this.validateSmartCapture();
@@ -189,6 +198,7 @@ export class MainComponent implements OnInit, OnDestroy {
 
   closeSmartCapture() {
     this.smartCaptureOpen = false;
+    this.smartCaptureListening = false;
     this.smartCaptureLoading = false;
     this.smartCaptureRunning = false;
     this.smartCapturePlan = null;
@@ -382,6 +392,61 @@ export class MainComponent implements OnInit, OnDestroy {
   actionMeta(action: KeptAction) {
     const noteId = (action as any).noteId;
     return noteId ? `Note #${noteId}` : '';
+  }
+
+  proposalColor(action: KeptAction, index: number) {
+    const anyAction = action as any;
+    if (anyAction.bgColor) return anyAction.bgColor;
+    return this.smartProposalColors[index % this.smartProposalColors.length];
+  }
+
+  proposalBadge(action: KeptAction) {
+    if (action.type === 'create_text_note' || action.type === 'create_todo_note') return 'New';
+    if (action.type === 'append_to_note' || action.type === 'add_checklist_items' || action.type === 'add_labels') return 'Updates';
+    if (action.type === 'set_reminder') return 'Reminder';
+    if (action.type === 'share_note') return 'Share';
+    if (action.type === 'archive_note') return 'Archive';
+    if (action.type === 'trash_note') return 'Trash';
+    return 'Action';
+  }
+
+  proposalTitle(action: KeptAction) {
+    const anyAction = action as any;
+    if (action.type === 'create_text_note' || action.type === 'create_todo_note') return anyAction.title || 'Untitled note';
+    if (action.type === 'append_to_note') return 'Append to note';
+    if (action.type === 'add_checklist_items') return 'Add checklist items';
+    if (action.type === 'add_labels') return 'Add labels';
+    if (action.type === 'set_reminder') return 'Set reminder';
+    if (action.type === 'share_note') return 'Share note';
+    if (action.type === 'archive_note') return 'Archive note';
+    if (action.type === 'trash_note') return 'Move note to trash';
+    return this.actionTitle(action);
+  }
+
+  proposalBody(action: KeptAction) {
+    const anyAction = action as any;
+    if (action.type === 'create_text_note') return anyAction.text || anyAction.body || '';
+    if (action.type === 'append_to_note') return anyAction.text || '';
+    if (action.type === 'add_labels') return (anyAction.labels || []).join(', ');
+    if (action.type === 'set_reminder') return anyAction.dueAtUtc ? new Date(anyAction.dueAtUtc).toLocaleString() : 'Reminder time needed';
+    if (action.type === 'share_note') return `${(anyAction.userIds || []).length} collaborator(s)`;
+    if (action.type === 'archive_note') return 'This note will move out of the main notes view.';
+    if (action.type === 'trash_note') return 'This note will move to trash.';
+    return '';
+  }
+
+  proposalChecklistItems(action: KeptAction) {
+    const anyAction = action as any;
+    if (action.type !== 'create_todo_note' && action.type !== 'add_checklist_items') return [];
+    return (anyAction.items || []).map((item: any) => typeof item === 'string' ? item : (item?.data || item?.text || item?.title || '')).filter(Boolean);
+  }
+
+  proposalExtra(action: KeptAction) {
+    const anyAction = action as any;
+    if (action.type === 'add_labels') return `${(anyAction.labels || []).length} label(s)`;
+    if (action.type === 'set_reminder' && anyAction.timezone) return anyAction.timezone;
+    if (action.type === 'share_note') return 'Shared note';
+    return this.actionMeta(action);
   }
 
 }
