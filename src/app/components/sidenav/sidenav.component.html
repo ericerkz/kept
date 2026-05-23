@@ -35,9 +35,11 @@
       @for (label of Shared.label.list; track label) {
         <div [class.active]="router.url === '/label/'+label.name" class="item is-label"
           (click)="onNavItemClick()"
+          [title]="label.name"
           [routerLink]="['/label', label.name]">
           <span class="pic label" aria-hidden="true"></span>
           <span class="text">{{label.name}}</span>
+          <span class="label-abbr" aria-hidden="true">{{compactLabel(label.name)}}</span>
         </div>
       }
     </div>

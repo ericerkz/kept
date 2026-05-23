@@ -73,6 +73,17 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
     return actions
   }
 
+  compactLabel(name: string) {
+    const words = String(name || '')
+      .trim()
+      .replace(/[^a-z0-9\s]/gi, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!words.length) return '#';
+    if (words.length > 1) return words.slice(0, 3).map(word => word[0]).join('').toUpperCase();
+    return words[0].slice(0, 3).toUpperCase();
+  }
+
 
   collapseSideBar() {
     const sidebar = document.querySelector('[sideBar]');
