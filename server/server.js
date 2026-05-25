@@ -2025,9 +2025,7 @@ async function getNoteRecipientIds(noteId) {
 
 async function broadcastNoteChange(noteId, action, userIds) {
   const recipients = userIds || await getNoteRecipientIds(noteId);
-  setTimeout(() => {
-    broadcastRealtime(recipients, { type: 'notes-changed', action, noteId });
-  }, 250);
+  broadcastRealtime(recipients, { type: 'notes-changed', action, noteId });
 }
 
 async function broadcastProfileUpdate(user) {
@@ -2551,6 +2549,16 @@ app.use('/api', (_req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '25mb' }));
+
+app.use('/api', (req, res, next) => {
+  if (req.method !== 'GET' || req.query.__keptNoCache) return next();
+  const cacheBustedPaths = /^\/(?:notes(?:\/\d+(?:\/collaborators)?)?|sharing\/users|labels|reminders)\b/;
+  if (!cacheBustedPaths.test(req.path)) return next();
+
+  const url = new URL(req.originalUrl, 'http://localhost');
+  url.searchParams.set('__keptNoCache', `${Date.now()}-${randomHex(4)}`);
+  res.redirect(307, `${url.pathname}${url.search}`);
+});
 
 app.get('/api/setup/status', asyncRoute(async (_req, res) => {
   const row = await get('SELECT COUNT(*) AS count FROM users');
