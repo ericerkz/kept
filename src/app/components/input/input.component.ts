@@ -2298,12 +2298,26 @@ export class InputComponent implements OnInit {
     return this.selectedCollaboratorIds.includes(userId)
   }
 
-  toggleCollaborator(userId: number) {
+  async toggleCollaborator(userId: number) {
     if (!this.canManageCollaborators()) return
+    const previousSelectedIds = [...this.selectedCollaboratorIds]
     if (this.isCollaboratorSelected(userId)) {
       this.selectedCollaboratorIds = this.selectedCollaboratorIds.filter(id => id !== userId)
     } else {
       this.selectedCollaboratorIds = [...this.selectedCollaboratorIds, userId]
+    }
+
+    this.isSavingCollaborators = true
+    this.collaboratorError = ''
+    try {
+      const collaborators = await this.notesService.updateCollaborators(this.noteToEdit.id!, this.selectedCollaboratorIds)
+      this.noteToEdit.collaborators = collaborators
+      this.selectedCollaboratorIds = collaborators.map(user => user.id)
+    } catch (error: any) {
+      this.selectedCollaboratorIds = previousSelectedIds
+      this.collaboratorError = error?.error?.error || 'Could not update collaborators.'
+    } finally {
+      this.isSavingCollaborators = false
     }
   }
 

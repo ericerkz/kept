@@ -559,7 +559,7 @@
           </span>
         } @else {
           <input type="checkbox" [checked]="isCollaboratorSelected(user.id)"
-            [disabled]="!canManageCollaborators()" (change)="toggleCollaborator(user.id)">
+            [disabled]="!canManageCollaborators() || isSavingCollaborators" (change)="toggleCollaborator(user.id)">
         }
         <div class="collaborator-avatar-wrapper">
           @if (user.avatarDataUrl) {
