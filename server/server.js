@@ -2025,9 +2025,11 @@ async function getNoteRecipientIds(noteId) {
 
 async function broadcastNoteChange(noteId, action, userIds) {
   const recipients = userIds || await getNoteRecipientIds(noteId);
+  const payload = { type: 'notes-changed', action, noteId };
+  broadcastRealtime(recipients, payload);
   setTimeout(() => {
-    broadcastRealtime(recipients, { type: 'notes-changed', action, noteId });
-  }, 250);
+    broadcastRealtime(recipients, { ...payload, followup: true });
+  }, 1200);
 }
 
 async function broadcastProfileUpdate(user) {
