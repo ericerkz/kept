@@ -2027,9 +2027,11 @@ async function broadcastNoteChange(noteId, action, userIds) {
   const recipients = userIds || await getNoteRecipientIds(noteId);
   const payload = { type: 'notes-changed', action, noteId };
   broadcastRealtime(recipients, payload);
-  setTimeout(() => {
-    broadcastRealtime(recipients, { ...payload, followup: true });
-  }, 1200);
+  if (action === 'created' || action === 'deleted' || action === 'collaborators-updated') {
+    setTimeout(() => {
+      broadcastRealtime(recipients, { ...payload, followup: true });
+    }, 1200);
+  }
 }
 
 async function broadcastProfileUpdate(user) {
