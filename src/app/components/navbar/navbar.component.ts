@@ -107,12 +107,16 @@ export class NavbarComponent implements OnInit {
 
   applyFilter(filter: string) {
     const current = this.Shared.searchQuery.trim()
-    if (current.includes(filter)) return
+    if (current.includes(filter)) {
+      this.isFiltersOpen = false
+      return
+    }
     const next = current ? `${current} ${filter}` : filter
     this.Shared.setSearchQuery(next)
+    this.isFiltersOpen = false
     if (this.searchInput) {
       this.searchInput.nativeElement.value = next
-      this.searchInput.nativeElement.focus()
+      this.searchInput.nativeElement.blur()
     }
   }
 
@@ -144,12 +148,14 @@ export class NavbarComponent implements OnInit {
     const regex = new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'g')
     const next = this.Shared.searchQuery.replace(regex, ' ').replace(/\s+/g, ' ').trim()
     this.Shared.setSearchQuery(next)
+    this.isFiltersOpen = false
   }
 
   clearAllFilters() {
     const current = this.Shared.searchQuery
     const next = current.split(/\s+/).filter(t => !t.startsWith('!')).join(' ').trim()
     this.Shared.setSearchQuery(next)
+    this.isFiltersOpen = false
   }
 
   toggleFilter(code: string) {
@@ -505,6 +511,7 @@ export class NavbarComponent implements OnInit {
   @HostListener('window:scroll')
   onWindowScroll() {
     this.isScrolled = window.scrollY > 0
+    if (this.isFiltersOpen) this.isFiltersOpen = false
   }
 
 }

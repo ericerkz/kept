@@ -661,6 +661,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.modal.nativeElement.removeAttribute('style')
       this.restoreModalScrollPosition()
       this.scheduleIPadMasonrySettle()
+      this.schedulePostModalPaginationCheck()
       this.suppressScrollPagination()
       this.modalClosing = false
     }, isMobileModal ? 180 : 400)
@@ -702,6 +703,17 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   private scheduleIPadMasonrySettle() {
     if (!this.isIPadLikeViewport()) return
     setTimeout(() => this.scheduleBuildMasonry(true), 220)
+  }
+
+  private schedulePostModalPaginationCheck() {
+    setTimeout(() => {
+      const remaining = document.documentElement.scrollHeight - (window.innerHeight + window.scrollY)
+      if (remaining < 1200) {
+        if (this.hasMoreServerNotes()) this.loadMoreNotesIfNeeded()
+        else this.increaseVisibleNoteLimit()
+      }
+      this.observeLoadMoreSentinelIfNeeded()
+    }, 1300)
   }
 
   private prepareModalOpenAnimation(source: DOMRect) {

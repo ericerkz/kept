@@ -995,6 +995,7 @@ function cardNoteBody(row, previewText) {
   const body = row.noteBody || '';
   if (/<img\b/i.test(body)) return body;
   if (row.isCbox && !plainText(body).trim()) return '';
+  if (body.length <= 12000) return body;
   return escapeHtml(previewText);
 }
 
