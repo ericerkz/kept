@@ -107,13 +107,9 @@ export class NavbarComponent implements OnInit {
 
   applyFilter(filter: string) {
     const current = this.Shared.searchQuery.trim()
-    if (current.includes(filter)) {
-      this.isFiltersOpen = false
-      return
-    }
+    if (current.includes(filter)) return
     const next = current ? `${current} ${filter}` : filter
     this.Shared.setSearchQuery(next)
-    this.isFiltersOpen = false
     if (this.searchInput) {
       this.searchInput.nativeElement.value = next
       this.searchInput.nativeElement.blur()
@@ -148,7 +144,6 @@ export class NavbarComponent implements OnInit {
     const regex = new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'g')
     const next = this.Shared.searchQuery.replace(regex, ' ').replace(/\s+/g, ' ').trim()
     this.Shared.setSearchQuery(next)
-    this.isFiltersOpen = false
   }
 
   clearAllFilters() {
