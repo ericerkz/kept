@@ -2119,6 +2119,9 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
           const currentUrl = url.urlAfterRedirects || url.url
           this.syncCurrentPage(currentUrl)
           this.Shared.clearNoteSelection()
+          if (window.innerWidth >= 600) {
+            requestAnimationFrame(() => window.scrollTo({ top: 0 }))
+          }
         }
         else if (url instanceof ActivationEnd && url.snapshot.params['name']) {
           this.currentPage.label = url.snapshot.params['name']
