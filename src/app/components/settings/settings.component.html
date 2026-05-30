@@ -350,6 +350,56 @@
 
     </div>
 
+    <!-- ── Group: iOS Permissions ──────────────────────────────────────── -->
+    @if (isIos) {
+    <div class="settings-group permissions-group">
+      <h2 class="group-title color-blue">
+        <span class="material-symbols-outlined">security</span>
+        App Permissions
+      </h2>
+
+      <p class="section-desc">
+        Manage the permissions Kept needs for reminders, voice capture, and location-based features.
+      </p>
+
+      @if (isLoadingPermissions) {
+        <div class="loading-placeholder">Loading permission statuses…</div>
+      } @else if (permissionsError) {
+        <div class="error">{{permissionsError}}</div>
+      } @else if (permissionsStatus) {
+        <div class="permissions-list">
+          @for (perm of permissions; track perm.key) {
+            <div class="permission-row">
+              <div class="permission-info">
+                <span class="permission-label">{{perm.label}}</span>
+                <span class="permission-desc">{{perm.description}}</span>
+              </div>
+              <div class="permission-action">
+                @if (permissionsStatus[perm.key] === 'granted') {
+                  <span class="permission-granted">
+                    <span class="material-symbols-outlined check-icon">check_circle</span>
+                    Granted
+                  </span>
+                } @else if (permissionsStatus[perm.key] === 'notDetermined') {
+                  <button type="button" class="btn-secondary btn-permission"
+                    [disabled]="isRequestingPermission === perm.key"
+                    (click)="requestPermission(perm.key)">
+                    {{isRequestingPermission === perm.key ? 'Requesting…' : 'Grant Access'}}
+                  </button>
+                } @else if (permissionsStatus[perm.key] === 'denied') {
+                  <button type="button" class="btn-secondary btn-permission"
+                    (click)="openAppSettings()">
+                    Open Settings
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+    }
+
     <!-- ── Group: Advanced ──────────────────────────────────────────────── -->
     <div class="settings-group">
       <h2 class="group-title color-red">

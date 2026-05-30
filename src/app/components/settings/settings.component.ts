@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import * as JSZip from 'jszip';
 import { ActivatedRoute, Router } from '@angular/router';
 import { GoogleCalendarStatusI } from 'src/app/interfaces/reminder';
@@ -7,13 +7,28 @@ import { NotesService, TakeoutImportResult } from 'src/app/services/notes.servic
 
 import { AuthService } from 'src/app/services/auth.service';
 
+export type PermissionStatus = 'granted' | 'denied' | 'notDetermined';
+
+export interface PermissionsStatus {
+  reminders: PermissionStatus;
+  speechRecognition: PermissionStatus;
+  microphone: PermissionStatus;
+  location: PermissionStatus;
+}
+
+export interface PermissionItem {
+  key: keyof PermissionsStatus;
+  label: string;
+  description: string;
+}
+
 @Component({
   selector: 'app-settings',
   templateUrl: './settings.component.html',
   styleUrls: ['../auth/auth-shared.scss', './settings.component.scss'],
   standalone: false
 })
-export class SettingsComponent implements OnInit {
+export class SettingsComponent implements OnInit, OnDestroy {
 
   // ── Global feedback ────────────────────────────────────────────────────
   error = '';
@@ -71,6 +86,22 @@ export class SettingsComponent implements OnInit {
   deleteAccountConfirmation = '';
   deleteAccountError = '';
 
+  // ── iOS Permissions ────────────────────────────────────────────────────
+  isIos = !!(window as any).Capacitor;
+  permissionsStatus: PermissionsStatus | null = null;
+  isLoadingPermissions = false;
+  isRequestingPermission: string | null = null;
+  permissionsError = '';
+
+  readonly permissions: PermissionItem[] = [
+    { key: 'reminders', label: 'Apple Reminders', description: 'needed for reminder sync' },
+    { key: 'speechRecognition', label: 'Speech Recognition', description: 'needed for Smart Capture' },
+    { key: 'microphone', label: 'Microphone', description: 'needed for Smart Capture' },
+    { key: 'location', label: 'Location', description: 'needed for location-based reminders' },
+  ];
+
+  private visibilityListener: (() => void) | null = null;
+
   constructor(
     private reminderService: ReminderService,
     private notesService: NotesService,
@@ -90,6 +121,22 @@ export class SettingsComponent implements OnInit {
       history.replaceState({}, '', '/settings');
     }
     await this.loadAll();
+
+    if (this.isIos) {
+      await this.loadPermissionsStatus();
+      this.visibilityListener = () => {
+        if (document.visibilityState === 'visible') {
+          this.loadPermissionsStatus();
+        }
+      };
+      document.addEventListener('visibilitychange', this.visibilityListener);
+    }
+  }
+
+  ngOnDestroy() {
+    if (this.visibilityListener) {
+      document.removeEventListener('visibilitychange', this.visibilityListener);
+    }
   }
 
   private async loadAll() {
@@ -129,6 +176,67 @@ export class SettingsComponent implements OnInit {
       }
     } catch {}
 
+  }
+
+  // ── iOS Permissions ──────────────────────────────────────────────────────
+
+  private async loadPermissionsStatus() {
+    if (!this.isIos) return;
+    this.isLoadingPermissions = true;
+    this.permissionsError = '';
+    try {
+      const plugin = (window as any).Capacitor?.Plugins?.KeptIntelligence;
+      if (!plugin) {
+        this.permissionsError = 'KeptIntelligence plugin not available.';
+        return;
+      }
+      this.permissionsStatus = await plugin.getPermissionsStatus();
+    } catch (e: any) {
+      this.permissionsError = e?.message || 'Could not load permission statuses.';
+    } finally {
+      this.isLoadingPermissions = false;
+    }
+  }
+
+  async requestPermission(key: string) {
+    if (!this.isIos) return;
+    this.isRequestingPermission = key;
+    this.permissionsError = '';
+    try {
+      const KeptReminders = (window as any).Capacitor?.Plugins?.KeptReminders;
+      const KeptIntelligence = (window as any).Capacitor?.Plugins?.KeptIntelligence;
+
+      switch (key) {
+        case 'reminders':
+          await KeptReminders?.requestAccess();
+          break;
+        case 'speechRecognition':
+          await KeptIntelligence?.requestSpeechAccess();
+          break;
+        case 'microphone':
+          await KeptIntelligence?.requestMicrophoneAccess();
+          break;
+        case 'location':
+          await KeptReminders?.requestLocationAccess();
+          break;
+      }
+    } catch (e: any) {
+      this.permissionsError = e?.message || `Could not request ${key} permission.`;
+    } finally {
+      this.isRequestingPermission = null;
+      // Reload status after request
+      await this.loadPermissionsStatus();
+    }
+  }
+
+  async openAppSettings() {
+    if (!this.isIos) return;
+    try {
+      const plugin = (window as any).Capacitor?.Plugins?.KeptIntelligence;
+      await plugin?.openAppSettings();
+    } catch (e: any) {
+      this.permissionsError = e?.message || 'Could not open app settings.';
+    }
   }
 
   // ── Two-Factor Authentication ────────────────────────────────────────────
