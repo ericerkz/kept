@@ -410,6 +410,10 @@ export class InputComponent implements OnInit {
 
     if (hasContent) {
         let id = await this.Shared.note.db.add(noteObj)
+        if (!id || id <= 0) {
+          if (closeAfterSave) this.showReminderSaveError()
+          return
+        }
         await this.uploadPendingAttachments(id)
         // Reminder saves are fire-and-forget — they must NOT block navigation.
         // The server upserts on noteId so duplicate reminders are handled

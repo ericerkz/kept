@@ -4345,8 +4345,16 @@ function reminderResponse(reminder, notesById = new Map()) {
   const noteBody = plainText(note?.noteBody || '').slice(0, 500);
   return {
     ...reminder,
+    id: Number(reminder.id),
+    noteId,
+    dueAtUtc: reminder.dueAtUtc || null,
     title: explicitTitle || noteTitle || null,
     body: explicitBody || noteBody || null,
+    locationName: reminder.locationName || null,
+    latitude: reminder.latitude != null ? Number(reminder.latitude) : null,
+    longitude: reminder.longitude != null ? Number(reminder.longitude) : null,
+    radiusMeters: reminder.radiusMeters != null ? Number(reminder.radiusMeters) : null,
+    status: reminder.status || 'pending',
     deepLink: noteId ? `kept://note/${noteId}` : null
   };
 }

@@ -60,11 +60,15 @@ export class ReminderService {
       return reminder;
     } catch (error: any) {
       if (error?.status === 409 && data.noteId) {
-        const retry = await this.retryCreateAsUpdate(data).catch(retryError => {
-          console.warn('Reminder 409 retry failed (non-fatal):', retryError?.message || retryError);
+        try {
+          const retry = await this.retryCreateAsUpdate(data);
+          if (retry) return retry;
+        } catch (retryError: any) {
+          console.warn('Reminder create failed after 409 retry (non-fatal):', retryError?.message || retryError);
           return null;
-        });
-        if (retry) return retry;
+        }
+        console.warn('Reminder create failed after 409 retry (non-fatal): existing reminder not found');
+        return null;
       }
       // Server-side upsert handles noteId conflicts transparently, but if a
       // network error or stale 409 still slips through, log and return null

@@ -393,11 +393,11 @@
         </button>
         <h2>Place</h2>
       </div>
-      <label class="rd-place-search">
+      <form class="rd-place-search" (ngSubmit)="resolveLocation()">
         <span class="material-symbols-outlined">search</span>
         <input type="text" placeholder="Search for a place"
-          [(ngModel)]="locationPhrase" (keyup.enter)="resolveLocation()" />
-      </label>
+          name="locationPhrase" [(ngModel)]="locationPhrase" enterkeyhint="search" />
+      </form>
       @switch (locationState) {
         @case ('idle') {
           <div class="rd-place-map" aria-label="Map preview placeholder">

@@ -2316,39 +2316,40 @@ body.light-theme .reminder-date-dialog {
 @media (max-width: 660px) {
   .reminder-date-dialog.reminder-choice-dialog,
   .reminder-date-dialog.reminder-place-dialog {
-    border-radius: 18px;
-    gap: 14px;
-    max-height: calc(100dvh - 32px);
+    border-radius: 16px;
+    gap: 12px;
+    max-height: calc(100dvh - 56px);
     overflow-y: auto;
-    padding: 24px;
-    width: min(420px, calc(100vw - 32px));
+    padding: 20px;
+    top: 44%;
+    width: min(390px, calc(100vw - 40px));
   }
 
   .reminder-choice-dialog {
     .rd-choice-title {
-      font-size: 1.7rem;
+      font-size: 1.55rem;
     }
 
     .rd-choice-subtitle {
-      font-size: 1rem;
+      font-size: 0.94rem;
       margin: -6px 0 4px;
     }
 
     .rd-choice-card {
-      border-radius: 18px;
-      gap: 16px;
-      grid-template-columns: 56px 1fr 22px;
-      min-height: 92px;
-      padding: 16px 18px;
+      border-radius: 16px;
+      gap: 14px;
+      grid-template-columns: 50px 1fr 20px;
+      min-height: 82px;
+      padding: 14px 16px;
     }
 
     .rd-choice-icon {
-      border-radius: 14px;
-      height: 56px;
-      width: 56px;
+      border-radius: 12px;
+      height: 50px;
+      width: 50px;
 
       .material-symbols-outlined {
-        font-size: 32px;
+        font-size: 29px;
       }
     }
 
@@ -2356,22 +2357,22 @@ body.light-theme .reminder-date-dialog {
       gap: 3px;
 
       strong {
-        font-size: 1.15rem;
+        font-size: 1.05rem;
       }
 
       span {
-        font-size: 0.94rem;
+        font-size: 0.88rem;
       }
     }
 
     .rd-choice-chevron {
-      font-size: 30px;
+      font-size: 27px;
     }
 
     .rd-choice-cancel {
-      border-radius: 18px;
-      font-size: 1.05rem;
-      min-height: 56px;
+      border-radius: 16px;
+      font-size: 0.98rem;
+      min-height: 50px;
     }
   }
 
@@ -2379,7 +2380,7 @@ body.light-theme .reminder-date-dialog {
     gap: 14px;
 
     .rd-place-header h2 {
-      font-size: 1.45rem;
+      font-size: 1.32rem;
     }
 
     .rd-place-back {
@@ -2393,23 +2394,23 @@ body.light-theme .reminder-date-dialog {
 
     .rd-place-search {
       border-radius: 14px;
-      gap: 10px;
-      grid-template-columns: 24px 1fr;
-      min-height: 54px;
-      padding: 0 16px;
+      gap: 8px;
+      grid-template-columns: 22px 1fr;
+      min-height: 48px;
+      padding: 0 14px;
 
       .material-symbols-outlined {
-        font-size: 24px;
+        font-size: 22px;
       }
 
       input {
-        font-size: 0.98rem;
+        font-size: 0.94rem;
       }
     }
 
     .rd-place-map {
       border-radius: 14px;
-      height: min(190px, 28dvh);
+      height: min(160px, 24dvh);
 
       .material-symbols-outlined {
         font-size: 44px;
@@ -2418,9 +2419,9 @@ body.light-theme .reminder-date-dialog {
 
     .rd-arrive-choice {
       border-radius: 12px;
-      font-size: 0.98rem;
-      height: 50px;
-      padding: 0 16px;
+      font-size: 0.92rem;
+      height: 46px;
+      padding: 0 14px;
 
       .material-symbols-outlined {
         font-size: 23px;
@@ -2434,9 +2435,9 @@ body.light-theme .reminder-date-dialog {
     .rd-place-cancel,
     .rd-place-save {
       border-radius: 14px;
-      font-size: 1rem;
-      height: 56px;
-      padding: 0 16px;
+      font-size: 0.94rem;
+      height: 50px;
+      padding: 0 14px;
     }
   }
 }
