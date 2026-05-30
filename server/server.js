@@ -552,7 +552,19 @@ async function init() {
   await run(`CREATE INDEX IF NOT EXISTS reminders_user_idx ON reminders(userId)`);
   await run(`CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders(dueAtUtc, status)`);
   await run(`DROP INDEX IF EXISTS reminders_note_unique`);
-  await run(`CREATE INDEX IF NOT EXISTS reminders_note_idx ON reminders(noteId, userId, status)`);
+  await run(`DROP INDEX IF EXISTS reminders_note_idx`);
+  await run(`
+    DELETE FROM reminders
+    WHERE noteId IS NOT NULL
+      AND id NOT IN (
+        SELECT keep.id
+        FROM reminders keep
+        WHERE keep.noteId = reminders.noteId
+        ORDER BY (keep.status = 'pending') DESC, keep.updatedAt DESC, keep.id DESC
+        LIMIT 1
+      )
+  `);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS reminders_note_unique ON reminders(noteId)`);
   // Performance indexes for the /api/notes query, which JOINs by note id and
   // filters by ownerUserId. Without these, listing all notes degrades to
   // O(n*m) scans once the user has hundreds of notes (visible after a takeout
@@ -4497,55 +4509,32 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
   const lng = longitude != null ? Number(longitude) : null;
   const radius = radiusMeters != null ? Number(radiusMeters) : (locationName ? 120 : null);
 
-  // Upsert by noteId when a noteId is provided: if a (pending) reminder already
-  // exists for this note, update it rather than returning 409.
-  let reminderId;
-  let isUpdate = false;
-  if (noteIdVal) {
-    const existing = await get(
-      `SELECT id FROM reminders WHERE noteId = ? AND userId = ? AND status = 'pending'`,
-      [noteIdVal, req.user.id]
-    );
-    if (existing) {
-      await run(
-        `UPDATE reminders SET dueAtUtc = ?, timezone = ?, repeatRule = ?, title = ?, body = ?, imageUrl = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, updatedAt = ? WHERE id = ?`,
-        [dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, now, existing.id]
-      );
-      reminderId = existing.id;
-      isUpdate = true;
-    }
-  }
-
-  if (!reminderId) {
-    try {
-      const result = await run(
-        `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, createdAt, updatedAt)
-         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [noteIdVal, req.user.id, dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, now, now]
-      );
-      reminderId = result.id;
-    } catch (error) {
-      if (!noteIdVal || error?.code !== 'SQLITE_CONSTRAINT') throw error;
-      const existing = await get(
-        `SELECT id FROM reminders WHERE noteId = ? AND userId = ? ORDER BY status = 'pending' DESC, updatedAt DESC, id DESC LIMIT 1`,
-        [noteIdVal, req.user.id]
-      );
-      if (!existing) throw error;
-      await run(
-        `UPDATE reminders SET dueAtUtc = ?, timezone = ?, repeatRule = ?, status = 'pending', title = ?, body = ?, imageUrl = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, updatedAt = ? WHERE id = ?`,
-        [dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, now, existing.id]
-      );
-      reminderId = existing.id;
-      isUpdate = true;
-    }
-  }
-
-  const reminder = await get('SELECT * FROM reminders WHERE id = ?', [reminderId]);
+  const existing = noteIdVal ? await get('SELECT id FROM reminders WHERE noteId = ?', [noteIdVal]) : null;
+  const reminder = await get(
+    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(noteId) DO UPDATE SET
+       userId = excluded.userId,
+       dueAtUtc = excluded.dueAtUtc,
+       timezone = excluded.timezone,
+       repeatRule = excluded.repeatRule,
+       status = 'pending',
+       title = excluded.title,
+       body = excluded.body,
+       imageUrl = excluded.imageUrl,
+       locationName = excluded.locationName,
+       latitude = excluded.latitude,
+       longitude = excluded.longitude,
+       radiusMeters = excluded.radiusMeters,
+       updatedAt = excluded.updatedAt
+     RETURNING *`,
+    [noteIdVal, req.user.id, dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, now, now]
+  );
   const enrichedReminder = await enrichReminderResponse(reminder);
   const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [req.user.id]);
   if (caldav) pushReminderToCaldav(caldav, enrichedReminder).catch(err => console.error('CalDAV push failed:', err.message));
   gcalPushReminder(req.user.id, enrichedReminder).catch(err => console.error('GCal push failed:', err.message));
-  res.status(isUpdate ? 200 : 201).json(enrichedReminder);
+  res.status(existing ? 200 : 201).json(enrichedReminder);
 }));
 
 app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
