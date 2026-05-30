@@ -551,6 +551,8 @@ async function init() {
   }
   await run(`CREATE INDEX IF NOT EXISTS reminders_user_idx ON reminders(userId)`);
   await run(`CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders(dueAtUtc, status)`);
+  await run(`DROP INDEX IF EXISTS reminders_note_unique`);
+  await run(`CREATE INDEX IF NOT EXISTS reminders_note_idx ON reminders(noteId, userId, status)`);
   // Performance indexes for the /api/notes query, which JOINs by note id and
   // filters by ownerUserId. Without these, listing all notes degrades to
   // O(n*m) scans once the user has hundreds of notes (visible after a takeout
@@ -4478,8 +4480,9 @@ app.delete('/api/push/subscriptions', requireAuth, asyncRoute(async (req, res) =
 app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
   const { noteId, dueAtUtc, timezone, title, body, imageUrl, repeatRule, locationName, latitude, longitude, radiusMeters } = req.body;
   if (!dueAtUtc && !locationName) return res.status(400).json({ error: 'Either dueAtUtc or locationName is required.' });
-  if (noteId) {
-    const note = await getAccessibleNote(Number(noteId), req.user.id);
+  const noteIdVal = Number(noteId || 0) || null;
+  if (noteIdVal) {
+    const note = await getAccessibleNote(noteIdVal, req.user.id);
     if (!note) return res.status(404).json({ error: 'Note not found.' });
   }
   const now = new Date().toISOString();
@@ -4498,10 +4501,10 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
   // exists for this note, update it rather than returning 409.
   let reminderId;
   let isUpdate = false;
-  if (noteId) {
+  if (noteIdVal) {
     const existing = await get(
       `SELECT id FROM reminders WHERE noteId = ? AND userId = ? AND status = 'pending'`,
-      [Number(noteId), req.user.id]
+      [noteIdVal, req.user.id]
     );
     if (existing) {
       await run(
@@ -4514,12 +4517,27 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
   }
 
   if (!reminderId) {
-    const result = await run(
-      `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [noteId || null, req.user.id, dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, now, now]
-    );
-    reminderId = result.id;
+    try {
+      const result = await run(
+        `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [noteIdVal, req.user.id, dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, now, now]
+      );
+      reminderId = result.id;
+    } catch (error) {
+      if (!noteIdVal || error?.code !== 'SQLITE_CONSTRAINT') throw error;
+      const existing = await get(
+        `SELECT id FROM reminders WHERE noteId = ? AND userId = ? ORDER BY status = 'pending' DESC, updatedAt DESC, id DESC LIMIT 1`,
+        [noteIdVal, req.user.id]
+      );
+      if (!existing) throw error;
+      await run(
+        `UPDATE reminders SET dueAtUtc = ?, timezone = ?, repeatRule = ?, status = 'pending', title = ?, body = ?, imageUrl = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, updatedAt = ? WHERE id = ?`,
+        [dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, now, existing.id]
+      );
+      reminderId = existing.id;
+      isUpdate = true;
+    }
   }
 
   const reminder = await get('SELECT * FROM reminders WHERE id = ?', [reminderId]);

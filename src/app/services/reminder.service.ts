@@ -59,20 +59,6 @@ export class ReminderService {
       await this.load();
       return reminder;
     } catch (error: any) {
-      if (error?.status === 409 && data.noteId) {
-        try {
-          const retry = await this.retryCreateAsUpdate(data);
-          if (retry) return retry;
-        } catch (retryError: any) {
-          console.warn('Reminder create failed after 409 retry (non-fatal):', retryError?.message || retryError);
-          return null;
-        }
-        console.warn('Reminder create failed after 409 retry (non-fatal): existing reminder not found');
-        return null;
-      }
-      // Server-side upsert handles noteId conflicts transparently, but if a
-      // network error or stale 409 still slips through, log and return null
-      // so callers that treat this as fire-and-forget aren't affected.
       console.warn('Reminder create failed (non-fatal):', error?.message || error);
       return null;
     }
@@ -95,20 +81,6 @@ export class ReminderService {
 
   getActiveForNote(noteId: number): ReminderI | undefined {
     return this.reminders$.value.find(r => r.noteId === noteId && r.status === 'pending');
-  }
-
-  private async retryCreateAsUpdate(data: ReminderCreateData): Promise<ReminderI | null> {
-    if (!data.noteId) return null;
-    await this.load();
-    const existing = this.getActiveForNote(data.noteId);
-    if (!existing) return null;
-    return this.update(existing.id, {
-      dueAtUtc: data.dueAtUtc,
-      locationName: data.locationName,
-      latitude: data.latitude,
-      longitude: data.longitude,
-      radiusMeters: data.radiusMeters
-    });
   }
 
   handleFired(payload: ReminderFiredPayload) {
