@@ -6,6 +6,28 @@ import { AuthService } from './auth.service';
 import { CalDavSettingsI, GoogleCalendarStatusI, IcsFeedI, ReminderFiredPayload, ReminderI, ReminderStatus } from '../interfaces/reminder';
 import { PushNotificationService } from './push-notification.service';
 
+type ReminderCreateData = {
+  noteId?: number;
+  dueAtUtc?: string;
+  timezone?: string;
+  title?: string;
+  body?: string;
+  imageUrl?: string;
+  locationName?: string;
+  latitude?: number;
+  longitude?: number;
+  radiusMeters?: number;
+};
+
+type ReminderUpdateData = {
+  status?: ReminderStatus;
+  dueAtUtc?: string;
+  locationName?: string;
+  latitude?: number;
+  longitude?: number;
+  radiusMeters?: number;
+};
+
 @Injectable({ providedIn: 'root' })
 export class ReminderService {
   reminders$ = new BehaviorSubject<ReminderI[]>([]);
@@ -29,7 +51,7 @@ export class ReminderService {
     this.setReminders(reminders);
   }
 
-  async create(data: { noteId?: number; dueAtUtc?: string; timezone?: string; title?: string; body?: string; imageUrl?: string; locationName?: string; latitude?: number; longitude?: number; radiusMeters?: number }) {
+  async create(data: ReminderCreateData) {
     try {
       const reminder = await firstValueFrom(
         this.http.post<ReminderI>(`${this.apiUrl}/reminders`, data, { headers: this.auth.authHeaders() })
@@ -37,6 +59,13 @@ export class ReminderService {
       await this.load();
       return reminder;
     } catch (error: any) {
+      if (error?.status === 409 && data.noteId) {
+        const retry = await this.retryCreateAsUpdate(data).catch(retryError => {
+          console.warn('Reminder 409 retry failed (non-fatal):', retryError?.message || retryError);
+          return null;
+        });
+        if (retry) return retry;
+      }
       // Server-side upsert handles noteId conflicts transparently, but if a
       // network error or stale 409 still slips through, log and return null
       // so callers that treat this as fire-and-forget aren't affected.
@@ -45,7 +74,7 @@ export class ReminderService {
     }
   }
 
-  async update(id: number, data: { status?: ReminderStatus; dueAtUtc?: string; locationName?: string; latitude?: number; longitude?: number; radiusMeters?: number }) {
+  async update(id: number, data: ReminderUpdateData) {
     const reminder = await firstValueFrom(
       this.http.patch<ReminderI>(`${this.apiUrl}/reminders/${id}`, data, { headers: this.auth.authHeaders() })
     );
@@ -62,6 +91,20 @@ export class ReminderService {
 
   getActiveForNote(noteId: number): ReminderI | undefined {
     return this.reminders$.value.find(r => r.noteId === noteId && r.status === 'pending');
+  }
+
+  private async retryCreateAsUpdate(data: ReminderCreateData): Promise<ReminderI | null> {
+    if (!data.noteId) return null;
+    await this.load();
+    const existing = this.getActiveForNote(data.noteId);
+    if (!existing) return null;
+    return this.update(existing.id, {
+      dueAtUtc: data.dueAtUtc,
+      locationName: data.locationName,
+      latitude: data.latitude,
+      longitude: data.longitude,
+      radiusMeters: data.radiusMeters
+    });
   }
 
   handleFired(payload: ReminderFiredPayload) {
