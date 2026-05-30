@@ -15,6 +15,20 @@
   align-self: flex-start;
   z-index: 900;
 
+  @media (min-width: 600px) {
+    flex: 0 0 280px;
+    width: 280px;
+
+    app-sidenav {
+      display: block;
+      left: 0;
+      position: fixed;
+      top: 94px;
+      width: 280px;
+      z-index: 900;
+    }
+  }
+
 
   @media (max-width: 599px) {
     // The mobile drawer is `position: fixed` inside the sidenav itself, so the

@@ -377,7 +377,9 @@ export class InputComponent implements OnInit {
     const hasContent = !!(noteObj.noteTitle.length || noteObj.noteBody && noteObj.noteBody?.length || this.checkBoxes.length || this.images.length || this.attachments.length || this.pendingAttachmentFiles.length || this.isDrawingNote)
 
     if (this.isEditing) {
-      if (!this.noteChangedForSave(noteObj)) {
+      const noteChanged = this.noteChangedForSave(noteObj)
+      const hasPendingReminderSave = !!(this.pendingReminderDate || this.pendingReminderLocation)
+      if (!noteChanged && !hasPendingReminderSave) {
         if (closeAfterSave) this.Shared.closeModal.next(true)
         return
       }
@@ -391,6 +393,7 @@ export class InputComponent implements OnInit {
           await this.notesService.update(noteObj, this.noteToEdit.id!)
           this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
           this.labelsDirty = false
+          this.flushPendingReminderSaves(this.noteToEdit.id!, noteObj)
         } finally {
           this.coEditSaveInFlight = false
           if (this.coEditSaveQueued) {
@@ -403,6 +406,7 @@ export class InputComponent implements OnInit {
         this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
         this.labelsDirty = false
         this.updateLastEditedTime();
+        this.flushPendingReminderSaves(this.noteToEdit.id!, noteObj)
       }
       if (closeAfterSave) this.Shared.closeModal.next(true)
       return
@@ -415,37 +419,7 @@ export class InputComponent implements OnInit {
           return
         }
         await this.uploadPendingAttachments(id)
-        // Reminder saves are fire-and-forget — they must NOT block navigation.
-        // The server upserts on noteId so duplicate reminders are handled
-        // server-side without 409 errors.
-        if (this.pendingReminderDate) {
-          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-          this.reminderService.create({
-            noteId: id,
-            dueAtUtc: this.pendingReminderDate.toISOString(),
-            timezone: tz,
-            title: this.notePlainText(noteObj.noteTitle),
-            body: this.notePlainText(noteObj.noteBody)
-          }).then(result => {
-            if (!result) this.showReminderSaveError()
-          }).catch(() => this.showReminderSaveError())
-          this.pendingReminderDate = null
-        }
-        if (this.pendingReminderLocation) {
-          this.reminderService.create({
-            noteId: id,
-            locationName: this.pendingReminderLocation.locationName,
-            latitude: this.pendingReminderLocation.latitude,
-            longitude: this.pendingReminderLocation.longitude,
-            radiusMeters: this.pendingReminderLocation.radiusMeters,
-            timezone: this.pendingReminderLocation.timezone,
-            title: this.notePlainText(noteObj.noteTitle),
-            body: this.notePlainText(noteObj.noteBody)
-          }).then(result => {
-            if (!result) this.showReminderSaveError()
-          }).catch(() => this.showReminderSaveError())
-          this.pendingReminderLocation = null
-        }
+        this.flushPendingReminderSaves(id, noteObj)
         if (this.isArchived) {
           this.Shared.snackBar({ action: 'archived', opposite: 'unarchived' }, { archived: false }, id)
         }
@@ -461,6 +435,45 @@ export class InputComponent implements OnInit {
     if (this.pendingAttachmentFiles.length) return true
     const baseline = this.saveBaselineSnapshot ?? this.noteSaveSnapshot(this.noteToEdit)
     return this.noteSaveSnapshot(noteObj) !== baseline
+  }
+
+  private flushPendingReminderSaves(noteId: number, noteObj: NoteI) {
+    if (!noteId || noteId <= 0) return
+    const title = this.notePlainText(noteObj.noteTitle)
+    const body = this.notePlainText(noteObj.noteBody)
+
+    // Reminder saves are fire-and-forget and only run after the note itself
+    // has been persisted, so native clients see a real noteId in the request.
+    if (this.pendingReminderDate) {
+      const reminderDate = this.pendingReminderDate
+      this.pendingReminderDate = null
+      this.reminderService.create({
+        noteId,
+        dueAtUtc: reminderDate.toISOString(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        title,
+        body
+      }).then(result => {
+        if (!result) this.showReminderSaveError()
+      }).catch(() => this.showReminderSaveError())
+    }
+
+    if (this.pendingReminderLocation) {
+      const location = this.pendingReminderLocation
+      this.pendingReminderLocation = null
+      this.reminderService.create({
+        noteId,
+        locationName: location.locationName,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        radiusMeters: location.radiusMeters,
+        timezone: location.timezone,
+        title,
+        body
+      }).then(result => {
+        if (!result) this.showReminderSaveError()
+      }).catch(() => this.showReminderSaveError())
+    }
   }
 
   private noteSaveSnapshot(note: NoteI) {
@@ -3221,38 +3234,15 @@ export class InputComponent implements OnInit {
     const location = this.resolvedLocation
     if (!location) return
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-    if (this.isEditing && this.noteToEdit.id) {
-      const existing = this.getActiveReminder()
-      if (existing && (existing as any).id) {
-        this.reminderService.update((existing as any).id, {
-          locationName: location.displayName,
-          latitude: location.latitude,
-          longitude: location.longitude,
-          radiusMeters: location.radiusMeters
-        }).then(result => { if (!result) this.showReminderSaveError() })
-          .catch(() => this.showReminderSaveError())
-      } else {
-        this.reminderService.create({
-          noteId: this.noteToEdit.id,
-          locationName: location.displayName,
-          latitude: location.latitude,
-          longitude: location.longitude,
-          radiusMeters: location.radiusMeters,
-          timezone: tz,
-          title: this.notePlainText(this.noteToEdit.noteTitle),
-          body: this.notePlainText(this.noteToEdit.noteBody)
-        }).then(result => { if (!result) this.showReminderSaveError() })
-          .catch(() => this.showReminderSaveError())
-      }
-    } else {
-      // For new notes, store location in pending state
-      this.pendingReminderLocation = {
-        locationName: location.displayName,
-        latitude: location.latitude,
-        longitude: location.longitude,
-        radiusMeters: location.radiusMeters,
-        timezone: tz
-      }
+    // Store locally until the note save/exit path persists the note. This
+    // avoids posting a reminder before the note POST/PATCH has succeeded.
+    this.pendingReminderDate = null
+    this.pendingReminderLocation = {
+      locationName: location.displayName,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      radiusMeters: location.radiusMeters,
+      timezone: tz
     }
     this.clearLocation()
     this.showReminderLocationDialog = false
