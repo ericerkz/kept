@@ -10,6 +10,10 @@ export interface ResolvedLocation {
   source: 'savedLocation' | 'geocoder' | 'localSearch';
 }
 
+export type LocationMapPreviewResponse =
+  | string
+  | { imageDataUrl?: string; dataUrl?: string; url?: string };
+
 export type LocationResolveResponse =
   | { status: 'resolved'; location: ResolvedLocation }
   | { status: 'ambiguous'; candidates: ResolvedLocation[] }
@@ -34,5 +38,29 @@ export class KeptPluginsService {
     const plugin = (window as any).Capacitor?.Plugins?.KeptReminders;
     if (!plugin) return null;
     return plugin.requestLocationAccess();
+  }
+
+  async locationMapPreview(location: ResolvedLocation): Promise<string | null> {
+    if (!this.isIos) return null;
+    const plugins = (window as any).Capacitor?.Plugins;
+    const plugin =
+      [plugins?.KeptReminders, plugins?.KeptIntelligence]
+        .find(candidate => {
+          const method = candidate?.locationMapPreview || candidate?.mapSnapshot || candidate?.getMapSnapshot;
+          return typeof method === 'function';
+        });
+    const previewMethod = plugin?.locationMapPreview || plugin?.mapSnapshot || plugin?.getMapSnapshot;
+    if (typeof previewMethod !== 'function') return null;
+
+    const response: LocationMapPreviewResponse = await previewMethod.call(plugin, {
+      displayName: location.displayName,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      radiusMeters: location.radiusMeters
+    });
+
+    if (!response) return null;
+    if (typeof response === 'string') return response;
+    return response.imageDataUrl || response.dataUrl || response.url || null;
   }
 }

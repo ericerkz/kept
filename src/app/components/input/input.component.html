@@ -312,14 +312,41 @@
       <button type="button" class="rp-clear" (click)="clearReminder($event)">Remove reminder</button>
     </div>
   }
+  @if (showReminderTypeDialog && !getActiveReminder()) {
+    <div class="reminder-date-dialog reminder-choice-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
+      role="dialog" aria-label="Set reminder">
+      <h2 class="rd-choice-title">Set reminder</h2>
+      <p class="rd-choice-subtitle">How should we remind you?</p>
+      <button type="button" class="rd-choice-card" (click)="chooseReminderDateTime()">
+        <span class="rd-choice-icon">
+          <span class="material-symbols-outlined">schedule</span>
+        </span>
+        <span class="rd-choice-copy">
+          <strong>Date &amp; time</strong>
+          <span>At a specific moment</span>
+        </span>
+        <span class="material-symbols-outlined rd-choice-chevron">chevron_right</span>
+      </button>
+      @if (keptPlugins.isIos) {
+        <button type="button" class="rd-choice-card" (click)="chooseReminderPlace()">
+          <span class="rd-choice-icon">
+            <span class="material-symbols-outlined">location_on</span>
+          </span>
+          <span class="rd-choice-copy">
+            <strong>Place</strong>
+            <span>When I arrive or leave somewhere</span>
+          </span>
+          <span class="material-symbols-outlined rd-choice-chevron">chevron_right</span>
+        </button>
+      }
+      <button type="button" class="rd-choice-cancel" (click)="cancelReminderType()">Cancel</button>
+    </div>
+  }
   @if (showReminderDateDialog && !getActiveReminder()) {
     <div class="reminder-date-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
       role="dialog" aria-label="Set reminder date">
       <div class="rd-title">
         Set reminder
-        @if (keptPlugins.isIos) {
-          <button type="button" class="rd-location-link" (click)="showReminderDateDialog = false; showReminderLocationDialog = true">📍 Location</button>
-        }
       </div>
       <div class="rd-calendar" aria-label="Reminder date calendar">
         <div class="rd-calendar-head">
@@ -358,36 +385,42 @@
   <input #customTimeInp type="text" class="timepicker-ui-input rp-hidden-time" autocomplete="off" readonly [(ngModel)]="customTime"
     aria-hidden="true" tabindex="-1">
   @if (showReminderLocationDialog && !getActiveReminder() && keptPlugins.isIos) {
-    <div class="reminder-date-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
+    <div class="reminder-date-dialog reminder-place-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
       role="dialog" aria-label="Set location reminder">
-      <div class="rd-title">
-        Set location reminder
-        <button type="button" class="rd-location-link" (click)="showReminderLocationDialog = false; showReminderDateDialog = true">🕐 Date</button>
+      <div class="rd-place-header">
+        <button type="button" class="rd-place-back" aria-label="Back" (click)="showReminderLocationDialog = false; showReminderTypeDialog = true">
+          <span class="material-symbols-outlined">chevron_left</span>
+        </button>
+        <h2>Place</h2>
       </div>
+      <label class="rd-place-search">
+        <span class="material-symbols-outlined">search</span>
+        <input type="text" placeholder="Search for a place"
+          [(ngModel)]="locationPhrase" (keyup.enter)="resolveLocation()" />
+      </label>
       @switch (locationState) {
         @case ('idle') {
-          <input type="text" class="rd-location-input" placeholder="e.g. Whole Foods, 123 Main St, near work…"
-            [(ngModel)]="locationPhrase" (keyup.enter)="resolveLocation()" />
-          <div class="rd-actions">
-            <button type="button" class="rd-secondary" (click)="cancelReminderDate(); showReminderLocationDialog = false">Cancel</button>
-            <button type="button" class="rd-primary" (click)="resolveLocation()" [disabled]="resolving || !locationPhrase.trim()">
-              {{ resolving ? 'Searching…' : 'Find place' }}
-            </button>
+          <div class="rd-place-map" aria-label="Map preview placeholder">
+            <span class="material-symbols-outlined">location_on</span>
+            <span>map preview</span>
           </div>
         }
         @case ('resolved') {
-          <p class="rd-location-resolved">
-            <span>📍</span>
-            <strong>{{ resolvedLocation!.displayName }}</strong>
-            <span>within {{ resolvedLocation!.radiusMeters }}m</span>
-          </p>
-          <div class="rd-actions">
-            <button type="button" class="rd-secondary" (click)="clearLocation()">Change</button>
-            <button type="button" class="rd-primary" (click)="confirmLocationReminder()">Set reminder</button>
+          <div class="rd-place-map" [class.has-map]="locationMapPreview" aria-label="Map preview">
+            @if (locationMapPreview) {
+              <img [src]="locationMapPreview" alt="" />
+            } @else {
+              <span class="material-symbols-outlined">location_on</span>
+              <span>map preview</span>
+            }
           </div>
         }
         @case ('ambiguous') {
-          <p>Multiple places found — pick one:</p>
+          <div class="rd-place-map" aria-hidden="true">
+            <span class="material-symbols-outlined">location_on</span>
+            <span>map preview</span>
+          </div>
+          <p class="rd-location-message">Multiple places found. Pick one:</p>
           <div class="rd-location-candidates">
             @for (c of candidates; track c.displayName) {
               <button type="button" class="rd-location-candidate" (click)="selectCandidate(c)">
@@ -395,23 +428,36 @@
               </button>
             }
           </div>
-          <div class="rd-actions">
-            <button type="button" class="rd-secondary" (click)="clearLocation()">Cancel</button>
-          </div>
         }
         @case ('permission') {
-          <p class="rd-location-message">{{ permissionReason }}</p>
-          <div class="rd-actions">
-            <button type="button" class="rd-secondary" (click)="clearLocation()">Dismiss</button>
+          <div class="rd-place-map" aria-hidden="true">
+            <span class="material-symbols-outlined">location_on</span>
+            <span>map preview</span>
           </div>
+          <p class="rd-location-message">{{ permissionReason }}</p>
         }
         @case ('notFound') {
-          <p class="rd-location-message">Place not found. Try a different search.</p>
-          <div class="rd-actions">
-            <button type="button" class="rd-secondary" (click)="clearLocation()">Try again</button>
+          <div class="rd-place-map" aria-hidden="true">
+            <span class="material-symbols-outlined">location_on</span>
+            <span>map preview</span>
           </div>
+          <p class="rd-location-message">Place not found. Try a different search.</p>
         }
       }
+      <button type="button" class="rd-arrive-choice" [class.active]="resolvedLocation">
+        <span class="material-symbols-outlined">location_on</span>
+        Remind me when I arrive
+      </button>
+      <div class="rd-place-actions">
+        <button type="button" class="rd-place-cancel" (click)="clearLocation()">Cancel</button>
+        @if (resolvedLocation) {
+          <button type="button" class="rd-place-save" (click)="confirmLocationReminder()">Save place</button>
+        } @else {
+          <button type="button" class="rd-place-save" (click)="resolveLocation()" [disabled]="resolving || !locationPhrase.trim()">
+            {{ resolving ? 'Searching...' : 'Find place' }}
+          </button>
+        }
+      </div>
     </div>
   }
 </div>

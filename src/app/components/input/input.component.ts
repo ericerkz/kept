@@ -88,11 +88,13 @@ export class InputComponent implements OnInit {
   customTimePickerInput?: HTMLInputElement
   pendingReminderDate: Date | null = null
   pendingReminderLocation: { locationName: string; latitude: number; longitude: number; radiusMeters: number; timezone: string } | null = null
+  showReminderTypeDialog = false
   showReminderDateDialog = false
   showReminderLocationDialog = false
   locationState: 'idle' | 'resolved' | 'ambiguous' | 'permission' | 'notFound' = 'idle'
   locationPhrase = ''
   resolvedLocation: ResolvedLocation | null = null
+  locationMapPreview = ''
   candidates: ResolvedLocation[] = []
   resolving = false
   permissionReason = ''
@@ -409,19 +411,24 @@ export class InputComponent implements OnInit {
     if (hasContent) {
         let id = await this.Shared.note.db.add(noteObj)
         await this.uploadPendingAttachments(id)
+        // Reminder saves are fire-and-forget — they must NOT block navigation.
+        // The server upserts on noteId so duplicate reminders are handled
+        // server-side without 409 errors.
         if (this.pendingReminderDate) {
           const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-          await this.reminderService.create({
+          this.reminderService.create({
             noteId: id,
             dueAtUtc: this.pendingReminderDate.toISOString(),
             timezone: tz,
             title: this.notePlainText(noteObj.noteTitle),
             body: this.notePlainText(noteObj.noteBody)
-          })
+          }).then(result => {
+            if (!result) this.showReminderSaveError()
+          }).catch(() => this.showReminderSaveError())
           this.pendingReminderDate = null
         }
         if (this.pendingReminderLocation) {
-          await this.reminderService.create({
+          this.reminderService.create({
             noteId: id,
             locationName: this.pendingReminderLocation.locationName,
             latitude: this.pendingReminderLocation.latitude,
@@ -430,7 +437,9 @@ export class InputComponent implements OnInit {
             timezone: this.pendingReminderLocation.timezone,
             title: this.notePlainText(noteObj.noteTitle),
             body: this.notePlainText(noteObj.noteBody)
-          })
+          }).then(result => {
+            if (!result) this.showReminderSaveError()
+          }).catch(() => this.showReminderSaveError())
           this.pendingReminderLocation = null
         }
         if (this.isArchived) {
@@ -2769,18 +2778,44 @@ export class InputComponent implements OnInit {
       return
     }
 
-    // No reminder yet: a transparent <input type="date"> is overlaid on the
-    // alarm icon, so the user's tap reaches the input directly and the
-    // browser opens its native picker without any JS bridge. iOS Safari
-    // won't open a date picker from .click() / .showPicker() — only from a
-    // real user tap on the input — which is why we rely on this overlay.
-    // On platforms where the user-agent doesn't render an inline picker
-    // for a focused date input (uncommon), we fall back to .showPicker().
+    if (this.keptPlugins.isIos) {
+      this.openReminderTypeDialog()
+      return
+    }
+
     this.customDate = ''
     this.customTime = ''
     this.calendarMonth = this.startOfMonth(new Date())
     this.destroyTimePicker()
     this.showReminderDateDialog = true
+  }
+
+  openReminderTypeDialog() {
+    this.showReminderPicker = false
+    this.showReminderTypeDialog = true
+    this.showReminderDateDialog = false
+    this.showReminderLocationDialog = false
+    this.customDate = ''
+    this.customTime = ''
+    this.calendarMonth = this.startOfMonth(new Date())
+    this.destroyTimePicker()
+    this.resetLocationState()
+    document.removeEventListener('mousedown', this.pickerOutsideHandler)
+    setTimeout(() => document.addEventListener('mousedown', this.pickerOutsideHandler), 0)
+  }
+
+  chooseReminderDateTime() {
+    this.showReminderTypeDialog = false
+    this.showReminderDateDialog = true
+  }
+
+  chooseReminderPlace() {
+    this.showReminderTypeDialog = false
+    this.showReminderLocationDialog = true
+  }
+
+  cancelReminderType() {
+    this.closeReminderPicker()
   }
 
   private openDateThenTimeFlow(trigger?: HTMLElement | null) {
@@ -2945,7 +2980,10 @@ export class InputComponent implements OnInit {
 
   closeReminderPicker() {
     this.showReminderPicker = false
+    this.showReminderTypeDialog = false
     this.showReminderDateDialog = false
+    this.showReminderLocationDialog = false
+    this.resetLocationState()
     this.destroyTimePicker()
     document.removeEventListener('mousedown', this.pickerOutsideHandler)
   }
@@ -2991,14 +3029,14 @@ export class InputComponent implements OnInit {
 
   private pickerOutsideHandler = (event: Event) => {
     const target = event.target as HTMLElement
-    const picker = document.querySelector('.reminder-picker')
+    const picker = document.querySelector('.reminder-picker, .reminder-date-dialog')
     const isTimePickerClick = target.closest('.tp-ui-modal') || target.closest('.tp-ui-wrapper')
     if (picker && !picker.contains(target) && !isTimePickerClick) {
       this.closeReminderPicker()
     }
   }
 
-  async setReminder(date: Date) {
+  setReminder(date: Date) {
     // Backup prompt for users who skipped the picker open (e.g. via custom
     // date input). Permission was already requested when the picker opened.
     this.promptForNotificationPermission()
@@ -3006,15 +3044,18 @@ export class InputComponent implements OnInit {
       const existing = this.getActiveReminder()
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
       if (existing && (existing as any).id) {
-        await this.reminderService.update((existing as any).id, { dueAtUtc: date.toISOString(), status: 'pending' })
+        this.reminderService.update((existing as any).id, { dueAtUtc: date.toISOString(), status: 'pending' })
+          .then(result => { if (!result) this.showReminderSaveError() })
+          .catch(() => this.showReminderSaveError())
       } else {
-        await this.reminderService.create({
+        this.reminderService.create({
           noteId: this.noteToEdit.id,
           dueAtUtc: date.toISOString(),
           timezone: tz,
           title: this.notePlainText(this.noteToEdit.noteTitle),
           body: this.notePlainText(this.noteToEdit.noteBody)
-        })
+        }).then(result => { if (!result) this.showReminderSaveError() })
+          .catch(() => this.showReminderSaveError())
       }
     } else {
       // For new notes, store locally until save
@@ -3129,7 +3170,9 @@ export class InputComponent implements OnInit {
       switch (result.status) {
         case 'resolved':
           this.resolvedLocation = result.location
+          this.locationPhrase = result.location.displayName
           this.locationState = 'resolved'
+          this.hydrateLocationMapPreview(result.location)
           break
         case 'ambiguous':
           this.candidates = result.candidates
@@ -3150,34 +3193,42 @@ export class InputComponent implements OnInit {
 
   selectCandidate(candidate: ResolvedLocation) {
     this.resolvedLocation = candidate
+    this.locationPhrase = candidate.displayName
     this.locationState = 'resolved'
+    this.hydrateLocationMapPreview(candidate)
   }
 
-  clearLocation() {
+  resetLocationState() {
     this.locationState = 'idle'
     this.locationPhrase = ''
     this.resolvedLocation = null
+    this.locationMapPreview = ''
     this.candidates = []
     this.resolving = false
     this.permissionReason = ''
+  }
+
+  clearLocation() {
+    this.resetLocationState()
     this.showReminderLocationDialog = false
   }
 
-  async confirmLocationReminder() {
+  confirmLocationReminder() {
     const location = this.resolvedLocation
     if (!location) return
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
     if (this.isEditing && this.noteToEdit.id) {
       const existing = this.getActiveReminder()
       if (existing && (existing as any).id) {
-        await this.reminderService.update((existing as any).id, {
+        this.reminderService.update((existing as any).id, {
           locationName: location.displayName,
           latitude: location.latitude,
           longitude: location.longitude,
           radiusMeters: location.radiusMeters
-        })
+        }).then(result => { if (!result) this.showReminderSaveError() })
+          .catch(() => this.showReminderSaveError())
       } else {
-        await this.reminderService.create({
+        this.reminderService.create({
           noteId: this.noteToEdit.id,
           locationName: location.displayName,
           latitude: location.latitude,
@@ -3186,7 +3237,8 @@ export class InputComponent implements OnInit {
           timezone: tz,
           title: this.notePlainText(this.noteToEdit.noteTitle),
           body: this.notePlainText(this.noteToEdit.noteBody)
-        })
+        }).then(result => { if (!result) this.showReminderSaveError() })
+          .catch(() => this.showReminderSaveError())
       }
     } else {
       // For new notes, store location in pending state
@@ -3201,5 +3253,21 @@ export class InputComponent implements OnInit {
     this.clearLocation()
     this.showReminderLocationDialog = false
     this.cd.detectChanges()
+  }
+
+  private async hydrateLocationMapPreview(location: ResolvedLocation) {
+    try {
+      this.locationMapPreview = await this.keptPlugins.locationMapPreview(location) || ''
+    } catch {
+      this.locationMapPreview = ''
+    } finally {
+      this.cd.detectChanges()
+    }
+  }
+
+  private showReminderSaveError() {
+    try {
+      Snackbar.show({ pos: 'bottom-left', text: "Reminder couldn't be saved", duration: 3500 })
+    } catch {}
   }
 }

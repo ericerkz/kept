@@ -30,11 +30,19 @@ export class ReminderService {
   }
 
   async create(data: { noteId?: number; dueAtUtc?: string; timezone?: string; title?: string; body?: string; imageUrl?: string; locationName?: string; latitude?: number; longitude?: number; radiusMeters?: number }) {
-    const reminder = await firstValueFrom(
-      this.http.post<ReminderI>(`${this.apiUrl}/reminders`, data, { headers: this.auth.authHeaders() })
-    );
-    await this.load();
-    return reminder;
+    try {
+      const reminder = await firstValueFrom(
+        this.http.post<ReminderI>(`${this.apiUrl}/reminders`, data, { headers: this.auth.authHeaders() })
+      );
+      await this.load();
+      return reminder;
+    } catch (error: any) {
+      // Server-side upsert handles noteId conflicts transparently, but if a
+      // network error or stale 409 still slips through, log and return null
+      // so callers that treat this as fire-and-forget aren't affected.
+      console.warn('Reminder create failed (non-fatal):', error?.message || error);
+      return null;
+    }
   }
 
   async update(id: number, data: { status?: ReminderStatus; dueAtUtc?: string; locationName?: string; latitude?: number; longitude?: number; radiusMeters?: number }) {

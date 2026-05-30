@@ -551,6 +551,7 @@ async function init() {
   }
   await run(`CREATE INDEX IF NOT EXISTS reminders_user_idx ON reminders(userId)`);
   await run(`CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders(dueAtUtc, status)`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS reminders_note_unique ON reminders(noteId) WHERE noteId IS NOT NULL AND status = 'pending'`);
   // Performance indexes for the /api/notes query, which JOINs by note id and
   // filters by ownerUserId. Without these, listing all notes degrades to
   // O(n*m) scans once the user has hundreds of notes (visible after a takeout
@@ -4475,23 +4476,51 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
     if (!note) return res.status(404).json({ error: 'Note not found.' });
   }
   const now = new Date().toISOString();
-  const result = await run(
-    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [noteId || null, req.user.id, dueAtUtc ? String(dueAtUtc) : null, String(timezone || 'UTC'), repeatRule || null,
-     plainText(title) || null, plainText(body) || null, String(imageUrl || '') || null,
-     locationName ? String(locationName) : null,
-     latitude != null ? Number(latitude) : null,
-     longitude != null ? Number(longitude) : null,
-     radiusMeters != null ? Number(radiusMeters) : (locationName ? 120 : null),
-     now, now]
-  );
-  const reminder = await get('SELECT * FROM reminders WHERE id = ?', [result.id]);
+  const dueVal = dueAtUtc ? String(dueAtUtc) : null;
+  const tz = String(timezone || 'UTC');
+  const repeatVal = repeatRule || null;
+  const titleVal = plainText(title) || null;
+  const bodyVal = plainText(body) || null;
+  const imageVal = String(imageUrl || '') || null;
+  const locName = locationName ? String(locationName) : null;
+  const lat = latitude != null ? Number(latitude) : null;
+  const lng = longitude != null ? Number(longitude) : null;
+  const radius = radiusMeters != null ? Number(radiusMeters) : (locationName ? 120 : null);
+
+  // Upsert by noteId when a noteId is provided: if a (pending) reminder already
+  // exists for this note, update it rather than returning 409.
+  let reminderId;
+  let isUpdate = false;
+  if (noteId) {
+    const existing = await get(
+      `SELECT id FROM reminders WHERE noteId = ? AND userId = ? AND status = 'pending'`,
+      [Number(noteId), req.user.id]
+    );
+    if (existing) {
+      await run(
+        `UPDATE reminders SET dueAtUtc = ?, timezone = ?, repeatRule = ?, title = ?, body = ?, imageUrl = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, updatedAt = ? WHERE id = ?`,
+        [dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, now, existing.id]
+      );
+      reminderId = existing.id;
+      isUpdate = true;
+    }
+  }
+
+  if (!reminderId) {
+    const result = await run(
+      `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [noteId || null, req.user.id, dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, now, now]
+    );
+    reminderId = result.id;
+  }
+
+  const reminder = await get('SELECT * FROM reminders WHERE id = ?', [reminderId]);
   const enrichedReminder = await enrichReminderResponse(reminder);
   const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [req.user.id]);
   if (caldav) pushReminderToCaldav(caldav, enrichedReminder).catch(err => console.error('CalDAV push failed:', err.message));
   gcalPushReminder(req.user.id, enrichedReminder).catch(err => console.error('GCal push failed:', err.message));
-  res.status(201).json(enrichedReminder);
+  res.status(isUpdate ? 200 : 201).json(enrichedReminder);
 }));
 
 app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
