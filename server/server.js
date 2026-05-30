@@ -551,7 +551,6 @@ async function init() {
   }
   await run(`CREATE INDEX IF NOT EXISTS reminders_user_idx ON reminders(userId)`);
   await run(`CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders(dueAtUtc, status)`);
-  await run(`CREATE UNIQUE INDEX IF NOT EXISTS reminders_note_unique ON reminders(noteId) WHERE noteId IS NOT NULL AND status = 'pending'`);
   // Performance indexes for the /api/notes query, which JOINs by note id and
   // filters by ownerUserId. Without these, listing all notes degrades to
   // O(n*m) scans once the user has hundreds of notes (visible after a takeout
