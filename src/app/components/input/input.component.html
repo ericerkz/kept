@@ -205,7 +205,11 @@
     @if (getActiveReminder(); as r) {
       <div class="reminder-chip" (mousedown)="$event.stopPropagation()" (click)="alarmIconTapped($event)">
         <img src="./assets/images/svg/clock.svg" alt="" width="12" height="12">
-        {{formatReminderDate(r.dueAtUtc)}}
+        @if (r.dueAtUtc) {
+          {{formatReminderDate(r.dueAtUtc)}}
+        } @else if (r.locationName) {
+          📍 {{ r.locationName }}
+        }
       </div>
     }
   </div>
@@ -311,7 +315,12 @@
   @if (showReminderDateDialog && !getActiveReminder()) {
     <div class="reminder-date-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
       role="dialog" aria-label="Set reminder date">
-      <div class="rd-title">Set reminder</div>
+      <div class="rd-title">
+        Set reminder
+        @if (keptPlugins.isIos) {
+          <button type="button" class="rd-location-link" (click)="showReminderDateDialog = false; showReminderLocationDialog = true">📍 Location</button>
+        }
+      </div>
       <div class="rd-calendar" aria-label="Reminder date calendar">
         <div class="rd-calendar-head">
           <button type="button" class="rd-nav" aria-label="Previous month" (click)="shiftCalendarMonth(-1)">
@@ -348,6 +357,63 @@
   }
   <input #customTimeInp type="text" class="timepicker-ui-input rp-hidden-time" autocomplete="off" readonly [(ngModel)]="customTime"
     aria-hidden="true" tabindex="-1">
+  @if (showReminderLocationDialog && !getActiveReminder() && keptPlugins.isIos) {
+    <div class="reminder-date-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
+      role="dialog" aria-label="Set location reminder">
+      <div class="rd-title">
+        Set location reminder
+        <button type="button" class="rd-location-link" (click)="showReminderLocationDialog = false; showReminderDateDialog = true">🕐 Date</button>
+      </div>
+      @switch (locationState) {
+        @case ('idle') {
+          <input type="text" class="rd-location-input" placeholder="e.g. Whole Foods, 123 Main St, near work…"
+            [(ngModel)]="locationPhrase" (keyup.enter)="resolveLocation()" />
+          <div class="rd-actions">
+            <button type="button" class="rd-secondary" (click)="cancelReminderDate(); showReminderLocationDialog = false">Cancel</button>
+            <button type="button" class="rd-primary" (click)="resolveLocation()" [disabled]="resolving || !locationPhrase.trim()">
+              {{ resolving ? 'Searching…' : 'Find place' }}
+            </button>
+          </div>
+        }
+        @case ('resolved') {
+          <p class="rd-location-resolved">
+            <span>📍</span>
+            <strong>{{ resolvedLocation!.displayName }}</strong>
+            <span>within {{ resolvedLocation!.radiusMeters }}m</span>
+          </p>
+          <div class="rd-actions">
+            <button type="button" class="rd-secondary" (click)="clearLocation()">Change</button>
+            <button type="button" class="rd-primary" (click)="confirmLocationReminder()">Set reminder</button>
+          </div>
+        }
+        @case ('ambiguous') {
+          <p>Multiple places found — pick one:</p>
+          <div class="rd-location-candidates">
+            @for (c of candidates; track c.displayName) {
+              <button type="button" class="rd-location-candidate" (click)="selectCandidate(c)">
+                {{ c.displayName }}
+              </button>
+            }
+          </div>
+          <div class="rd-actions">
+            <button type="button" class="rd-secondary" (click)="clearLocation()">Cancel</button>
+          </div>
+        }
+        @case ('permission') {
+          <p class="rd-location-message">{{ permissionReason }}</p>
+          <div class="rd-actions">
+            <button type="button" class="rd-secondary" (click)="clearLocation()">Dismiss</button>
+          </div>
+        }
+        @case ('notFound') {
+          <p class="rd-location-message">Place not found. Try a different search.</p>
+          <div class="rd-actions">
+            <button type="button" class="rd-secondary" (click)="clearLocation()">Try again</button>
+          </div>
+        }
+      }
+    </div>
+  }
 </div>
 </div>
 

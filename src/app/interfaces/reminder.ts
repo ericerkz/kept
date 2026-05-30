@@ -4,13 +4,17 @@ export interface ReminderI {
   id: number;
   noteId: number | null;
   userId: number;
-  dueAtUtc: string;
+  dueAtUtc: string | null;
   timezone: string;
   repeatRule: string | null;
   status: ReminderStatus;
   title: string | null;
   body: string | null;
   imageUrl: string | null;
+  locationName: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  radiusMeters: number | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -266,7 +266,11 @@
           @if (getActiveReminderForNote(note.id!); as r) {
             <div class="reminder-chip" (mousedown)="$event.stopPropagation()" (click)="toggleReminderPicker(note, $event)">
               <img src="./assets/images/svg/clock.svg" alt="" width="12" height="12">
-              {{formatReminderDate(r.dueAtUtc)}}
+              @if (r.dueAtUtc) {
+                {{formatReminderDate(r.dueAtUtc)}}
+              } @else if (r.locationName) {
+                📍 {{ r.locationName }}
+              }
             </div>
           }
           @if (activePickerNoteId === note.id && getActiveReminderForNote(note.id!)) {

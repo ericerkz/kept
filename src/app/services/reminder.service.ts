@@ -29,7 +29,7 @@ export class ReminderService {
     this.setReminders(reminders);
   }
 
-  async create(data: { noteId?: number; dueAtUtc: string; timezone: string; title?: string; body?: string; imageUrl?: string }) {
+  async create(data: { noteId?: number; dueAtUtc?: string; timezone?: string; title?: string; body?: string; imageUrl?: string; locationName?: string; latitude?: number; longitude?: number; radiusMeters?: number }) {
     const reminder = await firstValueFrom(
       this.http.post<ReminderI>(`${this.apiUrl}/reminders`, data, { headers: this.auth.authHeaders() })
     );
@@ -37,7 +37,7 @@ export class ReminderService {
     return reminder;
   }
 
-  async update(id: number, data: { status?: ReminderStatus; dueAtUtc?: string }) {
+  async update(id: number, data: { status?: ReminderStatus; dueAtUtc?: string; locationName?: string; latitude?: number; longitude?: number; radiusMeters?: number }) {
     const reminder = await firstValueFrom(
       this.http.patch<ReminderI>(`${this.apiUrl}/reminders/${id}`, data, { headers: this.auth.authHeaders() })
     );
@@ -106,9 +106,9 @@ export class ReminderService {
     this.reminderTimers.clear();
 
     reminders
-      .filter(reminder => reminder.status === 'pending')
+      .filter(reminder => reminder.status === 'pending' && reminder.dueAtUtc)
       .forEach(reminder => {
-        const dueIn = new Date(reminder.dueAtUtc).getTime() - Date.now();
+        const dueIn = new Date(reminder.dueAtUtc!).getTime() - Date.now();
         const timer = setTimeout(() => this.fireLocalReminder(reminder.id), Math.max(0, dueIn));
         this.reminderTimers.set(reminder.id, timer);
       });

@@ -515,13 +515,17 @@ async function init() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       noteId INTEGER REFERENCES notes(id) ON DELETE CASCADE,
       userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      dueAtUtc TEXT NOT NULL,
+      dueAtUtc TEXT,
       timezone TEXT NOT NULL DEFAULT 'UTC',
       repeatRule TEXT,
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','fired','dismissed','snoozed')),
       title TEXT,
       body TEXT,
       imageUrl TEXT,
+      locationName TEXT,
+      latitude REAL,
+      longitude REAL,
+      radiusMeters REAL DEFAULT 120,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     )
@@ -532,6 +536,18 @@ async function init() {
   }
   if (!reminderColumns.some(column => column.name === 'gcalEventId')) {
     await run(`ALTER TABLE reminders ADD COLUMN gcalEventId TEXT`);
+  }
+  if (!reminderColumns.some(column => column.name === 'locationName')) {
+    await run(`ALTER TABLE reminders ADD COLUMN locationName TEXT`);
+  }
+  if (!reminderColumns.some(column => column.name === 'latitude')) {
+    await run(`ALTER TABLE reminders ADD COLUMN latitude REAL`);
+  }
+  if (!reminderColumns.some(column => column.name === 'longitude')) {
+    await run(`ALTER TABLE reminders ADD COLUMN longitude REAL`);
+  }
+  if (!reminderColumns.some(column => column.name === 'radiusMeters')) {
+    await run(`ALTER TABLE reminders ADD COLUMN radiusMeters REAL DEFAULT 120`);
   }
   await run(`CREATE INDEX IF NOT EXISTS reminders_user_idx ON reminders(userId)`);
   await run(`CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders(dueAtUtc, status)`);
@@ -4452,18 +4468,23 @@ app.delete('/api/push/subscriptions', requireAuth, asyncRoute(async (req, res) =
 }));
 
 app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
-  const { noteId, dueAtUtc, timezone, title, body, imageUrl, repeatRule } = req.body;
-  if (!dueAtUtc) return res.status(400).json({ error: 'dueAtUtc is required.' });
+  const { noteId, dueAtUtc, timezone, title, body, imageUrl, repeatRule, locationName, latitude, longitude, radiusMeters } = req.body;
+  if (!dueAtUtc && !locationName) return res.status(400).json({ error: 'Either dueAtUtc or locationName is required.' });
   if (noteId) {
     const note = await getAccessibleNote(Number(noteId), req.user.id);
     if (!note) return res.status(404).json({ error: 'Note not found.' });
   }
   const now = new Date().toISOString();
   const result = await run(
-    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
-    [noteId || null, req.user.id, String(dueAtUtc), String(timezone || 'UTC'), repeatRule || null,
-     plainText(title) || null, plainText(body) || null, String(imageUrl || '') || null, now, now]
+    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [noteId || null, req.user.id, dueAtUtc ? String(dueAtUtc) : null, String(timezone || 'UTC'), repeatRule || null,
+     plainText(title) || null, plainText(body) || null, String(imageUrl || '') || null,
+     locationName ? String(locationName) : null,
+     latitude != null ? Number(latitude) : null,
+     longitude != null ? Number(longitude) : null,
+     radiusMeters != null ? Number(radiusMeters) : (locationName ? 120 : null),
+     now, now]
   );
   const reminder = await get('SELECT * FROM reminders WHERE id = ?', [result.id]);
   const enrichedReminder = await enrichReminderResponse(reminder);
@@ -4479,8 +4500,18 @@ app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
   const now = new Date().toISOString();
   const validStatuses = ['pending','fired','dismissed','snoozed'];
   const status = validStatuses.includes(req.body.status) ? req.body.status : reminder.status;
-  const dueAtUtc = req.body.dueAtUtc || reminder.dueAtUtc;
-  await run(`UPDATE reminders SET status = ?, dueAtUtc = ?, updatedAt = ? WHERE id = ?`, [status, dueAtUtc, now, reminder.id]);
+  const dueAtUtc = req.body.dueAtUtc !== undefined ? (req.body.dueAtUtc || null) : reminder.dueAtUtc;
+  const locationName = req.body.locationName !== undefined ? (req.body.locationName || null) : (reminder.locationName || null);
+  const latitude = req.body.latitude !== undefined ? (req.body.latitude != null ? Number(req.body.latitude) : null) : (reminder.latitude != null ? reminder.latitude : null);
+  const longitude = req.body.longitude !== undefined ? (req.body.longitude != null ? Number(req.body.longitude) : null) : (reminder.longitude != null ? reminder.longitude : null);
+  const radiusMeters = req.body.radiusMeters !== undefined ? (req.body.radiusMeters != null ? Number(req.body.radiusMeters) : null) : (reminder.radiusMeters != null ? reminder.radiusMeters : null);
+
+  if (!dueAtUtc && !locationName) return res.status(400).json({ error: 'Either dueAtUtc or locationName is required.' });
+
+  await run(
+    `UPDATE reminders SET status = ?, dueAtUtc = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, updatedAt = ? WHERE id = ?`,
+    [status, dueAtUtc, locationName, latitude, longitude, radiusMeters, now, reminder.id]
+  );
   const updated = await get('SELECT * FROM reminders WHERE id = ?', [reminder.id]);
   const enrichedUpdated = await enrichReminderResponse(updated);
   if (status === 'pending') {

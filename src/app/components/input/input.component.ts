@@ -11,6 +11,7 @@ import { ShareUserI } from 'src/app/interfaces/users';
 import { LinkPreviewData, NotesService } from 'src/app/services/notes.service';
 import { PushNotificationService } from 'src/app/services/push-notification.service';
 import { ReminderService } from 'src/app/services/reminder.service';
+import { KeptPluginsService, type ResolvedLocation } from 'src/app/services/kept-plugins.service';
 import { NgZone } from '@angular/core';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 
@@ -30,7 +31,7 @@ export class InputComponent implements OnInit {
     return this.mobileComposeMode;
   }
 
-  constructor(private cd: ChangeDetectorRef, public Shared: SharedService, public auth: AuthService, private notesService: NotesService, private push: PushNotificationService, private reminderService: ReminderService, private zone: NgZone) { }
+  constructor(private cd: ChangeDetectorRef, public Shared: SharedService, public auth: AuthService, private notesService: NotesService, private push: PushNotificationService, private reminderService: ReminderService, public keptPlugins: KeptPluginsService, private zone: NgZone) { }
 
   @ViewChild("main") main!: ElementRef<HTMLDivElement>
   //? Placeholder  ----------------------------------------------------
@@ -86,7 +87,15 @@ export class InputComponent implements OnInit {
   customTimePicker: any
   customTimePickerInput?: HTMLInputElement
   pendingReminderDate: Date | null = null
+  pendingReminderLocation: { locationName: string; latitude: number; longitude: number; radiusMeters: number; timezone: string } | null = null
   showReminderDateDialog = false
+  showReminderLocationDialog = false
+  locationState: 'idle' | 'resolved' | 'ambiguous' | 'permission' | 'notFound' = 'idle'
+  locationPhrase = ''
+  resolvedLocation: ResolvedLocation | null = null
+  candidates: ResolvedLocation[] = []
+  resolving = false
+  permissionReason = ''
   collaboratorError = ''
   isSavingCollaborators = false
   labelMenuError = ''
@@ -410,6 +419,19 @@ export class InputComponent implements OnInit {
             body: this.notePlainText(noteObj.noteBody)
           })
           this.pendingReminderDate = null
+        }
+        if (this.pendingReminderLocation) {
+          await this.reminderService.create({
+            noteId: id,
+            locationName: this.pendingReminderLocation.locationName,
+            latitude: this.pendingReminderLocation.latitude,
+            longitude: this.pendingReminderLocation.longitude,
+            radiusMeters: this.pendingReminderLocation.radiusMeters,
+            timezone: this.pendingReminderLocation.timezone,
+            title: this.notePlainText(noteObj.noteTitle),
+            body: this.notePlainText(noteObj.noteBody)
+          })
+          this.pendingReminderLocation = null
         }
         if (this.isArchived) {
           this.Shared.snackBar({ action: 'archived', opposite: 'unarchived' }, { archived: false }, id)
@@ -2716,6 +2738,9 @@ export class InputComponent implements OnInit {
     if (this.pendingReminderDate) {
       return { dueAtUtc: this.pendingReminderDate.toISOString() }
     }
+    if (this.pendingReminderLocation) {
+      return { locationName: this.pendingReminderLocation.locationName }
+    }
     if (!this.isEditing || !this.noteToEdit.id) return null
     return this.reminderService.reminders$.value.find(r => r.noteId === this.noteToEdit.id && r.status === 'pending')
   }
@@ -3087,4 +3112,94 @@ export class InputComponent implements OnInit {
   tomorrow(): Date { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d }
   nextWeek(): Date { const d = new Date(); const daysUntilMonday = ((8 - d.getDay()) % 7) || 7; d.setDate(d.getDate() + daysUntilMonday); d.setHours(9, 0, 0, 0); return d }
   formatReminderDate(isoString: string): string { return new Date(isoString).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) }
+
+  // ─── Location reminders ───────────────────────────────────────────────
+
+  async resolveLocation() {
+    const phrase = this.locationPhrase.trim()
+    if (!phrase) return
+    this.resolving = true
+    this.locationState = 'idle'
+    try {
+      const result = await this.keptPlugins.resolveLocation(phrase)
+      if (!result) {
+        this.locationState = 'notFound'
+        return
+      }
+      switch (result.status) {
+        case 'resolved':
+          this.resolvedLocation = result.location
+          this.locationState = 'resolved'
+          break
+        case 'ambiguous':
+          this.candidates = result.candidates
+          this.locationState = 'ambiguous'
+          break
+        case 'notFound':
+          this.locationState = 'notFound'
+          break
+        case 'needsLocationPermission':
+          this.permissionReason = result.reason
+          this.locationState = 'permission'
+          break
+      }
+    } finally {
+      this.resolving = false
+    }
+  }
+
+  selectCandidate(candidate: ResolvedLocation) {
+    this.resolvedLocation = candidate
+    this.locationState = 'resolved'
+  }
+
+  clearLocation() {
+    this.locationState = 'idle'
+    this.locationPhrase = ''
+    this.resolvedLocation = null
+    this.candidates = []
+    this.resolving = false
+    this.permissionReason = ''
+    this.showReminderLocationDialog = false
+  }
+
+  async confirmLocationReminder() {
+    const location = this.resolvedLocation
+    if (!location) return
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (this.isEditing && this.noteToEdit.id) {
+      const existing = this.getActiveReminder()
+      if (existing && (existing as any).id) {
+        await this.reminderService.update((existing as any).id, {
+          locationName: location.displayName,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          radiusMeters: location.radiusMeters
+        })
+      } else {
+        await this.reminderService.create({
+          noteId: this.noteToEdit.id,
+          locationName: location.displayName,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          radiusMeters: location.radiusMeters,
+          timezone: tz,
+          title: this.notePlainText(this.noteToEdit.noteTitle),
+          body: this.notePlainText(this.noteToEdit.noteBody)
+        })
+      }
+    } else {
+      // For new notes, store location in pending state
+      this.pendingReminderLocation = {
+        locationName: location.displayName,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        radiusMeters: location.radiusMeters,
+        timezone: tz
+      }
+    }
+    this.clearLocation()
+    this.showReminderLocationDialog = false
+    this.cd.detectChanges()
+  }
 }
