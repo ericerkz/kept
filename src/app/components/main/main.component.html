@@ -215,7 +215,7 @@
                         <strong>Reminder</strong>
                         <span>{{ proposalBody(reminder.action) }}</span>
                       </div>
-                      @if (!$any(reminder.action).dueAtUtc) {
+                      @if (!smartReminderHasTrigger(reminder.action)) {
                         <button type="button" class="smart-reminder-button"
                           (click)="openSmartReminderPicker(reminder.index, $event)">
                           Set time
@@ -266,7 +266,7 @@
                 </div>
               }
 
-              @if (action.type === 'set_reminder' && !$any(action).dueAtUtc) {
+              @if (action.type === 'set_reminder' && !smartReminderHasTrigger(action)) {
                 <button type="button" class="smart-reminder-button"
                   (click)="openSmartReminderPicker(actionIndex, $event)">
                   Set reminder time

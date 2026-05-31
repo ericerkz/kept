@@ -299,7 +299,7 @@ export class MainComponent implements OnInit, OnDestroy {
       if ((action.type === 'create_text_note' || action.type === 'create_todo_note') && !action.bgColor) {
         action.bgColor = this.proposalColor(action, index);
       }
-      if (action.type !== 'set_reminder' || action.dueAtUtc) continue;
+      if (action.type !== 'set_reminder' || this.smartReminderHasTrigger(action)) continue;
       this.smartCaptureError = 'Pick a reminder date and time before running Smart Capture.';
       this.openSmartReminderPicker(index);
       return null;
@@ -355,10 +355,12 @@ export class MainComponent implements OnInit, OnDestroy {
         return;
       }
       await this.loadSmartSavedPlaces(true);
+      const savedLocations = this.smartSavedLocationsContext();
       const result = await plugin.processTextCommand({
         command,
+        savedLocations,
         context: {
-          savedLocations: this.smartSavedLocationsContext()
+          savedLocations
         }
       });
       if (!result?.actionPlan) {
@@ -414,7 +416,7 @@ export class MainComponent implements OnInit, OnDestroy {
   private smartSavedLocationsContext() {
     return this.smartSavedPlaces.map(place => ({
       id: place.id,
-      label: String(place.placeType || '').toLowerCase(),
+      label: String(place.placeType || 'other').toLowerCase(),
       displayName: place.name,
       latitude: place.latitude,
       longitude: place.longitude,
@@ -694,7 +696,7 @@ export class MainComponent implements OnInit, OnDestroy {
     if (action.type === 'append_to_note') return anyAction.text || 'Append text';
     if (action.type === 'add_checklist_items') return `${(anyAction.items || []).length} checklist items`;
     if (action.type === 'add_labels') return (anyAction.labels || []).join(', ');
-    if (action.type === 'set_reminder') return anyAction.dueAtUtc ? new Date(anyAction.dueAtUtc).toLocaleString() : 'Reminder time needed';
+    if (action.type === 'set_reminder') return this.smartReminderSummary(anyAction);
     if (action.type === 'share_note') return `${(anyAction.userIds || []).length} collaborator(s)`;
     return 'Smart action';
   }
@@ -942,12 +944,32 @@ export class MainComponent implements OnInit, OnDestroy {
     return this.actionTitle(action);
   }
 
+  smartReminderHasTrigger(action: any) {
+    return !!action?.dueAtUtc || this.isLocationReminder(action);
+  }
+
+  private isLocationReminder(action: any) {
+    return action?.latitude != null
+      && action?.longitude != null
+      && action?.locationName != null
+      && action?.locationTrigger != null;
+  }
+
+  private smartReminderSummary(action: any) {
+    if (action?.dueAtUtc) return new Date(action.dueAtUtc).toLocaleString();
+    if (this.isLocationReminder(action)) {
+      const trigger = action.locationTrigger === 'leave' ? 'leave' : 'arrive';
+      return `When I ${trigger}: ${action.locationName}`;
+    }
+    return 'Reminder time needed';
+  }
+
   proposalBody(action: KeptAction) {
     const anyAction = action as any;
     if (action.type === 'create_text_note') return anyAction.text || anyAction.body || '';
     if (action.type === 'append_to_note') return anyAction.text || '';
     if (action.type === 'add_labels') return (anyAction.labels || []).join(', ');
-    if (action.type === 'set_reminder') return anyAction.dueAtUtc ? new Date(anyAction.dueAtUtc).toLocaleString() : 'Reminder time needed';
+    if (action.type === 'set_reminder') return this.smartReminderSummary(anyAction);
     if (action.type === 'share_note') return `${(anyAction.userIds || []).length} collaborator(s)`;
     if (action.type === 'archive_note') return 'This note will move out of the main notes view.';
     if (action.type === 'trash_note') return 'This note will move to trash.';
