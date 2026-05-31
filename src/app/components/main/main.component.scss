@@ -531,6 +531,35 @@
     border-color: rgba(126, 87, 194, 0.45);
   }
 
+  &.is-dark-bg {
+    border-color: rgba(255, 255, 255, 0.34);
+    color: #e8eaed;
+
+    .smart-proposal-topline .material-symbols-outlined {
+      color: rgba(232, 234, 237, 0.78);
+    }
+
+    .smart-proposal-badge {
+      background: rgba(255, 255, 255, 0.18);
+      color: #fff;
+    }
+
+    .smart-proposal-checklist .material-symbols-outlined {
+      color: rgba(138, 180, 248, 0.78);
+    }
+
+    .smart-proposal-meta,
+    .smart-share-heading {
+      border-color: rgba(255, 255, 255, 0.2);
+      color: rgba(232, 234, 237, 0.78);
+    }
+
+    .smart-share-block,
+    .smart-reminder-block {
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+  }
+
   h3 {
     font-size: 19px;
     font-weight: 700;
@@ -756,6 +785,59 @@
   }
 
   > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.smart-reminder-block {
+  border-top: 1px solid rgba(60, 64, 67, 0.16);
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  position: relative;
+}
+
+.smart-reminder-attached {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(60, 64, 67, 0.18);
+  border-radius: 16px;
+  box-shadow: 0 10px 24px rgba(60, 64, 67, 0.1);
+  color: #202124;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  min-height: 58px;
+  padding: 8px 10px;
+
+  > .material-symbols-outlined {
+    align-items: center;
+    background: rgba(251, 188, 4, 0.18);
+    border-radius: 14px;
+    color: #b06000;
+    display: inline-flex;
+    font-size: 24px;
+    height: 42px;
+    justify-content: center;
+    width: 42px;
+  }
+
+  > div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  strong {
+    font: 800 14px/1.1 "Google Sans", Roboto, Arial, sans-serif;
+  }
+
+  span:not(.material-symbols-outlined) {
+    color: rgba(60, 64, 67, 0.72);
+    font: 700 13px/1.2 "Google Sans", Roboto, Arial, sans-serif;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

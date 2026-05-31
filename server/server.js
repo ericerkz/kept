@@ -513,7 +513,7 @@ async function init() {
   await run(`
     CREATE TABLE IF NOT EXISTS reminders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      noteId INTEGER REFERENCES notes(id) ON DELETE CASCADE,
+      noteId INTEGER UNIQUE REFERENCES notes(id) ON DELETE CASCADE,
       userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       dueAtUtc TEXT,
       timezone TEXT NOT NULL DEFAULT 'UTC',
@@ -526,6 +526,7 @@ async function init() {
       latitude REAL,
       longitude REAL,
       radiusMeters REAL DEFAULT 120,
+      locationTrigger TEXT NOT NULL DEFAULT 'arrive' CHECK(locationTrigger IN ('arrive','leave')),
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     )
@@ -549,22 +550,28 @@ async function init() {
   if (!reminderColumns.some(column => column.name === 'radiusMeters')) {
     await run(`ALTER TABLE reminders ADD COLUMN radiusMeters REAL DEFAULT 120`);
   }
+  if (!reminderColumns.some(column => column.name === 'locationTrigger')) {
+    await run(`ALTER TABLE reminders ADD COLUMN locationTrigger TEXT NOT NULL DEFAULT 'arrive'`);
+  }
   await run(`CREATE INDEX IF NOT EXISTS reminders_user_idx ON reminders(userId)`);
   await run(`CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders(dueAtUtc, status)`);
-  await run(`DROP INDEX IF EXISTS reminders_note_unique`);
-  await run(`DROP INDEX IF EXISTS reminders_note_idx`);
   await run(`
-    DELETE FROM reminders
-    WHERE noteId IS NOT NULL
-      AND id NOT IN (
-        SELECT keep.id
-        FROM reminders keep
-        WHERE keep.noteId = reminders.noteId
-        ORDER BY (keep.status = 'pending') DESC, keep.updatedAt DESC, keep.id DESC
-        LIMIT 1
-      )
+    CREATE TABLE IF NOT EXISTS location_saved_places (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      address TEXT,
+      placeType TEXT NOT NULL DEFAULT 'other' CHECK(placeType IN ('home','work','gym','other')),
+      latitude REAL NOT NULL,
+      longitude REAL NOT NULL,
+      radiusMeters REAL NOT NULL DEFAULT 100,
+      locationTrigger TEXT NOT NULL DEFAULT 'arrive' CHECK(locationTrigger IN ('arrive','leave')),
+      mapPreviewUrl TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
   `);
-  await run(`CREATE UNIQUE INDEX IF NOT EXISTS reminders_note_unique ON reminders(noteId)`);
+  await run(`CREATE INDEX IF NOT EXISTS location_saved_places_user_idx ON location_saved_places(userId, updatedAt)`);
   // Performance indexes for the /api/notes query, which JOINs by note id and
   // filters by ownerUserId. Without these, listing all notes degrades to
   // O(n*m) scans once the user has hundreds of notes (visible after a takeout
@@ -4368,6 +4375,7 @@ function reminderResponse(reminder, notesById = new Map()) {
     latitude: reminder.latitude != null ? Number(reminder.latitude) : null,
     longitude: reminder.longitude != null ? Number(reminder.longitude) : null,
     radiusMeters: reminder.radiusMeters != null ? Number(reminder.radiusMeters) : null,
+    locationTrigger: reminder.locationTrigger === 'leave' ? 'leave' : 'arrive',
     status: reminder.status || 'pending',
     deepLink: noteId ? `kept://note/${noteId}` : null
   };
@@ -4489,8 +4497,87 @@ app.delete('/api/push/subscriptions', requireAuth, asyncRoute(async (req, res) =
   res.status(204).end();
 }));
 
+function locationSavedPlaceResponse(place) {
+  return {
+    id: Number(place.id),
+    userId: Number(place.userId),
+    name: String(place.name || ''),
+    address: place.address || '',
+    placeType: ['home', 'work', 'gym', 'other'].includes(place.placeType) ? place.placeType : 'other',
+    latitude: Number(place.latitude),
+    longitude: Number(place.longitude),
+    radiusMeters: place.radiusMeters != null ? Number(place.radiusMeters) : 100,
+    locationTrigger: place.locationTrigger === 'leave' ? 'leave' : 'arrive',
+    mapPreviewUrl: place.mapPreviewUrl || null,
+    createdAt: place.createdAt,
+    updatedAt: place.updatedAt
+  };
+}
+
+function parseLocationSavedPlacePayload(body, existing = {}) {
+  const placeTypes = ['home', 'work', 'gym', 'other'];
+  const triggers = ['arrive', 'leave'];
+  const name = body.name !== undefined ? plainText(body.name).slice(0, 120) : existing.name;
+  const address = body.address !== undefined ? plainText(body.address).slice(0, 240) : (existing.address || '');
+  const placeType = placeTypes.includes(body.placeType) ? body.placeType : (existing.placeType || 'other');
+  const latitude = body.latitude !== undefined ? Number(body.latitude) : Number(existing.latitude);
+  const longitude = body.longitude !== undefined ? Number(body.longitude) : Number(existing.longitude);
+  const radiusMeters = body.radiusMeters !== undefined ? Number(body.radiusMeters) : Number(existing.radiusMeters || 100);
+  const locationTrigger = triggers.includes(body.locationTrigger) ? body.locationTrigger : (existing.locationTrigger || 'arrive');
+  const mapPreviewUrl = body.mapPreviewUrl !== undefined ? (String(body.mapPreviewUrl || '') || null) : (existing.mapPreviewUrl || null);
+  if (!name) return { error: 'name is required.' };
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return { error: 'latitude and longitude are required.' };
+  if (!Number.isFinite(radiusMeters) || radiusMeters <= 0) return { error: 'radiusMeters must be positive.' };
+  return { name, address, placeType, latitude, longitude, radiusMeters, locationTrigger, mapPreviewUrl };
+}
+
+app.get('/api/location-saved-places', requireAuth, asyncRoute(async (req, res) => {
+  const places = await all(
+    `SELECT * FROM location_saved_places WHERE userId = ? ORDER BY updatedAt DESC, id DESC`,
+    [req.user.id]
+  );
+  res.json(places.map(locationSavedPlaceResponse));
+}));
+
+app.post('/api/location-saved-places', requireAuth, asyncRoute(async (req, res) => {
+  const parsed = parseLocationSavedPlacePayload(req.body || {});
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const now = new Date().toISOString();
+  const result = await run(
+    `INSERT INTO location_saved_places
+       (userId, name, address, placeType, latitude, longitude, radiusMeters, locationTrigger, mapPreviewUrl, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [req.user.id, parsed.name, parsed.address, parsed.placeType, parsed.latitude, parsed.longitude, parsed.radiusMeters, parsed.locationTrigger, parsed.mapPreviewUrl, now, now]
+  );
+  const place = await get('SELECT * FROM location_saved_places WHERE id = ? AND userId = ?', [result.id, req.user.id]);
+  res.status(201).json(locationSavedPlaceResponse(place));
+}));
+
+app.patch('/api/location-saved-places/:id', requireAuth, asyncRoute(async (req, res) => {
+  const place = await get('SELECT * FROM location_saved_places WHERE id = ? AND userId = ?', [Number(req.params.id), req.user.id]);
+  if (!place) return res.status(404).json({ error: 'Saved place not found.' });
+  const parsed = parseLocationSavedPlacePayload(req.body || {}, place);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const now = new Date().toISOString();
+  await run(
+    `UPDATE location_saved_places
+     SET name = ?, address = ?, placeType = ?, latitude = ?, longitude = ?, radiusMeters = ?, locationTrigger = ?, mapPreviewUrl = ?, updatedAt = ?
+     WHERE id = ? AND userId = ?`,
+    [parsed.name, parsed.address, parsed.placeType, parsed.latitude, parsed.longitude, parsed.radiusMeters, parsed.locationTrigger, parsed.mapPreviewUrl, now, place.id, req.user.id]
+  );
+  const updated = await get('SELECT * FROM location_saved_places WHERE id = ? AND userId = ?', [place.id, req.user.id]);
+  res.json(locationSavedPlaceResponse(updated));
+}));
+
+app.delete('/api/location-saved-places/:id', requireAuth, asyncRoute(async (req, res) => {
+  const place = await get('SELECT * FROM location_saved_places WHERE id = ? AND userId = ?', [Number(req.params.id), req.user.id]);
+  if (!place) return res.status(404).json({ error: 'Saved place not found.' });
+  await run('DELETE FROM location_saved_places WHERE id = ? AND userId = ?', [place.id, req.user.id]);
+  res.status(204).end();
+}));
+
 app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
-  const { noteId, dueAtUtc, timezone, title, body, imageUrl, repeatRule, locationName, latitude, longitude, radiusMeters } = req.body;
+  const { noteId, dueAtUtc, timezone, title, body, imageUrl, repeatRule, locationName, latitude, longitude, radiusMeters, locationTrigger } = req.body;
   if (!dueAtUtc && !locationName) return res.status(400).json({ error: 'Either dueAtUtc or locationName is required.' });
   const noteIdVal = Number(noteId || 0) || null;
   if (noteIdVal) {
@@ -4508,11 +4595,12 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
   const lat = latitude != null ? Number(latitude) : null;
   const lng = longitude != null ? Number(longitude) : null;
   const radius = radiusMeters != null ? Number(radiusMeters) : (locationName ? 120 : null);
+  const triggerVal = locationTrigger === 'leave' ? 'leave' : 'arrive';
 
   const existing = noteIdVal ? await get('SELECT id FROM reminders WHERE noteId = ?', [noteIdVal]) : null;
   const reminder = await get(
-    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(noteId) DO UPDATE SET
        userId = excluded.userId,
        dueAtUtc = excluded.dueAtUtc,
@@ -4526,9 +4614,10 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
        latitude = excluded.latitude,
        longitude = excluded.longitude,
        radiusMeters = excluded.radiusMeters,
+       locationTrigger = excluded.locationTrigger,
        updatedAt = excluded.updatedAt
      RETURNING *`,
-    [noteIdVal, req.user.id, dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, now, now]
+    [noteIdVal, req.user.id, dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, triggerVal, now, now]
   );
   const enrichedReminder = await enrichReminderResponse(reminder);
   const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [req.user.id]);
@@ -4548,12 +4637,15 @@ app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
   const latitude = req.body.latitude !== undefined ? (req.body.latitude != null ? Number(req.body.latitude) : null) : (reminder.latitude != null ? reminder.latitude : null);
   const longitude = req.body.longitude !== undefined ? (req.body.longitude != null ? Number(req.body.longitude) : null) : (reminder.longitude != null ? reminder.longitude : null);
   const radiusMeters = req.body.radiusMeters !== undefined ? (req.body.radiusMeters != null ? Number(req.body.radiusMeters) : null) : (reminder.radiusMeters != null ? reminder.radiusMeters : null);
+  const locationTrigger = req.body.locationTrigger !== undefined
+    ? (req.body.locationTrigger === 'leave' ? 'leave' : 'arrive')
+    : (reminder.locationTrigger === 'leave' ? 'leave' : 'arrive');
 
   if (!dueAtUtc && !locationName) return res.status(400).json({ error: 'Either dueAtUtc or locationName is required.' });
 
   await run(
-    `UPDATE reminders SET status = ?, dueAtUtc = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, updatedAt = ? WHERE id = ?`,
-    [status, dueAtUtc, locationName, latitude, longitude, radiusMeters, now, reminder.id]
+    `UPDATE reminders SET status = ?, dueAtUtc = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, locationTrigger = ?, updatedAt = ? WHERE id = ?`,
+    [status, dueAtUtc, locationName, latitude, longitude, radiusMeters, locationTrigger, now, reminder.id]
   );
   const updated = await get('SELECT * FROM reminders WHERE id = ?', [reminder.id]);
   const enrichedUpdated = await enrichReminderResponse(updated);

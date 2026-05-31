@@ -6,6 +6,8 @@ import { ReminderService } from 'src/app/services/reminder.service';
 import { SharedService } from 'src/app/services/shared.service';
 import { NotesService } from 'src/app/services/notes.service';
 import { ShareUserI } from 'src/app/interfaces/users';
+import { bgColors } from 'src/app/interfaces/tooltip';
+import { LocationSavedPlacesService, type LocationSavedPlace } from 'src/app/services/location-saved-places.service';
 
 interface SmartCaptureEstimateAction {
   type: string;
@@ -53,13 +55,16 @@ export class MainComponent implements OnInit, OnDestroy {
   private smartVoiceTranscriptListener?: { remove: () => Promise<void> | void };
   private smartCaptureEventHandler = (event: Event) => this.handleSmartCaptureEvent(event as CustomEvent);
   private smartCaptureEstimateEventHandler = (event: Event) => this.handleSmartCaptureEstimateEvent(event as CustomEvent);
-  readonly smartProposalColors = ['#e8f0fe', '#e6f4ea', '#f3e8fd', '#fef7e0', '#fce8e6', '#e4f7fb'];
+  readonly smartProposalColors = Object.values(bgColors).filter(color => !!color);
+  private smartSavedPlaces: LocationSavedPlace[] = [];
+  private smartSavedPlacesLoaded = false;
 
   constructor(
     public Shared: SharedService,
     private ai: AiService,
     private notes: NotesService,
     private reminders: ReminderService,
+    private savedPlaces: LocationSavedPlacesService,
     private ngZone: NgZone
   ) { }
 
@@ -100,6 +105,7 @@ export class MainComponent implements OnInit, OnDestroy {
     }
 
     try {
+      await this.loadSmartSavedPlaces(true);
       await this.bindVoiceTranscriptListener(plugin);
       await plugin.startVoiceCapture();
       this.smartVoiceCapturing = true;
@@ -211,8 +217,8 @@ export class MainComponent implements OnInit, OnDestroy {
 
   toggleSmartAction(index: number, checked: boolean) {
     const indexes = checked
-      ? [index, ...this.connectedShareActionIndexes(index), ...this.prerequisiteActionIndexes(index)]
-      : [index, ...this.connectedShareActionIndexes(index), ...this.dependentActionIndexes(index)];
+      ? [index, ...this.connectedShareActionIndexes(index), ...this.connectedReminderActionIndexes(index), ...this.prerequisiteActionIndexes(index)]
+      : [index, ...this.connectedShareActionIndexes(index), ...this.connectedReminderActionIndexes(index), ...this.dependentActionIndexes(index)];
     for (const actionIndex of indexes) {
       if (checked) this.selectedSmartActions.add(actionIndex);
       else this.selectedSmartActions.delete(actionIndex);
@@ -348,7 +354,13 @@ export class MainComponent implements OnInit, OnDestroy {
         this.smartCaptureError = 'Smart Capture is waiting for the iOS planning plugin.';
         return;
       }
-      const result = await plugin.processTextCommand({ command, context: {} });
+      await this.loadSmartSavedPlaces(true);
+      const result = await plugin.processTextCommand({
+        command,
+        context: {
+          savedLocations: this.smartSavedLocationsContext()
+        }
+      });
       if (!result?.actionPlan) {
         this.smartCaptureError = 'Smart Capture did not return an action plan.';
         return;
@@ -385,6 +397,29 @@ export class MainComponent implements OnInit, OnDestroy {
 
   private keptIntelligencePlugin() {
     return (window as any).Capacitor?.Plugins?.KeptIntelligence;
+  }
+
+  private async loadSmartSavedPlaces(force = false) {
+    if (this.smartSavedPlacesLoaded && !force) return;
+    try {
+      this.smartSavedPlaces = await this.savedPlaces.list();
+      this.smartSavedPlacesLoaded = true;
+    } catch (error) {
+      console.warn('Could not load saved locations for Smart Capture', error);
+      this.smartSavedPlaces = [];
+      this.smartSavedPlacesLoaded = true;
+    }
+  }
+
+  private smartSavedLocationsContext() {
+    return this.smartSavedPlaces.map(place => ({
+      id: place.id,
+      label: String(place.placeType || '').toLowerCase(),
+      displayName: place.name,
+      latitude: place.latitude,
+      longitude: place.longitude,
+      radiusMeters: place.radiusMeters ?? 120
+    }));
   }
 
   private async syncNativeConfirmedReminders(actions: KeptAction[]) {
@@ -669,22 +704,50 @@ export class MainComponent implements OnInit, OnDestroy {
     return noteId ? `Note #${noteId}` : '';
   }
 
-  proposalColor(action: KeptAction, index: number) {
+  proposalColor(action: KeptAction, _index: number) {
     const anyAction = action as any;
     if (anyAction.bgColor) return anyAction.bgColor;
-    return this.smartProposalColors[index % this.smartProposalColors.length];
+    return this.smartProposalColors[Math.floor(Math.random() * this.smartProposalColors.length)];
+  }
+
+  proposalHasDarkBackground(action: KeptAction) {
+    const color = String((action as any).bgColor || '');
+    return !!color && !this.isLightColor(color);
+  }
+
+  private isLightColor(color: string) {
+    const rgb = this.parseColor(color);
+    if (!rgb) return false;
+    return ((rgb.r * 299) + (rgb.g * 587) + (rgb.b * 114)) / 1000 > 160;
+  }
+
+  private parseColor(color: string) {
+    if (!color) return null;
+    const hex = color.trim().match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+    if (!hex) return null;
+    return {
+      r: parseInt(hex[1], 16),
+      g: parseInt(hex[2], 16),
+      b: parseInt(hex[3], 16)
+    };
   }
 
   proposalDisplayActions() {
     return (this.smartCapturePlan?.actions || [])
       .map((action, index) => ({ action, index }))
-      .filter(item => !this.shouldHideShareAction(item.index));
+      .filter(item => !this.shouldHideShareAction(item.index) && !this.shouldHideReminderAction(item.index));
   }
 
   private shouldHideShareAction(index: number) {
     const action = this.smartCapturePlan?.actions?.[index] as any;
     if (action?.type !== 'share_note') return false;
     return this.findConnectedProposalIndex(index) !== null;
+  }
+
+  private shouldHideReminderAction(index: number) {
+    const action = this.smartCapturePlan?.actions?.[index] as any;
+    if (action?.type !== 'set_reminder') return false;
+    return this.findConnectedReminderProposalIndex(index) !== null;
   }
 
   private connectedShareActionIndexes(index: number) {
@@ -717,6 +780,14 @@ export class MainComponent implements OnInit, OnDestroy {
       .map(item => item.candidateIndex);
   }
 
+  private connectedReminderActionIndexes(index: number) {
+    const actions = this.smartCapturePlan?.actions || [];
+    return actions
+      .map((action, reminderIndex) => ({ action: action as any, reminderIndex }))
+      .filter(item => item.action.type === 'set_reminder' && this.findConnectedReminderProposalIndex(item.reminderIndex) === index)
+      .map(item => item.reminderIndex);
+  }
+
   private requiresPreviousCreatedNote(action: any) {
     return !this.numericNoteId(action?.noteId)
       && ['set_reminder', 'share_note', 'add_labels', 'append_to_note', 'add_checklist_items'].includes(action?.type);
@@ -738,11 +809,35 @@ export class MainComponent implements OnInit, OnDestroy {
     const shareNoteId = this.numericNoteId(share.noteId);
     if (shareNoteId) {
       const targetIndex = actions.findIndex((action, index) =>
-        index !== shareIndex && (action as any).type !== 'share_note' && this.numericNoteId((action as any).noteId) === shareNoteId
+        index !== shareIndex
+        && (action as any).type !== 'share_note'
+        && (action as any).type !== 'set_reminder'
+        && this.numericNoteId((action as any).noteId) === shareNoteId
       );
       if (targetIndex >= 0) return targetIndex;
     }
     for (let index = shareIndex - 1; index >= 0; index--) {
+      const action = actions[index] as any;
+      if (this.isNoteProposalAction(action)) return index;
+    }
+    return null;
+  }
+
+  private findConnectedReminderProposalIndex(reminderIndex: number) {
+    const actions = this.smartCapturePlan?.actions || [];
+    const reminder = actions[reminderIndex] as any;
+    if (!reminder || reminder.type !== 'set_reminder') return null;
+    const reminderNoteId = this.numericNoteId(reminder.noteId);
+    if (reminderNoteId) {
+      const targetIndex = actions.findIndex((action, index) =>
+        index !== reminderIndex
+        && (action as any).type !== 'share_note'
+        && (action as any).type !== 'set_reminder'
+        && this.numericNoteId((action as any).noteId) === reminderNoteId
+      );
+      if (targetIndex >= 0) return targetIndex;
+    }
+    for (let index = reminderIndex - 1; index >= 0; index--) {
       const action = actions[index] as any;
       if (this.isNoteProposalAction(action)) return index;
     }
@@ -768,6 +863,15 @@ export class MainComponent implements OnInit, OnDestroy {
         avatarPreset: 'cat',
         shareCount: 0
       });
+  }
+
+  reminderProposalsForAction(index: number) {
+    return this.connectedReminderActionIndexes(index)
+      .map(reminderIndex => ({
+        index: reminderIndex,
+        action: this.smartCapturePlan?.actions?.[reminderIndex] as any
+      }))
+      .filter(item => !!item.action);
   }
 
   private loadSmartShareUsers() {

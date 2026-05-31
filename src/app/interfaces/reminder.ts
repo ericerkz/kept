@@ -15,6 +15,7 @@ export interface ReminderI {
   latitude: number | null;
   longitude: number | null;
   radiusMeters: number | null;
+  locationTrigger?: 'arrive' | 'leave';
   createdAt: string;
   updatedAt: string;
 }

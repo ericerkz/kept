@@ -2092,6 +2092,16 @@ body.light-theme .reminder-date-dialog {
 }
 
 .reminder-place-dialog {
+  box-sizing: border-box;
+  max-width: calc(100vw - 40px);
+  overflow-x: hidden;
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
   .rd-place-header {
     align-items: center;
     display: grid;
@@ -2134,6 +2144,7 @@ body.light-theme .reminder-date-dialog {
     gap: 12px;
     grid-template-columns: 28px 1fr;
     min-height: 76px;
+    min-width: 0;
     padding: 0 24px;
 
     .material-symbols-outlined {
@@ -2250,6 +2261,255 @@ body.light-theme .reminder-date-dialog {
     }
   }
 
+  .rd-place-section-title {
+    align-items: center;
+    color: #a7adb7;
+    display: flex;
+    font-size: 1rem;
+    font-weight: 800;
+    justify-content: space-between;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+
+    button {
+      background: transparent;
+      border: none;
+      color: #2f7df6;
+      cursor: pointer;
+      font: 800 1rem/1 "Google Sans", Roboto, Arial, sans-serif;
+      letter-spacing: 0;
+      padding: 0;
+      text-transform: none;
+    }
+  }
+
+  .rd-place-list,
+  .rd-place-manage-list {
+    display: grid;
+    gap: 10px;
+    max-height: min(300px, 42dvh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    min-width: 0;
+    padding-right: 2px;
+  }
+
+  .rd-place-list {
+    border-bottom: 1px solid #e6e8ee;
+    padding-bottom: 10px;
+  }
+
+  .rd-place-row {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    color: #202124;
+    cursor: pointer;
+    display: grid;
+    gap: 14px;
+    grid-template-columns: 58px minmax(0, 1fr) auto;
+    min-height: 72px;
+    min-width: 0;
+    padding: 0 12px;
+    text-align: left;
+    width: 100%;
+  }
+
+  .rd-place-icon {
+    align-items: center;
+    background: #edf3ff;
+    border-radius: 16px;
+    color: #2f7df6;
+    display: inline-flex;
+    font-size: 30px;
+    height: 58px;
+    justify-content: center;
+    width: 58px;
+  }
+
+  .rd-place-copy {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+
+    strong {
+      color: #202124;
+      font-size: 1.25rem;
+      font-weight: 800;
+      line-height: 1.1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    small {
+      color: #70757d;
+      font-size: 1rem;
+      font-weight: 600;
+      line-height: 1.15;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .rd-place-distance {
+    align-items: center;
+    color: #70757d;
+    display: inline-flex;
+    font-size: 1rem;
+    font-weight: 800;
+    gap: 6px;
+    white-space: nowrap;
+
+    .material-symbols-outlined {
+      color: #2f7df6;
+      font-size: 20px;
+    }
+  }
+
+  .add-row {
+    color: #2f7df6;
+
+    .rd-place-copy strong {
+      color: #2f7df6;
+    }
+  }
+
+  .rd-place-swipe {
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+
+    &.deleting .manage-row {
+      transform: translateX(-86px);
+    }
+  }
+
+  .rd-place-delete-bg {
+    align-items: center;
+    background: #ea4335;
+    border: 0;
+    bottom: 0;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    font: 800 1rem/1 "Google Sans", Roboto, Arial, sans-serif;
+    justify-content: flex-end;
+    padding-right: 18px;
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 110px;
+  }
+
+  .manage-row {
+    background: #fff;
+    grid-template-columns: 58px minmax(0, 1fr) auto auto 22px;
+    position: relative;
+    touch-action: pan-y;
+    transition: transform 0.16s ease;
+    z-index: 1;
+  }
+
+  .rd-trigger-pill {
+    background: #edf3ff;
+    border-radius: 999px;
+    color: #2f7df6;
+    font-size: 0.86rem;
+    font-weight: 800;
+    padding: 6px 10px;
+    white-space: nowrap;
+  }
+
+  .rd-place-chevron {
+    color: #a7adb7;
+    font-size: 24px;
+  }
+
+  .rd-manage-add {
+    border-top: 1px solid #e6e8ee;
+    margin-top: 2px;
+    padding-top: 10px;
+  }
+
+  .rd-place-field,
+  .rd-place-field-title {
+    color: #a7adb7;
+    display: grid;
+    font-size: 0.95rem;
+    font-weight: 800;
+    gap: 8px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .rd-place-field > div {
+    align-items: center;
+    background: #f1f3f6;
+    border-radius: 16px;
+    color: #2f7df6;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: 28px 1fr;
+    min-height: 60px;
+    padding: 0 18px;
+
+    input {
+      background: transparent;
+      border: 0;
+      color: #202124;
+      font: 800 1.15rem/1.2 "Google Sans", Roboto, Arial, sans-serif;
+      min-width: 0;
+      outline: 0;
+      width: 100%;
+    }
+  }
+
+  .rd-place-chips,
+  .rd-radius-options,
+  .rd-segmented {
+    display: grid;
+    gap: 10px;
+  }
+
+  .rd-place-chips {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .rd-radius-options {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .rd-segmented {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rd-place-chips button,
+  .rd-radius-options button,
+  .rd-segmented button {
+    align-items: center;
+    background: #fff;
+    border: 2px solid #e1e3e8;
+    border-radius: 14px;
+    color: #3c4043;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 1rem;
+    font-weight: 800;
+    gap: 8px;
+    justify-content: center;
+    min-height: 54px;
+    min-width: 0;
+    padding: 0 12px;
+
+    &.active {
+      background: #e7f1ff;
+      border-color: #2f7df6;
+      color: #2f7df6;
+    }
+  }
+
   .rd-arrive-choice {
     align-items: center;
     background: #e7f1ff;
@@ -2273,12 +2533,22 @@ body.light-theme .reminder-date-dialog {
     &:not(.active) {
       opacity: 0.72;
     }
+
+    .rd-switch {
+      align-items: center;
+      color: #70757d;
+      display: inline-flex;
+      font-size: 0.95rem;
+      gap: 4px;
+      margin-left: auto;
+    }
   }
 
   .rd-place-actions {
     display: grid;
     gap: 20px;
     grid-template-columns: 1fr 1.3fr;
+    min-width: 0;
   }
 
   .rd-place-cancel,
@@ -2291,6 +2561,7 @@ body.light-theme .reminder-date-dialog {
     font-weight: 800;
     height: 84px;
     justify-content: center;
+    min-width: 0;
     padding: 0 22px;
   }
 
@@ -2408,12 +2679,100 @@ body.light-theme .reminder-date-dialog {
       }
     }
 
+    .rd-place-section-title {
+      font-size: 0.78rem;
+    }
+
+    .rd-place-list,
+    .rd-place-manage-list {
+      gap: 7px;
+      max-height: min(250px, 34dvh);
+    }
+
+    .rd-place-row {
+      gap: 10px;
+      grid-template-columns: 46px minmax(0, 1fr) auto;
+      min-height: 58px;
+      padding: 0 6px;
+    }
+
+    .rd-place-icon {
+      border-radius: 12px;
+      font-size: 24px;
+      height: 46px;
+      width: 46px;
+    }
+
+    .rd-place-copy {
+      strong {
+        font-size: 1rem;
+      }
+
+      small {
+        font-size: 0.84rem;
+      }
+    }
+
+    .rd-place-distance {
+      font-size: 0.86rem;
+    }
+
+    .manage-row {
+      grid-template-columns: 46px minmax(0, 1fr) auto auto 18px;
+    }
+
+    .rd-trigger-pill {
+      font-size: 0.72rem;
+      padding: 4px 7px;
+    }
+
+    .rd-place-chevron {
+      font-size: 20px;
+    }
+
     .rd-place-map {
       border-radius: 14px;
       height: min(160px, 24dvh);
 
       .material-symbols-outlined {
         font-size: 44px;
+      }
+    }
+
+    .rd-place-field,
+    .rd-place-field-title {
+      font-size: 0.76rem;
+      gap: 6px;
+    }
+
+    .rd-place-field > div {
+      border-radius: 14px;
+      grid-template-columns: 22px 1fr;
+      min-height: 48px;
+      padding: 0 14px;
+
+      input {
+        font-size: 0.94rem;
+      }
+    }
+
+    .rd-place-chips,
+    .rd-radius-options,
+    .rd-segmented {
+      gap: 8px;
+    }
+
+    .rd-place-chips button,
+    .rd-radius-options button,
+    .rd-segmented button {
+      border-radius: 12px;
+      font-size: 0.78rem;
+      gap: 5px;
+      min-height: 44px;
+      padding: 0 5px;
+
+      .material-symbols-outlined {
+        font-size: 20px;
       }
     }
 
@@ -2425,6 +2784,10 @@ body.light-theme .reminder-date-dialog {
 
       .material-symbols-outlined {
         font-size: 23px;
+      }
+
+      .rd-switch {
+        font-size: 0.78rem;
       }
     }
 

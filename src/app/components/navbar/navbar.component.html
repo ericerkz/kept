@@ -7,7 +7,10 @@
         <button type="button" class="selection-icon pin H pop" data-pop="Pin" (click)="Shared.bulkTogglePinSelected()"></button>
         <button #selectionColorBtn type="button" class="selection-icon color H pop" data-pop="Background options"
           (click)="openTooltip(selectionColorBtn,selectionColorTt)"></button>
-        <button type="button" class="selection-icon reminder H disabled pop" data-pop="Reminder"></button>
+        <button type="button" class="selection-icon reminder H pop" data-pop="Reminder"
+          [class.disabled]="!canSetSelectedReminder"
+          [attr.aria-disabled]="!canSetSelectedReminder"
+          (click)="openSelectedReminder()"></button>
         <button type="button" class="selection-icon archive H pop" data-pop="Archive" (click)="Shared.bulkArchiveSelected()"></button>
         <button type="button" class="selection-icon delete H pop" data-pop="Delete" (click)="Shared.bulkTrashSelected()"></button>
         <button #selectionMoreBtn type="button" class="selection-icon more H pop" data-pop="More"

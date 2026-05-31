@@ -12,6 +12,7 @@ import { LinkPreviewData, NotesService } from 'src/app/services/notes.service';
 import { PushNotificationService } from 'src/app/services/push-notification.service';
 import { ReminderService } from 'src/app/services/reminder.service';
 import { KeptPluginsService, type ResolvedLocation } from 'src/app/services/kept-plugins.service';
+import { LocationSavedPlacesService, type LocationSavedPlace, type LocationTrigger, type SavedPlaceType } from 'src/app/services/location-saved-places.service';
 import { NgZone } from '@angular/core';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 
@@ -20,6 +21,8 @@ type InputLengthI = { title?: number, body?: number, cb?: number }
 type DrawingTool = 'select' | 'pen' | 'marker' | 'highlighter' | 'eraser'
 type DrawingPoint = { x: number, y: number }
 type DrawingSelection = { x: number, y: number, w: number, h: number }
+type PlaceDialogView = 'choose' | 'manage' | 'add' | 'search'
+type PlaceListItem = LocationSavedPlace | { id: 'home-prompt' | 'work-prompt'; name: string; address: string; placeType: SavedPlaceType; prompt: true }
 @Component({
     selector: 'app-input',
     templateUrl: './input.component.html',
@@ -31,7 +34,7 @@ export class InputComponent implements OnInit {
     return this.mobileComposeMode;
   }
 
-  constructor(private cd: ChangeDetectorRef, public Shared: SharedService, public auth: AuthService, private notesService: NotesService, private push: PushNotificationService, private reminderService: ReminderService, public keptPlugins: KeptPluginsService, private zone: NgZone) { }
+  constructor(private cd: ChangeDetectorRef, public Shared: SharedService, public auth: AuthService, private notesService: NotesService, private push: PushNotificationService, private reminderService: ReminderService, public keptPlugins: KeptPluginsService, private savedPlacesService: LocationSavedPlacesService, private zone: NgZone) { }
 
   @ViewChild("main") main!: ElementRef<HTMLDivElement>
   //? Placeholder  ----------------------------------------------------
@@ -87,10 +90,11 @@ export class InputComponent implements OnInit {
   customTimePicker: any
   customTimePickerInput?: HTMLInputElement
   pendingReminderDate: Date | null = null
-  pendingReminderLocation: { locationName: string; latitude: number; longitude: number; radiusMeters: number; timezone: string } | null = null
+  pendingReminderLocation: { locationName: string; latitude: number; longitude: number; radiusMeters: number; timezone: string; locationTrigger: LocationTrigger } | null = null
   showReminderTypeDialog = false
   showReminderDateDialog = false
   showReminderLocationDialog = false
+  placeDialogView: PlaceDialogView = 'choose'
   locationState: 'idle' | 'resolved' | 'ambiguous' | 'permission' | 'notFound' = 'idle'
   locationPhrase = ''
   resolvedLocation: ResolvedLocation | null = null
@@ -98,6 +102,21 @@ export class InputComponent implements OnInit {
   candidates: ResolvedLocation[] = []
   resolving = false
   permissionReason = ''
+  savedPlaces: LocationSavedPlace[] = []
+  savedPlacesLoading = false
+  savedPlacesError = ''
+  savedPlacesSearch = ''
+  locationTrigger: LocationTrigger = 'arrive'
+  addPlaceName = ''
+  addPlaceType: SavedPlaceType = 'other'
+  addPlaceRadiusMeters = 100
+  addPlaceSaving = false
+  swipingPlaceId: number | null = null
+  readonly savedPlaceTypes: SavedPlaceType[] = ['home', 'work', 'gym', 'other']
+  readonly savedPlaceRadii = [100, 250, 500, 1000]
+  currentLocation: { latitude: number; longitude: number } | null = null
+  currentLocationLoading = false
+  private placeSwipeStartPoint?: { id: number; x: number; y: number }
   collaboratorError = ''
   isSavingCollaborators = false
   labelMenuError = ''
@@ -467,6 +486,7 @@ export class InputComponent implements OnInit {
         latitude: location.latitude,
         longitude: location.longitude,
         radiusMeters: location.radiusMeters,
+        locationTrigger: location.locationTrigger,
         timezone: location.timezone,
         title,
         body
@@ -2829,6 +2849,7 @@ export class InputComponent implements OnInit {
   chooseReminderPlace() {
     this.showReminderTypeDialog = false
     this.showReminderLocationDialog = true
+    this.openPlaceChooser()
   }
 
   cancelReminderType() {
@@ -3100,6 +3121,7 @@ export class InputComponent implements OnInit {
       if (existing && (existing as any).id) await this.reminderService.delete((existing as any).id)
     } else {
       this.pendingReminderDate = null
+      this.pendingReminderLocation = null
     }
     this.closeReminderPicker()
     this.cd.detectChanges()
@@ -3173,7 +3195,106 @@ export class InputComponent implements OnInit {
 
   // ─── Location reminders ───────────────────────────────────────────────
 
-  async resolveLocation() {
+  async openPlaceChooser() {
+    this.placeDialogView = 'choose'
+    this.resetLocationState()
+    this.savedPlacesSearch = ''
+    this.locationTrigger = 'arrive'
+    await Promise.all([this.loadSavedPlaces(), this.loadCurrentLocation()])
+  }
+
+  backFromPlaceDialog() {
+    if (this.placeDialogView !== 'choose') {
+      this.openPlaceChooser()
+      return
+    }
+    this.showReminderLocationDialog = false
+    this.showReminderTypeDialog = true
+  }
+
+  async loadSavedPlaces() {
+    this.savedPlacesLoading = true
+    this.savedPlacesError = ''
+    try {
+      this.savedPlaces = await this.savedPlacesService.list()
+    } catch {
+      this.savedPlacesError = 'Saved places could not load.'
+    } finally {
+      this.savedPlacesLoading = false
+      this.cd.detectChanges()
+    }
+  }
+
+  visiblePlaceItems(): PlaceListItem[] {
+    const q = this.savedPlacesSearch.trim().toLowerCase()
+    const items: PlaceListItem[] = [...this.savedPlaces]
+    if (!this.savedPlaces.some(place => place.placeType === 'home')) {
+      items.push({ id: 'home-prompt', name: 'Home', address: 'Add your home address', placeType: 'home', prompt: true })
+    }
+    if (!this.savedPlaces.some(place => place.placeType === 'work')) {
+      items.push({ id: 'work-prompt', name: 'Work', address: 'Add your work address', placeType: 'work', prompt: true })
+    }
+    if (!q) return items
+    return items.filter(place =>
+      place.name.toLowerCase().includes(q) ||
+      (place.address || '').toLowerCase().includes(q)
+    )
+  }
+
+  visibleSavedPlaces() {
+    const q = this.savedPlacesSearch.trim().toLowerCase()
+    if (!q) return this.savedPlaces
+    return this.savedPlaces.filter(place =>
+      place.name.toLowerCase().includes(q) ||
+      (place.address || '').toLowerCase().includes(q)
+    )
+  }
+
+  placeIcon(placeType: SavedPlaceType) {
+    switch (placeType) {
+      case 'home': return 'home'
+      case 'work': return 'business_center'
+      case 'gym': return 'fitness_center'
+      default: return 'location_on'
+    }
+  }
+
+  placeDistanceLabel(place: PlaceListItem) {
+    if ('prompt' in place) return ''
+    if (this.currentLocationLoading && !this.currentLocation) return '...'
+    if (!this.currentLocation) return ''
+    const meters = this.distanceMeters(
+      this.currentLocation.latitude,
+      this.currentLocation.longitude,
+      place.latitude,
+      place.longitude
+    )
+    return this.formatDistance(meters)
+  }
+
+  openManagePlaces() {
+    this.placeDialogView = 'manage'
+    this.savedPlacesSearch = ''
+  }
+
+  openAddSavedPlace(seedType: SavedPlaceType = 'other') {
+    this.placeDialogView = 'add'
+    this.resetLocationState()
+    this.locationTrigger = 'arrive'
+    this.addPlaceType = seedType
+    this.addPlaceName = seedType === 'other' ? '' : this.titleCase(seedType)
+    this.addPlaceRadiusMeters = 100
+  }
+
+  openSearchPlace(keepPhrase = false) {
+    const phrase = this.locationPhrase
+    this.placeDialogView = 'search'
+    this.resetLocationState()
+    if (keepPhrase) this.locationPhrase = phrase
+    this.locationTrigger = 'arrive'
+  }
+
+  async resolveLocation(view: PlaceDialogView = this.placeDialogView) {
     const phrase = this.locationPhrase.trim()
     if (!phrase) return
     this.resolving = true
@@ -3189,6 +3310,9 @@ export class InputComponent implements OnInit {
           this.resolvedLocation = result.location
           this.locationPhrase = result.location.displayName
           this.locationState = 'resolved'
+          if (view === 'add' && !this.addPlaceName.trim()) {
+            this.addPlaceName = this.suggestPlaceName(result.location.displayName)
+          }
           this.hydrateLocationMapPreview(result.location)
           break
         case 'ambiguous':
@@ -3212,6 +3336,9 @@ export class InputComponent implements OnInit {
     this.resolvedLocation = candidate
     this.locationPhrase = candidate.displayName
     this.locationState = 'resolved'
+    if (this.placeDialogView === 'add' && !this.addPlaceName.trim()) {
+      this.addPlaceName = this.suggestPlaceName(candidate.displayName)
+    }
     this.hydrateLocationMapPreview(candidate)
   }
 
@@ -3230,9 +3357,31 @@ export class InputComponent implements OnInit {
     this.showReminderLocationDialog = false
   }
 
-  confirmLocationReminder() {
-    const location = this.resolvedLocation
+  confirmSavedPlaceReminder(place: LocationSavedPlace) {
+    this.setPendingLocationReminder({
+      displayName: place.name || place.address || 'Saved place',
+      latitude: place.latitude,
+      longitude: place.longitude,
+      radiusMeters: place.radiusMeters,
+      confidence: 'high',
+      source: 'savedLocation'
+    }, place.locationTrigger)
+  }
+
+  choosePlaceItem(place: PlaceListItem) {
+    if ('prompt' in place) {
+      this.openAddSavedPlace(place.placeType)
+      return
+    }
+    this.confirmSavedPlaceReminder(place)
+  }
+
+  confirmLocationReminder(location = this.resolvedLocation, trigger = this.locationTrigger) {
     if (!location) return
+    this.setPendingLocationReminder(location, trigger)
+  }
+
+  private setPendingLocationReminder(location: ResolvedLocation, trigger: LocationTrigger) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
     // Store locally until the note save/exit path persists the note. This
     // avoids posting a reminder before the note POST/PATCH has succeeded.
@@ -3242,11 +3391,132 @@ export class InputComponent implements OnInit {
       latitude: location.latitude,
       longitude: location.longitude,
       radiusMeters: location.radiusMeters,
+      locationTrigger: trigger,
       timezone: tz
     }
     this.clearLocation()
     this.showReminderLocationDialog = false
     this.cd.detectChanges()
+  }
+
+  async saveSavedPlace() {
+    const location = this.resolvedLocation
+    if (!location || !this.addPlaceName.trim() || this.addPlaceSaving) return
+    this.addPlaceSaving = true
+    try {
+      await this.savedPlacesService.create({
+        name: this.addPlaceName.trim(),
+        address: location.displayName,
+        placeType: this.addPlaceType,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        radiusMeters: this.addPlaceRadiusMeters,
+        locationTrigger: this.locationTrigger,
+        mapPreviewUrl: this.locationMapPreview || null
+      })
+      await this.loadSavedPlaces()
+      this.placeDialogView = 'choose'
+      this.resetLocationState()
+    } catch {
+      this.savedPlacesError = 'Saved place could not be saved.'
+    } finally {
+      this.addPlaceSaving = false
+      this.cd.detectChanges()
+    }
+  }
+
+  placeSwipeStart(event: PointerEvent, place: LocationSavedPlace) {
+    this.placeSwipeStartPoint = { id: place.id, x: event.clientX, y: event.clientY }
+  }
+
+  placeSwipeMove(event: PointerEvent, place: LocationSavedPlace) {
+    if (!this.placeSwipeStartPoint || this.placeSwipeStartPoint.id !== place.id) return
+    const dx = event.clientX - this.placeSwipeStartPoint.x
+    const dy = event.clientY - this.placeSwipeStartPoint.y
+    if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      this.swipingPlaceId = place.id
+    }
+  }
+
+  async placeSwipeEnd(place: LocationSavedPlace) {
+    if (!this.placeSwipeStartPoint || this.placeSwipeStartPoint.id !== place.id) return
+    this.placeSwipeStartPoint = undefined
+    if (this.swipingPlaceId !== place.id) this.swipingPlaceId = null
+  }
+
+  async deleteSavedPlace(place: LocationSavedPlace) {
+    this.swipingPlaceId = null
+    this.savedPlaces = this.savedPlaces.filter(item => item.id !== place.id)
+    this.cd.detectChanges()
+    try {
+      await this.savedPlacesService.delete(place.id)
+    } catch {
+      this.savedPlacesError = 'Saved place could not be deleted.'
+      await this.loadSavedPlaces()
+    }
+  }
+
+  toggleLocationTrigger() {
+    this.locationTrigger = this.locationTrigger === 'arrive' ? 'leave' : 'arrive'
+  }
+
+  setAddPlaceType(type: SavedPlaceType) {
+    this.addPlaceType = type
+    if (!this.addPlaceName.trim() && type !== 'other') {
+      this.addPlaceName = this.titleCase(type)
+    }
+  }
+
+  private suggestPlaceName(displayName: string) {
+    return displayName.split(/[,\u2022]/)[0]?.trim().slice(0, 80) || ''
+  }
+
+  private titleCase(value: string) {
+    return value.charAt(0).toUpperCase() + value.slice(1)
+  }
+
+  private loadCurrentLocation() {
+    if (this.currentLocation || typeof navigator === 'undefined' || !navigator.geolocation) {
+      return Promise.resolve()
+    }
+    this.currentLocationLoading = true
+    return new Promise<void>(resolve => {
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          this.currentLocation = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude
+          }
+          this.currentLocationLoading = false
+          this.cd.detectChanges()
+          resolve()
+        },
+        () => {
+          this.currentLocationLoading = false
+          this.cd.detectChanges()
+          resolve()
+        },
+        { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 4000 }
+      )
+    })
+  }
+
+  private distanceMeters(fromLat: number, fromLng: number, toLat: number, toLng: number) {
+    const toRad = (value: number) => value * Math.PI / 180
+    const earthRadiusMeters = 6371000
+    const dLat = toRad(toLat - fromLat)
+    const dLng = toRad(toLng - fromLng)
+    const lat1 = toRad(fromLat)
+    const lat2 = toRad(toLat)
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2
+    return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  }
+
+  private formatDistance(meters: number) {
+    if (meters < 1000) return `${Math.max(1, Math.round(meters))} m`
+    const km = meters / 1000
+    return `${km < 10 ? Number(km.toFixed(1)) : Math.round(km)} km`
   }
 
   private async hydrateLocationMapPreview(location: ResolvedLocation) {

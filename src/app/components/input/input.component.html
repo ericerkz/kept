@@ -388,76 +388,200 @@
     <div class="reminder-date-dialog reminder-place-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
       role="dialog" aria-label="Set location reminder">
       <div class="rd-place-header">
-        <button type="button" class="rd-place-back" aria-label="Back" (click)="showReminderLocationDialog = false; showReminderTypeDialog = true">
+        <button type="button" class="rd-place-back" aria-label="Back"
+          (click)="backFromPlaceDialog()">
           <span class="material-symbols-outlined">chevron_left</span>
         </button>
-        <h2>Place</h2>
+        <h2>{{ placeDialogView === 'manage' ? 'Saved places' : (placeDialogView === 'add' ? 'Add saved place' : 'Place') }}</h2>
       </div>
-      <form class="rd-place-search" (ngSubmit)="resolveLocation()">
-        <span class="material-symbols-outlined">search</span>
-        <input type="text" placeholder="Search for a place"
-          name="locationPhrase" [(ngModel)]="locationPhrase" enterkeyhint="search" />
-      </form>
-      @switch (locationState) {
-        @case ('idle') {
-          <div class="rd-place-map" aria-label="Map preview placeholder">
-            <span class="material-symbols-outlined">location_on</span>
-            <span>map preview</span>
-          </div>
+
+      @if (placeDialogView === 'choose') {
+        <form class="rd-place-search" (ngSubmit)="openSearchPlace(true); resolveLocation('search')">
+          <span class="material-symbols-outlined">search</span>
+          <input type="text" placeholder="Search for a place"
+            name="locationPhrase" [(ngModel)]="locationPhrase" enterkeyhint="search" />
+        </form>
+        <div class="rd-place-section-title">
+          <span>Saved Places</span>
+          <button type="button" (click)="openManagePlaces()">Manage</button>
+        </div>
+        <div class="rd-place-list">
+          @if (savedPlacesLoading) {
+            <p class="rd-location-message">Loading saved places...</p>
+          }
+          @for (place of visiblePlaceItems(); track place.id) {
+            <button type="button" class="rd-place-row" (click)="choosePlaceItem(place)">
+              <span class="rd-place-icon material-symbols-outlined">{{ placeIcon(place.placeType) }}</span>
+              <span class="rd-place-copy">
+                <strong>{{ place.name }}</strong>
+                <small>{{ place.address }}</small>
+              </span>
+              @if (!('prompt' in place)) {
+                <span class="rd-place-distance">
+                  @if (place.locationTrigger === 'arrive') {
+                    <span class="material-symbols-outlined">near_me</span>
+                  }
+                  {{ placeDistanceLabel(place) }}
+                </span>
+              }
+            </button>
+          }
+          <button type="button" class="rd-place-row add-row" (click)="openAddSavedPlace()">
+            <span class="rd-place-icon material-symbols-outlined">add</span>
+            <span class="rd-place-copy"><strong>Add saved place</strong></span>
+          </button>
+        </div>
+        @if (savedPlacesError) {
+          <p class="rd-location-message">{{ savedPlacesError }}</p>
         }
-        @case ('resolved') {
-          <div class="rd-place-map" [class.has-map]="locationMapPreview" aria-label="Map preview">
-            @if (locationMapPreview) {
-              <img [src]="locationMapPreview" alt="" />
-            } @else {
+        <div class="rd-place-actions">
+          <button type="button" class="rd-place-cancel" (click)="clearLocation()">Cancel</button>
+          <button type="button" class="rd-place-save" (click)="openSearchPlace(true); resolveLocation('search')" [disabled]="resolving || !locationPhrase.trim()">
+            {{ resolving ? 'Searching...' : 'Find place' }}
+          </button>
+        </div>
+      }
+
+      @if (placeDialogView === 'manage') {
+        <form class="rd-place-search" (ngSubmit)="$event.preventDefault()">
+          <span class="material-symbols-outlined">search</span>
+          <input type="text" placeholder="Search for a place"
+            name="savedPlacesSearch" [(ngModel)]="savedPlacesSearch" enterkeyhint="search" />
+        </form>
+        <div class="rd-place-manage-list">
+          @for (place of visibleSavedPlaces(); track place.id) {
+            <div class="rd-place-swipe" [class.deleting]="swipingPlaceId === place.id">
+              <button type="button" class="rd-place-delete-bg" (click)="deleteSavedPlace(place)">Delete</button>
+              <button type="button" class="rd-place-row manage-row"
+                (pointerdown)="placeSwipeStart($event, place)"
+                (pointermove)="placeSwipeMove($event, place)"
+                (pointerup)="placeSwipeEnd(place)"
+                (pointercancel)="swipingPlaceId = null">
+                <span class="rd-place-icon material-symbols-outlined">{{ placeIcon(place.placeType) }}</span>
+                <span class="rd-place-copy">
+                  <strong>{{ place.name }}</strong>
+                  <small>{{ place.address }}</small>
+                </span>
+                <span class="rd-trigger-pill">{{ place.locationTrigger === 'leave' ? 'Leave' : 'Arrive' }}</span>
+                <span class="rd-place-distance">{{ placeDistanceLabel(place) }}</span>
+                <span class="rd-place-chevron material-symbols-outlined">chevron_right</span>
+              </button>
+            </div>
+          }
+        </div>
+        <button type="button" class="rd-place-row add-row rd-manage-add" (click)="openAddSavedPlace()">
+          <span class="rd-place-icon material-symbols-outlined">add</span>
+          <span class="rd-place-copy"><strong>Add saved place</strong></span>
+        </button>
+      }
+
+      @if (placeDialogView === 'add' || placeDialogView === 'search') {
+        <form class="rd-place-search" (ngSubmit)="resolveLocation(placeDialogView)">
+          <span class="material-symbols-outlined">search</span>
+          <input type="text" placeholder="Search for a place"
+            name="locationPhrase" [(ngModel)]="locationPhrase" enterkeyhint="search" />
+        </form>
+        @switch (locationState) {
+          @case ('idle') {
+            <div class="rd-place-map" aria-label="Map preview placeholder">
               <span class="material-symbols-outlined">location_on</span>
               <span>map preview</span>
+            </div>
+          }
+          @case ('resolved') {
+            <div class="rd-place-map" [class.has-map]="locationMapPreview" aria-label="Map preview">
+              @if (locationMapPreview) {
+                <img [src]="locationMapPreview" alt="" />
+              } @else {
+                <span class="material-symbols-outlined">location_on</span>
+                <span>map preview</span>
+              }
+            </div>
+          }
+          @case ('ambiguous') {
+            <div class="rd-place-map" aria-hidden="true">
+              <span class="material-symbols-outlined">location_on</span>
+              <span>map preview</span>
+            </div>
+            <p class="rd-location-message">Multiple places found. Pick one:</p>
+            <div class="rd-location-candidates">
+              @for (c of candidates; track c.displayName) {
+                <button type="button" class="rd-location-candidate" (click)="selectCandidate(c)">
+                  {{ c.displayName }}
+                </button>
+              }
+            </div>
+          }
+          @case ('permission') {
+            <div class="rd-place-map" aria-hidden="true">
+              <span class="material-symbols-outlined">location_on</span>
+              <span>map preview</span>
+            </div>
+            <p class="rd-location-message">{{ permissionReason }}</p>
+          }
+          @case ('notFound') {
+            <div class="rd-place-map" aria-hidden="true">
+              <span class="material-symbols-outlined">location_on</span>
+              <span>map preview</span>
+            </div>
+            <p class="rd-location-message">Place not found. Try a different search.</p>
+          }
+        }
+
+        @if (placeDialogView === 'add') {
+          <label class="rd-place-field">
+            <span>Name</span>
+            <div>
+              <span class="material-symbols-outlined">location_on</span>
+              <input type="text" placeholder="e.g. Home, Gym, Costco" name="addPlaceName" [(ngModel)]="addPlaceName" />
+            </div>
+          </label>
+          <div class="rd-place-chips">
+            @for (type of savedPlaceTypes; track type) {
+              <button type="button" [class.active]="addPlaceType === type" (click)="setAddPlaceType(type)">
+                <span class="material-symbols-outlined">{{ placeIcon(type) }}</span>
+                {{ type === 'other' ? 'Other' : (type | titlecase) }}
+              </button>
             }
           </div>
-        }
-        @case ('ambiguous') {
-          <div class="rd-place-map" aria-hidden="true">
-            <span class="material-symbols-outlined">location_on</span>
-            <span>map preview</span>
+          <div class="rd-place-field-title">Default trigger</div>
+          <div class="rd-segmented">
+            <button type="button" [class.active]="locationTrigger === 'arrive'" (click)="locationTrigger = 'arrive'">When I arrive</button>
+            <button type="button" [class.active]="locationTrigger === 'leave'" (click)="locationTrigger = 'leave'">When I leave</button>
           </div>
-          <p class="rd-location-message">Multiple places found. Pick one:</p>
-          <div class="rd-location-candidates">
-            @for (c of candidates; track c.displayName) {
-              <button type="button" class="rd-location-candidate" (click)="selectCandidate(c)">
-                {{ c.displayName }}
+          <div class="rd-place-field-title">Trigger radius</div>
+          <div class="rd-radius-options">
+            @for (radius of savedPlaceRadii; track radius) {
+              <button type="button" [class.active]="addPlaceRadiusMeters === radius" (click)="addPlaceRadiusMeters = radius">
+                {{ radius >= 1000 ? '1 km' : (radius + ' m') }}
               </button>
             }
           </div>
         }
-        @case ('permission') {
-          <div class="rd-place-map" aria-hidden="true">
+
+        @if (placeDialogView === 'search') {
+          <button type="button" class="rd-arrive-choice" [class.active]="resolvedLocation" (click)="toggleLocationTrigger()">
             <span class="material-symbols-outlined">location_on</span>
-            <span>map preview</span>
-          </div>
-          <p class="rd-location-message">{{ permissionReason }}</p>
-        }
-        @case ('notFound') {
-          <div class="rd-place-map" aria-hidden="true">
-            <span class="material-symbols-outlined">location_on</span>
-            <span>map preview</span>
-          </div>
-          <p class="rd-location-message">Place not found. Try a different search.</p>
-        }
-      }
-      <button type="button" class="rd-arrive-choice" [class.active]="resolvedLocation">
-        <span class="material-symbols-outlined">location_on</span>
-        Remind me when I arrive
-      </button>
-      <div class="rd-place-actions">
-        <button type="button" class="rd-place-cancel" (click)="clearLocation()">Cancel</button>
-        @if (resolvedLocation) {
-          <button type="button" class="rd-place-save" (click)="confirmLocationReminder()">Save place</button>
-        } @else {
-          <button type="button" class="rd-place-save" (click)="resolveLocation()" [disabled]="resolving || !locationPhrase.trim()">
-            {{ resolving ? 'Searching...' : 'Find place' }}
+            Remind me when I {{ locationTrigger === 'leave' ? 'leave' : 'arrive' }}
+            <span class="rd-switch"><span class="material-symbols-outlined">swap_vert</span>Switch</span>
           </button>
         }
-      </div>
+
+        <div class="rd-place-actions">
+          <button type="button" class="rd-place-cancel" (click)="placeDialogView === 'search' ? openPlaceChooser() : clearLocation()">Cancel</button>
+          @if (placeDialogView === 'add') {
+            <button type="button" class="rd-place-save" (click)="saveSavedPlace()" [disabled]="addPlaceSaving || !resolvedLocation || !addPlaceName.trim()">
+              {{ addPlaceSaving ? 'Saving...' : 'Save place' }}
+            </button>
+          } @else if (resolvedLocation) {
+            <button type="button" class="rd-place-save" (click)="confirmLocationReminder()">Find place</button>
+          } @else {
+            <button type="button" class="rd-place-save" (click)="resolveLocation('search')" [disabled]="resolving || !locationPhrase.trim()">
+              {{ resolving ? 'Searching...' : 'Find place' }}
+            </button>
+          }
+        </div>
+      }
     </div>
   }
 </div>

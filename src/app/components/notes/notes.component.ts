@@ -1637,6 +1637,16 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     }
   }
 
+  openReminderForSelectedNote() {
+    const selectedIds = this.Shared.selectedNoteIds.value
+    if (selectedIds.length !== 1) return
+    const note = this.Shared.note.all.find(candidate => candidate.id === selectedIds[0])
+    if (!note || note.trashed) return
+    this.toggleReminderPicker(note, {
+      stopPropagation() {}
+    } as Event)
+  }
+
   // Per-note pending date confirmation. After the user picks a date on
   // the overlaid date input, we surface an inline pill with the chosen
   // date + a "Pick time" button. The user explicitly confirms — this
@@ -2103,6 +2113,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.subscriptions.push(
       this.Shared.closeSideBar.subscribe(() => { setTimeout(() => { this.scheduleBuildMasonry(true) }, 200) }),
       this.Shared.closeModal.subscribe(x => { if (x) this.closeModal() }),
+      this.Shared.openSelectedReminder.subscribe(() => this.openReminderForSelectedNote()),
       this.Shared.noteViewType.subscribe(() => {
         setTimeout(() => this.scheduleBuildMasonry(true), 300);
         this.scheduleIPadMasonrySettle()

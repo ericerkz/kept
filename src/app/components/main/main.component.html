@@ -148,6 +148,7 @@
             <article class="smart-proposal-card"
               [class.is-selected]="isSmartActionSelected(actionIndex)"
               [class.is-update]="proposalBadge(action) !== 'New'"
+              [class.is-dark-bg]="proposalHasDarkBackground(action)"
               [style.--proposal-bg]="proposalColor(action, actionIndex)">
               <button type="button" class="smart-proposal-check"
                 [class.checked]="isSmartActionSelected(actionIndex)"
@@ -202,6 +203,66 @@
                       </div>
                     }
                   </div>
+                </div>
+              }
+
+              @if (reminderProposalsForAction(actionIndex).length) {
+                <div class="smart-reminder-block" aria-label="Reminder proposal">
+                  @for (reminder of reminderProposalsForAction(actionIndex); track reminder.index) {
+                    <div class="smart-reminder-attached">
+                      <span class="material-symbols-outlined">notifications</span>
+                      <div>
+                        <strong>Reminder</strong>
+                        <span>{{ proposalBody(reminder.action) }}</span>
+                      </div>
+                      @if (!$any(reminder.action).dueAtUtc) {
+                        <button type="button" class="smart-reminder-button"
+                          (click)="openSmartReminderPicker(reminder.index, $event)">
+                          Set time
+                        </button>
+                      }
+                    </div>
+                    @if (smartReminderActionIndex === reminder.index) {
+                      <div class="reminder-date-dialog smart-reminder-dialog"
+                        (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
+                        role="dialog" aria-label="Set reminder date">
+                        <div class="rd-title">Set reminder</div>
+                        <div class="rd-calendar" aria-label="Reminder date calendar">
+                          <div class="rd-calendar-head">
+                            <button type="button" class="rd-nav" aria-label="Previous month" (click)="shiftCalendarMonth(-1)">
+                              <span class="material-symbols-outlined">chevron_left</span>
+                            </button>
+                            <div class="rd-month">{{calendarMonthLabel()}}</div>
+                            <button type="button" class="rd-nav" aria-label="Next month" (click)="shiftCalendarMonth(1)">
+                              <span class="material-symbols-outlined">chevron_right</span>
+                            </button>
+                          </div>
+                          <div class="rd-weekdays">
+                            @for (weekday of calendarWeekdays; track $index) {
+                              <span>{{weekday}}</span>
+                            }
+                          </div>
+                          <div class="rd-days">
+                            @for (day of calendarDays(); track day.date) {
+                              <button type="button" class="rd-day"
+                                [class.outside]="!day.currentMonth"
+                                [class.today]="day.today"
+                                [class.selected]="day.selected"
+                                [disabled]="day.disabled"
+                                (click)="selectCalendarDate(day.date)">
+                                {{day.day}}
+                              </button>
+                            }
+                          </div>
+                        </div>
+                        <div class="rd-actions">
+                          <button type="button" class="rd-secondary" (click)="cancelSmartReminderDate()">Cancel</button>
+                          <button type="button" class="rd-primary" [disabled]="!smartReminderDate"
+                            (click)="confirmSmartReminderDate(smartReminderTimeInp)">Pick time</button>
+                        </div>
+                      </div>
+                    }
+                  }
                 </div>
               }
 

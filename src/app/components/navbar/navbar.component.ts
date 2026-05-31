@@ -73,6 +73,10 @@ export class NavbarComponent implements OnInit {
     return this.Shared.selectedNoteIds.value.length
   }
 
+  get canSetSelectedReminder() {
+    return this.selectedCount === 1
+  }
+
   closeSideBar() { this.Shared.closeSideBar.next(true) }
 
   view() {
@@ -189,6 +193,11 @@ export class NavbarComponent implements OnInit {
   selectionColorMenu = {
     bgColor: (data: bgColors) => this.Shared.bulkUpdateSelected({ bgColor: data, bgImage: '' }),
     bgImage: (data: bgImages) => this.Shared.bulkUpdateSelected({ bgImage: data ? `url(${data})` : '' })
+  }
+
+  openSelectedReminder() {
+    if (!this.canSetSelectedReminder) return
+    this.Shared.openSelectedReminder.next()
   }
 
   selectionMoreMenu(tooltipEl: HTMLDivElement) {

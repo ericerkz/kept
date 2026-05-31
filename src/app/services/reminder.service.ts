@@ -17,6 +17,7 @@ type ReminderCreateData = {
   latitude?: number;
   longitude?: number;
   radiusMeters?: number;
+  locationTrigger?: 'arrive' | 'leave';
 };
 
 type ReminderUpdateData = {
@@ -26,6 +27,7 @@ type ReminderUpdateData = {
   latitude?: number;
   longitude?: number;
   radiusMeters?: number;
+  locationTrigger?: 'arrive' | 'leave';
 };
 
 @Injectable({ providedIn: 'root' })
