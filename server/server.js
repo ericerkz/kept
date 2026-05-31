@@ -1243,10 +1243,22 @@ function normalizeAction(action) {
   if (action.dueAtUtc || action.dueAt || action.datetime || action.dateTime) {
     normalized.dueAtUtc = String(action.dueAtUtc || action.dueAt || action.datetime || action.dateTime);
   }
+  if (action.locationName) normalized.locationName = String(action.locationName);
+  if (action.latitude != null) normalized.latitude = Number(action.latitude);
+  if (action.longitude != null) normalized.longitude = Number(action.longitude);
+  if (action.radiusMeters != null) normalized.radiusMeters = Number(action.radiusMeters);
+  if (action.locationTrigger) normalized.locationTrigger = action.locationTrigger === 'leave' ? 'leave' : 'arrive';
   if (action.timezone) normalized.timezone = String(action.timezone);
   if (action.repeatRule) normalized.repeatRule = String(action.repeatRule);
   if (action.createMissingLabels !== undefined) normalized.createMissingLabels = !!action.createMissingLabels;
   return normalized;
+}
+
+function isLocationReminderAction(action) {
+  return action?.latitude != null
+    && action?.longitude != null
+    && action?.locationName
+    && action?.locationTrigger;
 }
 
 function reminderNoteTextFromTranscript(transcript) {
@@ -1368,7 +1380,7 @@ async function validateKeptActionPlan(userId, transcript, actionPlan) {
     if (action.type === 'create_todo_note' && !action.items?.length) errors.push(`${label}.items are required.`);
     if (action.type === 'add_checklist_items' && !action.items?.length) errors.push(`${label}.items are required.`);
     if (action.type === 'add_labels' && !action.labels?.length) errors.push(`${label}.labels are required.`);
-    if (action.type === 'set_reminder' && !action.dueAtUtc) {
+    if (action.type === 'set_reminder' && !action.dueAtUtc && !isLocationReminderAction(action)) {
       risky = true;
       warnings.push(`${label}.dueAtUtc is missing; ask for a reminder time before executing.`);
       if (!normalizedPlan.unresolvedQuestions.includes('When should Kept remind you?')) {
@@ -1416,6 +1428,17 @@ async function validateKeptActionPlan(userId, transcript, actionPlan) {
       const due = new Date(action.dueAtUtc);
       if (Number.isNaN(due.getTime())) errors.push(`${label}.dueAtUtc must be a valid date.`);
       else action.dueAtUtc = due.toISOString();
+    }
+    if (action.type === 'set_reminder' && isLocationReminderAction(action)) {
+      if (!Number.isFinite(Number(action.latitude))) errors.push(`${label}.latitude must be a valid number.`);
+      if (!Number.isFinite(Number(action.longitude))) errors.push(`${label}.longitude must be a valid number.`);
+      action.latitude = Number(action.latitude);
+      action.longitude = Number(action.longitude);
+      action.locationTrigger = action.locationTrigger === 'leave' ? 'leave' : 'arrive';
+      if (action.radiusMeters != null) action.radiusMeters = Number(action.radiusMeters);
+      if (action.radiusMeters != null && (!Number.isFinite(action.radiusMeters) || action.radiusMeters <= 0)) {
+        errors.push(`${label}.radiusMeters must be a positive number.`);
+      }
     }
 
     if (action.type === 'create_text_note' || action.type === 'create_todo_note') {
@@ -1547,23 +1570,52 @@ async function smartSetReminder(userId, action, fallbackNoteId) {
     if (!note) throw new Error(`Note ${noteId} is not accessible.`);
   }
   const now = new Date().toISOString();
-  const result = await run(
-    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+  const dueAtUtc = action.dueAtUtc ? new Date(action.dueAtUtc).toISOString() : null;
+  const locationName = action.locationName ? String(action.locationName) : null;
+  const latitude = action.latitude != null ? Number(action.latitude) : null;
+  const longitude = action.longitude != null ? Number(action.longitude) : null;
+  const radiusMeters = action.radiusMeters != null ? Number(action.radiusMeters) : (locationName ? 120 : null);
+  const locationTrigger = action.locationTrigger === 'leave' ? 'leave' : 'arrive';
+  const existing = noteId ? await get('SELECT id FROM reminders WHERE noteId = ?', [noteId]) : null;
+  const reminder = await get(
+    `INSERT INTO reminders
+       (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(noteId) DO UPDATE SET
+       userId = excluded.userId,
+       dueAtUtc = excluded.dueAtUtc,
+       timezone = excluded.timezone,
+       repeatRule = excluded.repeatRule,
+       status = 'pending',
+       title = excluded.title,
+       body = excluded.body,
+       imageUrl = excluded.imageUrl,
+       locationName = excluded.locationName,
+       latitude = excluded.latitude,
+       longitude = excluded.longitude,
+       radiusMeters = excluded.radiusMeters,
+       locationTrigger = excluded.locationTrigger,
+       updatedAt = excluded.updatedAt
+     RETURNING *`,
     [
       noteId || null,
       userId,
-      new Date(action.dueAtUtc).toISOString(),
+      dueAtUtc,
       action.timezone || 'UTC',
       action.repeatRule || null,
       plainText(action.title) || null,
       plainText(action.text) || null,
       String(action.imageUrl || '') || null,
+      locationName,
+      latitude,
+      longitude,
+      radiusMeters,
+      locationTrigger,
       now,
       now
     ]
   );
-  return await get('SELECT * FROM reminders WHERE id = ?', [result.id]);
+  return reminder || await get('SELECT * FROM reminders WHERE id = ?', [existing?.id]);
 }
 
 async function smartShareNote(userId, noteId, userIds) {
