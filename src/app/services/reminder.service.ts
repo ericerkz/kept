@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { BehaviorSubject, firstValueFrom, Subject } from 'rxjs';
 import { environment } from 'src/environments/environment';
 import { AuthService } from './auth.service';
@@ -30,6 +31,60 @@ type ReminderUpdateData = {
   locationTrigger?: 'arrive' | 'leave';
 };
 
+type AndroidLocationPermissionStatus = {
+  foregroundGranted: boolean;
+  backgroundGranted: boolean;
+  status: 'granted' | 'foregroundOnly' | 'denied' | 'notDetermined';
+};
+
+type AndroidNotificationPermissionStatus = {
+  granted: boolean;
+  status: 'granted' | 'denied' | 'notDetermined';
+};
+
+type AndroidNativeGeofenceReminder = {
+  id: string;
+  noteId: string;
+  savedPlaceId?: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+  triggerType: 'arrive' | 'leave';
+  status: 'pending';
+  notificationTitle: string;
+  notificationBody: string;
+  deepLink: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type AndroidTriggeredGeofenceEvent = {
+  eventId: string;
+  reminderId: string;
+  noteId: string;
+  transitionType: 'arrive' | 'leave' | 'dwell';
+  triggeredAt: number;
+};
+
+interface KeptGeofencePlugin {
+  getPermissionStatus(): Promise<AndroidLocationPermissionStatus>;
+  requestForegroundLocationPermission(): Promise<AndroidLocationPermissionStatus>;
+  openBackgroundLocationSettings(): Promise<void>;
+  getNotificationPermissionStatus(): Promise<AndroidNotificationPermissionStatus>;
+  requestNotificationPermission(): Promise<AndroidNotificationPermissionStatus>;
+  syncGeofences(input: { reminders: AndroidNativeGeofenceReminder[] }): Promise<{
+    registered: string[];
+    failed: { reminderId: string; reason: string }[];
+  }>;
+  registerGeofence(reminder: AndroidNativeGeofenceReminder): Promise<void>;
+  unregisterGeofence(input: { reminderId: string }): Promise<void>;
+  getPendingTriggeredEvents(): Promise<{ events: AndroidTriggeredGeofenceEvent[] }>;
+  acknowledgeTriggeredEvents(input: { eventIds: string[] }): Promise<void>;
+}
+
+const isAndroid = Capacitor.getPlatform() === 'android';
+const KeptGeofence = isAndroid ? registerPlugin<KeptGeofencePlugin>('KeptGeofence') : null;
+
 @Injectable({ providedIn: 'root' })
 export class ReminderService {
   reminders$ = new BehaviorSubject<ReminderI[]>([]);
@@ -37,6 +92,11 @@ export class ReminderService {
 
   private readonly apiUrl = environment.apiUrl;
   private reminderTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private androidGeofenceSyncQueued = false;
+  private androidGeofenceSyncRunning = false;
+  private androidTriggeredEventsRunning = false;
+  private androidResumeHandler?: () => void;
+  private androidFocusHandler?: () => void;
 
   constructor(private http: HttpClient, private auth: AuthService, private push: PushNotificationService) {
     this.auth.currentUser$.subscribe(user => {
@@ -44,6 +104,7 @@ export class ReminderService {
       else this.setReminders([]);
     });
     this.listenForServiceWorkerMessages();
+    this.listenForAndroidResume();
   }
 
   async load() {
@@ -118,6 +179,33 @@ export class ReminderService {
     return this.push.requestPermissionFromGesture();
   }
 
+  async ensureAndroidLocationReminderPermissions(): Promise<boolean> {
+    if (!this.isAndroidGeofenceAvailable()) return true;
+    try {
+      let location = await KeptGeofence!.getPermissionStatus();
+      if (!location.foregroundGranted) {
+        location = await KeptGeofence!.requestForegroundLocationPermission();
+      }
+      if (!location.foregroundGranted) return false;
+
+      if (!location.backgroundGranted) {
+        this.showSnackbar('For location reminders, choose “Allow all the time” for Kept in Android location settings.', 6500);
+        await KeptGeofence!.openBackgroundLocationSettings();
+        return false;
+      }
+
+      let notifications = await KeptGeofence!.getNotificationPermissionStatus();
+      if (!notifications.granted) {
+        notifications = await KeptGeofence!.requestNotificationPermission();
+      }
+      return notifications.granted;
+    } catch (error) {
+      console.warn('Android location reminder permissions failed', error);
+      this.showSnackbar('Location reminder permissions could not be checked.', 4500);
+      return false;
+    }
+  }
+
   iosNeedsHomeScreenInstall() {
     return this.push.iosNeedsHomeScreenInstall();
   }
@@ -128,6 +216,8 @@ export class ReminderService {
   private setReminders(reminders: ReminderI[]) {
     this.reminders$.next(reminders);
     this.schedulePendingReminders(reminders);
+    this.syncAndroidGeofences(reminders);
+    this.processAndroidTriggeredEvents();
   }
 
   private schedulePendingReminders(reminders: ReminderI[]) {
@@ -170,6 +260,110 @@ export class ReminderService {
         this.handleFired({ ...event.data.payload, source: 'sw-push' });
       }
     });
+  }
+
+  private listenForAndroidResume() {
+    if (!this.isAndroidGeofenceAvailable() || typeof document === 'undefined') return;
+    this.androidResumeHandler = () => {
+      if (document.visibilityState === 'visible') {
+        this.load().catch(console.error);
+      }
+    };
+    this.androidFocusHandler = () => {
+      this.load().catch(console.error);
+    };
+    document.addEventListener('visibilitychange', this.androidResumeHandler);
+    window.addEventListener('focus', this.androidFocusHandler);
+  }
+
+  private isAndroidGeofenceAvailable() {
+    return isAndroid && !!KeptGeofence;
+  }
+
+  private nativeLocationReminders(reminders: ReminderI[]): AndroidNativeGeofenceReminder[] {
+    return reminders
+      .filter(r =>
+        r.status === 'pending' &&
+        r.noteId &&
+        r.locationName &&
+        r.latitude != null &&
+        r.longitude != null
+      )
+      .map(r => ({
+        id: String(r.id),
+        noteId: String(r.noteId),
+        savedPlaceId: r.savedPlaceId ? String(r.savedPlaceId) : undefined,
+        latitude: Number(r.latitude),
+        longitude: Number(r.longitude),
+        radiusMeters: Number(r.radiusMeters ?? 120),
+        triggerType: r.locationTrigger === 'leave' ? 'leave' : 'arrive',
+        status: 'pending',
+        notificationTitle: r.title || 'Kept reminder',
+        notificationBody: r.body || '',
+        deepLink: `kept://note/${r.noteId}`,
+        createdAt: r.createdAt || '',
+        updatedAt: r.updatedAt || '',
+      }));
+  }
+
+  private syncAndroidGeofences(reminders: ReminderI[]) {
+    if (!this.isAndroidGeofenceAvailable()) return;
+    if (this.androidGeofenceSyncRunning) {
+      this.androidGeofenceSyncQueued = true;
+      return;
+    }
+    this.androidGeofenceSyncRunning = true;
+    const nativeReminders = this.nativeLocationReminders(reminders);
+    KeptGeofence!.syncGeofences({ reminders: nativeReminders })
+      .then(result => {
+        if (result.failed?.length) {
+          console.warn('Some Android geofences failed to sync', result.failed);
+        }
+      })
+      .catch(error => console.warn('Android geofence sync failed', error))
+      .finally(() => {
+        this.androidGeofenceSyncRunning = false;
+        if (this.androidGeofenceSyncQueued) {
+          this.androidGeofenceSyncQueued = false;
+          this.syncAndroidGeofences(this.reminders$.value);
+        }
+      });
+  }
+
+  private async processAndroidTriggeredEvents() {
+    if (!this.isAndroidGeofenceAvailable() || this.androidTriggeredEventsRunning) return;
+    this.androidTriggeredEventsRunning = true;
+    try {
+      const response = await KeptGeofence!.getPendingTriggeredEvents();
+      const events = response.events || [];
+      if (!events.length) return;
+
+      const acknowledged: string[] = [];
+      for (const event of events) {
+        const reminderId = Number(event.reminderId);
+        if (!Number.isFinite(reminderId)) continue;
+        try {
+          await this.update(reminderId, { status: 'fired' });
+          acknowledged.push(event.eventId);
+        } catch (error) {
+          console.warn('Could not mark Android geofence reminder fired', event, error);
+        }
+      }
+      if (acknowledged.length) {
+        await this.load();
+        await KeptGeofence!.acknowledgeTriggeredEvents({ eventIds: acknowledged });
+      }
+    } catch (error) {
+      console.warn('Android geofence triggered event handling failed', error);
+    } finally {
+      this.androidTriggeredEventsRunning = false;
+    }
+  }
+
+  private showSnackbar(text: string, duration = 4500) {
+    try {
+      (window as any).Snackbar?.show({ pos: 'bottom-left', text, duration });
+    } catch {}
   }
 
   // ── CalDAV ──────────────────────────────────────────────────────────────

@@ -3357,7 +3357,9 @@ export class InputComponent implements OnInit {
     this.showReminderLocationDialog = false
   }
 
-  confirmSavedPlaceReminder(place: LocationSavedPlace) {
+  async confirmSavedPlaceReminder(place: LocationSavedPlace) {
+    const permissionsOk = await this.reminderService.ensureAndroidLocationReminderPermissions()
+    if (!permissionsOk) return
     this.setPendingLocationReminder({
       displayName: place.name || place.address || 'Saved place',
       latitude: place.latitude,
@@ -3376,8 +3378,10 @@ export class InputComponent implements OnInit {
     this.confirmSavedPlaceReminder(place)
   }
 
-  confirmLocationReminder(location = this.resolvedLocation, trigger = this.locationTrigger) {
+  async confirmLocationReminder(location = this.resolvedLocation, trigger = this.locationTrigger) {
     if (!location) return
+    const permissionsOk = await this.reminderService.ensureAndroidLocationReminderPermissions()
+    if (!permissionsOk) return
     this.setPendingLocationReminder(location, trigger)
   }
 

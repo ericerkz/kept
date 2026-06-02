@@ -13,7 +13,7 @@
     <button class="mobile-compose-fab" type="button" aria-label="New note" (click)="openMobileComposer()">
       <span class="material-symbols-outlined">edit_note</span>
     </button>
-    @if (smartCaptureAvailable) {
+    @if (smartCaptureEntryVisible()) {
       <button class="smart-capture-fab" type="button" aria-label="Smart Capture" (click)="startSmartCapture()">
         <span class="material-symbols-outlined">mic</span>
         <span class="smart-capture-label">Smart Capture</span>
@@ -26,8 +26,9 @@
           <span>
             <strong>Smart Capture</strong>
             <small>Can run privately on this device with Kept’s local Gemma model.</small>
-            @if (gemmaFallbackProgress != null) {
-              <small>{{ gemmaFallbackProgress | number:'1.0-0' }}%</small>
+            <small class="smart-gemma-action">{{ gemmaFallbackInstalling ? 'Installing local Gemma model…' : 'Install local Gemma model' }}</small>
+            @if (gemmaFallbackProgressPercent() !== null) {
+              <small>{{ gemmaFallbackProgressPercent() }}%</small>
             }
           </span>
         </button>

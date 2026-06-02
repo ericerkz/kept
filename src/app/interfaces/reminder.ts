@@ -12,6 +12,7 @@ export interface ReminderI {
   body: string | null;
   imageUrl: string | null;
   locationName: string | null;
+  savedPlaceId?: number | null;
   latitude: number | null;
   longitude: number | null;
   radiusMeters: number | null;

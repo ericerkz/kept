@@ -133,6 +133,7 @@ export class MainComponent implements OnInit, OnDestroy {
   gemmaFallbackInstalling = false;
   gemmaFallbackProgress?: number;
   gemmaFallbackError = '';
+  smartCaptureInstallPromptRequested = false;
   androidSmartCaptureStatus: AndroidSmartCaptureStatus | null = null;
   smartShareUsers: ShareUserI[] = [];
   selectedSmartActions = new Set<number>();
@@ -144,6 +145,7 @@ export class MainComponent implements OnInit, OnDestroy {
   private smartReminderTimePicker?: TimepickerUI;
   private smartReminderTimePickerInput?: HTMLInputElement;
   private smartVoiceTranscriptListener?: { remove: () => Promise<void> | void };
+  private gemmaFallbackProgressTimer?: number;
   private smartCaptureEventHandler = (event: Event) => this.handleSmartCaptureEvent(event as CustomEvent);
   private smartCaptureEstimateEventHandler = (event: Event) => this.handleSmartCaptureEstimateEvent(event as CustomEvent);
   readonly smartProposalColors = Object.values(bgColors).filter(color => !!color);
@@ -165,8 +167,12 @@ export class MainComponent implements OnInit, OnDestroy {
 
   async startSmartCapture() {
     if (this.isAndroidSmartCapture()) {
-      await this.refreshSmartCaptureAvailability();
-      if (!this.smartCaptureAvailable) return;
+      this.smartCaptureInstallPromptRequested = true;
+      await this.refreshSmartCaptureAvailability(true);
+      if (!this.smartCaptureAvailable) {
+        this.showGemmaFallbackInstallPrompt = true;
+        return;
+      }
       await this.beginSmartCaptureListening();
       return;
     }
@@ -178,6 +184,15 @@ export class MainComponent implements OnInit, OnDestroy {
       }
       await this.beginSmartCaptureListening();
     }
+  }
+
+  smartCaptureEntryVisible() {
+    return this.smartCaptureAvailable || this.isAndroidSmartCapture();
+  }
+
+  gemmaFallbackProgressPercent() {
+    if (this.gemmaFallbackProgress == null) return null;
+    return Math.round(Math.max(0, Math.min(1, this.gemmaFallbackProgress)) * 100);
   }
 
   private openSmartCaptureListening() {
@@ -261,6 +276,7 @@ export class MainComponent implements OnInit, OnDestroy {
     window.removeEventListener('kept-smart-capture-estimate', this.smartCaptureEstimateEventHandler as EventListener);
     window.removeEventListener('kept-smart-capture-plan', this.smartCaptureEventHandler as EventListener);
     window.removeEventListener('smartCaptureCompleted', this.smartCaptureEventHandler as EventListener);
+    this.stopGemmaFallbackProgressPolling();
     this.cancelNativeVoiceCapture();
     this.setSmartCaptureDocumentLock(false);
   }
@@ -589,11 +605,11 @@ export class MainComponent implements OnInit, OnDestroy {
     }
   }
 
-  private async refreshSmartCaptureAvailability() {
-    this.showGemmaFallbackInstallPrompt = false;
+  private async refreshSmartCaptureAvailability(revealAndroidInstallPrompt = false) {
+    if (!revealAndroidInstallPrompt) this.showGemmaFallbackInstallPrompt = false;
     this.gemmaFallbackError = '';
     if (this.isAndroidSmartCapture()) {
-      await this.refreshAndroidSmartCaptureStatus();
+      await this.refreshAndroidSmartCaptureStatus(revealAndroidInstallPrompt);
       return;
     }
 
@@ -628,7 +644,7 @@ export class MainComponent implements OnInit, OnDestroy {
     }
   }
 
-  private async refreshAndroidSmartCaptureStatus() {
+  private async refreshAndroidSmartCaptureStatus(revealInstallPrompt = false) {
     try {
       const status = await KeptSmartCapture.getStatus();
       this.androidSmartCaptureStatus = status;
@@ -643,15 +659,17 @@ export class MainComponent implements OnInit, OnDestroy {
       } else {
         this.smartCaptureAvailable = false;
         this.smartCaptureProvider = null;
-        this.showGemmaFallbackInstallPrompt = true;
+        this.showGemmaFallbackInstallPrompt = revealInstallPrompt;
       }
       this.gemmaFallbackProgress = this.androidLocalModelStatus(status)?.downloadProgress;
     } catch (error: any) {
       this.androidSmartCaptureStatus = null;
       this.smartCaptureAvailable = false;
       this.smartCaptureProvider = null;
-      this.showGemmaFallbackInstallPrompt = true;
-      this.gemmaFallbackError = error?.message || 'Smart Capture setup is unavailable. Rebuild the Android app with the latest native plugin, then try again.';
+      this.showGemmaFallbackInstallPrompt = revealInstallPrompt;
+      this.gemmaFallbackError = revealInstallPrompt
+        ? (error?.message || 'Smart Capture setup is unavailable. Rebuild the Android app with the latest native plugin, then try again.')
+        : '';
     }
   }
 
@@ -686,17 +704,49 @@ export class MainComponent implements OnInit, OnDestroy {
 
   async installGemmaFallbackModel() {
     if (!this.isAndroidSmartCapture() || this.gemmaFallbackInstalling) return;
+    this.smartCaptureInstallPromptRequested = true;
     this.gemmaFallbackInstalling = true;
     this.gemmaFallbackError = '';
+    this.gemmaFallbackProgress = 0;
+    this.startGemmaFallbackProgressPolling();
     try {
-      const status = await KeptModelManager.downloadModel();
-      this.gemmaFallbackProgress = status.downloadProgress;
-      await this.refreshAndroidSmartCaptureStatus();
+      const modelStatus = await KeptModelManager.downloadModel();
+      this.gemmaFallbackProgress = modelStatus.downloadProgress ?? (modelStatus.installed ? 1 : this.gemmaFallbackProgress);
+      if (!modelStatus.installed) {
+        throw new Error(modelStatus.error || 'The local Gemma model could not be installed.');
+      }
+      await this.refreshAndroidSmartCaptureStatus(false);
+      this.smartCaptureAvailable = true;
+      this.smartCaptureProvider = 'local-model';
+      this.showGemmaFallbackInstallPrompt = false;
+      this.gemmaFallbackProgress = undefined;
+      this.gemmaFallbackError = '';
     } catch (error: any) {
-      this.gemmaFallbackError = error?.message || 'The local Gemma model could not be installed.';
+      this.gemmaFallbackError = error?.message || String(error) || 'The local Gemma model could not be installed.';
     } finally {
+      this.stopGemmaFallbackProgressPolling();
       this.gemmaFallbackInstalling = false;
     }
+  }
+
+  private startGemmaFallbackProgressPolling() {
+    this.stopGemmaFallbackProgressPolling();
+    this.gemmaFallbackProgressTimer = window.setInterval(async () => {
+      try {
+        const modelStatus = await KeptModelManager.getStatus();
+        this.ngZone.run(() => {
+          this.gemmaFallbackProgress = modelStatus.downloadProgress ?? (modelStatus.installed ? 1 : this.gemmaFallbackProgress ?? 0);
+        });
+      } catch {
+        // The final download result will surface errors; progress polling is best-effort.
+      }
+    }, 500);
+  }
+
+  private stopGemmaFallbackProgressPolling() {
+    if (this.gemmaFallbackProgressTimer == null) return;
+    window.clearInterval(this.gemmaFallbackProgressTimer);
+    this.gemmaFallbackProgressTimer = undefined;
   }
 
   private async bindVoiceTranscriptListener(plugin: any) {

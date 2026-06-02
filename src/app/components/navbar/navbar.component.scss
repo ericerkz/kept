@@ -121,12 +121,12 @@
       }
 
       @media (max-width: 700px) {
+        min-width: 40px;
+
         .text {
           display: none;
         }
-      }
 
-      @media (max-width: 500px) {
         .keep-img {
           display: none;
         }

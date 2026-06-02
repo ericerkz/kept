@@ -107,6 +107,11 @@
     font: 600 12px/1.25 "Google Sans", Roboto, Arial, sans-serif;
   }
 
+  .smart-gemma-action {
+    color: #1a73e8;
+    font-weight: 800;
+  }
+
   &:disabled {
     cursor: wait;
     opacity: 0.72;
