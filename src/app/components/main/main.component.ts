@@ -244,6 +244,9 @@ export class MainComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.refreshSmartCaptureAvailability();
+    if (this.isAndroidSmartCapture()) {
+      setTimeout(() => this.ngZone.run(() => this.refreshSmartCaptureAvailability()), 800);
+    }
     window.addEventListener('kept-smart-capture-estimate', this.smartCaptureEstimateEventHandler as EventListener);
     window.addEventListener('kept-smart-capture-plan', this.smartCaptureEventHandler as EventListener);
     window.addEventListener('smartCaptureCompleted', this.smartCaptureEventHandler as EventListener);
@@ -629,11 +632,11 @@ export class MainComponent implements OnInit, OnDestroy {
     try {
       const status = await KeptSmartCapture.getStatus();
       this.androidSmartCaptureStatus = status;
-      if (status.nano?.available) {
+      if (this.androidNanoAvailable(status)) {
         this.smartCaptureAvailable = true;
         this.smartCaptureProvider = 'gemini-nano';
         this.showGemmaFallbackInstallPrompt = false;
-      } else if (status.localModel?.installed) {
+      } else if (this.androidLocalModelInstalled(status)) {
         this.smartCaptureAvailable = true;
         this.smartCaptureProvider = 'local-model';
         this.showGemmaFallbackInstallPrompt = false;
@@ -642,14 +645,33 @@ export class MainComponent implements OnInit, OnDestroy {
         this.smartCaptureProvider = null;
         this.showGemmaFallbackInstallPrompt = true;
       }
-      this.gemmaFallbackProgress = status.localModel?.downloadProgress;
+      this.gemmaFallbackProgress = this.androidLocalModelStatus(status)?.downloadProgress;
     } catch (error: any) {
       this.androidSmartCaptureStatus = null;
       this.smartCaptureAvailable = false;
       this.smartCaptureProvider = null;
-      this.showGemmaFallbackInstallPrompt = false;
-      this.gemmaFallbackError = error?.message || 'Smart Capture is unavailable on this device.';
+      this.showGemmaFallbackInstallPrompt = true;
+      this.gemmaFallbackError = error?.message || 'Smart Capture setup is unavailable. Rebuild the Android app with the latest native plugin, then try again.';
     }
+  }
+
+  private androidStatusProvider(status: AndroidSmartCaptureStatus | any): AndroidSmartCaptureProvider | undefined {
+    return status?.currentProvider || status?.current_provider;
+  }
+
+  private androidLocalModelStatus(status: AndroidSmartCaptureStatus | any): AndroidLocalModelStatus | undefined {
+    return status?.localModel || status?.local_model;
+  }
+
+  private androidNanoAvailable(status: AndroidSmartCaptureStatus | any): boolean {
+    return status?.nano?.available === true
+      || (status?.available === true && this.androidStatusProvider(status) === 'gemini-nano');
+  }
+
+  private androidLocalModelInstalled(status: AndroidSmartCaptureStatus | any): boolean {
+    const localModel = this.androidLocalModelStatus(status);
+    return localModel?.installed === true
+      || (status?.available === true && this.androidStatusProvider(status) === 'local-model');
   }
 
   private async ensureAndroidSmartCaptureVoicePermissions() {
