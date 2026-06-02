@@ -1,5 +1,6 @@
 import { Component, NgZone, OnDestroy, OnInit } from '@angular/core';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { KeptAction, KeptActionPlan, KeptPlanExecution, KeptPlanValidation } from 'src/app/interfaces/ai';
 import { AiService } from 'src/app/services/ai.service';
 import { ReminderService } from 'src/app/services/reminder.service';
@@ -20,6 +21,90 @@ interface SmartCaptureEstimate {
   status?: 'listening' | 'transcribing' | 'planning';
   estimatedActions?: SmartCaptureEstimateAction[];
 }
+
+type AndroidSmartCaptureProvider = 'gemini-nano' | 'local-model' | 'rules';
+
+interface AndroidLocalModelStatus {
+  installed: boolean;
+  downloading: boolean;
+  downloadProgress?: number;
+  modelName?: string;
+  modelVersion?: string;
+  sizeBytes?: number;
+  error?: string;
+}
+
+interface AndroidSmartCaptureStatus {
+  currentProvider: AndroidSmartCaptureProvider;
+  available: boolean;
+  nano?: {
+    available: boolean;
+    provider: 'gemini-nano';
+    downloading: boolean;
+    baseModelName?: string;
+    reasonUnavailable?: string;
+    statusCode?: string;
+  };
+  localModel?: AndroidLocalModelStatus;
+}
+
+interface SmartCaptureResult {
+  actionPlan?: KeptActionPlan;
+  transcript?: string;
+  text?: string;
+  provider?: AndroidSmartCaptureProvider;
+}
+
+interface KeptSmartCapturePlugin {
+  checkPermissions(): Promise<{
+    microphone: string;
+    speechRecognition: string;
+    speechRecognitionAvailable: boolean;
+  }>;
+  requestMicrophoneAccess(): Promise<any>;
+  requestSpeechAccess(): Promise<any>;
+  startVoiceCapture(input?: {
+    locale?: string;
+    language?: string;
+  }): Promise<{
+    listening: boolean;
+    text: string;
+  }>;
+  stopVoiceCapture(): Promise<{
+    text: string;
+    isFinal: boolean;
+    status: string;
+    listening: boolean;
+  }>;
+  cancelVoiceCapture(): Promise<void>;
+  addListener(
+    eventName: 'voiceTranscript',
+    listenerFunc: (event: {
+      text?: string;
+      isFinal?: boolean;
+      status?: 'idle' | 'listening' | 'transcribing' | 'final' | 'cancelled' | 'error';
+      listening?: boolean;
+      error?: string;
+    }) => void
+  ): Promise<{ remove: () => Promise<void> }>;
+  getStatus(): Promise<AndroidSmartCaptureStatus>;
+  analyze(input: {
+    text: string;
+    timezone?: string;
+    locale?: string;
+    schemaVersion?: number;
+    context?: unknown;
+  }): Promise<SmartCaptureResult>;
+}
+
+interface KeptModelManagerPlugin {
+  getStatus(): Promise<AndroidLocalModelStatus>;
+  downloadModel(): Promise<AndroidLocalModelStatus>;
+  deleteModel(): Promise<void>;
+}
+
+const KeptSmartCapture = registerPlugin<KeptSmartCapturePlugin>('KeptSmartCapture');
+const KeptModelManager = registerPlugin<KeptModelManagerPlugin>('KeptModelManager');
 
 @Component({
     selector: 'app-main',
@@ -43,6 +128,12 @@ export class MainComponent implements OnInit, OnDestroy {
   smartCaptureValidation: KeptPlanValidation | null = null;
   smartCaptureResult: KeptPlanExecution | null = null;
   smartCaptureError = '';
+  smartCaptureProvider: 'ios' | 'gemini-nano' | 'local-model' | null = null;
+  showGemmaFallbackInstallPrompt = false;
+  gemmaFallbackInstalling = false;
+  gemmaFallbackProgress?: number;
+  gemmaFallbackError = '';
+  androidSmartCaptureStatus: AndroidSmartCaptureStatus | null = null;
   smartShareUsers: ShareUserI[] = [];
   selectedSmartActions = new Set<number>();
   smartReminderActionIndex: number | null = null;
@@ -73,12 +164,20 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   async startSmartCapture() {
-    if (!this.smartCaptureAvailable) {
+    if (this.isAndroidSmartCapture()) {
       await this.refreshSmartCaptureAvailability();
       if (!this.smartCaptureAvailable) return;
+      await this.beginSmartCaptureListening();
+      return;
     }
-    this.openSmartCaptureListening();
-    await this.beginSmartCaptureListening();
+
+    if (this.isIosSmartCapture()) {
+      if (!this.smartCaptureAvailable) {
+        await this.refreshSmartCaptureAvailability();
+        if (!this.smartCaptureAvailable) return;
+      }
+      await this.beginSmartCaptureListening();
+    }
   }
 
   private openSmartCaptureListening() {
@@ -97,21 +196,29 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   async beginSmartCaptureListening() {
+    if (!this.isIosSmartCapture() && !this.isAndroidSmartCapture()) return;
     this.openSmartCaptureListening();
-    const plugin = this.keptIntelligencePlugin();
+    const plugin = this.smartVoicePlugin();
     if (!plugin?.startVoiceCapture) {
-      this.smartCaptureError = 'Smart Capture is waiting for the iOS voice capture plugin.';
+      this.smartCaptureError = 'Smart Capture is waiting for the voice capture plugin.';
       return;
     }
 
     try {
       await this.loadSmartSavedPlaces(true);
+      if (this.isAndroidSmartCapture()) await this.ensureAndroidSmartCaptureVoicePermissions();
       await this.bindVoiceTranscriptListener(plugin);
-      await plugin.startVoiceCapture();
+      if (this.isAndroidSmartCapture()) {
+        await plugin.startVoiceCapture({ locale: navigator.language });
+      } else {
+        await plugin.startVoiceCapture();
+      }
+      this.smartCaptureListening = true;
       this.smartVoiceCapturing = true;
     } catch (error: any) {
       this.smartVoiceCapturing = false;
       this.smartCaptureListening = false;
+      this.smartCaptureLoading = false;
       this.smartCaptureError = error?.message || 'Could not start Smart Capture voice input.';
     }
   }
@@ -151,7 +258,7 @@ export class MainComponent implements OnInit, OnDestroy {
     window.removeEventListener('kept-smart-capture-estimate', this.smartCaptureEstimateEventHandler as EventListener);
     window.removeEventListener('kept-smart-capture-plan', this.smartCaptureEventHandler as EventListener);
     window.removeEventListener('smartCaptureCompleted', this.smartCaptureEventHandler as EventListener);
-    this.removeVoiceTranscriptListener();
+    this.cancelNativeVoiceCapture();
     this.setSmartCaptureDocumentLock(false);
   }
 
@@ -324,6 +431,7 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartShareUsers = [];
     this.selectedSmartActions.clear();
     this.closeSmartReminderPicker();
+    this.removeVoiceTranscriptListener();
   }
 
   async cancelSmartCapture() {
@@ -332,6 +440,7 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   async toggleSmartVoiceCapture() {
+    if (!this.isIosSmartCapture() && !this.isAndroidSmartCapture()) return;
     if (this.smartVoiceCapturing) {
       await this.stopNativeVoiceCapture();
       return;
@@ -350,6 +459,22 @@ export class MainComponent implements OnInit, OnDestroy {
         return;
       }
       const plugin = this.keptIntelligencePlugin();
+      if (this.isAndroidSmartCapture()) {
+        await this.loadSmartSavedPlaces(true);
+        const result = await KeptSmartCapture.analyze({
+          text: command,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          locale: navigator.language,
+          schemaVersion: 1,
+          context: this.smartCaptureContext()
+        });
+        if (!result?.actionPlan) {
+          this.smartCaptureError = 'Smart Capture did not return an action plan.';
+          return;
+        }
+        await this.receiveSmartCapture({ transcript: result.transcript || result.text || command, actionPlan: result.actionPlan });
+        return;
+      }
       if (!plugin?.processTextCommand) {
         this.smartCaptureError = 'Smart Capture is waiting for the iOS planning plugin.';
         return;
@@ -401,6 +526,24 @@ export class MainComponent implements OnInit, OnDestroy {
     return (window as any).Capacitor?.Plugins?.KeptIntelligence;
   }
 
+  private smartVoicePlugin() {
+    return this.isAndroidSmartCapture() ? KeptSmartCapture : this.keptIntelligencePlugin();
+  }
+
+  private smartCaptureContext() {
+    return {
+      savedLocations: this.smartSavedLocationsContext()
+    };
+  }
+
+  isIosSmartCapture() {
+    return Capacitor.getPlatform() === 'ios';
+  }
+
+  isAndroidSmartCapture() {
+    return Capacitor.getPlatform() === 'android';
+  }
+
   private async loadSmartSavedPlaces(force = false) {
     if (this.smartSavedPlacesLoaded && !force) return;
     try {
@@ -425,6 +568,7 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   private async syncNativeConfirmedReminders(actions: KeptAction[]) {
+    if (!this.isIosSmartCapture()) return;
     if (!actions.some(action => action.type === 'set_reminder')) return;
 
     const plugin = this.keptIntelligencePlugin();
@@ -443,19 +587,29 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   private async refreshSmartCaptureAvailability() {
-    if (!this.Shared.isIos) {
+    this.showGemmaFallbackInstallPrompt = false;
+    this.gemmaFallbackError = '';
+    if (this.isAndroidSmartCapture()) {
+      await this.refreshAndroidSmartCaptureStatus();
+      return;
+    }
+
+    if (!this.isIosSmartCapture()) {
       this.smartCaptureAvailable = false;
+      this.smartCaptureProvider = null;
       return;
     }
 
     const plugin = this.keptIntelligencePlugin();
     if (!plugin?.startVoiceCapture || !plugin?.processTextCommand) {
       this.smartCaptureAvailable = false;
+      this.smartCaptureProvider = null;
       return;
     }
 
     if (!plugin?.getCapabilities) {
       this.smartCaptureAvailable = true;
+      this.smartCaptureProvider = 'ios';
       return;
     }
 
@@ -464,16 +618,94 @@ export class MainComponent implements OnInit, OnDestroy {
       const foundationModels = capabilities?.foundationModels;
       this.smartCaptureAvailable = foundationModels?.isAvailable === true
         || foundationModels?.availability === 'available';
+      this.smartCaptureProvider = this.smartCaptureAvailable ? 'ios' : null;
     } catch {
       this.smartCaptureAvailable = false;
+      this.smartCaptureProvider = null;
+    }
+  }
+
+  private async refreshAndroidSmartCaptureStatus() {
+    try {
+      const status = await KeptSmartCapture.getStatus();
+      this.androidSmartCaptureStatus = status;
+      if (status.nano?.available) {
+        this.smartCaptureAvailable = true;
+        this.smartCaptureProvider = 'gemini-nano';
+        this.showGemmaFallbackInstallPrompt = false;
+      } else if (status.localModel?.installed) {
+        this.smartCaptureAvailable = true;
+        this.smartCaptureProvider = 'local-model';
+        this.showGemmaFallbackInstallPrompt = false;
+      } else {
+        this.smartCaptureAvailable = false;
+        this.smartCaptureProvider = null;
+        this.showGemmaFallbackInstallPrompt = true;
+      }
+      this.gemmaFallbackProgress = status.localModel?.downloadProgress;
+    } catch (error: any) {
+      this.androidSmartCaptureStatus = null;
+      this.smartCaptureAvailable = false;
+      this.smartCaptureProvider = null;
+      this.showGemmaFallbackInstallPrompt = false;
+      this.gemmaFallbackError = error?.message || 'Smart Capture is unavailable on this device.';
+    }
+  }
+
+  private async ensureAndroidSmartCaptureVoicePermissions() {
+    if (!this.isAndroidSmartCapture()) return;
+    const permissions = await KeptSmartCapture.checkPermissions();
+    if (permissions.microphone !== 'granted') await KeptSmartCapture.requestMicrophoneAccess();
+    const speechRecognition = permissions.speechRecognition;
+    if (speechRecognition !== 'granted') {
+      await KeptSmartCapture.requestSpeechAccess();
+    }
+  }
+
+  async installGemmaFallbackModel() {
+    if (!this.isAndroidSmartCapture() || this.gemmaFallbackInstalling) return;
+    this.gemmaFallbackInstalling = true;
+    this.gemmaFallbackError = '';
+    try {
+      const status = await KeptModelManager.downloadModel();
+      this.gemmaFallbackProgress = status.downloadProgress;
+      await this.refreshAndroidSmartCaptureStatus();
+    } catch (error: any) {
+      this.gemmaFallbackError = error?.message || 'The local Gemma model could not be installed.';
+    } finally {
+      this.gemmaFallbackInstalling = false;
     }
   }
 
   private async bindVoiceTranscriptListener(plugin: any) {
     if (!plugin?.addListener || this.smartVoiceTranscriptListener) return;
-    const listener = plugin.addListener('voiceTranscript', ({ text }: { text?: string; isFinal?: boolean }) => {
+    const listener = plugin.addListener('voiceTranscript', ({ text, status, listening, error }: {
+      text?: string;
+      isFinal?: boolean;
+      status?: 'idle' | 'listening' | 'transcribing' | 'final' | 'cancelled' | 'error';
+      listening?: boolean;
+      error?: string;
+    }) => {
       this.ngZone.run(() => {
         if (text) this.smartCaptureTranscript = text;
+        if (status === 'listening' || listening === true) {
+          this.smartCaptureListening = true;
+          this.smartCaptureLoading = false;
+        }
+        if (status === 'transcribing') {
+          this.smartCaptureLoading = true;
+        }
+        if (status === 'final' || status === 'cancelled' || listening === false) {
+          this.smartCaptureLoading = false;
+          this.smartVoiceCapturing = false;
+          this.smartCaptureListening = false;
+        }
+        if (status === 'error') {
+          this.smartCaptureError = error || 'Could not hear anything clearly.';
+          this.smartCaptureLoading = false;
+          this.smartVoiceCapturing = false;
+          this.smartCaptureListening = false;
+        }
       });
     });
     this.smartVoiceTranscriptListener = typeof listener?.then === 'function' ? await listener : listener;
@@ -486,9 +718,10 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   private async stopNativeVoiceCapture() {
-    const plugin = this.keptIntelligencePlugin();
+    const plugin = this.smartVoicePlugin();
     this.smartVoiceCapturing = false;
     this.smartCaptureListening = false;
+    this.smartCaptureLoading = false;
     if (!plugin?.stopVoiceCapture) return this.smartCaptureTranscript;
     const result = await plugin.stopVoiceCapture();
     if (result?.text) this.smartCaptureTranscript = result.text;
@@ -496,25 +729,19 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   private async commandForSmartCapturePlanning() {
-    const liveTranscript = (this.smartCaptureTranscript || '').trim();
-    if (liveTranscript) {
-      this.smartVoiceCapturing = false;
-      this.smartCaptureListening = false;
-      this.keptIntelligencePlugin()?.stopVoiceCapture?.()
-        .then((result: any) => {
-          if (result?.text) this.ngZone.run(() => { this.smartCaptureTranscript = result.text; });
-        })
-        .catch(console.error);
-      return liveTranscript;
+    if (this.smartVoiceCapturing || this.smartCaptureListening) {
+      return (await this.stopNativeVoiceCapture() || '').trim();
     }
-    return (await this.stopNativeVoiceCapture() || '').trim();
+    return (this.smartCaptureTranscript || '').trim();
   }
 
   private async cancelNativeVoiceCapture() {
-    const plugin = this.keptIntelligencePlugin();
+    const plugin = this.smartVoicePlugin();
     this.smartVoiceCapturing = false;
     this.smartCaptureListening = false;
-    if (plugin?.cancelVoiceCapture) await plugin.cancelVoiceCapture();
+    this.smartCaptureLoading = false;
+    if (plugin?.cancelVoiceCapture) await plugin.cancelVoiceCapture().catch(() => {});
+    await this.removeVoiceTranscriptListener();
   }
 
   private setSmartCaptureDocumentLock(locked: boolean) {

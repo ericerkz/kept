@@ -13,11 +13,28 @@
     <button class="mobile-compose-fab" type="button" aria-label="New note" (click)="openMobileComposer()">
       <span class="material-symbols-outlined">edit_note</span>
     </button>
-    @if (Shared.isIos && smartCaptureAvailable) {
+    @if (smartCaptureAvailable) {
       <button class="smart-capture-fab" type="button" aria-label="Smart Capture" (click)="startSmartCapture()">
         <span class="material-symbols-outlined">mic</span>
         <span class="smart-capture-label">Smart Capture</span>
       </button>
+    }
+    @if (isAndroidSmartCapture() && showGemmaFallbackInstallPrompt) {
+      <div class="smart-gemma-prompt" role="region" aria-label="Smart Capture local model">
+        <button type="button" class="smart-gemma-main" (click)="installGemmaFallbackModel()" [disabled]="gemmaFallbackInstalling">
+          <span class="material-symbols-outlined">auto_awesome</span>
+          <span>
+            <strong>Smart Capture</strong>
+            <small>Can run privately on this device with Kept’s local Gemma model.</small>
+            @if (gemmaFallbackProgress != null) {
+              <small>{{ gemmaFallbackProgress | number:'1.0-0' }}%</small>
+            }
+          </span>
+        </button>
+        @if (gemmaFallbackError) {
+          <div class="smart-gemma-error">{{ gemmaFallbackError }}</div>
+        }
+      </div>
     }
     @if ((Shared.showInstallButton | async) && !Shared.isInstallFabDismissed()) {
       <div class="mobile-install-fab" role="region" aria-label="Install Kept">
@@ -50,7 +67,7 @@
   </div>
 }
 
-@if (Shared.isIos && smartCaptureAvailable && smartCaptureOpen) {
+@if (smartCaptureAvailable && smartCaptureOpen) {
   <section class="smart-capture-panel" [class.is-listening]="smartCaptureListening || !smartCapturePlan"
     (click)="$event.stopPropagation()" aria-label="Smart Capture">
     <input #smartReminderTimeInp type="text" class="timepicker-ui-input rp-hidden-time" autocomplete="off" readonly
@@ -322,9 +339,11 @@
       <button type="button" class="smart-round-action danger" aria-label="Cancel" (click)="cancelSmartCapture()">
         <span class="material-symbols-outlined">close</span>
       </button>
-      <button type="button" class="smart-round-action" aria-label="Smart Capture" (click)="toggleSmartVoiceCapture()">
-        <span class="material-symbols-outlined">{{smartVoiceIcon()}}</span>
-      </button>
+      @if (isIosSmartCapture() || isAndroidSmartCapture()) {
+        <button type="button" class="smart-round-action" aria-label="Smart Capture" (click)="toggleSmartVoiceCapture()">
+          <span class="material-symbols-outlined">{{smartVoiceIcon()}}</span>
+        </button>
+      }
       <button type="button" class="smart-approve-action"
         [disabled]="smartPrimaryDisabled()"
         (click)="smartPrimaryAction()">

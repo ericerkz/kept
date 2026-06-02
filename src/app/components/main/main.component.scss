@@ -53,6 +53,74 @@
   user-select: none;
 }
 
+.smart-gemma-prompt {
+  background: #fff8df;
+  border: 1px solid #fdd663;
+  border-radius: 18px;
+  bottom: 92px;
+  box-shadow: 0 10px 28px rgba(60,64,67,0.18);
+  color: #202124;
+  display: grid;
+  gap: 8px;
+  max-width: min(340px, calc(100vw - 32px));
+  padding: 10px;
+  position: fixed;
+  right: 16px;
+  z-index: 1400;
+}
+
+.smart-gemma-main {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  padding: 0;
+  text-align: left;
+
+  > .material-symbols-outlined {
+    align-items: center;
+    background: rgba(251, 188, 4, 0.2);
+    border-radius: 14px;
+    color: #1a73e8;
+    display: inline-flex;
+    height: 42px;
+    justify-content: center;
+    width: 42px;
+  }
+
+  span:last-child {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  strong {
+    font: 800 15px/1.1 "Google Sans", Roboto, Arial, sans-serif;
+  }
+
+  small {
+    color: #5f6368;
+    font: 600 12px/1.25 "Google Sans", Roboto, Arial, sans-serif;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.72;
+  }
+}
+
+.smart-gemma-error {
+  background: rgba(246, 174, 169, 0.24);
+  border-radius: 10px;
+  color: #b3261e;
+  font: 700 12px/1.25 "Google Sans", Roboto, Arial, sans-serif;
+  padding: 8px 10px;
+}
+
 .smart-capture-fab {
   align-items: center;
   background: #202124;
