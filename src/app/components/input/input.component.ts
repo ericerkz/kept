@@ -102,6 +102,8 @@ export class InputComponent implements OnInit {
   candidates: ResolvedLocation[] = []
   resolving = false
   permissionReason = ''
+  showAndroidBackgroundLocationEducation = false
+  androidBackgroundLocationMessage = ''
   savedPlaces: LocationSavedPlace[] = []
   savedPlacesLoading = false
   savedPlacesError = ''
@@ -117,6 +119,10 @@ export class InputComponent implements OnInit {
   currentLocation: { latitude: number; longitude: number } | null = null
   currentLocationLoading = false
   private placeSwipeStartPoint?: { id: number; x: number; y: number }
+  private pendingAndroidLocationReminder: { location: ResolvedLocation; trigger: LocationTrigger } | null = null
+  private androidBackgroundLocationResumeHandler?: () => void
+  private androidBackgroundLocationFocusHandler?: () => void
+  private androidBackgroundLocationResumeRunning = false
   collaboratorError = ''
   isSavingCollaborators = false
   labelMenuError = ''
@@ -2695,6 +2701,7 @@ export class InputComponent implements OnInit {
     this.autoSaveSubscription?.unsubscribe();
     this.mobileComposerSubscription?.unsubscribe();
     this.unbindKeyboardOffset();
+    this.unbindAndroidBackgroundLocationResume();
     this.unlockBodyScroll();
   }
 
@@ -2815,7 +2822,7 @@ export class InputComponent implements OnInit {
       return
     }
 
-    if (this.keptPlugins.isIos) {
+    if (this.keptPlugins.supportsNativeLocationReminders) {
       this.openReminderTypeDialog()
       return
     }
@@ -3302,7 +3309,8 @@ export class InputComponent implements OnInit {
     try {
       const result = await this.keptPlugins.resolveLocation(phrase)
       if (!result) {
-        this.locationState = 'notFound'
+        this.permissionReason = 'Location search is not available in this version of the app.'
+        this.locationState = 'permission'
         return
       }
       switch (result.status) {
@@ -3358,9 +3366,7 @@ export class InputComponent implements OnInit {
   }
 
   async confirmSavedPlaceReminder(place: LocationSavedPlace) {
-    const permissionsOk = await this.reminderService.ensureAndroidLocationReminderPermissions()
-    if (!permissionsOk) return
-    this.setPendingLocationReminder({
+    await this.prepareLocationReminder({
       displayName: place.name || place.address || 'Saved place',
       latitude: place.latitude,
       longitude: place.longitude,
@@ -3380,9 +3386,107 @@ export class InputComponent implements OnInit {
 
   async confirmLocationReminder(location = this.resolvedLocation, trigger = this.locationTrigger) {
     if (!location) return
-    const permissionsOk = await this.reminderService.ensureAndroidLocationReminderPermissions()
-    if (!permissionsOk) return
+    await this.prepareLocationReminder(location, trigger)
+  }
+
+  private async prepareLocationReminder(location: ResolvedLocation, trigger: LocationTrigger) {
+    const permissionReady = await this.ensureLocationReminderPermissionsOrEducate(location, trigger)
+    if (!permissionReady) return
     this.setPendingLocationReminder(location, trigger)
+  }
+
+  private async ensureLocationReminderPermissionsOrEducate(location: ResolvedLocation, trigger: LocationTrigger) {
+    const status = await this.reminderService.getAndroidLocationPermissionStatus()
+    if (!status) return true
+
+    let locationStatus = status
+    if (!locationStatus.foregroundGranted) {
+      locationStatus = await this.reminderService.requestAndroidForegroundLocationPermission() || locationStatus
+    }
+    if (!locationStatus.foregroundGranted) {
+      this.permissionReason = 'Location permission is needed to create location reminders.'
+      this.locationState = 'permission'
+      return false
+    }
+
+    if (!locationStatus.backgroundGranted) {
+      this.pendingAndroidLocationReminder = { location, trigger }
+      this.androidBackgroundLocationMessage = ''
+      this.showAndroidBackgroundLocationEducation = true
+      this.bindAndroidBackgroundLocationResume()
+      this.cd.detectChanges()
+      return false
+    }
+
+    const notificationsOk = await this.reminderService.ensureAndroidGeofenceNotificationPermission()
+    if (!notificationsOk) {
+      this.permissionReason = 'Notification permission is needed so Kept can show location reminder alerts.'
+      this.locationState = 'permission'
+      return false
+    }
+    return true
+  }
+
+  async openAndroidBackgroundLocationSettings() {
+    this.androidBackgroundLocationMessage = ''
+    await this.reminderService.openAndroidBackgroundLocationSettings()
+  }
+
+  cancelAndroidBackgroundLocationEducation() {
+    this.showAndroidBackgroundLocationEducation = false
+    this.androidBackgroundLocationMessage = ''
+    this.pendingAndroidLocationReminder = null
+    this.unbindAndroidBackgroundLocationResume()
+  }
+
+  private bindAndroidBackgroundLocationResume() {
+    if (this.androidBackgroundLocationResumeHandler || typeof document === 'undefined') return
+    this.androidBackgroundLocationResumeHandler = () => {
+      if (document.visibilityState === 'visible') this.resumePendingAndroidLocationReminder()
+    }
+    this.androidBackgroundLocationFocusHandler = () => this.resumePendingAndroidLocationReminder()
+    document.addEventListener('visibilitychange', this.androidBackgroundLocationResumeHandler)
+    window.addEventListener('focus', this.androidBackgroundLocationFocusHandler)
+  }
+
+  private unbindAndroidBackgroundLocationResume() {
+    if (this.androidBackgroundLocationResumeHandler) {
+      document.removeEventListener('visibilitychange', this.androidBackgroundLocationResumeHandler)
+      this.androidBackgroundLocationResumeHandler = undefined
+    }
+    if (this.androidBackgroundLocationFocusHandler) {
+      window.removeEventListener('focus', this.androidBackgroundLocationFocusHandler)
+      this.androidBackgroundLocationFocusHandler = undefined
+    }
+  }
+
+  private async resumePendingAndroidLocationReminder() {
+    const pending = this.pendingAndroidLocationReminder
+    if (!pending || this.androidBackgroundLocationResumeRunning) return
+    this.androidBackgroundLocationResumeRunning = true
+    try {
+      const status = await this.reminderService.getAndroidLocationPermissionStatus()
+      if (!status?.backgroundGranted) {
+        this.androidBackgroundLocationMessage = 'Permission still needed. Choose “Allow all the time” to enable this reminder.'
+        this.showAndroidBackgroundLocationEducation = true
+        this.cd.detectChanges()
+        return
+      }
+      const notificationsOk = await this.reminderService.ensureAndroidGeofenceNotificationPermission()
+      if (!notificationsOk) {
+        this.androidBackgroundLocationMessage = 'Notification permission is needed so Kept can show this reminder.'
+        this.showAndroidBackgroundLocationEducation = true
+        this.cd.detectChanges()
+        return
+      }
+      this.pendingAndroidLocationReminder = null
+      this.showAndroidBackgroundLocationEducation = false
+      this.androidBackgroundLocationMessage = ''
+      this.unbindAndroidBackgroundLocationResume()
+      this.setPendingLocationReminder(pending.location, pending.trigger)
+    } finally {
+      this.androidBackgroundLocationResumeRunning = false
+    }
   }
 
   private setPendingLocationReminder(location: ResolvedLocation, trigger: LocationTrigger) {

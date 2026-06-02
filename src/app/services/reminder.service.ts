@@ -189,8 +189,6 @@ export class ReminderService {
       if (!location.foregroundGranted) return false;
 
       if (!location.backgroundGranted) {
-        this.showSnackbar('For location reminders, choose “Allow all the time” for Kept in Android location settings.', 6500);
-        await KeptGeofence!.openBackgroundLocationSettings();
         return false;
       }
 
@@ -204,6 +202,30 @@ export class ReminderService {
       this.showSnackbar('Location reminder permissions could not be checked.', 4500);
       return false;
     }
+  }
+
+  async getAndroidLocationPermissionStatus(): Promise<AndroidLocationPermissionStatus | null> {
+    if (!this.isAndroidGeofenceAvailable()) return null;
+    return KeptGeofence!.getPermissionStatus();
+  }
+
+  async requestAndroidForegroundLocationPermission(): Promise<AndroidLocationPermissionStatus | null> {
+    if (!this.isAndroidGeofenceAvailable()) return null;
+    return KeptGeofence!.requestForegroundLocationPermission();
+  }
+
+  async openAndroidBackgroundLocationSettings(): Promise<void> {
+    if (!this.isAndroidGeofenceAvailable()) return;
+    await KeptGeofence!.openBackgroundLocationSettings();
+  }
+
+  async ensureAndroidGeofenceNotificationPermission(): Promise<boolean> {
+    if (!this.isAndroidGeofenceAvailable()) return true;
+    let notifications = await KeptGeofence!.getNotificationPermissionStatus();
+    if (!notifications.granted) {
+      notifications = await KeptGeofence!.requestNotificationPermission();
+    }
+    return notifications.granted;
   }
 
   iosNeedsHomeScreenInstall() {

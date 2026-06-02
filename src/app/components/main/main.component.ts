@@ -22,7 +22,7 @@ interface SmartCaptureEstimate {
   estimatedActions?: SmartCaptureEstimateAction[];
 }
 
-type AndroidSmartCaptureProvider = 'gemini-nano' | 'local-model' | 'rules';
+type AndroidSmartCaptureProvider = 'gemini-nano' | 'local-model' | 'rules' | 'none';
 
 interface AndroidLocalModelStatus {
   installed: boolean;
@@ -224,6 +224,7 @@ export class MainComponent implements OnInit, OnDestroy {
       if (this.isAndroidSmartCapture()) await this.ensureAndroidSmartCaptureVoicePermissions();
       await this.bindVoiceTranscriptListener(plugin);
       if (this.isAndroidSmartCapture()) {
+        await this.nextPaint();
         await plugin.startVoiceCapture({ locale: navigator.language });
       } else {
         await plugin.startVoiceCapture();
@@ -236,6 +237,12 @@ export class MainComponent implements OnInit, OnDestroy {
       this.smartCaptureLoading = false;
       this.smartCaptureError = error?.message || 'Could not start Smart Capture voice input.';
     }
+  }
+
+  private nextPaint() {
+    return new Promise<void>(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
   }
 
   installPwa() {
@@ -648,11 +655,7 @@ export class MainComponent implements OnInit, OnDestroy {
     try {
       const status = await KeptSmartCapture.getStatus();
       this.androidSmartCaptureStatus = status;
-      if (this.androidNanoAvailable(status)) {
-        this.smartCaptureAvailable = true;
-        this.smartCaptureProvider = 'gemini-nano';
-        this.showGemmaFallbackInstallPrompt = false;
-      } else if (this.androidLocalModelInstalled(status)) {
+      if (this.androidLocalModelInstalled(status)) {
         this.smartCaptureAvailable = true;
         this.smartCaptureProvider = 'local-model';
         this.showGemmaFallbackInstallPrompt = false;
@@ -682,8 +685,7 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   private androidNanoAvailable(status: AndroidSmartCaptureStatus | any): boolean {
-    return status?.nano?.available === true
-      || (status?.available === true && this.androidStatusProvider(status) === 'gemini-nano');
+    return false;
   }
 
   private androidLocalModelInstalled(status: AndroidSmartCaptureStatus | any): boolean {

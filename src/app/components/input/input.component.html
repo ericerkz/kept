@@ -327,7 +327,7 @@
         </span>
         <span class="material-symbols-outlined rd-choice-chevron">chevron_right</span>
       </button>
-      @if (keptPlugins.isIos) {
+      @if (keptPlugins.supportsNativeLocationReminders) {
         <button type="button" class="rd-choice-card" (click)="chooseReminderPlace()">
           <span class="rd-choice-icon">
             <span class="material-symbols-outlined">location_on</span>
@@ -384,7 +384,7 @@
   }
   <input #customTimeInp type="text" class="timepicker-ui-input rp-hidden-time" autocomplete="off" readonly [(ngModel)]="customTime"
     aria-hidden="true" tabindex="-1">
-  @if (showReminderLocationDialog && !getActiveReminder() && keptPlugins.isIos) {
+  @if (showReminderLocationDialog && !getActiveReminder() && keptPlugins.supportsNativeLocationReminders) {
     <div class="reminder-date-dialog reminder-place-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
       role="dialog" aria-label="Set location reminder">
       <div class="rd-place-header">
@@ -582,6 +582,25 @@
           }
         </div>
       }
+    </div>
+  }
+  @if (showAndroidBackgroundLocationEducation) {
+    <div class="reminder-date-dialog android-location-education"
+      (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
+      role="dialog" aria-label="Allow background location">
+      <div class="android-location-education__icon">
+        <span class="material-symbols-outlined">location_on</span>
+      </div>
+      <h2>Allow location reminders</h2>
+      <p>Location reminders need “Allow all the time”. This lets Kept remind you when the app is closed.</p>
+      <p>On the next Android screen, choose <strong>Permissions</strong> &gt; <strong>Location</strong> &gt; <strong>Allow all the time</strong>.</p>
+      @if (androidBackgroundLocationMessage) {
+        <div class="android-location-education__message">{{ androidBackgroundLocationMessage }}</div>
+      }
+      <div class="android-location-education__actions">
+        <button type="button" class="secondary" (click)="cancelAndroidBackgroundLocationEducation()">Not now</button>
+        <button type="button" class="primary" (click)="openAndroidBackgroundLocationSettings()">Open settings</button>
+      </div>
     </div>
   }
 </div>
