@@ -3123,6 +3123,17 @@ export class InputComponent implements OnInit {
 
   async clearReminder(event: Event) {
     event.stopPropagation()
+    if (this.pendingReminderDate || this.pendingReminderLocation) {
+      this.pendingReminderDate = null
+      this.pendingReminderLocation = null
+      this.pendingAndroidLocationReminder = null
+      this.showAndroidBackgroundLocationEducation = false
+      this.androidBackgroundLocationMessage = ''
+      this.unbindAndroidBackgroundLocationResume()
+      this.closeReminderPicker()
+      this.cd.detectChanges()
+      return
+    }
     if (this.isEditing && this.noteToEdit.id) {
       const existing = this.getActiveReminder()
       if (existing && (existing as any).id) await this.reminderService.delete((existing as any).id)
