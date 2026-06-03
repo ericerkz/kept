@@ -18,7 +18,7 @@ interface SmartCaptureEstimateAction {
 
 interface SmartCaptureEstimate {
   transcript?: string;
-  status?: 'listening' | 'transcribing' | 'planning';
+  status?: 'starting' | 'listening' | 'transcribing' | 'planning';
   estimatedActions?: SmartCaptureEstimateAction[];
 }
 
@@ -82,7 +82,7 @@ interface KeptSmartCapturePlugin {
     listenerFunc: (event: {
       text?: string;
       isFinal?: boolean;
-      status?: 'idle' | 'listening' | 'transcribing' | 'final' | 'cancelled' | 'error';
+      status?: 'idle' | 'starting' | 'listening' | 'transcribing' | 'final' | 'cancelled' | 'error';
       listening?: boolean;
       error?: string;
     }) => void
@@ -723,6 +723,7 @@ export class MainComponent implements OnInit, OnDestroy {
       this.showGemmaFallbackInstallPrompt = false;
       this.gemmaFallbackProgress = undefined;
       this.gemmaFallbackError = '';
+      await this.beginSmartCaptureListening();
     } catch (error: any) {
       this.gemmaFallbackError = error?.message || String(error) || 'The local Gemma model could not be installed.';
     } finally {
@@ -756,12 +757,16 @@ export class MainComponent implements OnInit, OnDestroy {
     const listener = plugin.addListener('voiceTranscript', ({ text, status, listening, error }: {
       text?: string;
       isFinal?: boolean;
-      status?: 'idle' | 'listening' | 'transcribing' | 'final' | 'cancelled' | 'error';
+      status?: 'idle' | 'starting' | 'listening' | 'transcribing' | 'final' | 'cancelled' | 'error';
       listening?: boolean;
       error?: string;
     }) => {
       this.ngZone.run(() => {
         if (text) this.smartCaptureTranscript = text;
+        if (status === 'starting') {
+          this.smartCaptureLoading = true;
+          this.smartCaptureListening = false;
+        }
         if (status === 'listening' || listening === true) {
           this.smartCaptureListening = true;
           this.smartCaptureLoading = false;

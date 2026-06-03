@@ -3318,7 +3318,7 @@ export class InputComponent implements OnInit {
     this.resolving = true
     this.locationState = 'idle'
     try {
-      const result = await this.keptPlugins.resolveLocation(phrase)
+      const result = await this.keptPlugins.resolveLocation(phrase, this.savedPlaces)
       if (!result) {
         this.permissionReason = 'Location search is not available in this version of the app.'
         this.locationState = 'permission'

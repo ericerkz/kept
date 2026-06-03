@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
+import type { LocationSavedPlace } from './location-saved-places.service';
 
 export interface ResolvedLocation {
   displayName: string;
@@ -34,10 +35,23 @@ export class KeptPluginsService {
     return this.isIos || this.isAndroid;
   }
 
-  async resolveLocation(phrase: string): Promise<LocationResolveResponse | null> {
+  async resolveLocation(phrase: string, savedLocations: LocationSavedPlace[] = []): Promise<LocationResolveResponse | null> {
     const plugin = this.locationResolutionPlugin();
     if (!plugin) return null;
-    return plugin.resolveLocation({ phrase });
+    return plugin.resolveLocation({
+      phrase,
+      savedLocations: savedLocations.map(place => ({
+        id: place.id,
+        label: String(place.placeType || 'other').toLowerCase(),
+        displayName: place.name || place.address,
+        name: place.name,
+        address: place.address,
+        placeType: place.placeType,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        radiusMeters: place.radiusMeters ?? 120
+      }))
+    });
   }
 
   async requestLocationAccess(): Promise<{ granted: boolean } | null> {
