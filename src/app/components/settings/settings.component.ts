@@ -6,6 +6,13 @@ import { ReminderService } from 'src/app/services/reminder.service';
 import { NotesService, TakeoutImportResult } from 'src/app/services/notes.service';
 
 import { AuthService } from 'src/app/services/auth.service';
+import {
+  androidMajorVersion,
+  isLegacyAndroidSmartCaptureDevice,
+  isIosPlatform,
+  legacyAndroidSmartCaptureEnabled,
+  setLegacyAndroidSmartCaptureEnabled
+} from 'src/app/utils/platform';
 
 export type PermissionStatus = 'granted' | 'denied' | 'notDetermined';
 
@@ -87,7 +94,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
   deleteAccountError = '';
 
   // ── iOS Permissions ────────────────────────────────────────────────────
-  isIos = !!(window as any).Capacitor;
+  isIos = isIosPlatform();
+  legacyAndroidSmartCaptureVisible = isLegacyAndroidSmartCaptureDevice();
+  legacyAndroidSmartCaptureEnabled = legacyAndroidSmartCaptureEnabled();
+  androidMajorVersion = androidMajorVersion();
   permissionsStatus: PermissionsStatus | null = null;
   isLoadingPermissions = false;
   isRequestingPermission: string | null = null;
@@ -137,6 +147,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
     if (this.visibilityListener) {
       document.removeEventListener('visibilitychange', this.visibilityListener);
     }
+  }
+
+  toggleLegacyAndroidSmartCapture(event: Event) {
+    const enabled = (event.target as HTMLInputElement).checked;
+    this.legacyAndroidSmartCaptureEnabled = enabled;
+    setLegacyAndroidSmartCaptureEnabled(enabled);
+    window.dispatchEvent(new CustomEvent('kept-legacy-smart-capture-changed', { detail: { enabled } }));
   }
 
   private async loadAll() {

@@ -9,6 +9,7 @@ import { NotesService } from 'src/app/services/notes.service';
 import { ShareUserI } from 'src/app/interfaces/users';
 import { bgColors } from 'src/app/interfaces/tooltip';
 import { LocationSavedPlacesService, type LocationSavedPlace } from 'src/app/services/location-saved-places.service';
+import { androidSmartCaptureUiAllowed } from 'src/app/utils/platform';
 
 interface SmartCaptureEstimateAction {
   type: string;
@@ -149,6 +150,7 @@ export class MainComponent implements OnInit, OnDestroy {
   private smartCaptureEventHandler = (event: Event) => this.handleSmartCaptureEvent(event as CustomEvent);
   private smartCaptureEstimateEventHandler = (event: Event) => this.handleSmartCaptureEstimateEvent(event as CustomEvent);
   readonly smartProposalColors = Object.values(bgColors).filter(color => !!color);
+  private smartProposalColorCache = new Map<string, string>();
   private smartSavedPlaces: LocationSavedPlace[] = [];
   private smartSavedPlacesLoaded = false;
 
@@ -166,6 +168,8 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   async startSmartCapture() {
+    if (this.isAndroidSmartCapture() && !this.androidSmartCaptureUiAllowed()) return;
+
     if (this.isAndroidSmartCapture()) {
       this.smartCaptureInstallPromptRequested = true;
       await this.refreshSmartCaptureAvailability(true);
@@ -187,7 +191,12 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   smartCaptureEntryVisible() {
+    if (this.isAndroidSmartCapture() && !this.androidSmartCaptureUiAllowed()) return false;
     return this.smartCaptureAvailable || this.isAndroidSmartCapture();
+  }
+
+  androidSmartCaptureUiAllowed() {
+    return androidSmartCaptureUiAllowed();
   }
 
   gemmaFallbackProgressPercent() {
@@ -206,6 +215,7 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureValidation = null;
     this.smartCaptureResult = null;
     this.selectedSmartActions.clear();
+    this.smartProposalColorCache.clear();
     this.smartShareUsers = [];
     this.closeSmartReminderPicker();
   }
@@ -314,6 +324,7 @@ export class MainComponent implements OnInit, OnDestroy {
     }
     this.smartCaptureTranscript = payload.transcript || '';
     this.smartCapturePlan = actionPlan;
+    this.smartProposalColorCache.clear();
     this.setSmartCaptureDocumentLock(true);
     this.smartCaptureEstimate = null;
     this.smartCaptureResult = null;
@@ -336,6 +347,7 @@ export class MainComponent implements OnInit, OnDestroy {
     try {
       this.smartCaptureValidation = await this.ai.validatePlan(this.smartCaptureTranscript, this.smartCapturePlan);
       this.smartCapturePlan = this.smartCaptureValidation.normalizedPlan;
+      this.ensureSmartProposalColors(this.smartCapturePlan);
       const nextIndexes = (this.smartCapturePlan.actions || []).map((_action, index) => index);
       this.selectedSmartActions = previousActionCount === nextIndexes.length
         ? new Set(nextIndexes.filter(index => selectedBefore.has(index)))
@@ -420,6 +432,7 @@ export class MainComponent implements OnInit, OnDestroy {
 
   private prepareSmartCapturePlan(selectedActionIndexes?: number[]) {
     if (!this.smartCapturePlan) return null;
+    this.ensureSmartProposalColors(this.smartCapturePlan);
     const selected = selectedActionIndexes ? new Set(selectedActionIndexes) : null;
     const plan: KeptActionPlan = {
       ...this.smartCapturePlan,
@@ -1015,7 +1028,32 @@ export class MainComponent implements OnInit, OnDestroy {
   proposalColor(action: KeptAction, _index: number) {
     const anyAction = action as any;
     if (anyAction.bgColor) return anyAction.bgColor;
-    return this.smartProposalColors[Math.floor(Math.random() * this.smartProposalColors.length)];
+    const key = this.smartProposalColorKey(action, _index);
+    const existing = this.smartProposalColorCache.get(key);
+    if (existing) return existing;
+    const color = this.smartProposalColors[Math.floor(Math.random() * this.smartProposalColors.length)];
+    this.smartProposalColorCache.set(key, color);
+    return color;
+  }
+
+  private ensureSmartProposalColors(plan: KeptActionPlan) {
+    for (const [index, action] of (plan.actions || []).entries()) {
+      const anyAction = action as any;
+      if ((action.type === 'create_text_note' || action.type === 'create_todo_note') && !anyAction.bgColor) {
+        anyAction.bgColor = this.proposalColor(action, index);
+      }
+    }
+  }
+
+  private smartProposalColorKey(action: KeptAction, index: number) {
+    const anyAction = action as any;
+    return [
+      index,
+      action.type,
+      anyAction.title || '',
+      anyAction.text || anyAction.body || '',
+      Array.isArray(anyAction.items) ? anyAction.items.join('|') : ''
+    ].join('::');
   }
 
   proposalHasDarkBackground(action: KeptAction) {

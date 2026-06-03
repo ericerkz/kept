@@ -350,8 +350,8 @@
 
     </div>
 
-    <!-- ── Group: iOS Permissions ──────────────────────────────────────── -->
-    @if (isIos) {
+    <!-- ── Group: Native App Permissions ──────────────────────────────────────── -->
+    @if (isIos || legacyAndroidSmartCaptureVisible) {
     <div class="settings-group permissions-group">
       <h2 class="group-title color-blue">
         <span class="material-symbols-outlined">security</span>
@@ -362,40 +362,59 @@
         Manage the permissions Kept needs for reminders, voice capture, and location-based features.
       </p>
 
-      @if (isLoadingPermissions) {
-        <div class="loading-placeholder">Loading permission statuses…</div>
-      } @else if (permissionsError) {
-        <div class="error">{{permissionsError}}</div>
-      } @else if (permissionsStatus) {
-        <div class="permissions-list">
-          @for (perm of permissions; track perm.key) {
-            <div class="permission-row">
-              <div class="permission-info">
-                <span class="permission-label">{{perm.label}}</span>
-                <span class="permission-desc">{{perm.description}}</span>
-              </div>
-              <div class="permission-action">
-                @if (permissionsStatus[perm.key] === 'granted') {
-                  <span class="permission-granted">
-                    <span class="material-symbols-outlined check-icon">check_circle</span>
-                    Granted
-                  </span>
-                } @else if (permissionsStatus[perm.key] === 'notDetermined') {
-                  <button type="button" class="btn-secondary btn-permission"
-                    [disabled]="isRequestingPermission === perm.key"
-                    (click)="requestPermission(perm.key)">
-                    {{isRequestingPermission === perm.key ? 'Requesting…' : 'Grant Access'}}
-                  </button>
-                } @else if (permissionsStatus[perm.key] === 'denied') {
-                  <button type="button" class="btn-secondary btn-permission"
-                    (click)="openAppSettings()">
-                    Open Settings
-                  </button>
-                }
-              </div>
+      @if (legacyAndroidSmartCaptureVisible) {
+        <div class="permissions-list legacy-smart-capture-list">
+          <div class="permission-row">
+            <div class="permission-info">
+              <span class="permission-label">Legacy device Smart Capture</span>
+              <span class="permission-desc">Enable Smart Capture on Android 12 and older. Voice punctuation and checklist parsing are less reliable on legacy Android speech services.</span>
             </div>
-          }
+            <div class="permission-action">
+              <label class="toggle-label">
+                <input type="checkbox" [checked]="legacyAndroidSmartCaptureEnabled" (change)="toggleLegacyAndroidSmartCapture($event)">
+                <span class="toggle-text">{{legacyAndroidSmartCaptureEnabled ? 'Enabled' : 'Disabled'}}</span>
+              </label>
+            </div>
+          </div>
         </div>
+      }
+
+      @if (isIos) {
+        @if (isLoadingPermissions) {
+          <div class="loading-placeholder">Loading permission statuses…</div>
+        } @else if (permissionsError) {
+          <div class="error">{{permissionsError}}</div>
+        } @else if (permissionsStatus) {
+          <div class="permissions-list">
+            @for (perm of permissions; track perm.key) {
+              <div class="permission-row">
+                <div class="permission-info">
+                  <span class="permission-label">{{perm.label}}</span>
+                  <span class="permission-desc">{{perm.description}}</span>
+                </div>
+                <div class="permission-action">
+                  @if (permissionsStatus[perm.key] === 'granted') {
+                    <span class="permission-granted">
+                      <span class="material-symbols-outlined check-icon">check_circle</span>
+                      Granted
+                    </span>
+                  } @else if (permissionsStatus[perm.key] === 'notDetermined') {
+                    <button type="button" class="btn-secondary btn-permission"
+                      [disabled]="isRequestingPermission === perm.key"
+                      (click)="requestPermission(perm.key)">
+                      {{isRequestingPermission === perm.key ? 'Requesting…' : 'Grant Access'}}
+                    </button>
+                  } @else if (permissionsStatus[perm.key] === 'denied') {
+                    <button type="button" class="btn-secondary btn-permission"
+                      (click)="openAppSettings()">
+                      Open Settings
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        }
       }
     </div>
     }
