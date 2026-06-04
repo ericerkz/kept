@@ -35,11 +35,16 @@ export class KeptPluginsService {
     return this.isIos || this.isAndroid;
   }
 
-  async resolveLocation(phrase: string, savedLocations: LocationSavedPlace[] = []): Promise<LocationResolveResponse | null> {
+  async resolveLocation(
+    phrase: string,
+    savedLocations: LocationSavedPlace[] = [],
+    currentLocation?: { latitude: number; longitude: number } | null
+  ): Promise<LocationResolveResponse | null> {
     const plugin = this.locationResolutionPlugin();
     if (!plugin) return null;
     return plugin.resolveLocation({
       phrase,
+      currentLocation: currentLocation || undefined,
       savedLocations: savedLocations.map(place => ({
         id: place.id,
         label: String(place.placeType || 'other').toLowerCase(),

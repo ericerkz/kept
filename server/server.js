@@ -1243,11 +1243,17 @@ function normalizeAction(action) {
   if (action.dueAtUtc || action.dueAt || action.datetime || action.dateTime) {
     normalized.dueAtUtc = String(action.dueAtUtc || action.dueAt || action.datetime || action.dateTime);
   }
-  if (action.locationName) normalized.locationName = String(action.locationName);
-  if (action.latitude != null) normalized.latitude = Number(action.latitude);
-  if (action.longitude != null) normalized.longitude = Number(action.longitude);
-  if (action.radiusMeters != null) normalized.radiusMeters = Number(action.radiusMeters);
-  if (action.locationTrigger) normalized.locationTrigger = action.locationTrigger === 'leave' ? 'leave' : 'arrive';
+  const location = action.location && typeof action.location === 'object' ? action.location : {};
+  const locationName = firstDefined(action.locationName, action.location_name, action.triggerLocationName, location.displayName, location.name, location.address);
+  const latitude = firstDefined(action.latitude, action.lat, location.latitude, location.lat);
+  const longitude = firstDefined(action.longitude, action.lng, action.lon, location.longitude, location.lng, location.lon);
+  const radiusMeters = firstDefined(action.radiusMeters, action.radius_meters, action.radius, location.radiusMeters, location.radius_meters, location.radius);
+  const locationTrigger = firstDefined(action.locationTrigger, action.location_trigger, action.triggerType, location.locationTrigger, location.triggerType);
+  if (locationName) normalized.locationName = String(locationName);
+  if (latitude != null) normalized.latitude = Number(latitude);
+  if (longitude != null) normalized.longitude = Number(longitude);
+  if (radiusMeters != null) normalized.radiusMeters = Number(radiusMeters);
+  if (locationTrigger) normalized.locationTrigger = normalizeLocationTrigger(locationTrigger);
   if (action.timezone) normalized.timezone = String(action.timezone);
   if (action.repeatRule) normalized.repeatRule = String(action.repeatRule);
   if (action.createMissingLabels !== undefined) normalized.createMissingLabels = !!action.createMissingLabels;
@@ -4409,6 +4415,56 @@ async function reminderNoteMap(reminders) {
   return new Map(notes.map(note => [Number(note.id), note]));
 }
 
+function firstDefined(...values) {
+  return values.find(value => value !== undefined);
+}
+
+function normalizeLocationTrigger(value) {
+  const trigger = String(value || '').trim().toLowerCase();
+  return ['leave', 'exit', 'depart', 'departure'].includes(trigger) ? 'leave' : 'arrive';
+}
+
+function normalizeReminderPayload(body = {}, existing = {}) {
+  const location = body.location && typeof body.location === 'object' ? body.location : {};
+  const noteIdRaw = firstDefined(body.noteId, body.note_id, body.noteID, body.note?.id, existing.noteId);
+  const locationNameRaw = firstDefined(
+    body.locationName,
+    body.location_name,
+    body.triggerLocationName,
+    location.displayName,
+    location.locationName,
+    location.name,
+    location.address,
+    existing.locationName
+  );
+  const latitudeRaw = firstDefined(body.latitude, body.lat, location.latitude, location.lat, existing.latitude);
+  const longitudeRaw = firstDefined(body.longitude, body.lng, body.lon, location.longitude, location.lng, location.lon, existing.longitude);
+  const radiusRaw = firstDefined(body.radiusMeters, body.radius_meters, body.radius, location.radiusMeters, location.radius_meters, location.radius, existing.radiusMeters);
+  const triggerRaw = firstDefined(body.locationTrigger, body.location_trigger, body.triggerType, body.geofenceTrigger, location.locationTrigger, location.triggerType, existing.locationTrigger);
+  const dueRaw = firstDefined(body.dueAtUtc, body.due_at_utc, body.dueAt, body.datetime, body.dateTime, existing.dueAtUtc);
+
+  const locationName = locationNameRaw ? String(locationNameRaw) : null;
+  const latitude = latitudeRaw != null ? Number(latitudeRaw) : null;
+  const longitude = longitudeRaw != null ? Number(longitudeRaw) : null;
+  const radiusMeters = radiusRaw != null ? Number(radiusRaw) : (locationName ? 120 : null);
+
+  return {
+    noteId: Number(noteIdRaw || 0) || null,
+    dueAtUtc: dueRaw ? String(dueRaw) : null,
+    timezone: String(firstDefined(body.timezone, body.timeZone, existing.timezone, 'UTC') || 'UTC'),
+    repeatRule: firstDefined(body.repeatRule, body.repeat_rule, existing.repeatRule) || null,
+    status: firstDefined(body.status, existing.status, 'pending'),
+    title: plainText(firstDefined(body.title, body.notificationTitle, existing.title) || '') || null,
+    body: plainText(firstDefined(body.body, body.notificationBody, body.text, existing.body) || '') || null,
+    imageUrl: String(firstDefined(body.imageUrl, body.image_url, existing.imageUrl) || '') || null,
+    locationName,
+    latitude,
+    longitude,
+    radiusMeters,
+    locationTrigger: normalizeLocationTrigger(triggerRaw)
+  };
+}
+
 function reminderResponse(reminder, notesById = new Map()) {
   const noteId = Number(reminder.noteId || 0) || null;
   const note = noteId ? notesById.get(noteId) : null;
@@ -4416,6 +4472,11 @@ function reminderResponse(reminder, notesById = new Map()) {
   const explicitBody = plainText(reminder.body || '');
   const noteTitle = plainText(note?.noteTitle || '');
   const noteBody = plainText(note?.noteBody || '').slice(0, 500);
+  const latitude = reminder.latitude != null ? Number(reminder.latitude) : null;
+  const longitude = reminder.longitude != null ? Number(reminder.longitude) : null;
+  const radiusMeters = reminder.radiusMeters != null ? Number(reminder.radiusMeters) : null;
+  const locationName = reminder.locationName || null;
+  const locationTrigger = normalizeLocationTrigger(reminder.locationTrigger);
   return {
     ...reminder,
     id: Number(reminder.id),
@@ -4423,11 +4484,20 @@ function reminderResponse(reminder, notesById = new Map()) {
     dueAtUtc: reminder.dueAtUtc || null,
     title: explicitTitle || noteTitle || null,
     body: explicitBody || noteBody || null,
-    locationName: reminder.locationName || null,
-    latitude: reminder.latitude != null ? Number(reminder.latitude) : null,
-    longitude: reminder.longitude != null ? Number(reminder.longitude) : null,
-    radiusMeters: reminder.radiusMeters != null ? Number(reminder.radiusMeters) : null,
-    locationTrigger: reminder.locationTrigger === 'leave' ? 'leave' : 'arrive',
+    locationName,
+    latitude,
+    longitude,
+    radiusMeters,
+    locationTrigger,
+    location: locationName && latitude != null && longitude != null ? {
+      displayName: locationName,
+      name: locationName,
+      latitude,
+      longitude,
+      radiusMeters: radiusMeters ?? 120,
+      triggerType: locationTrigger,
+      locationTrigger
+    } : null,
     status: reminder.status || 'pending',
     deepLink: noteId ? `kept://note/${noteId}` : null
   };
@@ -4629,25 +4699,20 @@ app.delete('/api/location-saved-places/:id', requireAuth, asyncRoute(async (req,
 }));
 
 app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
-  const { noteId, dueAtUtc, timezone, title, body, imageUrl, repeatRule, locationName, latitude, longitude, radiusMeters, locationTrigger } = req.body;
-  if (!dueAtUtc && !locationName) return res.status(400).json({ error: 'Either dueAtUtc or locationName is required.' });
-  const noteIdVal = Number(noteId || 0) || null;
+  const payload = normalizeReminderPayload(req.body || {});
+  if (!payload.dueAtUtc && !payload.locationName) return res.status(400).json({ error: 'Either dueAtUtc or locationName is required.' });
+  if (payload.locationName && (payload.latitude == null || payload.longitude == null)) {
+    return res.status(400).json({ error: 'Location reminders require locationName, latitude, and longitude.' });
+  }
+  if (payload.radiusMeters != null && (!Number.isFinite(payload.radiusMeters) || payload.radiusMeters <= 0)) {
+    return res.status(400).json({ error: 'radiusMeters must be positive.' });
+  }
+  const noteIdVal = payload.noteId;
   if (noteIdVal) {
     const note = await getAccessibleNote(noteIdVal, req.user.id);
     if (!note) return res.status(404).json({ error: 'Note not found.' });
   }
   const now = new Date().toISOString();
-  const dueVal = dueAtUtc ? String(dueAtUtc) : null;
-  const tz = String(timezone || 'UTC');
-  const repeatVal = repeatRule || null;
-  const titleVal = plainText(title) || null;
-  const bodyVal = plainText(body) || null;
-  const imageVal = String(imageUrl || '') || null;
-  const locName = locationName ? String(locationName) : null;
-  const lat = latitude != null ? Number(latitude) : null;
-  const lng = longitude != null ? Number(longitude) : null;
-  const radius = radiusMeters != null ? Number(radiusMeters) : (locationName ? 120 : null);
-  const triggerVal = locationTrigger === 'leave' ? 'leave' : 'arrive';
 
   const existing = noteIdVal ? await get('SELECT id FROM reminders WHERE noteId = ?', [noteIdVal]) : null;
   const reminder = await get(
@@ -4669,7 +4734,23 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
        locationTrigger = excluded.locationTrigger,
        updatedAt = excluded.updatedAt
      RETURNING *`,
-    [noteIdVal, req.user.id, dueVal, tz, repeatVal, titleVal, bodyVal, imageVal, locName, lat, lng, radius, triggerVal, now, now]
+    [
+      noteIdVal,
+      req.user.id,
+      payload.dueAtUtc,
+      payload.timezone,
+      payload.repeatRule,
+      payload.title,
+      payload.body,
+      payload.imageUrl,
+      payload.locationName,
+      payload.latitude,
+      payload.longitude,
+      payload.radiusMeters,
+      payload.locationTrigger,
+      now,
+      now
+    ]
   );
   const enrichedReminder = await enrichReminderResponse(reminder);
   const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [req.user.id]);
@@ -4683,17 +4764,22 @@ app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
   if (!reminder) return res.status(404).json({ error: 'Reminder not found.' });
   const now = new Date().toISOString();
   const validStatuses = ['pending','fired','dismissed','snoozed'];
-  const status = validStatuses.includes(req.body.status) ? req.body.status : reminder.status;
-  const dueAtUtc = req.body.dueAtUtc !== undefined ? (req.body.dueAtUtc || null) : reminder.dueAtUtc;
-  const locationName = req.body.locationName !== undefined ? (req.body.locationName || null) : (reminder.locationName || null);
-  const latitude = req.body.latitude !== undefined ? (req.body.latitude != null ? Number(req.body.latitude) : null) : (reminder.latitude != null ? reminder.latitude : null);
-  const longitude = req.body.longitude !== undefined ? (req.body.longitude != null ? Number(req.body.longitude) : null) : (reminder.longitude != null ? reminder.longitude : null);
-  const radiusMeters = req.body.radiusMeters !== undefined ? (req.body.radiusMeters != null ? Number(req.body.radiusMeters) : null) : (reminder.radiusMeters != null ? reminder.radiusMeters : null);
-  const locationTrigger = req.body.locationTrigger !== undefined
-    ? (req.body.locationTrigger === 'leave' ? 'leave' : 'arrive')
-    : (reminder.locationTrigger === 'leave' ? 'leave' : 'arrive');
+  const payload = normalizeReminderPayload(req.body || {}, reminder);
+  const status = validStatuses.includes(payload.status) ? payload.status : reminder.status;
+  const dueAtUtc = payload.dueAtUtc;
+  const locationName = payload.locationName;
+  const latitude = payload.latitude;
+  const longitude = payload.longitude;
+  const radiusMeters = payload.radiusMeters;
+  const locationTrigger = payload.locationTrigger;
 
   if (!dueAtUtc && !locationName) return res.status(400).json({ error: 'Either dueAtUtc or locationName is required.' });
+  if (locationName && (latitude == null || longitude == null)) {
+    return res.status(400).json({ error: 'Location reminders require locationName, latitude, and longitude.' });
+  }
+  if (radiusMeters != null && (!Number.isFinite(radiusMeters) || radiusMeters <= 0)) {
+    return res.status(400).json({ error: 'radiusMeters must be positive.' });
+  }
 
   await run(
     `UPDATE reminders SET status = ?, dueAtUtc = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, locationTrigger = ?, updatedAt = ? WHERE id = ?`,

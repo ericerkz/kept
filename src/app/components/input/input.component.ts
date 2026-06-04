@@ -3318,7 +3318,8 @@ export class InputComponent implements OnInit {
     this.resolving = true
     this.locationState = 'idle'
     try {
-      const result = await this.keptPlugins.resolveLocation(phrase, this.savedPlaces)
+      await this.loadCurrentLocation()
+      const result = await this.keptPlugins.resolveLocation(phrase, this.savedPlaces, this.currentLocation)
       if (!result) {
         this.permissionReason = 'Location search is not available in this version of the app.'
         this.locationState = 'permission'
@@ -3502,10 +3503,7 @@ export class InputComponent implements OnInit {
 
   private setPendingLocationReminder(location: ResolvedLocation, trigger: LocationTrigger) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-    // Store locally until the note save/exit path persists the note. This
-    // avoids posting a reminder before the note POST/PATCH has succeeded.
-    this.pendingReminderDate = null
-    this.pendingReminderLocation = {
+    const pendingLocation = {
       locationName: location.displayName,
       latitude: location.latitude,
       longitude: location.longitude,
@@ -3513,9 +3511,36 @@ export class InputComponent implements OnInit {
       locationTrigger: trigger,
       timezone: tz
     }
+
+    this.pendingReminderDate = null
+    this.pendingReminderLocation = pendingLocation
     this.clearLocation()
     this.showReminderLocationDialog = false
     this.cd.detectChanges()
+
+    if (this.isEditing && this.noteToEdit.id) {
+      const noteId = this.noteToEdit.id
+      const title = this.notePlainText(this.noteTitle?.nativeElement?.innerHTML || this.noteToEdit.noteTitle || '')
+      const body = this.notePlainText(this.noteBody?.nativeElement?.innerHTML || this.noteToEdit.noteBody || '')
+      this.reminderService.create({
+        noteId,
+        locationName: pendingLocation.locationName,
+        latitude: pendingLocation.latitude,
+        longitude: pendingLocation.longitude,
+        radiusMeters: pendingLocation.radiusMeters,
+        locationTrigger: pendingLocation.locationTrigger,
+        timezone: pendingLocation.timezone,
+        title,
+        body
+      }).then(result => {
+        if (result) {
+          this.pendingReminderLocation = null
+          this.cd.detectChanges()
+        } else {
+          this.showReminderSaveError()
+        }
+      }).catch(() => this.showReminderSaveError())
+    }
   }
 
   async saveSavedPlace() {
