@@ -3620,7 +3620,7 @@ export class InputComponent implements OnInit {
   }
 
   private loadCurrentLocation() {
-    if (this.currentLocation || typeof navigator === 'undefined' || !navigator.geolocation) {
+    if (this.keptPlugins.isIos || this.currentLocation || typeof navigator === 'undefined' || !navigator.geolocation) {
       return Promise.resolve()
     }
     this.currentLocationLoading = true
