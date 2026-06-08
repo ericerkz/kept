@@ -351,7 +351,7 @@
     </div>
 
     <!-- ── Group: Native App Permissions ──────────────────────────────────────── -->
-    @if (isIos || legacyAndroidSmartCaptureVisible) {
+    @if (isIos || isAndroid) {
     <div class="settings-group permissions-group">
       <h2 class="group-title color-blue">
         <span class="material-symbols-outlined">security</span>
@@ -362,8 +362,21 @@
         Manage the permissions Kept needs for reminders, voice capture, and location-based features.
       </p>
 
-      @if (legacyAndroidSmartCaptureVisible) {
+      @if (isAndroid) {
         <div class="permissions-list legacy-smart-capture-list">
+          <div class="permission-row">
+            <div class="permission-info">
+              <span class="permission-label">Smart Capture</span>
+              <span class="permission-desc">Show voice-first Smart Capture and use the private on-device model.</span>
+            </div>
+            <div class="permission-action">
+              <label class="toggle-label">
+                <input type="checkbox" [checked]="androidSmartCaptureEnabled" (change)="toggleAndroidSmartCapture($event)">
+                <span class="toggle-text">{{androidSmartCaptureEnabled ? 'Enabled' : 'Disabled'}}</span>
+              </label>
+            </div>
+          </div>
+          @if (legacyAndroidSmartCaptureVisible) {
           <div class="permission-row">
             <div class="permission-info">
               <span class="permission-label">Legacy device Smart Capture</span>
@@ -376,6 +389,7 @@
               </label>
             </div>
           </div>
+          }
         </div>
       }
 

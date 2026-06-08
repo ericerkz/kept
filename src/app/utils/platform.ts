@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 
 export const LEGACY_SMART_CAPTURE_KEY = 'kept_android_legacy_smart_capture_enabled';
+export const ANDROID_SMART_CAPTURE_KEY = 'kept_android_smart_capture_enabled';
 
 export function isAndroidPlatform(): boolean {
   return Capacitor.getPlatform() === 'android';
@@ -34,6 +35,21 @@ export function setLegacyAndroidSmartCaptureEnabled(enabled: boolean) {
   } catch {}
 }
 
+export function androidSmartCaptureEnabled(): boolean {
+  try {
+    return localStorage.getItem(ANDROID_SMART_CAPTURE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+export function setAndroidSmartCaptureEnabled(enabled: boolean) {
+  try {
+    localStorage.setItem(ANDROID_SMART_CAPTURE_KEY, enabled ? 'true' : 'false');
+  } catch {}
+}
+
 export function androidSmartCaptureUiAllowed(): boolean {
-  return !isLegacyAndroidSmartCaptureDevice() || legacyAndroidSmartCaptureEnabled();
+  return androidSmartCaptureEnabled()
+    && (!isLegacyAndroidSmartCaptureDevice() || legacyAndroidSmartCaptureEnabled());
 }

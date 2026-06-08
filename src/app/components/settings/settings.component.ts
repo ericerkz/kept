@@ -7,10 +7,13 @@ import { NotesService, TakeoutImportResult } from 'src/app/services/notes.servic
 
 import { AuthService } from 'src/app/services/auth.service';
 import {
+  androidSmartCaptureEnabled,
   androidMajorVersion,
+  isAndroidPlatform,
   isLegacyAndroidSmartCaptureDevice,
   isIosPlatform,
   legacyAndroidSmartCaptureEnabled,
+  setAndroidSmartCaptureEnabled,
   setLegacyAndroidSmartCaptureEnabled
 } from 'src/app/utils/platform';
 
@@ -95,6 +98,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   // ── iOS Permissions ────────────────────────────────────────────────────
   isIos = isIosPlatform();
+  isAndroid = isAndroidPlatform();
+  androidSmartCaptureEnabled = androidSmartCaptureEnabled();
   legacyAndroidSmartCaptureVisible = isLegacyAndroidSmartCaptureDevice();
   legacyAndroidSmartCaptureEnabled = legacyAndroidSmartCaptureEnabled();
   androidMajorVersion = androidMajorVersion();
@@ -154,6 +159,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.legacyAndroidSmartCaptureEnabled = enabled;
     setLegacyAndroidSmartCaptureEnabled(enabled);
     window.dispatchEvent(new CustomEvent('kept-legacy-smart-capture-changed', { detail: { enabled } }));
+  }
+
+  toggleAndroidSmartCapture(event: Event) {
+    const enabled = (event.target as HTMLInputElement).checked;
+    this.androidSmartCaptureEnabled = enabled;
+    setAndroidSmartCaptureEnabled(enabled);
+    window.dispatchEvent(new CustomEvent('kept-smart-capture-changed', { detail: { enabled } }));
   }
 
   private async loadAll() {
