@@ -390,7 +390,8 @@ export class NotesService {
         console.log(error);
         return -1;
       }
-      const localId = -Date.now();
+      let localId = -Date.now();
+      while (await this.offlineStore.getNote(this.offlineSync.partition, localId)) localId -= 1;
       const now = new Date().toISOString();
       const localNote: NoteI = { ...noteObj, id: localId, createdAt: now, updatedAt: now };
       await this.offlineStore.putNote(this.offlineSync.partition, localNote);

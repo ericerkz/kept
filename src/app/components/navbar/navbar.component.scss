@@ -1003,12 +1003,21 @@
         }
       }
     }
+
+    .selection-navbar {
+      background: #2d2e30;
+      border-radius: 8px;
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+      min-height: 48px;
+      padding: 4px 8px;
+    }
   }
 }
 
 :host-context(.light-theme) {
   @media (max-width: 599px) {
-    .main-container .navbar {
+    .main-container .navbar,
+    .main-container .selection-navbar {
       background: #fff;
       border: 1px solid #dfe1e5;
       box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);

@@ -55,6 +55,11 @@ export interface SetReminderAction extends BaseAction {
   dueAtUtc?: string;
   timezone?: string;
   repeatRule?: string;
+  locationName?: string;
+  latitude?: number;
+  longitude?: number;
+  radiusMeters?: number;
+  locationTrigger?: 'arrive' | 'leave';
 }
 
 export interface ShareNoteAction extends BaseAction {

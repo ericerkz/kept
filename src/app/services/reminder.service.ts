@@ -144,9 +144,15 @@ export class ReminderService {
       data = { ...data, noteSyncId: note?.syncId };
     }
     const now = new Date().toISOString();
+    let localId = -Date.now();
+    if (this.offlineSync.partition) {
+      const reminders = await this.offlineStore.listReminders(this.offlineSync.partition);
+      const usedIds = new Set(reminders.map(reminder => reminder.id));
+      while (usedIds.has(localId)) localId -= 1;
+    }
     const local = {
       ...data,
-      id: -Date.now(),
+      id: localId,
       userId: this.auth.currentUser?.id || 0,
       dueAtUtc: data.dueAtUtc || null,
       timezone: data.timezone || 'UTC',

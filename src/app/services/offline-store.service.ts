@@ -240,7 +240,20 @@ export class OfflineStoreService {
   }
 
   async listOutbox(partition: string) {
-    return this.listByPartition<OutboxEntry>('outbox', partition);
+    const priority: Record<SyncMutationType, number> = {
+      'note.upsert': 0,
+      'note.delete': 1,
+      'note.reorder': 2,
+      'reminder.upsert': 3,
+      'reminder.delete': 4,
+      'attachment.upload': 5,
+      'attachment.delete': 6
+    };
+    return (await this.listByPartition<OutboxEntry>('outbox', partition)).sort((left, right) =>
+      left.createdAt - right.createdAt ||
+      priority[left.type] - priority[right.type] ||
+      left.operationId.localeCompare(right.operationId)
+    );
   }
 
   async removeOutbox(keys: string[]) {

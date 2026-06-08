@@ -71,6 +71,23 @@ async function main() {
       body: JSON.stringify({
         mutations: [
           {
+            type: 'reminder.upsert',
+            syncId: 'reminder-smoke',
+            payload: {
+              syncId: 'reminder-smoke',
+              noteId: -now,
+              noteSyncId: 'note-smoke',
+              locationName: 'Home',
+              latitude: 43.2,
+              longitude: -79.8,
+              radiusMeters: 100,
+              locationTrigger: 'arrive',
+              timezone: 'America/Toronto',
+              status: 'pending'
+            },
+            lww: { physicalMs: now, logical: 1, deviceId: 'smoke-device', operationId: 'reminder-op' }
+          },
+          {
             type: 'note.upsert',
             syncId: 'note-smoke',
             payload: {
@@ -89,23 +106,6 @@ async function main() {
               trashed: false
             },
             lww: { physicalMs: now, logical: 0, deviceId: 'smoke-device', operationId: 'note-op' }
-          },
-          {
-            type: 'reminder.upsert',
-            syncId: 'reminder-smoke',
-            payload: {
-              syncId: 'reminder-smoke',
-              noteId: -now,
-              noteSyncId: 'note-smoke',
-              locationName: 'Home',
-              latitude: 43.2,
-              longitude: -79.8,
-              radiusMeters: 100,
-              locationTrigger: 'arrive',
-              timezone: 'America/Toronto',
-              status: 'pending'
-            },
-            lww: { physicalMs: now, logical: 1, deviceId: 'smoke-device', operationId: 'reminder-op' }
           }
         ]
       })

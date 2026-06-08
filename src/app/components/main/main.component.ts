@@ -11,6 +11,7 @@ import { bgColors } from 'src/app/interfaces/tooltip';
 import { LocationSavedPlacesService, type LocationSavedPlace } from 'src/app/services/location-saved-places.service';
 import { androidSmartCaptureUiAllowed } from 'src/app/utils/platform';
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
+import { OfflineSmartCaptureService } from 'src/app/services/offline-smart-capture.service';
 
 interface SmartCaptureEstimateAction {
   type: string;
@@ -154,6 +155,7 @@ export class MainComponent implements OnInit, OnDestroy {
   private smartProposalColorCache = new Map<string, string>();
   private smartSavedPlaces: LocationSavedPlace[] = [];
   private smartSavedPlacesLoaded = false;
+  private smartCaptureValidatedOffline = false;
 
   constructor(
     public Shared: SharedService,
@@ -161,6 +163,7 @@ export class MainComponent implements OnInit, OnDestroy {
     private notes: NotesService,
     private reminders: ReminderService,
     private savedPlaces: LocationSavedPlacesService,
+    private offlineSmartCapture: OfflineSmartCaptureService,
     private ngZone: NgZone,
     public offlineSync: OfflineSyncService
   ) { }
@@ -346,8 +349,20 @@ export class MainComponent implements OnInit, OnDestroy {
     const previousActionCount = this.smartCapturePlan.actions?.length || 0;
     this.smartCaptureLoading = true;
     this.smartCaptureError = '';
+    this.smartCaptureValidatedOffline = false;
     try {
-      this.smartCaptureValidation = await this.ai.validatePlan(this.smartCaptureTranscript, this.smartCapturePlan);
+      if (!navigator.onLine) {
+        this.smartCaptureValidation = this.offlineSmartCapture.validate(this.smartCaptureTranscript, this.smartCapturePlan);
+        this.smartCaptureValidatedOffline = true;
+      } else {
+        try {
+          this.smartCaptureValidation = await this.ai.validatePlan(this.smartCaptureTranscript, this.smartCapturePlan);
+        } catch (error: any) {
+          if (error?.status !== 0) throw error;
+          this.smartCaptureValidation = this.offlineSmartCapture.validate(this.smartCaptureTranscript, this.smartCapturePlan);
+          this.smartCaptureValidatedOffline = true;
+        }
+      }
       this.smartCapturePlan = this.smartCaptureValidation.normalizedPlan;
       this.ensureSmartProposalColors(this.smartCapturePlan);
       const nextIndexes = (this.smartCapturePlan.actions || []).map((_action, index) => index);
@@ -408,17 +423,25 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureError = '';
     this.smartCaptureResult = null;
     try {
-      this.smartCaptureResult = await this.ai.executePlan(this.smartCaptureTranscript, preparedPlan, {
-        confirmed: true,
-        selectedActionIndexes
-      });
+      const executeOffline = this.smartCaptureValidatedOffline || !navigator.onLine;
+      this.smartCaptureResult = executeOffline
+        ? await this.offlineSmartCapture.execute(preparedPlan, selectedActionIndexes)
+        : await this.ai.executePlan(this.smartCaptureTranscript, preparedPlan, {
+            confirmed: true,
+            selectedActionIndexes
+          });
+      if (!this.smartCaptureResult.ok) {
+        throw { error: { failed: this.smartCaptureResult.failed } };
+      }
       const confirmedActions = selectedActionIndexes
         ? preparedPlan.actions.filter((_action, index) => selectedActionIndexes.includes(index))
         : preparedPlan.actions;
       await this.syncNativeConfirmedReminders(confirmedActions);
-      await this.notes.ensureNotesVisible(this.smartCaptureResult.createdNoteIds || []);
-      await this.notes.load(undefined, { cacheBust: true });
-      await this.reminders.load();
+      if (!executeOffline) {
+        await this.notes.ensureNotesVisible(this.smartCaptureResult.createdNoteIds || []);
+        await this.notes.load(undefined, { cacheBust: true });
+        await this.reminders.load();
+      }
       this.closeSmartCapture();
       requestAnimationFrame(() => requestAnimationFrame(() => {
         window.dispatchEvent(new CustomEvent('kept-smart-capture-notes-added'));
@@ -469,6 +492,7 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureValidation = null;
     this.smartCaptureResult = null;
     this.smartCaptureError = '';
+    this.smartCaptureValidatedOffline = false;
     this.smartShareUsers = [];
     this.selectedSmartActions.clear();
     this.closeSmartReminderPicker();

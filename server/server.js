@@ -3907,6 +3907,15 @@ async function applySyncReminderMutation(userId, mutation) {
       [userId, String(payload.noteSyncId), userId]
     );
     normalized.noteId = noteBySyncId?.id || null;
+    if (!normalized.noteId) {
+      return {
+        ok: false,
+        status: 409,
+        retryable: true,
+        error: 'The reminder is waiting for its note to synchronize.',
+        syncId
+      };
+    }
   }
   if (!normalized.dueAtUtc && !normalized.locationName) return { ok: false, status: 400, error: 'Either dueAtUtc or locationName is required.', syncId };
   if (normalized.locationName && (normalized.latitude == null || normalized.longitude == null)) return { ok: false, status: 400, error: 'Location reminders require latitude and longitude.', syncId };
@@ -3915,7 +3924,41 @@ async function applySyncReminderMutation(userId, mutation) {
     if (!note) return { ok: false, status: 404, error: 'Note not found.', syncId };
   }
   const now = new Date().toISOString();
-  const reminder = await get(
+  let reminder;
+  if (existing) {
+    reminder = await get(
+      `UPDATE reminders SET
+         noteId = ?, userId = ?, dueAtUtc = ?, timezone = ?, repeatRule = ?, status = ?,
+         title = ?, body = ?, imageUrl = ?, locationName = ?, latitude = ?, longitude = ?,
+         radiusMeters = ?, locationTrigger = ?, updatedAt = ?,
+         lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?, lwwOperationId = ?
+       WHERE id = ?
+       RETURNING *`,
+      [
+        normalized.noteId,
+        userId,
+        normalized.dueAtUtc,
+        normalized.timezone,
+        normalized.repeatRule,
+        normalized.status || 'pending',
+        normalized.title,
+        normalized.body,
+        normalized.imageUrl,
+        normalized.locationName,
+        normalized.latitude,
+        normalized.longitude,
+        normalized.radiusMeters,
+        normalized.locationTrigger,
+        now,
+        incomingStamp.physicalMs,
+        incomingStamp.logical,
+        incomingStamp.deviceId,
+        incomingStamp.operationId,
+        existing.id
+      ]
+    );
+  } else {
+    reminder = await get(
     `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, createdAt, updatedAt, syncId, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(noteId) DO UPDATE SET
@@ -3963,6 +4006,7 @@ async function applySyncReminderMutation(userId, mutation) {
       incomingStamp.operationId
     ]
   );
+  }
   await recordReminderSyncChange(reminder, 'upsert');
   return { ok: true, resourceType: 'reminder', syncId: reminder.syncId, id: reminder.id, payload: await enrichReminderResponse(reminder) };
 }
@@ -4001,21 +4045,35 @@ async function applySyncAttachmentMutation(userId, mutation) {
 app.post('/api/sync/mutations', requireAuth, asyncRoute(async (req, res) => {
   const mutations = Array.isArray(req.body?.mutations) ? req.body.mutations : [];
   if (!mutations.length) return res.json({ results: [], serverTime: Date.now() });
-  const results = [];
-  for (const mutation of mutations) {
+  const priority = {
+    'note.upsert': 0,
+    'note.delete': 1,
+    'note.reorder': 2,
+    'reminder.upsert': 3,
+    'reminder.delete': 4,
+    'attachment.delete': 5
+  };
+  const ordered = mutations
+    .map((mutation, index) => ({ mutation, index }))
+    .sort((left, right) =>
+      (priority[left.mutation.type] ?? 99) - (priority[right.mutation.type] ?? 99) ||
+      left.index - right.index
+    );
+  const results = new Array(mutations.length);
+  for (const { mutation, index } of ordered) {
     try {
       if (String(mutation.type || '').startsWith('note.')) {
-        results.push(await applySyncNoteMutation(req.user.id, mutation));
+        results[index] = await applySyncNoteMutation(req.user.id, mutation);
       } else if (String(mutation.type || '').startsWith('reminder.')) {
-        results.push(await applySyncReminderMutation(req.user.id, mutation));
+        results[index] = await applySyncReminderMutation(req.user.id, mutation);
       } else if (String(mutation.type || '').startsWith('attachment.')) {
-        results.push(await applySyncAttachmentMutation(req.user.id, mutation));
+        results[index] = await applySyncAttachmentMutation(req.user.id, mutation);
       } else {
-        results.push({ ok: false, status: 400, error: 'Unsupported mutation type.', type: mutation.type });
+        results[index] = { ok: false, status: 400, error: 'Unsupported mutation type.', type: mutation.type };
       }
     } catch (error) {
       console.error('Sync mutation failed:', error);
-      results.push({ ok: false, status: 500, error: error.message || 'Sync mutation failed.', type: mutation.type });
+      results[index] = { ok: false, status: 500, error: error.message || 'Sync mutation failed.', type: mutation.type };
     }
   }
   res.json({ results, serverTime: Date.now(), snapshot: await syncSnapshotForUser(req.user.id) });
