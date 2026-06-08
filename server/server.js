@@ -459,7 +459,33 @@ async function init() {
   if (!noteColumns.some(column => column.name === 'sortOrder')) {
     await run(`ALTER TABLE notes ADD COLUMN sortOrder REAL NOT NULL DEFAULT 0`);
   }
+  if (!noteColumns.some(column => column.name === 'syncId')) {
+    await run(`ALTER TABLE notes ADD COLUMN syncId TEXT`);
+  }
+  if (!noteColumns.some(column => column.name === 'lwwPhysicalMs')) {
+    await run(`ALTER TABLE notes ADD COLUMN lwwPhysicalMs INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!noteColumns.some(column => column.name === 'lwwLogical')) {
+    await run(`ALTER TABLE notes ADD COLUMN lwwLogical INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!noteColumns.some(column => column.name === 'lwwDeviceId')) {
+    await run(`ALTER TABLE notes ADD COLUMN lwwDeviceId TEXT NOT NULL DEFAULT 'server'`);
+  }
+  if (!noteColumns.some(column => column.name === 'lwwOperationId')) {
+    await run(`ALTER TABLE notes ADD COLUMN lwwOperationId TEXT NOT NULL DEFAULT ''`);
+  }
   await run('UPDATE notes SET sortOrder = id WHERE sortOrder = 0 OR sortOrder IS NULL');
+  const notesWithoutSyncIds = await all(`SELECT id FROM notes WHERE syncId IS NULL OR syncId = ''`);
+  for (const note of notesWithoutSyncIds) {
+    await run(
+      `UPDATE notes
+       SET syncId = ?, lwwPhysicalMs = CASE WHEN lwwPhysicalMs = 0 THEN ? ELSE lwwPhysicalMs END,
+           lwwOperationId = CASE WHEN lwwOperationId = '' THEN ? ELSE lwwOperationId END
+       WHERE id = ?`,
+      [`note-${crypto.randomUUID()}`, Date.now(), crypto.randomUUID(), note.id]
+    );
+  }
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS notes_sync_id_unique ON notes(syncId)`);
   const firstUser = await get('SELECT id FROM users ORDER BY role = "admin" DESC, id LIMIT 1');
   if (firstUser) {
     await run('UPDATE notes SET ownerUserId = ? WHERE ownerUserId IS NULL', [firstUser.id]);
@@ -553,6 +579,32 @@ async function init() {
   if (!reminderColumns.some(column => column.name === 'locationTrigger')) {
     await run(`ALTER TABLE reminders ADD COLUMN locationTrigger TEXT NOT NULL DEFAULT 'arrive'`);
   }
+  if (!reminderColumns.some(column => column.name === 'syncId')) {
+    await run(`ALTER TABLE reminders ADD COLUMN syncId TEXT`);
+  }
+  if (!reminderColumns.some(column => column.name === 'lwwPhysicalMs')) {
+    await run(`ALTER TABLE reminders ADD COLUMN lwwPhysicalMs INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!reminderColumns.some(column => column.name === 'lwwLogical')) {
+    await run(`ALTER TABLE reminders ADD COLUMN lwwLogical INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!reminderColumns.some(column => column.name === 'lwwDeviceId')) {
+    await run(`ALTER TABLE reminders ADD COLUMN lwwDeviceId TEXT NOT NULL DEFAULT 'server'`);
+  }
+  if (!reminderColumns.some(column => column.name === 'lwwOperationId')) {
+    await run(`ALTER TABLE reminders ADD COLUMN lwwOperationId TEXT NOT NULL DEFAULT ''`);
+  }
+  const remindersWithoutSyncIds = await all(`SELECT id FROM reminders WHERE syncId IS NULL OR syncId = ''`);
+  for (const reminder of remindersWithoutSyncIds) {
+    await run(
+      `UPDATE reminders
+       SET syncId = ?, lwwPhysicalMs = CASE WHEN lwwPhysicalMs = 0 THEN ? ELSE lwwPhysicalMs END,
+           lwwOperationId = CASE WHEN lwwOperationId = '' THEN ? ELSE lwwOperationId END
+       WHERE id = ?`,
+      [`reminder-${crypto.randomUUID()}`, Date.now(), crypto.randomUUID(), reminder.id]
+    );
+  }
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS reminders_sync_id_unique ON reminders(syncId)`);
   await run(`CREATE INDEX IF NOT EXISTS reminders_user_idx ON reminders(userId)`);
   await run(`CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders(dueAtUtc, status)`);
   await run(`
@@ -583,14 +635,62 @@ async function init() {
     CREATE TABLE IF NOT EXISTS note_attachments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       noteId INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+      syncId TEXT,
       originalName TEXT NOT NULL,
       storedFilename TEXT NOT NULL UNIQUE,
       fileSize INTEGER NOT NULL,
       mimeType TEXT NOT NULL,
-      uploadedAt TEXT NOT NULL
+      uploadedAt TEXT NOT NULL,
+      lwwPhysicalMs INTEGER NOT NULL DEFAULT 0,
+      lwwLogical INTEGER NOT NULL DEFAULT 0,
+      lwwDeviceId TEXT NOT NULL DEFAULT 'server',
+      lwwOperationId TEXT NOT NULL DEFAULT ''
     )
   `);
+  const attachmentColumns = await all('PRAGMA table_info(note_attachments)');
+  if (!attachmentColumns.some(column => column.name === 'syncId')) {
+    await run(`ALTER TABLE note_attachments ADD COLUMN syncId TEXT`);
+  }
+  if (!attachmentColumns.some(column => column.name === 'lwwPhysicalMs')) {
+    await run(`ALTER TABLE note_attachments ADD COLUMN lwwPhysicalMs INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!attachmentColumns.some(column => column.name === 'lwwLogical')) {
+    await run(`ALTER TABLE note_attachments ADD COLUMN lwwLogical INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!attachmentColumns.some(column => column.name === 'lwwDeviceId')) {
+    await run(`ALTER TABLE note_attachments ADD COLUMN lwwDeviceId TEXT NOT NULL DEFAULT 'server'`);
+  }
+  if (!attachmentColumns.some(column => column.name === 'lwwOperationId')) {
+    await run(`ALTER TABLE note_attachments ADD COLUMN lwwOperationId TEXT NOT NULL DEFAULT ''`);
+  }
+  const attachmentsWithoutSyncIds = await all(`SELECT id FROM note_attachments WHERE syncId IS NULL OR syncId = ''`);
+  for (const attachment of attachmentsWithoutSyncIds) {
+    await run(
+      `UPDATE note_attachments
+       SET syncId = ?, lwwPhysicalMs = CASE WHEN lwwPhysicalMs = 0 THEN ? ELSE lwwPhysicalMs END,
+           lwwOperationId = CASE WHEN lwwOperationId = '' THEN ? ELSE lwwOperationId END
+       WHERE id = ?`,
+      [`attachment-${crypto.randomUUID()}`, Date.now(), crypto.randomUUID(), attachment.id]
+    );
+  }
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS note_attachments_sync_id_unique ON note_attachments(syncId)`);
   await run(`CREATE INDEX IF NOT EXISTS note_attachments_note_idx ON note_attachments(noteId)`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS sync_changes (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      resourceType TEXT NOT NULL CHECK(resourceType IN ('note','reminder','attachment')),
+      resourceSyncId TEXT NOT NULL,
+      operation TEXT NOT NULL CHECK(operation IN ('upsert','delete')),
+      payload TEXT,
+      lwwPhysicalMs INTEGER NOT NULL,
+      lwwLogical INTEGER NOT NULL DEFAULT 0,
+      lwwDeviceId TEXT NOT NULL,
+      lwwOperationId TEXT NOT NULL,
+      changedAt TEXT NOT NULL
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS sync_changes_user_sequence_idx ON sync_changes(userId, sequence)`);
   await run(`
     CREATE TABLE IF NOT EXISTS note_collaborator_rejoin_grants (
       noteId INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
@@ -929,6 +1029,7 @@ function dbNoteToApi(row) {
   const pinned = row.userPinned !== undefined ? row.userPinned : row.pinned;
   return {
     id: row.id,
+    syncId: row.syncId,
     ownerUserId: row.ownerUserId,
     noteTitle: row.noteTitle,
     noteBody: row.noteBody || '',
@@ -945,6 +1046,10 @@ function dbNoteToApi(row) {
     sortOrder: Number(row.effectiveSortOrder || row.sortOrder || row.id || 0),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    lwwPhysicalMs: Number(row.lwwPhysicalMs || 0),
+    lwwLogical: Number(row.lwwLogical || 0),
+    lwwDeviceId: row.lwwDeviceId || 'server',
+    lwwOperationId: row.lwwOperationId || '',
     collaborators: parseJson(row.collaborators || '[]', []),
     ownerDisplayName: row.ownerDisplayName || undefined,
     ownerUsername: row.ownerUsername || undefined,
@@ -954,6 +1059,102 @@ function dbNoteToApi(row) {
     lastEditorDisplayName: row.lastEditorDisplayName || undefined,
     isDemo: Boolean(row.isDemo)
   };
+}
+
+function serverLwwStamp() {
+  return {
+    physicalMs: Date.now(),
+    logical: 0,
+    deviceId: 'server',
+    operationId: crypto.randomUUID()
+  };
+}
+
+function normalizeLwwStamp(value = {}) {
+  const now = Date.now();
+  const requested = Number(value.physicalMs || value.lwwPhysicalMs || now);
+  const fiveMinutes = 5 * 60 * 1000;
+  return {
+    physicalMs: Math.max(now - fiveMinutes, Math.min(now + fiveMinutes, Number.isFinite(requested) ? requested : now)),
+    logical: Math.max(0, Math.floor(Number(value.logical ?? value.lwwLogical ?? 0) || 0)),
+    deviceId: String(value.deviceId || value.lwwDeviceId || 'unknown').slice(0, 160),
+    operationId: String(value.operationId || value.lwwOperationId || crypto.randomUUID()).slice(0, 160)
+  };
+}
+
+function rowLwwStamp(row = {}) {
+  return {
+    physicalMs: Number(row.lwwPhysicalMs || 0),
+    logical: Number(row.lwwLogical || 0),
+    deviceId: String(row.lwwDeviceId || ''),
+    operationId: String(row.lwwOperationId || '')
+  };
+}
+
+function compareLwwStamp(left, right) {
+  const keys = ['physicalMs', 'logical'];
+  for (const key of keys) {
+    const delta = Number(left[key] || 0) - Number(right[key] || 0);
+    if (delta) return delta;
+  }
+  const device = String(left.deviceId || '').localeCompare(String(right.deviceId || ''));
+  if (device) return device;
+  return String(left.operationId || '').localeCompare(String(right.operationId || ''));
+}
+
+async function appendSyncChange(userIds, resourceType, resourceSyncId, operation, payload, stamp) {
+  const changedAt = new Date().toISOString();
+  for (const userId of [...new Set((userIds || []).map(Number).filter(Boolean))]) {
+    await run(
+      `INSERT INTO sync_changes
+       (userId, resourceType, resourceSyncId, operation, payload, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId, changedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userId,
+        resourceType,
+        resourceSyncId,
+        operation,
+        payload == null ? null : JSON.stringify(payload),
+        stamp.physicalMs,
+        stamp.logical,
+        stamp.deviceId,
+        stamp.operationId,
+        changedAt
+      ]
+    );
+  }
+}
+
+async function noteSyncSnapshot(noteId, userId) {
+  const row = await getAccessibleNote(noteId, userId);
+  if (!row) return null;
+  const note = dbNoteToApi(row);
+  note.collaborators = await getCollaboratorsForNote(noteId);
+  const attachments = await all(
+    `SELECT id, syncId, originalName, fileSize, mimeType, uploadedAt,
+            lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId
+     FROM note_attachments WHERE noteId = ? ORDER BY uploadedAt DESC`,
+    [noteId]
+  );
+  note.attachments = attachments;
+  return note;
+}
+
+async function recordNoteSyncChange(noteId, operation, recipientIds, deletedSnapshot) {
+  const recipients = recipientIds || await getNoteRecipientIds(noteId);
+  if (operation === 'upsert') {
+    for (const userId of recipients) {
+      const payload = await noteSyncSnapshot(noteId, userId);
+      if (!payload?.syncId) continue;
+      await appendSyncChange([userId], 'note', payload.syncId, operation, payload, rowLwwStamp(payload));
+    }
+    return;
+  }
+  const payload = deletedSnapshot || null;
+  const syncId = deletedSnapshot?.syncId;
+  const stamp = deletedSnapshot ? rowLwwStamp(deletedSnapshot) : null;
+  if (!syncId || !stamp) return;
+  await appendSyncChange(recipients, 'note', syncId, operation, payload, stamp);
 }
 
 function notePreviewText(row) {
@@ -1056,6 +1257,7 @@ function dbNoteToCard(row, options = {}) {
   const previewText = notePreviewText(row);
   return {
     id: row.id,
+    syncId: row.syncId,
     ownerUserId: row.ownerUserId,
     noteTitle: row.noteTitle,
     noteBody: cardNoteBody(row, previewText),
@@ -1076,6 +1278,10 @@ function dbNoteToCard(row, options = {}) {
     sortOrder: Number(row.effectiveSortOrder || row.sortOrder || row.id || 0),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    lwwPhysicalMs: Number(row.lwwPhysicalMs || 0),
+    lwwLogical: Number(row.lwwLogical || 0),
+    lwwDeviceId: row.lwwDeviceId || 'server',
+    lwwOperationId: row.lwwOperationId || '',
     attachments: [],
     hasAttachments: Number(row.attachmentCount || 0) > 0,
     attachmentCount: Number(row.attachmentCount || 0),
@@ -1806,12 +2012,24 @@ function trashExpirationCutoff() {
 }
 
 async function purgeExpiredTrashedNotes() {
-  const expired = await all('SELECT id FROM notes WHERE trashed = 1 AND trashedAt IS NOT NULL AND trashedAt <= ?', [trashExpirationCutoff()]);
+  const expired = await all('SELECT * FROM notes WHERE trashed = 1 AND trashedAt IS NOT NULL AND trashedAt <= ?', [trashExpirationCutoff()]);
   for (const note of expired) {
+    const recipients = await getNoteRecipientIds(note.id);
+    const stamp = serverLwwStamp();
+    await recordDependentSyncDeletesForNote(note.id, recipients);
     await deleteAttachmentFilesForNote(note.id);
     await deleteImageFilesForNote(note.id);
+    await run('DELETE FROM notes WHERE id = ?', [note.id]);
+    await broadcastNoteChange(note.id, 'deleted', recipients, {
+      deletedSnapshot: {
+        syncId: note.syncId || `note-${crypto.randomUUID()}`,
+        lwwPhysicalMs: stamp.physicalMs,
+        lwwLogical: stamp.logical,
+        lwwDeviceId: stamp.deviceId,
+        lwwOperationId: stamp.operationId
+      }
+    });
   }
-  await run('DELETE FROM notes WHERE trashed = 1 AND trashedAt IS NOT NULL AND trashedAt <= ?', [trashExpirationCutoff()]);
 }
 
 let trashPurgeRunning = false;
@@ -2119,8 +2337,24 @@ async function getNoteRecipientIds(noteId) {
   return rows.map(row => row.userId).filter(Boolean);
 }
 
-async function broadcastNoteChange(noteId, action, userIds) {
+async function broadcastNoteChange(noteId, action, userIds, options = {}) {
   const recipients = userIds || await getNoteRecipientIds(noteId);
+  if (action !== 'deleted' && !options.preserveStamp) {
+    const stamp = serverLwwStamp();
+    await run(
+      `UPDATE notes
+       SET syncId = CASE WHEN syncId IS NULL OR syncId = '' THEN ? ELSE syncId END,
+           lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?, lwwOperationId = ?
+       WHERE id = ?`,
+      [`note-${crypto.randomUUID()}`, stamp.physicalMs, stamp.logical, stamp.deviceId, stamp.operationId, noteId]
+    );
+  }
+  await recordNoteSyncChange(
+    noteId,
+    action === 'deleted' ? 'delete' : 'upsert',
+    recipients,
+    options.deletedSnapshot
+  );
   const payload = { type: 'notes-changed', action, noteId };
   broadcastRealtime(recipients, payload);
   if (action === 'created' || action === 'deleted' || action === 'collaborators-updated') {
@@ -3310,26 +3544,29 @@ app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single(
   }
 
   const now = new Date().toISOString();
+  const stamp = serverLwwStamp();
+  const syncId = String(req.body?.syncId || req.query?.syncId || `attachment-${crypto.randomUUID()}`);
   const result = await run(
-    `INSERT INTO note_attachments (noteId, originalName, storedFilename, fileSize, mimeType, uploadedAt)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO note_attachments
+       (noteId, syncId, originalName, storedFilename, fileSize, mimeType, uploadedAt, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       noteId,
+      syncId,
       safeDownloadName(req.file.originalname || req.file.filename),
       req.file.filename,
       req.file.size,
       req.file.mimetype,
-      now
+      now,
+      stamp.physicalMs,
+      stamp.logical,
+      stamp.deviceId,
+      stamp.operationId
     ]
   );
-
-  res.status(201).json({
-    id: result.id,
-    originalName: safeDownloadName(req.file.originalname || req.file.filename),
-    fileSize: req.file.size,
-    mimeType: req.file.mimetype,
-    uploadedAt: now
-  });
+  const attachment = await get('SELECT * FROM note_attachments WHERE id = ?', [result.id]);
+  await recordAttachmentSyncChange(attachment, 'upsert');
+  res.status(201).json(attachmentResponse(attachment));
   await broadcastNoteChange(noteId, 'updated');
 }));
 
@@ -3382,10 +3619,377 @@ app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, asyncRou
   }
 
   // Delete from database
+  const recipients = await getNoteRecipientIds(noteId);
+  const stamp = serverLwwStamp();
+  attachment.syncId = attachment.syncId || `attachment-${crypto.randomUUID()}`;
+  attachment.lwwPhysicalMs = stamp.physicalMs;
+  attachment.lwwLogical = stamp.logical;
+  attachment.lwwDeviceId = stamp.deviceId;
+  attachment.lwwOperationId = stamp.operationId;
   await run('DELETE FROM note_attachments WHERE id = ?', [attachmentId]);
+  await recordAttachmentSyncChange(attachment, 'delete', recipients);
   await broadcastNoteChange(noteId, 'updated');
 
   res.status(204).end();
+}));
+
+
+async function syncSnapshotForUser(userId) {
+  const notes = await all(
+    `SELECT notes.*,
+            COALESCE(pos.sortOrder, notes.sortOrder) AS effectiveSortOrder,
+            CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
+            lastEditor.displayName AS lastEditorDisplayName,
+            (SELECT json_group_array(json_object(
+              'id', users.id,
+              'username', users.username,
+              'displayName', users.displayName,
+              'avatarDataUrl', '',
+              'avatarPreset', COALESCE(users.avatarPreset, 'cat')
+            ))
+             FROM note_collaborators nc
+             JOIN users ON users.id = nc.userId
+             WHERE nc.noteId = notes.id) AS collaborators
+     FROM notes
+     LEFT JOIN users lastEditor ON lastEditor.id = notes.lastEditorUserId
+     LEFT JOIN user_pins ON user_pins.noteId = notes.id AND user_pins.userId = ?
+     LEFT JOIN user_note_positions pos ON pos.noteId = notes.id AND pos.userId = ?
+     LEFT JOIN note_collaborators access ON access.noteId = notes.id AND access.userId = ?
+     WHERE notes.ownerUserId = ? OR access.userId IS NOT NULL
+     ORDER BY userPinned DESC, effectiveSortOrder DESC, notes.id DESC`,
+    [userId, userId, userId, userId]
+  );
+  const noteIds = notes.map(note => note.id);
+  const attachmentsByNoteId = new Map();
+  if (noteIds.length) {
+    const placeholders = noteIds.map(() => '?').join(',');
+    const attachments = await all(
+      `SELECT id, syncId, noteId, originalName, fileSize, mimeType, uploadedAt,
+              lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId
+       FROM note_attachments
+       WHERE noteId IN (${placeholders})
+       ORDER BY uploadedAt DESC`,
+      noteIds
+    );
+    for (const attachment of attachments) {
+      if (!attachmentsByNoteId.has(attachment.noteId)) attachmentsByNoteId.set(attachment.noteId, []);
+      attachmentsByNoteId.get(attachment.noteId).push(attachmentResponse(attachment));
+    }
+  }
+  const reminders = await all(`SELECT * FROM reminders WHERE userId = ?`, [userId]);
+  const cursorRow = await get('SELECT COALESCE(MAX(sequence), 0) AS cursor FROM sync_changes WHERE userId = ?', [userId]);
+  return {
+    notes: notes.map(row => {
+      const note = dbNoteToApi(row);
+      note.attachments = attachmentsByNoteId.get(row.id) || [];
+      return note;
+    }),
+    reminders: await enrichReminderResponses(reminders),
+    attachments: Array.from(attachmentsByNoteId.values()).flat(),
+    cursor: Number(cursorRow?.cursor || 0),
+    serverTime: Date.now()
+  };
+}
+
+app.get('/api/sync/bootstrap', requireAuth, asyncRoute(async (req, res) => {
+  res.json(await syncSnapshotForUser(req.user.id));
+}));
+
+app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
+  const since = Math.max(0, Number(req.query.cursor || req.query.since || 0) || 0);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 2000);
+  const rows = await all(
+    `SELECT * FROM sync_changes
+     WHERE userId = ? AND sequence > ?
+     ORDER BY sequence ASC
+     LIMIT ?`,
+    [req.user.id, since, limit]
+  );
+  const cursorRow = await get('SELECT COALESCE(MAX(sequence), 0) AS cursor FROM sync_changes WHERE userId = ?', [req.user.id]);
+  res.json({
+    changes: rows.map(row => ({
+      sequence: row.sequence,
+      resourceType: row.resourceType,
+      resourceSyncId: row.resourceSyncId,
+      operation: row.operation,
+      payload: parseJson(row.payload || 'null', null),
+      lww: {
+        physicalMs: Number(row.lwwPhysicalMs || 0),
+        logical: Number(row.lwwLogical || 0),
+        deviceId: row.lwwDeviceId || '',
+        operationId: row.lwwOperationId || ''
+      },
+      changedAt: row.changedAt
+    })),
+    cursor: rows.length ? Number(rows[rows.length - 1].sequence) : since,
+    hasMore: rows.length === limit && Number(rows[rows.length - 1].sequence) < Number(cursorRow?.cursor || 0),
+    serverCursor: Number(cursorRow?.cursor || 0),
+    serverTime: Date.now()
+  });
+}));
+
+async function applySyncNoteMutation(userId, mutation) {
+  const type = String(mutation.type || '');
+  const payload = mutation.payload || {};
+  const syncId = String(mutation.syncId || payload.syncId || payload.clientId || `note-${crypto.randomUUID()}`);
+  const incomingStamp = normalizeLwwStamp(mutation.lww || payload);
+  const existing = await get('SELECT * FROM notes WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);
+  if (existing && compareLwwStamp(incomingStamp, rowLwwStamp(existing)) < 0) {
+    return { ok: true, skipped: true, resourceType: 'note', syncId, id: existing.id };
+  }
+  if (type === 'note.delete') {
+    const note = existing ? await getAccessibleNote(existing.id, userId) : null;
+    if (!note) return { ok: true, skipped: true, resourceType: 'note', syncId };
+    const recipients = await getNoteRecipientIds(note.id);
+    await recordDependentSyncDeletesForNote(note.id, recipients);
+    await deleteAttachmentFilesForNote(note.id);
+    await deleteImageFilesForNote(note.id);
+    await run('DELETE FROM notes WHERE id = ?', [note.id]);
+    await recordNoteSyncChange(note.id, 'delete', recipients, {
+      syncId,
+      lwwPhysicalMs: incomingStamp.physicalMs,
+      lwwLogical: incomingStamp.logical,
+      lwwDeviceId: incomingStamp.deviceId,
+      lwwOperationId: incomingStamp.operationId
+    });
+    broadcastRealtime(recipients, { type: 'notes-changed', action: 'deleted', noteId: note.id });
+    return { ok: true, resourceType: 'note', syncId, id: note.id, deleted: true };
+  }
+
+  const noteData = canonicalizeNotePayload(payload);
+  const now = new Date().toISOString();
+  if (!existing) {
+    const result = await run(
+      `INSERT INTO notes
+       (ownerUserId, syncId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo,
+        lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userId,
+        syncId,
+        String(noteData.noteTitle || ''),
+        noteData.noteBody || '',
+        noteData.bgColor || '',
+        noteData.bgImage || '',
+        JSON.stringify(noteData.checkBoxes || []),
+        JSON.stringify(noteData.images || []),
+        noteData.isCbox ? 1 : 0,
+        JSON.stringify(noteData.labels || []),
+        noteData.archived ? 1 : 0,
+        noteData.trashed ? 1 : 0,
+        noteData.trashed ? now : null,
+        Number(payload.sortOrder || Date.now()),
+        payload.createdAt || now,
+        now,
+        userId,
+        noteData.isDemo ? 1 : 0,
+        incomingStamp.physicalMs,
+        incomingStamp.logical,
+        incomingStamp.deviceId,
+        incomingStamp.operationId
+      ]
+    );
+    if (noteData.pinned) await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [userId, result.id]);
+    await syncNoteImagesForNote(result.id, userId, noteData);
+    await recordNoteSyncChange(result.id, 'upsert', [userId]);
+    broadcastRealtime([userId], { type: 'notes-changed', action: 'created', noteId: result.id });
+    return { ok: true, resourceType: 'note', syncId, id: result.id };
+  }
+
+  const note = await getAccessibleNote(existing.id, userId);
+  if (!note) return { ok: false, status: 403, error: 'Note not accessible.', syncId };
+  const isOwner = note.ownerUserId === userId;
+  if (!isOwner) {
+    noteData.bgColor = note.bgColor || '';
+    noteData.bgImage = note.bgImage || '';
+    noteData.labels = parseJson(note.labels, []);
+    noteData.archived = Boolean(note.archived);
+    noteData.trashed = Boolean(note.trashed);
+    noteData.pinned = Boolean(note.pinned);
+    noteData.isCbox = Boolean(note.isCbox);
+  }
+  const trashedAt = nextTrashedAt(note, noteData);
+  await run(
+    `UPDATE notes SET
+      noteTitle = ?, noteBody = ?, bgColor = ?, bgImage = ?,
+      checkBoxes = ?, images = ?, isCbox = ?, labels = ?, archived = ?, trashed = ?, trashedAt = ?, updatedAt = ?, lastEditorUserId = ?, isDemo = ?,
+      lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?, lwwOperationId = ?
+     WHERE id = ?`,
+    [
+      String(noteData.noteTitle || ''),
+      noteData.noteBody || '',
+      noteData.bgColor || '',
+      noteData.bgImage || '',
+      JSON.stringify(noteData.checkBoxes || []),
+      JSON.stringify(noteData.images || []),
+      noteData.isCbox ? 1 : 0,
+      JSON.stringify(noteData.labels || []),
+      noteData.archived ? 1 : 0,
+      noteData.trashed ? 1 : 0,
+      trashedAt,
+      now,
+      userId,
+      noteData.isDemo ? 1 : 0,
+      incomingStamp.physicalMs,
+      incomingStamp.logical,
+      incomingStamp.deviceId,
+      incomingStamp.operationId,
+      note.id
+    ]
+  );
+  if (isOwner) {
+    if (noteData.pinned) await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [userId, note.id]);
+    else await run('DELETE FROM user_pins WHERE userId = ? AND noteId = ?', [userId, note.id]);
+  }
+  await syncNoteImagesForNote(note.id, note.ownerUserId, noteData);
+  await cleanupUnusedLabels(userId);
+  await broadcastNoteChange(note.id, 'updated', undefined, { preserveStamp: true });
+  return { ok: true, resourceType: 'note', syncId, id: note.id };
+}
+
+async function applySyncReminderMutation(userId, mutation) {
+  const type = String(mutation.type || '');
+  const payload = mutation.payload || {};
+  const syncId = String(mutation.syncId || payload.syncId || `reminder-${crypto.randomUUID()}`);
+  const incomingStamp = normalizeLwwStamp(mutation.lww || payload);
+  const existing = await get('SELECT * FROM reminders WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);
+  if (existing && compareLwwStamp(incomingStamp, rowLwwStamp(existing)) < 0) {
+    return { ok: true, skipped: true, resourceType: 'reminder', syncId, id: existing.id };
+  }
+  if (type === 'reminder.delete') {
+    if (!existing || existing.userId !== userId) return { ok: true, skipped: true, resourceType: 'reminder', syncId };
+    await run('DELETE FROM reminders WHERE id = ?', [existing.id]);
+    await recordReminderSyncChange({
+      ...existing,
+      syncId,
+      lwwPhysicalMs: incomingStamp.physicalMs,
+      lwwLogical: incomingStamp.logical,
+      lwwDeviceId: incomingStamp.deviceId,
+      lwwOperationId: incomingStamp.operationId
+    }, 'delete');
+    return { ok: true, resourceType: 'reminder', syncId, id: existing.id, deleted: true };
+  }
+  const normalized = normalizeReminderPayload(payload, existing || {});
+  if ((!normalized.noteId || normalized.noteId < 0) && payload.noteSyncId) {
+    const noteBySyncId = await get(
+      `SELECT notes.id FROM notes
+       LEFT JOIN note_collaborators nc ON nc.noteId = notes.id AND nc.userId = ?
+       WHERE notes.syncId = ? AND (notes.ownerUserId = ? OR nc.userId IS NOT NULL)`,
+      [userId, String(payload.noteSyncId), userId]
+    );
+    normalized.noteId = noteBySyncId?.id || null;
+  }
+  if (!normalized.dueAtUtc && !normalized.locationName) return { ok: false, status: 400, error: 'Either dueAtUtc or locationName is required.', syncId };
+  if (normalized.locationName && (normalized.latitude == null || normalized.longitude == null)) return { ok: false, status: 400, error: 'Location reminders require latitude and longitude.', syncId };
+  if (normalized.noteId) {
+    const note = await getAccessibleNote(normalized.noteId, userId);
+    if (!note) return { ok: false, status: 404, error: 'Note not found.', syncId };
+  }
+  const now = new Date().toISOString();
+  const reminder = await get(
+    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, createdAt, updatedAt, syncId, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(noteId) DO UPDATE SET
+       userId = excluded.userId,
+       dueAtUtc = excluded.dueAtUtc,
+       timezone = excluded.timezone,
+       repeatRule = excluded.repeatRule,
+       status = excluded.status,
+       title = excluded.title,
+       body = excluded.body,
+       imageUrl = excluded.imageUrl,
+       locationName = excluded.locationName,
+       latitude = excluded.latitude,
+       longitude = excluded.longitude,
+       radiusMeters = excluded.radiusMeters,
+       locationTrigger = excluded.locationTrigger,
+       updatedAt = excluded.updatedAt,
+       syncId = COALESCE(reminders.syncId, excluded.syncId),
+       lwwPhysicalMs = excluded.lwwPhysicalMs,
+       lwwLogical = excluded.lwwLogical,
+       lwwDeviceId = excluded.lwwDeviceId,
+       lwwOperationId = excluded.lwwOperationId
+     RETURNING *`,
+    [
+      normalized.noteId,
+      userId,
+      normalized.dueAtUtc,
+      normalized.timezone,
+      normalized.repeatRule,
+      normalized.status || 'pending',
+      normalized.title,
+      normalized.body,
+      normalized.imageUrl,
+      normalized.locationName,
+      normalized.latitude,
+      normalized.longitude,
+      normalized.radiusMeters,
+      normalized.locationTrigger,
+      payload.createdAt || now,
+      now,
+      syncId,
+      incomingStamp.physicalMs,
+      incomingStamp.logical,
+      incomingStamp.deviceId,
+      incomingStamp.operationId
+    ]
+  );
+  await recordReminderSyncChange(reminder, 'upsert');
+  return { ok: true, resourceType: 'reminder', syncId: reminder.syncId, id: reminder.id, payload: await enrichReminderResponse(reminder) };
+}
+
+async function applySyncAttachmentMutation(userId, mutation) {
+  const type = String(mutation.type || '');
+  const payload = mutation.payload || {};
+  const syncId = String(mutation.syncId || payload.syncId || '');
+  if (type !== 'attachment.delete' || !syncId) return { ok: false, status: 400, error: 'Unsupported attachment mutation.', syncId };
+  const attachment = await get(
+    `SELECT na.* FROM note_attachments na
+     JOIN notes n ON n.id = na.noteId
+     WHERE na.syncId = ? AND n.ownerUserId = ?`,
+    [syncId, userId]
+  );
+  if (!attachment) return { ok: true, skipped: true, resourceType: 'attachment', syncId };
+  const incomingStamp = normalizeLwwStamp(mutation.lww || payload);
+  if (compareLwwStamp(incomingStamp, rowLwwStamp(attachment)) < 0) {
+    return { ok: true, skipped: true, resourceType: 'attachment', syncId, id: attachment.id };
+  }
+  const recipients = await getNoteRecipientIds(attachment.noteId);
+  const filePath = attachmentPath(attachment.storedFilename);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  await run('DELETE FROM note_attachments WHERE id = ?', [attachment.id]);
+  await recordAttachmentSyncChange({
+    ...attachment,
+    lwwPhysicalMs: incomingStamp.physicalMs,
+    lwwLogical: incomingStamp.logical,
+    lwwDeviceId: incomingStamp.deviceId,
+    lwwOperationId: incomingStamp.operationId
+  }, 'delete', recipients);
+  await broadcastNoteChange(attachment.noteId, 'updated');
+  return { ok: true, resourceType: 'attachment', syncId, id: attachment.id, deleted: true };
+}
+
+app.post('/api/sync/mutations', requireAuth, asyncRoute(async (req, res) => {
+  const mutations = Array.isArray(req.body?.mutations) ? req.body.mutations : [];
+  if (!mutations.length) return res.json({ results: [], serverTime: Date.now() });
+  const results = [];
+  for (const mutation of mutations) {
+    try {
+      if (String(mutation.type || '').startsWith('note.')) {
+        results.push(await applySyncNoteMutation(req.user.id, mutation));
+      } else if (String(mutation.type || '').startsWith('reminder.')) {
+        results.push(await applySyncReminderMutation(req.user.id, mutation));
+      } else if (String(mutation.type || '').startsWith('attachment.')) {
+        results.push(await applySyncAttachmentMutation(req.user.id, mutation));
+      } else {
+        results.push({ ok: false, status: 400, error: 'Unsupported mutation type.', type: mutation.type });
+      }
+    } catch (error) {
+      console.error('Sync mutation failed:', error);
+      results.push({ ok: false, status: 500, error: error.message || 'Sync mutation failed.', type: mutation.type });
+    }
+  }
+  res.json({ results, serverTime: Date.now(), snapshot: await syncSnapshotForUser(req.user.id) });
 }));
 
 
@@ -3572,7 +4176,8 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     if (attachmentNoteIds.length) {
       const placeholders = attachmentNoteIds.map(() => '?').join(',');
       const attachmentRows = await all(
-        `SELECT id, noteId, originalName, fileSize, mimeType, uploadedAt
+        `SELECT id, syncId, noteId, originalName, fileSize, mimeType, uploadedAt,
+                lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId
          FROM note_attachments
          WHERE noteId IN (${placeholders})
          ORDER BY uploadedAt DESC`,
@@ -3585,11 +4190,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
           attachmentsByNoteId.set(attachment.noteId, []);
         }
         attachmentsByNoteId.get(attachment.noteId).push({
-          id: attachment.id,
-          originalName: attachment.originalName,
-          fileSize: attachment.fileSize,
-          mimeType: attachment.mimeType,
-          uploadedAt: attachment.uploadedAt
+          ...attachmentResponse(attachment)
         });
       }
       for (const note of notes) {
@@ -3667,20 +4268,16 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
   if (noteIds.length) {
     const placeholders = noteIds.map(() => '?').join(',');
     const attachments = await all(
-      `SELECT id, noteId, originalName, fileSize, mimeType, uploadedAt FROM note_attachments WHERE noteId IN (${placeholders}) ORDER BY uploadedAt DESC`,
+      `SELECT id, syncId, noteId, originalName, fileSize, mimeType, uploadedAt,
+              lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId
+       FROM note_attachments WHERE noteId IN (${placeholders}) ORDER BY uploadedAt DESC`,
       noteIds
     );
     for (const att of attachments) {
       if (!attachmentsByNoteId.has(att.noteId)) {
         attachmentsByNoteId.set(att.noteId, []);
       }
-      attachmentsByNoteId.get(att.noteId).push({
-        id: att.id,
-        originalName: att.originalName,
-        fileSize: att.fileSize,
-        mimeType: att.mimeType,
-        uploadedAt: att.uploadedAt
-      });
+      attachmentsByNoteId.get(att.noteId).push(attachmentResponse(att));
     }
   }
 
@@ -4012,12 +4609,14 @@ app.post('/api/notes', requireAuth, asyncRoute(async (req, res) => {
   const noteData = canonicalizeNotePayload(req.body);
   const now = new Date().toISOString();
   const trashedAt = noteData.trashed ? now : null;
+  const syncId = String(noteData.syncId || noteData.clientId || `note-${crypto.randomUUID()}`);
   const result = await run(
     `INSERT INTO notes
-     (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (ownerUserId, syncId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       req.user.id,
+      syncId,
       String(noteData.noteTitle || ''),
       noteData.noteBody || '',
       noteData.bgColor || '',
@@ -4384,10 +4983,19 @@ app.delete('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   const isOwner = note.ownerUserId === req.user.id;
   if (isOwner) {
     const recipients = await getNoteRecipientIds(noteId);
+    const deletedSnapshot = {
+      syncId: note.syncId || `note-${crypto.randomUUID()}`,
+      ...serverLwwStamp()
+    };
+    deletedSnapshot.lwwPhysicalMs = deletedSnapshot.physicalMs;
+    deletedSnapshot.lwwLogical = deletedSnapshot.logical;
+    deletedSnapshot.lwwDeviceId = deletedSnapshot.deviceId;
+    deletedSnapshot.lwwOperationId = deletedSnapshot.operationId;
+    await recordDependentSyncDeletesForNote(noteId, recipients);
     await deleteAttachmentFilesForNote(noteId);
     await deleteImageFilesForNote(noteId);
     await run('DELETE FROM notes WHERE id = ?', [noteId]);
-    await broadcastNoteChange(noteId, 'deleted', recipients);
+    await broadcastNoteChange(noteId, 'deleted', recipients, { deletedSnapshot });
   } else {
     // If not owner, just remove self as collaborator (unshare).
     // Grant a rejoin token so the snackbar undo flow can re-add them.
@@ -4480,6 +5088,7 @@ function reminderResponse(reminder, notesById = new Map()) {
   return {
     ...reminder,
     id: Number(reminder.id),
+    syncId: reminder.syncId || '',
     noteId,
     dueAtUtc: reminder.dueAtUtc || null,
     title: explicitTitle || noteTitle || null,
@@ -4499,8 +5108,74 @@ function reminderResponse(reminder, notesById = new Map()) {
       locationTrigger
     } : null,
     status: reminder.status || 'pending',
-    deepLink: noteId ? `kept://note/${noteId}` : null
+    deepLink: noteId ? `kept://note/${noteId}` : null,
+    lwwPhysicalMs: Number(reminder.lwwPhysicalMs || 0),
+    lwwLogical: Number(reminder.lwwLogical || 0),
+    lwwDeviceId: reminder.lwwDeviceId || 'server',
+    lwwOperationId: reminder.lwwOperationId || ''
   };
+}
+
+async function recordReminderSyncChange(reminder, operation = 'upsert') {
+  if (!reminder?.syncId) return;
+  const stamp = rowLwwStamp(reminder);
+  await appendSyncChange([reminder.userId], 'reminder', reminder.syncId, operation, operation === 'delete' ? null : reminderResponse(reminder), stamp);
+}
+
+function attachmentResponse(attachment) {
+  return {
+    id: Number(attachment.id),
+    syncId: attachment.syncId || '',
+    noteId: Number(attachment.noteId),
+    originalName: attachment.originalName,
+    fileSize: Number(attachment.fileSize || 0),
+    mimeType: attachment.mimeType,
+    uploadedAt: attachment.uploadedAt,
+    lwwPhysicalMs: Number(attachment.lwwPhysicalMs || 0),
+    lwwLogical: Number(attachment.lwwLogical || 0),
+    lwwDeviceId: attachment.lwwDeviceId || 'server',
+    lwwOperationId: attachment.lwwOperationId || ''
+  };
+}
+
+async function recordAttachmentSyncChange(attachment, operation = 'upsert', recipients) {
+  if (!attachment?.syncId) return;
+  const userIds = recipients || await getNoteRecipientIds(attachment.noteId);
+  await appendSyncChange(
+    userIds,
+    'attachment',
+    attachment.syncId,
+    operation,
+    operation === 'delete' ? { syncId: attachment.syncId, noteId: attachment.noteId } : attachmentResponse(attachment),
+    rowLwwStamp(attachment)
+  );
+}
+
+async function recordDependentSyncDeletesForNote(noteId, recipients) {
+  const reminders = await all('SELECT * FROM reminders WHERE noteId = ?', [noteId]);
+  for (const reminder of reminders) {
+    const stamp = serverLwwStamp();
+    await recordReminderSyncChange({
+      ...reminder,
+      syncId: reminder.syncId || `reminder-${crypto.randomUUID()}`,
+      lwwPhysicalMs: stamp.physicalMs,
+      lwwLogical: stamp.logical,
+      lwwDeviceId: stamp.deviceId,
+      lwwOperationId: stamp.operationId
+    }, 'delete');
+  }
+  const attachments = await all('SELECT * FROM note_attachments WHERE noteId = ?', [noteId]);
+  for (const attachment of attachments) {
+    const stamp = serverLwwStamp();
+    await recordAttachmentSyncChange({
+      ...attachment,
+      syncId: attachment.syncId || `attachment-${crypto.randomUUID()}`,
+      lwwPhysicalMs: stamp.physicalMs,
+      lwwLogical: stamp.logical,
+      lwwDeviceId: stamp.deviceId,
+      lwwOperationId: stamp.operationId
+    }, 'delete', recipients);
+  }
 }
 
 async function enrichReminderResponses(reminders) {
@@ -4713,13 +5388,16 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
     if (!note) return res.status(404).json({ error: 'Note not found.' });
   }
   const now = new Date().toISOString();
+  const stamp = serverLwwStamp();
+  const syncId = String(req.body.syncId || req.body.clientId || `reminder-${crypto.randomUUID()}`);
 
   const existing = noteIdVal ? await get('SELECT id FROM reminders WHERE noteId = ?', [noteIdVal]) : null;
   const reminder = await get(
-    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, createdAt, updatedAt, syncId, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(noteId) DO UPDATE SET
        userId = excluded.userId,
+       syncId = COALESCE(reminders.syncId, excluded.syncId),
        dueAtUtc = excluded.dueAtUtc,
        timezone = excluded.timezone,
        repeatRule = excluded.repeatRule,
@@ -4732,7 +5410,11 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
        longitude = excluded.longitude,
        radiusMeters = excluded.radiusMeters,
        locationTrigger = excluded.locationTrigger,
-       updatedAt = excluded.updatedAt
+       updatedAt = excluded.updatedAt,
+       lwwPhysicalMs = excluded.lwwPhysicalMs,
+       lwwLogical = excluded.lwwLogical,
+       lwwDeviceId = excluded.lwwDeviceId,
+       lwwOperationId = excluded.lwwOperationId
      RETURNING *`,
     [
       noteIdVal,
@@ -4749,9 +5431,15 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
       payload.radiusMeters,
       payload.locationTrigger,
       now,
-      now
+      now,
+      syncId,
+      stamp.physicalMs,
+      stamp.logical,
+      stamp.deviceId,
+      stamp.operationId
     ]
   );
+  await recordReminderSyncChange(reminder, 'upsert');
   const enrichedReminder = await enrichReminderResponse(reminder);
   const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [req.user.id]);
   if (caldav) pushReminderToCaldav(caldav, enrichedReminder).catch(err => console.error('CalDAV push failed:', err.message));
@@ -4763,6 +5451,7 @@ app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
   const reminder = await get('SELECT * FROM reminders WHERE id = ? AND userId = ?', [Number(req.params.id), req.user.id]);
   if (!reminder) return res.status(404).json({ error: 'Reminder not found.' });
   const now = new Date().toISOString();
+  const stamp = serverLwwStamp();
   const validStatuses = ['pending','fired','dismissed','snoozed'];
   const payload = normalizeReminderPayload(req.body || {}, reminder);
   const status = validStatuses.includes(payload.status) ? payload.status : reminder.status;
@@ -4782,10 +5471,15 @@ app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
   }
 
   await run(
-    `UPDATE reminders SET status = ?, dueAtUtc = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, locationTrigger = ?, updatedAt = ? WHERE id = ?`,
-    [status, dueAtUtc, locationName, latitude, longitude, radiusMeters, locationTrigger, now, reminder.id]
+    `UPDATE reminders SET
+       status = ?, dueAtUtc = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, locationTrigger = ?, updatedAt = ?,
+       lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?, lwwOperationId = ?,
+       syncId = CASE WHEN syncId IS NULL OR syncId = '' THEN ? ELSE syncId END
+     WHERE id = ?`,
+    [status, dueAtUtc, locationName, latitude, longitude, radiusMeters, locationTrigger, now, stamp.physicalMs, stamp.logical, stamp.deviceId, stamp.operationId, `reminder-${crypto.randomUUID()}`, reminder.id]
   );
   const updated = await get('SELECT * FROM reminders WHERE id = ?', [reminder.id]);
+  await recordReminderSyncChange(updated, 'upsert');
   const enrichedUpdated = await enrichReminderResponse(updated);
   if (status === 'pending') {
     const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [req.user.id]);
@@ -4798,7 +5492,14 @@ app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
 app.delete('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
   const reminder = await get('SELECT * FROM reminders WHERE id = ? AND userId = ?', [Number(req.params.id), req.user.id]);
   if (!reminder) return res.status(404).json({ error: 'Reminder not found.' });
+  const stamp = serverLwwStamp();
+  reminder.syncId = reminder.syncId || `reminder-${crypto.randomUUID()}`;
+  reminder.lwwPhysicalMs = stamp.physicalMs;
+  reminder.lwwLogical = stamp.logical;
+  reminder.lwwDeviceId = stamp.deviceId;
+  reminder.lwwOperationId = stamp.operationId;
   await run('DELETE FROM reminders WHERE id = ?', [reminder.id]);
+  await recordReminderSyncChange(reminder, 'delete');
   const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [req.user.id]);
   if (caldav) deleteReminderFromCaldav(caldav, reminder.id).catch(err => console.error('CalDAV delete failed:', err.message));
   gcalDeleteReminder(req.user.id, reminder).catch(err => console.error('GCal delete failed:', err.message));

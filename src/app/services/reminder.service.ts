@@ -6,9 +6,12 @@ import { environment } from 'src/environments/environment';
 import { AuthService } from './auth.service';
 import { CalDavSettingsI, GoogleCalendarStatusI, IcsFeedI, ReminderFiredPayload, ReminderI, ReminderStatus } from '../interfaces/reminder';
 import { PushNotificationService } from './push-notification.service';
+import { OfflineStoreService } from './offline-store.service';
+import { OfflineSyncService } from './offline-sync.service';
 
 type ReminderCreateData = {
   noteId?: number;
+  noteSyncId?: string;
   dueAtUtc?: string;
   timezone?: string;
   title?: string;
@@ -98,9 +101,21 @@ export class ReminderService {
   private androidResumeHandler?: () => void;
   private androidFocusHandler?: () => void;
 
-  constructor(private http: HttpClient, private auth: AuthService, private push: PushNotificationService) {
+  constructor(
+    private http: HttpClient,
+    private auth: AuthService,
+    private push: PushNotificationService,
+    private offlineStore: OfflineStoreService,
+    private offlineSync: OfflineSyncService
+  ) {
+    this.offlineSync.cacheChanged$.subscribe(() => {
+      this.loadCachedReminders().catch(console.error);
+    });
     this.auth.currentUser$.subscribe(user => {
-      if (user) this.load().catch(console.error);
+      if (user) {
+        this.loadCachedReminders().catch(console.error);
+        this.load().catch(console.error);
+      }
       else this.setReminders([]);
     });
     this.listenForServiceWorkerMessages();
@@ -108,26 +123,81 @@ export class ReminderService {
   }
 
   async load() {
-    const reminders = await firstValueFrom(
-      this.http.get<ReminderI[]>(`${this.apiUrl}/reminders`, { headers: this.auth.authHeaders() })
-    );
-    this.setReminders(reminders);
+    try {
+      const reminders = await firstValueFrom(
+        this.http.get<ReminderI[]>(`${this.apiUrl}/reminders`, { headers: this.auth.authHeaders() })
+      );
+      if (this.offlineSync.partition) {
+        for (const reminder of reminders) await this.offlineStore.putReminder(this.offlineSync.partition, reminder);
+      }
+      this.setReminders(reminders);
+      this.offlineSync.syncNow({ bootstrapIfEmpty: true }).catch(console.error);
+    } catch (error) {
+      await this.loadCachedReminders();
+      if (navigator.onLine) throw error;
+    }
   }
 
   async create(data: ReminderCreateData) {
+    if (data.noteId && data.noteId < 0 && this.offlineSync.partition) {
+      const note = await this.offlineStore.getNote(this.offlineSync.partition, data.noteId);
+      data = { ...data, noteSyncId: note?.syncId };
+    }
+    const now = new Date().toISOString();
+    const local = {
+      ...data,
+      id: -Date.now(),
+      userId: this.auth.currentUser?.id || 0,
+      dueAtUtc: data.dueAtUtc || null,
+      timezone: data.timezone || 'UTC',
+      repeatRule: null,
+      status: 'pending' as ReminderStatus,
+      title: data.title || null,
+      body: data.body || null,
+      imageUrl: data.imageUrl || null,
+      locationName: data.locationName || null,
+      latitude: data.latitude ?? null,
+      longitude: data.longitude ?? null,
+      radiusMeters: data.radiusMeters ?? null,
+      locationTrigger: data.locationTrigger || 'arrive',
+      createdAt: now,
+      updatedAt: now
+    } as ReminderI & { noteSyncId?: string };
+    this.offlineStore.ensureReminderIdentity(local);
+    if (this.offlineSync.partition) await this.offlineStore.putReminder(this.offlineSync.partition, local);
+    this.setReminders([local, ...this.reminders$.value.filter(item => item.noteId !== local.noteId)]);
+    if (!navigator.onLine || (data.noteId || 0) < 0) {
+      await this.offlineSync.enqueue('reminder.upsert', local.syncId!, local);
+      return local;
+    }
     try {
       const reminder = await firstValueFrom(
-        this.http.post<ReminderI>(`${this.apiUrl}/reminders`, data, { headers: this.auth.authHeaders() })
+        this.http.post<ReminderI>(`${this.apiUrl}/reminders`, { ...data, syncId: local.syncId }, { headers: this.auth.authHeaders() })
       );
+      if (this.offlineSync.partition) await this.offlineStore.putReminder(this.offlineSync.partition, reminder);
       await this.load();
       return reminder;
     } catch (error: any) {
+      if (!navigator.onLine || error?.status === 0) {
+        await this.offlineSync.enqueue('reminder.upsert', local.syncId!, local);
+        return local;
+      }
       console.warn('Reminder create failed (non-fatal):', error?.message || error);
       return null;
     }
   }
 
   async update(id: number, data: ReminderUpdateData) {
+    const existing = this.reminders$.value.find(reminder => reminder.id === id);
+    if (existing) {
+      const local = { ...existing, ...data, updatedAt: new Date().toISOString() };
+      if (this.offlineSync.partition) await this.offlineStore.putReminder(this.offlineSync.partition, local);
+      this.setReminders(this.reminders$.value.map(reminder => reminder.id === id ? local : reminder));
+      if (id < 0 || !navigator.onLine) {
+        await this.offlineSync.enqueue('reminder.upsert', local.syncId!, local);
+        return local;
+      }
+    }
     const reminder = await firstValueFrom(
       this.http.patch<ReminderI>(`${this.apiUrl}/reminders/${id}`, data, { headers: this.auth.authHeaders() })
     );
@@ -136,10 +206,25 @@ export class ReminderService {
   }
 
   async delete(id: number) {
+    const existing = this.reminders$.value.find(reminder => reminder.id === id);
+    if (existing?.syncId && this.offlineSync.partition) {
+      await this.offlineStore.deleteReminder(this.offlineSync.partition, existing.syncId);
+      this.setReminders(this.reminders$.value.filter(reminder => reminder.id !== id));
+    }
+    if (id < 0 || !navigator.onLine) {
+      if (existing?.syncId) await this.offlineSync.enqueue('reminder.delete', existing.syncId, existing);
+      return;
+    }
     await firstValueFrom(
       this.http.delete(`${this.apiUrl}/reminders/${id}`, { headers: this.auth.authHeaders() })
     );
     await this.load();
+  }
+
+  private async loadCachedReminders() {
+    if (!this.offlineSync.partition) return;
+    const reminders = await this.offlineStore.listReminders(this.offlineSync.partition);
+    this.setReminders(reminders);
   }
 
   getActiveForNote(noteId: number): ReminderI | undefined {

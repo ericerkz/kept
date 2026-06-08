@@ -10,6 +10,7 @@ import { ShareUserI } from 'src/app/interfaces/users';
 import { bgColors } from 'src/app/interfaces/tooltip';
 import { LocationSavedPlacesService, type LocationSavedPlace } from 'src/app/services/location-saved-places.service';
 import { androidSmartCaptureUiAllowed } from 'src/app/utils/platform';
+import { OfflineSyncService } from 'src/app/services/offline-sync.service';
 
 interface SmartCaptureEstimateAction {
   type: string;
@@ -160,7 +161,8 @@ export class MainComponent implements OnInit, OnDestroy {
     private notes: NotesService,
     private reminders: ReminderService,
     private savedPlaces: LocationSavedPlacesService,
-    private ngZone: NgZone
+    private ngZone: NgZone,
+    public offlineSync: OfflineSyncService
   ) { }
 
   openMobileComposer() {

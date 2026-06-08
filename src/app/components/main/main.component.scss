@@ -43,6 +43,34 @@
   display: none;
 }
 
+.offline-sync-state {
+  align-items: center;
+  background: #fff8df;
+  border: 1px solid #fdd663;
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(60,64,67,0.16);
+  color: #3c4043;
+  display: inline-flex;
+  font: 700 13px/1 "Google Sans", Roboto, Arial, sans-serif;
+  gap: 6px;
+  left: 50%;
+  padding: 8px 12px;
+  position: fixed;
+  top: 108px;
+  transform: translateX(-50%);
+  z-index: 1500;
+
+  .material-symbols-outlined {
+    font-size: 18px;
+  }
+
+  &.is-error {
+    background: #fce8e6;
+    border-color: #f6aea9;
+    color: #b3261e;
+  }
+}
+
 .mobile-compose-fab,
 .smart-capture-fab {
   -webkit-tap-highlight-color: transparent;

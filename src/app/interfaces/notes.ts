@@ -3,6 +3,7 @@ import { ShareUserI } from './users';
 
 export interface NoteI {
     id?: number
+    syncId?: string
     ownerUserId?: number
     ownerDisplayName?: string
     ownerUsername?: string
@@ -32,6 +33,10 @@ export interface NoteI {
     sortOrder?: number
     createdAt?: string
     updatedAt?: string
+    lwwPhysicalMs?: number
+    lwwLogical?: number
+    lwwDeviceId?: string
+    lwwOperationId?: string
     ownerOnline?: boolean
     lastEditorUserId?: number
     lastEditorDisplayName?: string
@@ -48,10 +53,16 @@ export interface NoteImageI {
 
 export interface NoteAttachmentI {
     id: number
+    syncId?: string
+    noteId?: number
     originalName: string
     fileSize: number
     mimeType: string
     uploadedAt: string
+    lwwPhysicalMs?: number
+    lwwLogical?: number
+    lwwDeviceId?: string
+    lwwOperationId?: string
 }
 
 export interface CheckboxI {

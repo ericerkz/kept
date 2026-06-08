@@ -2,6 +2,7 @@ export type ReminderStatus = 'pending' | 'fired' | 'dismissed' | 'snoozed';
 
 export interface ReminderI {
   id: number;
+  syncId?: string;
   noteId: number | null;
   userId: number;
   dueAtUtc: string | null;
@@ -19,6 +20,10 @@ export interface ReminderI {
   locationTrigger?: 'arrive' | 'leave';
   createdAt: string;
   updatedAt: string;
+  lwwPhysicalMs?: number;
+  lwwLogical?: number;
+  lwwDeviceId?: string;
+  lwwOperationId?: string;
 }
 
 export interface CalDavSettingsI {

@@ -1,6 +1,14 @@
 <app-navbar></app-navbar>
 <app-update-banner></app-update-banner>
 <section class="main-section">
+    @if ((offlineSync.state$ | async); as syncState) {
+      @if (syncState !== 'saved') {
+        <div class="offline-sync-state" [class.is-error]="syncState === 'error'" role="status">
+          <span class="material-symbols-outlined">{{ syncState === 'offline' ? 'cloud_off' : syncState === 'error' ? 'sync_problem' : 'sync' }}</span>
+          <span>{{ syncState === 'offline' ? 'Saved offline' : syncState === 'error' ? 'Sync needs attention' : 'Syncing' }}</span>
+        </div>
+      }
+    }
     <div class="d-flex">
         <div class="sidenav-sticky">
             <app-sidenav></app-sidenav>

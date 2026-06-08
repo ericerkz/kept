@@ -439,7 +439,7 @@ export class InputComponent implements OnInit {
 
     if (hasContent) {
         let id = await this.Shared.note.db.add(noteObj)
-        if (!id || id <= 0) {
+        if (!id || id === -1) {
           if (closeAfterSave) this.showReminderSaveError()
           return
         }
@@ -463,7 +463,7 @@ export class InputComponent implements OnInit {
   }
 
   private flushPendingReminderSaves(noteId: number, noteObj: NoteI) {
-    if (!noteId || noteId <= 0) return
+    if (!noteId || noteId === -1) return
     const title = this.notePlainText(noteObj.noteTitle)
     const body = this.notePlainText(noteObj.noteBody)
 

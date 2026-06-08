@@ -7,6 +7,7 @@
     "client": "set NG_SASS_VERBOSE_DEPRECATIONS=0&& ng serve --host 0.0.0.0 --port 6767 --proxy-config proxy.conf.json",
     "api": "nodemon --no-deprecation server/server.js",
     "build": "ng build && npm run purgecss",
+    "test:sync": "node server/sync-smoke.test.js",
     "purgecss": "purgecss -c purgecss.config.js",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
