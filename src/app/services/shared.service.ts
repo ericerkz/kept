@@ -59,11 +59,11 @@ export class SharedService {
         // populated grid on first login — they shouldn't have to refresh
         // or sign out/in to see the starter content.
         const needsDemos = !user.demoNotesCreatedAt
-        if (needsDemos) {
+        if (needsDemos && navigator.onLine) {
           await this.createExampleNotes()
         }
-        this.Notes.load()
-        this.Labels.load()
+        this.Notes.load().catch(console.error)
+        if (navigator.onLine) this.Labels.load().catch(console.error)
       } else {
         // Logout: clear the in-memory mirror so the next user doesn't
         // briefly see the previous account's notes.
