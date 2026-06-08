@@ -117,6 +117,62 @@ async function main() {
     assert.strictEqual(reminder?.noteId, note.id, 'reminder should resolve noteSyncId to server note id');
     assert.strictEqual(reminder?.locationTrigger, 'arrive');
 
+    const secondNoteResult = await request('/sync/mutations', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mutations: [{
+          type: 'note.upsert',
+          syncId: 'note-second',
+          payload: {
+            syncId: 'note-second',
+            noteTitle: 'Second note',
+            noteBody: '',
+            pinned: false,
+            bgColor: '',
+            bgImage: '',
+            checkBoxes: [],
+            images: [],
+            isCbox: false,
+            labels: [],
+            archived: false,
+            trashed: false
+          },
+          lww: { physicalMs: now + 2, logical: 0, deviceId: 'smoke-device', operationId: 'note-second-op' }
+        }]
+      })
+    });
+    assert(secondNoteResult.results[0].ok);
+    const cursorBeforeReorder = secondNoteResult.snapshot.cursor;
+    const reordered = await request('/sync/mutations', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mutations: [{
+          type: 'note.reorder',
+          syncId: 'order-smoke',
+          payload: { syncIds: ['note-smoke', 'note-second'] },
+          lww: { physicalMs: now + 3, logical: 0, deviceId: 'smoke-device', operationId: 'order-op' }
+        }]
+      })
+    });
+    assert(reordered.results[0].ok, JSON.stringify(reordered.results[0]));
+    assert.deepStrictEqual(
+      reordered.snapshot.notes.filter(item => ['note-smoke', 'note-second'].includes(item.syncId)).map(item => item.syncId),
+      ['note-smoke', 'note-second'],
+      'offline reorder should persist through the per-user position table'
+    );
+    const reorderChanges = await request(`/sync/changes?cursor=${cursorBeforeReorder}`, { headers });
+    const reorderedPayloads = reorderChanges.changes
+      .filter(change => change.operation === 'upsert' && ['note-smoke', 'note-second'].includes(change.resourceSyncId))
+      .map(change => change.payload);
+    const firstPayload = reorderedPayloads.find(item => item.syncId === 'note-smoke');
+    const secondPayload = reorderedPayloads.find(item => item.syncId === 'note-second');
+    assert(
+      firstPayload.sortOrder > secondPayload.sortOrder,
+      'incremental sync payloads should retain the user-specific reordered positions'
+    );
+
     const newer = now + 5000;
     const older = now + 1000;
     await request('/sync/mutations', {

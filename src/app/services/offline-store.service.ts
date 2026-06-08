@@ -2,11 +2,13 @@ import { Injectable } from '@angular/core';
 import { environment } from 'src/environments/environment';
 import { NoteAttachmentI, NoteI } from '../interfaces/notes';
 import { ReminderI } from '../interfaces/reminder';
+import type { LocationSavedPlace } from './location-saved-places.service';
 
 export type SyncResourceType = 'note' | 'reminder' | 'attachment';
 export type SyncMutationType =
   | 'note.upsert'
   | 'note.delete'
+  | 'note.reorder'
   | 'reminder.upsert'
   | 'reminder.delete'
   | 'attachment.upload'
@@ -48,7 +50,7 @@ type SyncState = {
 @Injectable({ providedIn: 'root' })
 export class OfflineStoreService {
   private readonly databaseName = 'kept-offline-v1';
-  private readonly databaseVersion = 1;
+  private readonly databaseVersion = 2;
   private database?: Promise<IDBDatabase>;
   private lastStampPhysicalMs = 0;
   private lastStampLogical = 0;
@@ -133,7 +135,24 @@ export class OfflineStoreService {
   }
 
   async listNotes(partition: string) {
-    return this.listValues<NoteI>('notes', partition);
+    const records = await this.listRecords<NoteI>('notes', partition);
+    const byIdentity = new Map<string, NoteI>();
+    for (const record of records) {
+      const identity = record.value.id != null ? `id:${record.value.id}` : `sync:${record.syncId}`;
+      const existing = byIdentity.get(identity);
+      byIdentity.set(identity, existing ? this.preferNote(existing, record.value) : record.value);
+    }
+    if (byIdentity.size !== records.length) {
+      const db = await this.open();
+      await this.clearPartitionStore(db, 'notes', partition);
+      await this.transaction(db, ['notes'], 'readwrite', stores => {
+        byIdentity.forEach(note => {
+          const syncId = this.ensureNoteIdentity(note);
+          stores['notes'].put({ key: this.resourceKey(partition, syncId), partition, syncId, value: note });
+        });
+      });
+    }
+    return [...byIdentity.values()];
   }
 
   async listReminders(partition: string) {
@@ -147,7 +166,21 @@ export class OfflineStoreService {
 
   async putNote(partition: string, note: NoteI) {
     const syncId = this.ensureNoteIdentity(note);
-    await this.putResource('notes', partition, syncId, note);
+    const existing = note.id != null
+      ? (await this.listRecords<NoteI>('notes', partition)).filter(record => record.value.id === note.id)
+      : [];
+    const preferred = existing.reduce<NoteI | undefined>((best, record) => {
+      if (!best) return record.value;
+      return this.preferNote(best, record.value);
+    }, undefined);
+    const value = preferred ? this.preferNote(preferred, note) : note;
+    const db = await this.open();
+    await this.transaction(db, ['notes'], 'readwrite', stores => {
+      existing
+        .filter(record => record.syncId !== syncId)
+        .forEach(record => stores['notes'].delete(record.key));
+      stores['notes'].put({ key: this.resourceKey(partition, syncId), partition, syncId, value });
+    });
   }
 
   async deleteNote(partition: string, syncId: string) {
@@ -166,6 +199,23 @@ export class OfflineStoreService {
   async putAttachment(partition: string, attachment: NoteAttachmentI) {
     if (!attachment.syncId) return;
     await this.putResource('attachments', partition, attachment.syncId, attachment);
+  }
+
+  async replaceSavedPlaces(partition: string, places: LocationSavedPlace[]) {
+    const db = await this.open();
+    await this.clearPartitionStore(db, 'savedPlaces', partition);
+    await this.transaction(db, ['savedPlaces'], 'readwrite', stores => {
+      places.forEach(place => stores['savedPlaces'].put({
+        key: `${partition}|${place.id}`,
+        partition,
+        syncId: String(place.id),
+        value: place
+      }));
+    });
+  }
+
+  async listSavedPlaces(partition: string) {
+    return this.listValues<LocationSavedPlace>('savedPlaces', partition);
   }
 
   async deleteAttachment(partition: string, syncId: string) {
@@ -230,6 +280,30 @@ export class OfflineStoreService {
     return record?.value;
   }
 
+  async cacheMedia(partition: string, canonicalUrl: string, requestUrl: string) {
+    if (!canonicalUrl || canonicalUrl.startsWith('data:') || canonicalUrl.startsWith('blob:')) return;
+    try {
+      const response = await fetch(requestUrl);
+      if (!response.ok) return;
+      await this.putBlob(partition, `media:${canonicalUrl}`, await response.blob());
+    } catch {}
+  }
+
+  async offlineMediaUrl(partition: string, canonicalUrl: string) {
+    const existing = this.offlineMediaObjectMap().get(`${partition}|${canonicalUrl}`);
+    if (existing) return existing;
+    const blob = await this.getBlob(partition, `media:${canonicalUrl}`);
+    if (!blob) return canonicalUrl;
+    const objectUrl = URL.createObjectURL(blob);
+    this.offlineMediaCanonicalMap().set(objectUrl, canonicalUrl);
+    this.offlineMediaObjectMap().set(`${partition}|${canonicalUrl}`, objectUrl);
+    return objectUrl;
+  }
+
+  canonicalMediaUrl(value: string) {
+    return this.offlineMediaCanonicalMap().get(value) || value;
+  }
+
   async deleteBlob(partition: string, blobKey: string) {
     const db = await this.open();
     await this.request(db.transaction('blobs', 'readwrite').objectStore('blobs').delete(`${partition}|${blobKey}`));
@@ -259,7 +333,7 @@ export class OfflineStoreService {
   async purgePartition(partition: string) {
     const db = await this.open();
     await Promise.all(
-      ['notes', 'reminders', 'attachments', 'outbox', 'blobs'].map(name => this.clearPartitionStore(db, name, partition))
+      ['notes', 'reminders', 'attachments', 'savedPlaces', 'outbox', 'blobs'].map(name => this.clearPartitionStore(db, name, partition))
     );
     await this.request(db.transaction('syncState', 'readwrite').objectStore('syncState').delete(partition));
   }
@@ -280,8 +354,47 @@ export class OfflineStoreService {
   }
 
   private async listValues<T>(storeName: string, partition: string) {
-    const records = await this.listByPartition<StoredResource<T>>(storeName, partition);
+    const records = await this.listRecords<T>(storeName, partition);
     return records.map(record => record.value);
+  }
+
+  private listRecords<T>(storeName: string, partition: string) {
+    return this.listByPartition<StoredResource<T>>(storeName, partition);
+  }
+
+  private preferNote(left: NoteI, right: NoteI) {
+    const leftStamp = Number(left.lwwPhysicalMs || Date.parse(left.updatedAt || '') || 0);
+    const rightStamp = Number(right.lwwPhysicalMs || Date.parse(right.updatedAt || '') || 0);
+    if (!!left.isCardPreview !== !!right.isCardPreview) {
+      const full = left.isCardPreview ? right : left;
+      const latest = rightStamp >= leftStamp ? right : left;
+      return {
+        ...latest,
+        ...full,
+        sortOrder: latest.sortOrder,
+        pinned: latest.pinned,
+        updatedAt: latest.updatedAt,
+        lwwPhysicalMs: latest.lwwPhysicalMs,
+        lwwLogical: latest.lwwLogical,
+        lwwDeviceId: latest.lwwDeviceId,
+        lwwOperationId: latest.lwwOperationId,
+        isCardPreview: false
+      };
+    }
+    if (rightStamp !== leftStamp) return rightStamp > leftStamp ? right : left;
+    return { ...left, ...right };
+  }
+
+  private offlineMediaCanonicalMap(): Map<string, string> {
+    const global = window as typeof window & { __keptOfflineMediaCanonical?: Map<string, string> };
+    if (!global.__keptOfflineMediaCanonical) global.__keptOfflineMediaCanonical = new Map();
+    return global.__keptOfflineMediaCanonical;
+  }
+
+  private offlineMediaObjectMap(): Map<string, string> {
+    const global = window as typeof window & { __keptOfflineMediaObjects?: Map<string, string> };
+    if (!global.__keptOfflineMediaObjects) global.__keptOfflineMediaObjects = new Map();
+    return global.__keptOfflineMediaObjects;
   }
 
   private async listByPartition<T>(storeName: string, partition: string): Promise<T[]> {
@@ -314,7 +427,7 @@ export class OfflineStoreService {
         const request = indexedDB.open(this.databaseName, this.databaseVersion);
         request.onupgradeneeded = () => {
           const db = request.result;
-          for (const name of ['notes', 'reminders', 'attachments', 'outbox', 'blobs']) {
+          for (const name of ['notes', 'reminders', 'attachments', 'savedPlaces', 'outbox', 'blobs']) {
             if (!db.objectStoreNames.contains(name)) {
               const store = db.createObjectStore(name, { keyPath: 'key' });
               store.createIndex('partition', 'partition', { unique: false });

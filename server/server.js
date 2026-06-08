@@ -2245,13 +2245,16 @@ function requireAdmin(req, res, next) {
 
 async function getAccessibleNote(noteId, userId) {
   return await get(
-    `SELECT notes.*, CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
+    `SELECT notes.*,
+     COALESCE(pos.sortOrder, notes.sortOrder, notes.id) AS effectiveSortOrder,
+     CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
      lastEditor.displayName AS lastEditorDisplayName FROM notes
      LEFT JOIN note_collaborators ON note_collaborators.noteId = notes.id AND note_collaborators.userId = ?
      LEFT JOIN user_pins ON user_pins.noteId = notes.id AND user_pins.userId = ?
+     LEFT JOIN user_note_positions pos ON pos.noteId = notes.id AND pos.userId = ?
      LEFT JOIN users lastEditor ON lastEditor.id = notes.lastEditorUserId
      WHERE notes.id = ? AND (notes.ownerUserId = ? OR note_collaborators.userId IS NOT NULL)`,
-    [userId, userId, noteId, userId]
+    [userId, userId, userId, noteId, userId]
   );
 }
 
@@ -3731,6 +3734,32 @@ app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
 async function applySyncNoteMutation(userId, mutation) {
   const type = String(mutation.type || '');
   const payload = mutation.payload || {};
+  if (type === 'note.reorder') {
+    const syncIds = Array.isArray(payload.syncIds) ? payload.syncIds.map(String).filter(Boolean) : [];
+    if (!syncIds.length) return { ok: true, skipped: true, resourceType: 'note-order' };
+    const placeholders = syncIds.map(() => '?').join(',');
+    const rows = await all(
+      `SELECT notes.id, notes.syncId
+       FROM notes
+       LEFT JOIN note_collaborators access ON access.noteId = notes.id AND access.userId = ?
+       WHERE notes.syncId IN (${placeholders})
+         AND (notes.ownerUserId = ? OR access.userId IS NOT NULL)`,
+      [userId, ...syncIds, userId]
+    );
+    const bySyncId = new Map(rows.map(row => [row.syncId, row.id]));
+    const base = Date.now();
+    for (let index = 0; index < syncIds.length; index += 1) {
+      const noteId = bySyncId.get(syncIds[index]);
+      if (!noteId) continue;
+      await run(
+        `INSERT OR REPLACE INTO user_note_positions (userId, noteId, sortOrder) VALUES (?, ?, ?)`,
+        [userId, noteId, base + syncIds.length - index]
+      );
+      await recordNoteSyncChange(noteId, 'upsert', [userId]);
+    }
+    broadcastRealtime([userId], { type: 'notes-changed', action: 'reordered' });
+    return { ok: true, resourceType: 'note-order' };
+  }
   const syncId = String(mutation.syncId || payload.syncId || payload.clientId || `note-${crypto.randomUUID()}`);
   const incomingStamp = normalizeLwwStamp(mutation.lww || payload);
   const existing = await get('SELECT * FROM notes WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);

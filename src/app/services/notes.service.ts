@@ -110,6 +110,7 @@ export class NotesService {
       const notes = this.withOptimisticNotes(page.notes);
       this.publishNotes(notes);
       this.queueLinkPreviewPreload(notes);
+      notes.forEach(note => this.cacheNoteMedia(note).catch(console.error));
       this.offlineSync.syncNow({ bootstrapIfEmpty: true }).catch(console.error);
     } catch (error) {
       this.loadError = !this.notesList$.value?.length;
@@ -380,6 +381,7 @@ export class NotesService {
       const result = await firstValueFrom(this.http.post<{ id: number }>(this.apiUrl, noteObj, { headers: this.auth.authHeaders() }));
       const saved = { ...noteObj, id: result.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, saved);
+      await this.cacheNoteMedia(saved);
       await this.ensureNotesVisible([result.id]);
       this.load(this.searchQuery, { cacheBust: true }).catch(console.error);
       return result.id;
@@ -401,9 +403,10 @@ export class NotesService {
   async update(object: NoteI, id: number) {
     if (id === -1) return;
     const existing = await this.cachedOrLoadedNote(id);
-    const local = { ...existing, ...object, id, updatedAt: new Date().toISOString() } as NoteI;
+    const local = { ...existing, ...object, id, isCardPreview: false, updatedAt: new Date().toISOString() } as NoteI;
     this.offlineStore.ensureNoteIdentity(local);
     if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, local);
+    await this.cacheNoteMedia(local);
     this.mergeNoteIntoList(local);
     if (id < 0 || !navigator.onLine) {
       await this.offlineSync.enqueue('note.upsert', local.syncId!, local);
@@ -426,9 +429,10 @@ export class NotesService {
   async updateKey(object: UpdateKeyI, id: number) {
     if (id === -1) return;
     const existing = await this.cachedOrLoadedNote(id);
-    const local = { ...existing, ...object, id, updatedAt: new Date().toISOString() } as NoteI;
+    const local = { ...existing, ...object, id, isCardPreview: false, updatedAt: new Date().toISOString() } as NoteI;
     this.offlineStore.ensureNoteIdentity(local);
     if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, local);
+    await this.cacheNoteMedia(local);
     this.mergeNoteIntoList(local);
     if (id < 0 || !navigator.onLine) {
       await this.offlineSync.enqueue('note.upsert', local.syncId!, local);
@@ -474,11 +478,15 @@ export class NotesService {
       this.suppressNextReorderReloadUntil = Date.now() + 5000;
       this.reorderLoadedNotes(ids);
       await this.persistLocalOrder(ids);
-      if (!navigator.onLine || ids.some(id => id < 0)) return;
+      if (!navigator.onLine || ids.some(id => id < 0)) {
+        await this.queueReorder(ids);
+        return;
+      }
       await firstValueFrom(this.http.patch(`${this.apiUrl}/reorder`, { ids }, { headers: this.auth.authHeaders() }));
     } catch (error) {
       this.suppressNextReorderReloadUntil = 0;
-      console.log(error)
+      if (this.isOfflineError(error)) await this.queueReorder(ids);
+      else console.log(error)
       await this.load();
     }
   }
@@ -589,6 +597,7 @@ export class NotesService {
       try {
         const note = await firstValueFrom(this.http.get<NoteI>(`${this.apiUrl}/${id}`, { headers: this.auth.authHeaders() }));
         if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, note);
+        await this.cacheNoteMedia(note);
         if (options.merge !== false) this.mergeNoteIntoList(note);
         return note;
       } catch (error) {
@@ -677,7 +686,10 @@ export class NotesService {
     try {
       const notes = await firstValueFrom(this.http.get<NoteI[]>(this.apiUrl, { headers: this.auth.authHeaders() }));
       if (this.offlineSync.partition) {
-        for (const note of notes) await this.offlineStore.putNote(this.offlineSync.partition, note);
+        for (const note of notes) {
+          await this.offlineStore.putNote(this.offlineSync.partition, note);
+          await this.cacheNoteMedia(note);
+        }
       }
       return notes;
     } catch (error) {
@@ -863,8 +875,9 @@ export class NotesService {
     if (!this.offlineSync.partition) return;
     const cached = await this.offlineStore.listNotes(this.offlineSync.partition);
     const tokens = searchQuery.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    const hydrated = await Promise.all(cached.map(note => this.hydrateOfflineNoteMedia(note)));
     const filtered = tokens.length
-      ? cached.filter(note => {
+      ? hydrated.filter(note => {
           const text = [
             note.noteTitle,
             note.noteBody,
@@ -874,7 +887,7 @@ export class NotesService {
           ].join(' ').replace(/<[^>]+>/g, ' ').toLocaleLowerCase();
           return tokens.every(token => text.includes(token));
         })
-      : cached;
+      : hydrated;
     filtered.sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.sortOrder || 0) - Number(a.sortOrder || 0));
     this.nextCursor = null;
     this.hasLoaded = true;
@@ -886,7 +899,7 @@ export class NotesService {
     if (loaded && !loaded.isCardPreview) return loaded;
     if (this.offlineSync.partition) {
       const cached = await this.offlineStore.getNote(this.offlineSync.partition, id);
-      if (cached) return cached;
+      if (cached) return this.hydrateOfflineNoteMedia(cached);
     }
     if (id > 0 && navigator.onLine) return this.get(id, { merge: false });
     return loaded;
@@ -902,12 +915,62 @@ export class NotesService {
       if (!note) continue;
       const updated = { ...note, sortOrder: base + ids.length - index, updatedAt: new Date().toISOString() };
       await this.offlineStore.putNote(this.offlineSync.partition, updated);
-      if (!navigator.onLine || ids[index] < 0) await this.offlineSync.enqueue('note.upsert', updated.syncId!, updated);
     }
+  }
+
+  private async queueReorder(ids: number[]) {
+    const syncIds = (this.notesList$.value || [])
+      .filter(note => ids.includes(note.id || 0) && note.syncId)
+      .sort((a, b) => ids.indexOf(a.id!) - ids.indexOf(b.id!))
+      .map(note => note.syncId!);
+    if (!syncIds.length) return;
+    await this.offlineSync.enqueue('note.reorder', `order-${this.auth.currentUser?.id || 0}`, { syncIds });
   }
 
   private isOfflineError(error: unknown) {
     return !navigator.onLine || (error instanceof HttpErrorResponse && error.status === 0);
+  }
+
+  private async cacheNoteMedia(note: NoteI) {
+    if (!this.offlineSync.partition || !navigator.onLine) return;
+    const urls = this.noteImageUrls(note);
+    await Promise.all(urls.map(url => this.offlineStore.cacheMedia(
+      this.offlineSync.partition,
+      this.auth.canonicalImageUrl(url),
+      this.auth.authenticatedImageUrl(url)
+    )));
+  }
+
+  private async hydrateOfflineNoteMedia(note: NoteI) {
+    if (!this.offlineSync.partition || navigator.onLine) return note;
+    const replacements = new Map<string, string>();
+    for (const url of this.noteImageUrls(note)) {
+      const canonical = this.auth.canonicalImageUrl(url);
+      const offline = await this.offlineStore.offlineMediaUrl(this.offlineSync.partition, canonical);
+      if (offline !== canonical) replacements.set(canonical, offline);
+    }
+    if (!replacements.size) return note;
+    const replace = (value: string) => {
+      let next = value || '';
+      replacements.forEach((offline, canonical) => {
+        next = next.split(canonical).join(offline);
+        next = next.split(this.auth.authenticatedImageUrl(canonical)).join(offline);
+      });
+      return next;
+    };
+    return {
+      ...note,
+      noteBody: replace(note.noteBody || ''),
+      images: (note.images || []).map(image => ({ ...image, dataUrl: replace(image.dataUrl) }))
+    };
+  }
+
+  private noteImageUrls(note: NoteI) {
+    const urls = new Set((note.images || []).map(image => image.dataUrl).filter(Boolean));
+    for (const match of String(note.noteBody || '').matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
+      if (match[1]) urls.add(match[1]);
+    }
+    return [...urls].filter(url => !url.startsWith('data:') && !url.startsWith('blob:'));
   }
 
   async updateAllLabels(labelId: number, labelValue: string) {

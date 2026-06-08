@@ -119,6 +119,7 @@ export class OfflineSyncService {
       snapshot.cursor || 0,
       snapshot.serverTime || Date.now()
     );
+    await this.cacheSnapshotMedia(snapshot.notes || []);
     this.cacheChanged$.next();
   }
 
@@ -158,6 +159,7 @@ export class OfflineSyncService {
         response.snapshot.cursor || 0,
         response.snapshot.serverTime || response.serverTime || Date.now()
       );
+      await this.cacheSnapshotMedia(response.snapshot.notes || []);
       this.cacheChanged$.next();
     } else if (response.serverTime) {
       const state = await this.store.getSyncState(this.currentPartition);
@@ -242,5 +244,25 @@ export class OfflineSyncService {
 
   private isOfflineError(error: unknown) {
     return !navigator.onLine || (error instanceof HttpErrorResponse && error.status === 0);
+  }
+
+  private async cacheSnapshotMedia(notes: NoteI[]) {
+    if (!this.currentPartition || !navigator.onLine) return;
+    const urls = new Set<string>();
+    for (const note of notes) {
+      (note.images || []).forEach(image => {
+        if (image.dataUrl) urls.add(image.dataUrl);
+      });
+      for (const match of String(note.noteBody || '').matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
+        if (match[1]) urls.add(match[1]);
+      }
+    }
+    await Promise.all([...urls]
+      .filter(url => !url.startsWith('data:') && !url.startsWith('blob:'))
+      .map(url => this.store.cacheMedia(
+        this.currentPartition,
+        this.auth.canonicalImageUrl(url),
+        this.auth.authenticatedImageUrl(url)
+      )));
   }
 }

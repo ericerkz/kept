@@ -39,6 +39,9 @@ export class AuthService {
 
   canonicalImageUrl(value: string) {
     const raw = String(value || '').trim();
+    const offlineMap = (window as typeof window & { __keptOfflineMediaCanonical?: Map<string, string> }).__keptOfflineMediaCanonical;
+    const offlineCanonical = offlineMap?.get(raw);
+    if (offlineCanonical) return offlineCanonical;
     if (!raw || raw.startsWith('data:')) return raw;
     let pathname = raw;
     try {
@@ -54,6 +57,9 @@ export class AuthService {
   }
 
   authenticatedImageUrl(value: string) {
+    const raw = String(value || '').trim();
+    const offlineMap = (window as typeof window & { __keptOfflineMediaCanonical?: Map<string, string> }).__keptOfflineMediaCanonical;
+    if (offlineMap?.has(raw)) return raw;
     const canonical = this.canonicalImageUrl(value);
     if (!canonical.startsWith('/api/uploads/images/')) return canonical;
     const token = this.token;
