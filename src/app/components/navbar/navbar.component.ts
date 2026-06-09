@@ -187,7 +187,11 @@ export class NavbarComponent implements OnInit {
 
   openSelectionMore(button: HTMLElement, tooltipEl: HTMLDivElement) {
     this.selectionMoreButton = button
-    this.openTooltip(button, tooltipEl)
+    if (tooltipEl.dataset['isTooltipOpen'] === 'true') {
+      this.Shared.closeTooltip(tooltipEl)
+      return
+    }
+    this.Shared.createTooltip(button, tooltipEl, 'bottom-end')
   }
 
   selectionColorMenu = {

@@ -7,12 +7,13 @@ import { LabelI, LabelModelI } from '../interfaces/labels';
 import { bgColors, bgImages } from '../interfaces/tooltip';
 import { AuthService } from './auth.service';
 import { ReminderService } from './reminder.service';
-import { createPopper } from '@popperjs/core';
+import { createPopper, type Placement } from '@popperjs/core';
 declare var Snackbar: any
 @Injectable({
   providedIn: 'root'
 })
 export class SharedService {
+  private tooltipOutsideListeners = new WeakMap<HTMLDivElement, (event: Event) => void>();
 
   // PWA State
   deferredInstallPrompt?: any;
@@ -422,27 +423,38 @@ export class SharedService {
 
   // ? Tooltip --------------------------------------
 
-  createTooltip(button: HTMLElement, tooltipEl: HTMLDivElement) {
+  createTooltip(button: HTMLElement, tooltipEl: HTMLDivElement, placement: Placement = 'bottom') {
+    this.removeTooltipOutsideListener(tooltipEl)
     tooltipEl.dataset['isTooltipOpen'] = 'true'
-    createPopper(button, tooltipEl)
+    createPopper(button, tooltipEl, { placement })
     // Defer the outside-click listener by one frame and use `click` instead
     // of `mousedown`. On iOS the first tap on a menu item arrives via the
     // synthetic mousedown → click sequence; if we listen on mousedown we
     // race the menu item's click handler and can close the tooltip before
     // it fires, which the user perceives as needing to tap twice.
     const fct = (event: Event) => {
-      if (!tooltipEl.contains(event.target as Node)) {
-        document.removeEventListener('click', fct, true)
-        tooltipEl.dataset['isTooltipOpen'] = 'false'
+      const target = event.target as Node
+      if (!tooltipEl.contains(target) && !button.contains(target)) {
+        this.closeTooltip(tooltipEl)
       }
     }
+    this.tooltipOutsideListeners.set(tooltipEl, fct)
     requestAnimationFrame(() => {
+      if (tooltipEl.dataset['isTooltipOpen'] !== 'true') return
       document.addEventListener('click', fct, true)
     })
   }
 
   closeTooltip(tooltipEl: HTMLDivElement) {
     tooltipEl.dataset['isTooltipOpen'] = 'false'
+    this.removeTooltipOutsideListener(tooltipEl)
+  }
+
+  private removeTooltipOutsideListener(tooltipEl: HTMLDivElement) {
+    const listener = this.tooltipOutsideListeners.get(tooltipEl)
+    if (!listener) return
+    document.removeEventListener('click', listener, true)
+    this.tooltipOutsideListeners.delete(tooltipEl)
   }
 
 }

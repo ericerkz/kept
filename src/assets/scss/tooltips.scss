@@ -12,7 +12,7 @@
     }
 
     @media (max-width: 599px) {
-        &[data-is-tooltip-open="true"] {
+        &[data-is-tooltip-open="true"]:not(.selectionMoreMenu) {
             position: fixed !important;
             top: 50% !important;
             left: 50% !important;
@@ -20,6 +20,13 @@
             width: 90% !important;
             max-width: 320px !important;
             z-index: 2100 !important;
+        }
+
+        &.selectionMoreMenu[data-is-tooltip-open="true"] {
+            max-width: calc(100vw - 24px);
+            min-width: 160px;
+            width: max-content;
+            z-index: 2100;
         }
     }
 
