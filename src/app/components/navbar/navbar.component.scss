@@ -316,11 +316,11 @@
               // Use viewport units + transform-free chain so iOS Safari
               // correctly escapes the .filters-toggle stacking context.
               position: fixed;
-              top: 64px;
+              top: calc(env(safe-area-inset-top, 0px) + 72px);
               left: 12px;
               right: auto;
               width: calc(100vw - 24px);
-              max-height: calc(100dvh - 84px);
+              max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 92px);
               min-width: 0;
               overflow-y: auto;
               z-index: 3000;
