@@ -46,7 +46,7 @@ If you want to show support/appreciation for Kept, I do enjoy coffee:
 
 📱 **Install it like an app** — Kept supports PWA installs on iOS and Android, including push notifications for reminders. The short setup guide lives on the [Kept website](https://www.keepitkept.xyz/#pwa-mobile).
 
-🍎 **Native iPhone and iPad companion app** — [Kept Notes is available on the App Store](https://apps.apple.com/ca/app/kept-notes/id6768974473). It connects to your self-hosted Kept server and adds deeper iOS integration: native Apple Reminders support, a smoother iPhone/iPad shell, and Apple Intelligence-powered Smart Capture for local, private AI-assisted note creation and modification. The app has a small one-time cost, mostly because distributing software through the App Store is not free.
+🍎 **Native iPhone and iPad companion app** — [Kept Notes is available on the App Store](https://apps.apple.com/ca/app/kept-notes/id6768974473). It connects to your self-hosted Kept server and adds deeper iOS integration: native Apple Reminders support, location-based reminders that trigger when you arrive at or leave a saved place, a smoother iPhone/iPad shell, and Apple Intelligence-powered Smart Capture for local, private AI-assisted note creation and modification. The app has a small one-time cost, mostly because distributing software through the App Store is not free.
 
 <p>
   <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473">
@@ -189,7 +189,7 @@ server {
 
 Once Kept is on a real `https://` URL, you can install it as a PWA on iOS or Android and get push notifications for reminders. See the [mobile install guide](https://www.keepitkept.xyz/#pwa-mobile) for the short version.
 
-If you use an iPhone or iPad, you can also install the native [Kept Notes app from the App Store](https://apps.apple.com/ca/app/kept-notes/id6768974473). It is a small paid companion app for your self-hosted server, and it adds native iOS Reminders integration plus local, private Apple Intelligence-assisted Smart Capture for creating, updating, sharing, labeling, archiving, and trashing notes from natural language.
+If you use an iPhone or iPad, you can also install the native [Kept Notes app from the App Store](https://apps.apple.com/ca/app/kept-notes/id6768974473). It is a small paid companion app for your self-hosted server, and it adds native iOS Reminders integration, arrival and departure reminders for saved locations, plus local, private Apple Intelligence-assisted Smart Capture for creating, updating, sharing, labeling, archiving, and trashing notes from natural language.
 
 </details>
 
