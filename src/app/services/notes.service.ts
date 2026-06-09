@@ -753,7 +753,10 @@ export class NotesService {
       const result = await firstValueFrom(
         this.http.post<{ id: number }>(`${this.apiUrl}/merge`, { orderedIds }, { headers: this.auth.authHeaders() })
       );
-      await this.load();
+      await Promise.all([
+        this.load(),
+        this.reminders.load()
+      ]);
       return result?.id ?? null;
     } catch (error: any) {
       console.log(error);
