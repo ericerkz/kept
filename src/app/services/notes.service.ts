@@ -878,24 +878,11 @@ export class NotesService {
   private async publishCachedNotes(searchQuery: string) {
     if (!this.offlineSync.partition) return;
     const cached = await this.offlineStore.listNotes(this.offlineSync.partition);
-    const tokens = searchQuery.toLocaleLowerCase().split(/\s+/).filter(Boolean);
     const hydrated = await Promise.all(cached.map(note => this.hydrateOfflineNoteMedia(note)));
-    const filtered = tokens.length
-      ? hydrated.filter(note => {
-          const text = [
-            note.noteTitle,
-            note.noteBody,
-            ...(note.checkBoxes || []).map(item => item.data),
-            ...(note.labels || []).map(label => label.name),
-            ...(note.attachments || []).map(attachment => attachment.originalName)
-          ].join(' ').replace(/<[^>]+>/g, ' ').toLocaleLowerCase();
-          return tokens.every(token => text.includes(token));
-        })
-      : hydrated;
-    filtered.sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.sortOrder || 0) - Number(a.sortOrder || 0));
+    hydrated.sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.sortOrder || 0) - Number(a.sortOrder || 0));
     this.nextCursor = null;
     this.hasLoaded = true;
-    this.publishNotes(this.withOptimisticNotes(filtered));
+    this.publishNotes(this.withOptimisticNotes(hydrated));
   }
 
   private async cachedOrLoadedNote(id: number) {

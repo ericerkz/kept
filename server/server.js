@@ -1206,6 +1206,57 @@ function searchTokensFromQuery(query) {
     .filter(Boolean);
 }
 
+function searchOperatorsFromQuery(query) {
+  const operators = {
+    hasImage: false,
+    hasCheckbox: false,
+    hasDrawing: false,
+    hasAnyLabel: false,
+    hasUrl: false,
+    hasAttachment: false,
+    labels: []
+  };
+  for (const token of String(query || '').toLowerCase().split(/\s+/).filter(Boolean)) {
+    if (/^!i(?:m(?:a(?:g(?:e)?)?)?)?$/.test(token)) operators.hasImage = true;
+    else if (/^!t(?:o(?:d(?:o)?)?)?$/.test(token)) operators.hasCheckbox = true;
+    else if (/^!d(?:r(?:a(?:w(?:ing)?)?)?)?$/.test(token)) operators.hasDrawing = true;
+    else if (/^!url?$/.test(token)) operators.hasUrl = true;
+    else if (/^!a(?:t(?:t(?:a(?:c(?:h(?:m(?:e(?:n(?:t)?)?)?)?)?)?)?)?)?$/.test(token)) operators.hasAttachment = true;
+    else if (/^!label:[a-z0-9_-]+$/.test(token)) operators.labels.push(token.slice('!label:'.length));
+    else if (/^!l(?:a(?:b(?:e(?:l)?)?)?)?$/.test(token)) operators.hasAnyLabel = true;
+  }
+  return operators;
+}
+
+function noteOperatorWhere(operators) {
+  const clauses = [];
+  const params = [];
+  if (operators.hasImage) {
+    clauses.push(`(
+      COALESCE(bgImage, '') <> ''
+      OR LOWER(COALESCE(noteBody, '')) LIKE '%<img%'
+      OR (COALESCE(images, '') <> '' AND COALESCE(images, '') <> '[]' AND LOWER(COALESCE(images, '')) NOT LIKE '%"id":"drawing"%')
+    `);
+  }
+  if (operators.hasCheckbox) clauses.push(`(isCbox = 1 OR (COALESCE(checkBoxes, '') <> '' AND COALESCE(checkBoxes, '') <> '[]'))`);
+  if (operators.hasDrawing) clauses.push(`LOWER(COALESCE(images, '')) LIKE '%"id":"drawing"%'`);
+  if (operators.hasAnyLabel) clauses.push(`COALESCE(labels, '') <> '' AND COALESCE(labels, '') <> '[]'`);
+  if (operators.hasUrl) {
+    clauses.push(`(
+      LOWER(COALESCE(noteTitle, '')) LIKE '%http://%'
+      OR LOWER(COALESCE(noteTitle, '')) LIKE '%https://%'
+      OR LOWER(COALESCE(noteBody, '')) LIKE '%http://%'
+      OR LOWER(COALESCE(noteBody, '')) LIKE '%https://%'
+    )`);
+  }
+  if (operators.hasAttachment) clauses.push(`attachmentCount > 0`);
+  for (const label of operators.labels) {
+    clauses.push(`LOWER(REPLACE(COALESCE(labels, ''), ' ', '-')) LIKE ?`);
+    params.push(`%${label}%`);
+  }
+  return { clauses, params };
+}
+
 function noteSearchWhere(tokens) {
   const params = [];
   const conditions = tokens.map(token => {
@@ -4095,6 +4146,8 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     const cursor = decodeNotesCursor(req.query.cursor);
     const searchTokens = searchTokensFromQuery(req.query.q);
     const searchWhere = noteSearchWhere(searchTokens);
+    const searchOperators = searchOperatorsFromQuery(req.query.q);
+    const operatorWhere = noteOperatorWhere(searchOperators);
     const whereClauses = [];
     const queryParams = [req.user.id, req.user.id, req.user.id, req.user.id];
     if (cursor) {
@@ -4109,10 +4162,14 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
       whereClauses.push(searchWhere.clause);
       queryParams.push(...searchWhere.params);
     }
+    if (operatorWhere.clauses.length) {
+      whereClauses.push(...operatorWhere.clauses);
+      queryParams.push(...operatorWhere.params);
+    }
     const pageWhere = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
     let page;
     let hasMore;
-    if (!searchTokens.length) {
+    if (!searchTokens.length && !operatorWhere.clauses.length) {
       const keyRows = await all(
         `WITH accessible_notes AS (
           SELECT notes.id,

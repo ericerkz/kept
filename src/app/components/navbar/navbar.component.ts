@@ -36,6 +36,7 @@ export class NavbarComponent implements OnInit {
 
   @ViewChild("form23zSaZ") form23zSaZ?: ElementRef<HTMLDivElement>
   @ViewChild("searchInput") searchInput?: ElementRef<HTMLInputElement>
+  @ViewChild("filtersContainer") filtersContainer?: ElementRef<HTMLElement>
   @HostBinding('class.scrolled') isScrolled = false
   isProfileOpen = false
   profileError = ''
@@ -335,7 +336,13 @@ export class NavbarComponent implements OnInit {
     if (this.isProfileOpen) {
       this.closeProfile()
     }
-    if (this.isFiltersOpen) {
+  }
+
+  @HostListener('document:pointerdown', ['$event'])
+  onDocumentPointerDown(event: PointerEvent) {
+    if (!this.isFiltersOpen) return
+    const target = event.target as Node | null
+    if (!target || !this.filtersContainer?.nativeElement.contains(target)) {
       this.isFiltersOpen = false
     }
   }
