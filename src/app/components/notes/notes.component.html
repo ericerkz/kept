@@ -2,7 +2,9 @@
 <section>
   <input #overviewImageInput class="overview-image-input" type="file" accept="image/*" multiple
     (change)="overviewImageInputChange($event)">
-  <section #mainContainer class="main-container" [class.is-dragging]="!!draggedNoteId">
+  <section #mainContainer class="main-container" [class.is-dragging]="!!draggedNoteId"
+    [class.native-phone-layout]="nativePhoneLayout"
+    [class.grid-view]="Shared.noteViewType.value === 'grid'">
     <div class="pb-80" [hidden]="!(Shared.note.pinned | notesTools:currentPageName:Shared.searchQuery).length">
       <p #title _title>pinned</p>
       <ng-container [ngTemplateOutlet]="noteTemplate" [ngTemplateOutletContext]="{notes:Shared.note.pinned}">

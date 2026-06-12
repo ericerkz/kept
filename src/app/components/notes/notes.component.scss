@@ -19,6 +19,14 @@
   }
 }
 
+@media (orientation: landscape) {
+  .main-container.native-phone-layout.grid-view {
+    box-sizing: border-box;
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+  }
+}
+
 .overview-image-input {
   height: 1px;
   left: 0;

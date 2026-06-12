@@ -13,7 +13,7 @@ import { ReminderService } from 'src/app/services/reminder.service';
 import { NotesService } from 'src/app/services/notes.service';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 import { NotesToolsPipe } from 'src/app/pipes/notes-tools.pipe';
-import { shouldUseFullscreenNoteEditor } from 'src/app/utils/platform';
+import { isNativePhonePlatform, shouldUseFullscreenNoteEditor } from 'src/app/utils/platform';
 
 declare var Snackbar: any;
 type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string }
@@ -28,6 +28,7 @@ type NoteMeta = { rawBody: string; title: string; bgKey: string; urls: string[];
 })
 export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   activeNote: NoteI | null = null
+  readonly nativePhoneLayout = isNativePhonePlatform()
   constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, public notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe) { }
 
   private subscriptions: Subscription[] = []
@@ -400,10 +401,15 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   buildMasonry() {
     if (!this.mainContainer || !this.noteEl) return
     let gutter = 10
-    let totalNoteWidth = this.noteWidth + gutter
-    let containerWidth = this.mainContainer.nativeElement.clientWidth
+    const container = this.mainContainer.nativeElement
+    const containerStyle = getComputedStyle(container)
+    const containerPadding = parseFloat(containerStyle.paddingLeft) + parseFloat(containerStyle.paddingRight)
+    let containerWidth = container.clientWidth - containerPadding
     let numberOfColumns = 0
     let masonryWidth = '0px'
+    const centerLandscapePhoneGrid = this.nativePhoneLayout
+      && window.matchMedia('(orientation: landscape)').matches
+      && this.Shared.noteViewType.value === 'grid'
     // --
     if (this.Shared.noteViewType.value === 'grid') {
       // On mobile screens, use a smaller note width so 2 columns fit
@@ -414,6 +420,9 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       }
       numberOfColumns = Math.floor(containerWidth / (this.noteWidth + gutter))
       if (numberOfColumns < 2 && containerWidth >= 320) numberOfColumns = 2
+      if (centerLandscapePhoneGrid) {
+        masonryWidth = `${numberOfColumns * this.noteWidth + Math.max(0, numberOfColumns - 1) * gutter}px`
+      }
     }
     else {
       if (this.mainContainer.nativeElement.clientWidth >= 600) this.noteWidth = 600
@@ -427,7 +436,12 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     // We must wait for the CSS variable to be applied and the notes to resize
     // before we ask Bricks to pack them, otherwise it uses old widths.
     requestAnimationFrame(() => {
-      this.noteEl.toArray().forEach(el => { brikcs(el.nativeElement) })
+      this.noteEl.toArray().forEach(el => {
+        const node = el.nativeElement
+        node.style.width = centerLandscapePhoneGrid ? masonryWidth : ''
+        node.style.marginInline = centerLandscapePhoneGrid ? 'auto' : ''
+        brikcs(node)
+      })
     })
 
     function brikcs(node: HTMLDivElement) {
