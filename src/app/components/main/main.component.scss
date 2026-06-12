@@ -60,7 +60,7 @@
     background: #feefc3;
     border: none;
     border-radius: 16px;
-    bottom: 24px;
+    bottom: max(24px, calc(env(safe-area-inset-bottom, 0px) + 8px));
     box-shadow: 0 4px 10px rgba(0,0,0,0.3);
     color: #3c4043;
     cursor: pointer;
@@ -69,7 +69,7 @@
     justify-content: center;
     left: auto;
     position: fixed;
-    right: 16px;
+    right: max(16px, calc(env(safe-area-inset-right, 0px) + 8px));
     transition: transform 0.2s, box-shadow 0.2s;
     width: 56px;
     z-index: 1400;

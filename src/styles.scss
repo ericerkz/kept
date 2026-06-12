@@ -2663,7 +2663,7 @@ body.light-theme .reminder-date-dialog {
   }
 }
 
-@media (max-width: 660px) {
+@media (max-width: 660px), (max-height: 500px) and (orientation: landscape) {
   .reminder-date-dialog.reminder-choice-dialog,
   .reminder-date-dialog.reminder-place-dialog {
     border-radius: 16px;
@@ -2916,6 +2916,29 @@ body.light-theme .reminder-date-dialog {
       height: 50px;
       padding: 0 14px;
     }
+  }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  app-input.mobile-active .reminder-date-dialog {
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    top: 50%;
+  }
+
+  app-input.mobile-active .reminder-date-dialog.reminder-choice-dialog,
+  app-input.mobile-active .reminder-date-dialog.reminder-place-dialog {
+    width: min(560px, calc(100vw - max(32px, env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px))));
+  }
+
+  app-input.mobile-active .reminder-place-dialog .rd-place-map {
+    height: clamp(96px, 24dvh, 140px);
+  }
+
+  app-input.mobile-active .reminder-place-dialog .rd-place-list,
+  app-input.mobile-active .reminder-place-dialog .rd-place-manage-list {
+    max-height: min(180px, 36dvh);
   }
 }
 

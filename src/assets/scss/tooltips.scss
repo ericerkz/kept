@@ -11,7 +11,7 @@
         display: block;
     }
 
-    @media (max-width: 599px) {
+    @media (max-width: 599px), (max-height: 500px) and (orientation: landscape) {
         &[data-is-tooltip-open="true"]:not(.selectionMoreMenu) {
             position: fixed !important;
             top: 50% !important;
@@ -19,6 +19,9 @@
             transform: translate(-50%, -50%) !important;
             width: 90% !important;
             max-width: 320px !important;
+            max-height: calc(100dvh - 24px);
+            overflow-y: auto;
+            overscroll-behavior: contain;
             z-index: 2100 !important;
         }
 

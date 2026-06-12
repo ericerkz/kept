@@ -377,10 +377,20 @@ export class NotesService {
   }
 
   async add(noteObj: NoteI) {
-    this.offlineStore.ensureNoteIdentity(noteObj);
+    const pendingNote: NoteI = {
+      ...noteObj,
+      sortOrder: noteObj.sortOrder ?? Date.now()
+    };
+    this.offlineStore.ensureNoteIdentity(pendingNote);
     try {
-      const result = await firstValueFrom(this.http.post<{ id: number }>(this.apiUrl, noteObj, { headers: this.auth.authHeaders() }));
-      const saved = { ...noteObj, id: result.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      const result = await firstValueFrom(this.http.post<NoteI & { id: number }>(
+        this.apiUrl,
+        pendingNote,
+        { headers: this.auth.authHeaders() }
+      ));
+      const saved = result.sortOrder != null
+        ? { ...pendingNote, ...result }
+        : await this.get(result.id, { merge: false });
       if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, saved);
       await this.cacheNoteMedia(saved);
       await this.ensureNotesVisible([result.id]);
@@ -394,7 +404,7 @@ export class NotesService {
       let localId = -Date.now();
       while (await this.offlineStore.getNote(this.offlineSync.partition, localId)) localId -= 1;
       const now = new Date().toISOString();
-      const localNote: NoteI = { ...noteObj, id: localId, createdAt: now, updatedAt: now };
+      const localNote: NoteI = { ...pendingNote, id: localId, createdAt: now, updatedAt: now };
       await this.offlineStore.putNote(this.offlineSync.partition, localNote);
       await this.offlineSync.enqueue('note.upsert', localNote.syncId!, localNote);
       this.prependNotesIntoList([localNote]);

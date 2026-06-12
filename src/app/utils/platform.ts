@@ -21,10 +21,12 @@ export function isNativePhonePlatform(): boolean {
     if (/iPad/i.test(ua) || /iPad/i.test(navigatorPlatform)) return false;
 
     // Some native WKWebViews identify both iPhone and iPad as MacIntel.
-    // Their shortest CSS screen dimensions remain clearly separated:
-    // current iPhones are below 600pt while iPads start well above it.
+    // Use both screen and viewport dimensions because some shells expose
+    // physical screen pixels. Current iPhones stay below 1000 CSS pixels on
+    // their long side, while iPads begin at 1024.
     const shortestScreenSide = Math.min(window.screen.width, window.screen.height);
-    return shortestScreenSide < 600;
+    const longestViewportSide = Math.max(window.innerWidth, window.innerHeight);
+    return shortestScreenSide < 600 || longestViewportSide < 1000;
   }
   if (/Mobile/i.test(ua)) return true;
   return Math.min(window.screen.width, window.screen.height) < 600;

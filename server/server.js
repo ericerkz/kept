@@ -4784,7 +4784,8 @@ app.post('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [req.user.id, result.id]);
   }
   await broadcastNoteChange(result.id, 'created', [req.user.id]);
-  res.status(201).json({ id: result.id });
+  const created = await getAccessibleNote(result.id, req.user.id);
+  res.status(201).json(dbNoteToApi(created));
 }));
 
 app.put('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
