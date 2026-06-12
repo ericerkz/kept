@@ -100,6 +100,8 @@ export class ReminderService {
   private androidTriggeredEventsRunning = false;
   private androidResumeHandler?: () => void;
   private androidFocusHandler?: () => void;
+  private inactiveNoteIds = new Set<number>();
+  private lifecycleUserId?: number;
 
   constructor(
     private http: HttpClient,
@@ -112,6 +114,10 @@ export class ReminderService {
       this.loadCachedReminders().catch(console.error);
     });
     this.auth.currentUser$.subscribe(user => {
+      if (user?.id !== this.lifecycleUserId) {
+        this.inactiveNoteIds.clear();
+        this.lifecycleUserId = user?.id;
+      }
       if (user) {
         this.loadCachedReminders().catch(console.error);
         this.load().catch(console.error);
@@ -235,6 +241,28 @@ export class ReminderService {
 
   getActiveForNote(noteId: number): ReminderI | undefined {
     return this.reminders$.value.find(r => r.noteId === noteId && r.status === 'pending');
+  }
+
+  updateNoteLifecycle(notes: Array<{ id?: number; archived?: boolean; trashed?: boolean }>) {
+    let changed = false;
+    for (const note of notes) {
+      const noteId = Number(note.id || 0);
+      if (!noteId) continue;
+      const inactive = !!note.archived || !!note.trashed;
+      if (inactive && !this.inactiveNoteIds.has(noteId)) {
+        this.inactiveNoteIds.add(noteId);
+        changed = true;
+      } else if (!inactive && this.inactiveNoteIds.delete(noteId)) {
+        changed = true;
+      }
+    }
+    if (changed) this.syncAndroidGeofences(this.reminders$.value);
+  }
+
+  markNoteInactive(noteId: number) {
+    if (!noteId || this.inactiveNoteIds.has(noteId)) return;
+    this.inactiveNoteIds.add(noteId);
+    this.syncAndroidGeofences(this.reminders$.value);
   }
 
   handleFired(payload: ReminderFiredPayload) {
@@ -398,6 +426,7 @@ export class ReminderService {
       .filter(r =>
         r.status === 'pending' &&
         r.noteId &&
+        !this.inactiveNoteIds.has(Number(r.noteId)) &&
         r.locationName &&
         r.latitude != null &&
         r.longitude != null

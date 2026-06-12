@@ -229,6 +229,7 @@ export class NotesService {
           }
           if (this.consumeSuppressedRealtimeReload(message.noteId)) return;
           this.load();
+          this.reminders.load().catch(console.error);
         }
         if (message.type === 'reminder-fired') this.reminders.handleFired(message);
         if (message.type === 'presence-update') this.activeEditors$.next({ noteId: message.noteId, editors: message.activeEditors || [] });
@@ -636,6 +637,7 @@ export class NotesService {
 
   private publishNotes(notes: NoteI[]) {
     if (notes.length) this.lastNonEmptyNotes = notes;
+    this.reminders.updateNoteLifecycle(notes);
     this.notesList$.next(notes);
   }
 
@@ -856,6 +858,7 @@ export class NotesService {
   async delete(id: number) {
     if (id !== -1) {
       const note = await this.cachedOrLoadedNote(id);
+      this.reminders.markNoteInactive(id);
       if (note?.syncId && this.offlineSync.partition) {
         await this.offlineStore.deleteNote(this.offlineSync.partition, note.syncId);
         this.publishNotes((this.notesList$.value || []).filter(item => item.id !== id));
