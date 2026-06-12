@@ -11,6 +11,26 @@ export function isIosPlatform(): boolean {
   return Capacitor.getPlatform() === 'ios';
 }
 
+export function isNativePhonePlatform(): boolean {
+  const platform = Capacitor.getPlatform();
+  if (platform !== 'ios' && platform !== 'android') return false;
+  const ua = navigator.userAgent || '';
+  const navigatorPlatform = navigator.platform || '';
+  if (platform === 'ios') {
+    const isIPad = /iPad/i.test(ua)
+      || /iPad/i.test(navigatorPlatform)
+      || (navigatorPlatform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    return !isIPad;
+  }
+  return /Mobile/i.test(ua);
+}
+
+export function shouldUseFullscreenNoteEditor(): boolean {
+  const platform = Capacitor.getPlatform();
+  if (platform === 'ios' || platform === 'android') return isNativePhonePlatform();
+  return window.innerWidth < 660;
+}
+
 export function androidMajorVersion(): number | null {
   const match = navigator.userAgent.match(/Android\s+(\d+)/i);
   return match ? Number(match[1]) : null;

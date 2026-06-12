@@ -480,6 +480,42 @@
   }
 }
 
+.main-sidebar.native-phone-drawer {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  width: min(280px, 86vw);
+
+  &:not(.close) {
+    background-color: #202124;
+    border-radius: 0 16px 16px 0;
+    box-shadow: 0 0 16px rgba(0,0,0,0.5);
+    height: 100vh;
+    left: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-top: 79px;
+    pointer-events: auto;
+    position: fixed;
+    top: 0;
+    z-index: 990;
+  }
+
+  &.close {
+    overflow: hidden;
+    pointer-events: none;
+    width: 0;
+  }
+
+  .mobile-only-item {
+    display: flex;
+  }
+
+  .sidebar-branding {
+    display: flex;
+  }
+}
+
 
 .pwa-install-backdrop, .sidebar-backdrop {
   position: fixed;
@@ -1112,6 +1148,11 @@
       .pic { background-color: #5f6368; }
       .edit-labels-btn { color: #5f6368; }
     }
+  }
+
+  .main-sidebar.native-phone-drawer:not(.close) {
+    background-color: #fff;
+    box-shadow: none;
   }
 
   // Edit-labels modal: invert the dark surface for light mode.

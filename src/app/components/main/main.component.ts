@@ -9,7 +9,7 @@ import { NotesService } from 'src/app/services/notes.service';
 import { ShareUserI } from 'src/app/interfaces/users';
 import { bgColors } from 'src/app/interfaces/tooltip';
 import { LocationSavedPlacesService, type LocationSavedPlace } from 'src/app/services/location-saved-places.service';
-import { androidSmartCaptureUiAllowed } from 'src/app/utils/platform';
+import { androidSmartCaptureUiAllowed, isNativePhonePlatform } from 'src/app/utils/platform';
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
 import { OfflineSmartCaptureService } from 'src/app/services/offline-smart-capture.service';
 
@@ -118,6 +118,7 @@ const KeptModelManager = registerPlugin<KeptModelManagerPlugin>('KeptModelManage
 
 export class MainComponent implements OnInit, OnDestroy {
 
+  readonly nativePhoneLayout = isNativePhonePlatform();
   installHelpOpen = false;
   smartCaptureOpen = false;
   smartCaptureListening = false;

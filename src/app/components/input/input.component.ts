@@ -15,6 +15,7 @@ import { KeptPluginsService, type ResolvedLocation } from 'src/app/services/kept
 import { LocationSavedPlacesService, type LocationSavedPlace, type LocationTrigger, type SavedPlaceType } from 'src/app/services/location-saved-places.service';
 import { NgZone } from '@angular/core';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
+import { shouldUseFullscreenNoteEditor } from 'src/app/utils/platform';
 
 declare var Snackbar: any;
 type InputLengthI = { title?: number, body?: number, cb?: number }
@@ -2606,7 +2607,7 @@ export class InputComponent implements OnInit {
   ngOnInit(): void {
     if (this.isEditing && this.noteToEdit) {
       this.updateLastEditedTime();
-      if (window.innerWidth < 660) {
+      if (shouldUseFullscreenNoteEditor()) {
         this.mobileComposeMode = true;
         this.lockBodyScroll();
       }

@@ -1,7 +1,7 @@
 @if (isMobileOpen) {
   <div class="sidebar-backdrop" (click)="collapseSideBar()"></div>
 }
-<div sideBar class="main-sidebar">
+<div sideBar class="main-sidebar" [class.native-phone-drawer]="nativePhoneDrawer">
   <div class="sidenav-top">
     <div [class.active]="router.url === '/'" class="item" routerLink="/" (click)="onNavItemClick()">
       <span class="pic lamp" aria-hidden="true"></span>

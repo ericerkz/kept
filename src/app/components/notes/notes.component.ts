@@ -13,6 +13,7 @@ import { ReminderService } from 'src/app/services/reminder.service';
 import { NotesService } from 'src/app/services/notes.service';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 import { NotesToolsPipe } from 'src/app/pipes/notes-tools.pipe';
+import { shouldUseFullscreenNoteEditor } from 'src/app/utils/platform';
 
 declare var Snackbar: any;
 type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string }
@@ -650,7 +651,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.suppressScrollPagination()
     document.removeEventListener('mousedown', this.mouseDownEvent)
     let modalContainer = this.modalContainer.nativeElement
-    const isMobileModal = window.innerWidth < 660
+    const isMobileModal = shouldUseFullscreenNoteEditor()
     this.prepareModalCloseAnimation()
     setTimeout(() => {
       this.clickedNoteEl.classList.remove('hide')
@@ -737,7 +738,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   private positionModalAtRest() {
     const modal = this.modal.nativeElement
-    if (window.innerWidth < 660) {
+    if (shouldUseFullscreenNoteEditor()) {
       modal.style.transition = 'none'
       modal.style.transformOrigin = 'top left'
       modal.style.transform = 'none'
@@ -768,7 +769,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const translateX = source.left - target.left
     const translateY = source.top - target.top
     modal.style.transformOrigin = 'top left'
-    modal.style.transition = animate ? (window.innerWidth < 660 ? 'transform 0.16s ease, opacity 0.12s ease' : '') : 'none'
+    modal.style.transition = animate ? (shouldUseFullscreenNoteEditor() ? 'transform 0.16s ease, opacity 0.12s ease' : '') : 'none'
     modal.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`
     modal.style.opacity = animate ? '0.98' : '1'
   }

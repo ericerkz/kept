@@ -265,7 +265,7 @@
   display: none;
 }
 
-@media (max-width: 599px) {
+@media (max-width: 599px), (max-height: 500px) and (orientation: landscape) {
   .mobile-top-bar {
     display: flex;
     align-items: center;
@@ -528,7 +528,7 @@
   // On phones the toolbar would overflow off the right; let it wrap to a
   // second row so all icons stay reachable AND popovers (color pickers, more
   // menu) can drop down without being clipped by overflow.
-  @media (max-width: 599px) {
+  @media (max-width: 599px), (max-height: 500px) and (orientation: landscape) {
     flex-wrap: wrap;
     gap: 2px;
     padding: 4px;
@@ -894,7 +894,7 @@
   }
 }
 
-@media (max-width:660px) {
+@media (max-width:660px), (max-height: 500px) and (orientation: landscape) {
   .mobile-compose-mode {
     display: block;
   }
@@ -1120,7 +1120,7 @@
   }
 }
 
-@media (max-width: 599px) {
+@media (max-width: 599px), (max-height: 500px) and (orientation: landscape) {
   .active-editors-presence {
     top: 14px;
     right: 160px; // Shift left to avoid mobile header icons (3 * 48px icons + margins)

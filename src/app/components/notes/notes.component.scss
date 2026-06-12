@@ -546,7 +546,7 @@
       min-height: 0;
     }
 
-    @media (max-width:660px) {
+    @media (max-width:660px), (max-height: 500px) and (orientation: landscape) {
       padding: 0;
       height: 100%;
       max-height: none;

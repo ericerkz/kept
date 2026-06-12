@@ -39,6 +39,17 @@
   }
 }
 
+.native-phone-layout .sidenav-sticky {
+  flex: 0;
+  position: static;
+  width: 0;
+
+  app-sidenav {
+    position: static;
+    width: 0;
+  }
+}
+
 .mobile-compose-fab {
   display: none;
 }

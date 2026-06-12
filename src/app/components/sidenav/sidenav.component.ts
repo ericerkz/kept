@@ -4,6 +4,7 @@ import { SharedService } from 'src/app/services/shared.service';
 import { LabelActionsT } from 'src/app/interfaces/labels';
 import { Router } from '@angular/router';
 import { AuthService } from 'src/app/services/auth.service';
+import { isNativePhonePlatform } from 'src/app/utils/platform';
 
 @Component({
     selector: 'app-sidenav',
@@ -19,6 +20,7 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('labelsScroll') labelsScroll?: ElementRef<HTMLDivElement>
 
   isMobileOpen = false;
+  readonly nativePhoneDrawer = isNativePhonePlatform();
 
   installHelpOpen = false;
 
@@ -89,12 +91,12 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
     const sidebar = document.querySelector('[sideBar]');
     if (sidebar) {
       sidebar.classList.toggle('close');
-      this.isMobileOpen = !sidebar.classList.contains('close') && window.innerWidth <= 599;
+      this.isMobileOpen = !sidebar.classList.contains('close') && this.usesDrawerSidebar();
     }
   }
 
   onNavItemClick() {
-    if (window.innerWidth > 599) return
+    if (!this.usesDrawerSidebar()) return
     const sidebar = document.querySelector('[sideBar]')
     if (sidebar && !sidebar.classList.contains('close')) {
       sidebar.classList.add('close')
@@ -130,7 +132,7 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
     this.subscriptions.push(
       this.Shared.closeSideBar.subscribe(x => { if (x) this.collapseSideBar() })
     );
-    if (window.innerWidth <= 600) {
+    if (this.usesDrawerSidebar()) {
       const sidebar = document.querySelector('[sideBar]');
       if (sidebar && !sidebar.classList.contains('close')) {
         sidebar.classList.add('close');
@@ -180,5 +182,9 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
     // 2px tolerance to avoid sub-pixel flicker.
     this.canScrollUp = el.scrollTop > 2;
     this.canScrollDown = el.scrollTop < max - 2;
+  }
+
+  private usesDrawerSidebar() {
+    return this.nativePhoneDrawer || window.innerWidth <= 599;
   }
 }
