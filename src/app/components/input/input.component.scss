@@ -1009,10 +1009,6 @@
     --phone-safe-left: max(6px, env(safe-area-inset-left, 0px));
     --phone-safe-right: max(6px, env(safe-area-inset-right, 0px));
 
-    .note-main {
-      background-color: inherit;
-    }
-
     .note-container {
       box-sizing: border-box;
       padding-left: var(--phone-safe-left);
