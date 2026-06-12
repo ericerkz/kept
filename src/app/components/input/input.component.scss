@@ -1004,6 +1004,14 @@
   }
 }
 
+@media (orientation: landscape) {
+  :host(.native-phone-layout) .mobile-compose-mode {
+    box-sizing: border-box;
+    padding-left: max(6px, env(safe-area-inset-left, 0px));
+    padding-right: max(6px, env(safe-area-inset-right, 0px));
+  }
+}
+
 
 .close-btn {
   margin-right: 15px;
