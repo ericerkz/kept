@@ -1006,9 +1006,43 @@
 
 @media (orientation: landscape) {
   :host(.native-phone-layout) .mobile-compose-mode {
-    box-sizing: border-box;
-    padding-left: max(6px, env(safe-area-inset-left, 0px));
-    padding-right: max(6px, env(safe-area-inset-right, 0px));
+    --phone-safe-left: max(6px, env(safe-area-inset-left, 0px));
+    --phone-safe-right: max(6px, env(safe-area-inset-right, 0px));
+
+    .note-main {
+      background-color: inherit;
+    }
+
+    .note-container {
+      box-sizing: border-box;
+      padding-left: var(--phone-safe-left);
+      padding-right: var(--phone-safe-right);
+    }
+
+    .mobile-top-bar {
+      box-sizing: border-box;
+      margin-left: calc(-1 * var(--phone-safe-left));
+      margin-right: calc(-1 * var(--phone-safe-right));
+      padding-left: calc(var(--phone-safe-left) + 4px);
+      padding-right: calc(var(--phone-safe-right) + 4px);
+    }
+
+    .mobile-bottom-bar {
+      box-sizing: border-box;
+      padding-left: calc(var(--phone-safe-left) + 4px);
+      padding-right: calc(var(--phone-safe-right) + 4px);
+      width: 100%;
+    }
+
+    .attachments-list {
+      padding-left: calc(var(--phone-safe-left) + 12px);
+      padding-right: calc(var(--phone-safe-right) + 12px);
+    }
+
+    .reminder-chip {
+      margin-left: calc(var(--phone-safe-left) + 12px);
+      margin-right: calc(var(--phone-safe-right) + 12px);
+    }
   }
 }
 
