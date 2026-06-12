@@ -134,6 +134,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   private keptAppReadyQueued = false
   private keptAppReadySent = false
   private keptAppReadyRetry?: ReturnType<typeof setTimeout>
+  private viewportMasonryTimers: ReturnType<typeof setTimeout>[] = []
   //? -----------------------------------------------------
   trackBy(_index: number, item: any) { return item.id }
 
@@ -2105,7 +2106,26 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   @HostListener('window:resize')
   onResize() {
+    this.scheduleViewportMasonrySettle()
+  }
+
+  @HostListener('window:orientationchange')
+  onOrientationChange() {
+    this.scheduleViewportMasonrySettle()
+  }
+
+  private scheduleViewportMasonrySettle() {
+    this.viewportMasonryTimers.forEach(timer => clearTimeout(timer))
+    this.viewportMasonryTimers = []
     this.scheduleBuildMasonry(true)
+
+    // Native WebViews report rotation before their final layout viewport and
+    // safe-area dimensions have settled. Repack after paint and twice more as
+    // those measurements stabilize so cards never retain portrait transforms.
+    requestAnimationFrame(() => requestAnimationFrame(() => this.scheduleBuildMasonry(true)))
+    for (const delay of [80, 220]) {
+      this.viewportMasonryTimers.push(setTimeout(() => this.scheduleBuildMasonry(true), delay))
+    }
   }
 
   ngOnInit(): void {
@@ -2158,6 +2178,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     window.removeEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
     this.loadMoreObserver?.disconnect()
     if (this.keptAppReadyRetry) clearTimeout(this.keptAppReadyRetry)
+    this.viewportMasonryTimers.forEach(timer => clearTimeout(timer))
+    this.viewportMasonryTimers = []
     this.clearModalScrollRestoreTimers()
     this.closeReminderPicker()
     this.subscriptions.forEach(s => s.unsubscribe())

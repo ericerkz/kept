@@ -17,12 +17,17 @@ export function isNativePhonePlatform(): boolean {
   const ua = navigator.userAgent || '';
   const navigatorPlatform = navigator.platform || '';
   if (platform === 'ios') {
-    const isIPad = /iPad/i.test(ua)
-      || /iPad/i.test(navigatorPlatform)
-      || (navigatorPlatform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    return !isIPad;
+    if (/iPhone|iPod/i.test(ua) || /iPhone|iPod/i.test(navigatorPlatform)) return true;
+    if (/iPad/i.test(ua) || /iPad/i.test(navigatorPlatform)) return false;
+
+    // Some native WKWebViews identify both iPhone and iPad as MacIntel.
+    // Their shortest CSS screen dimensions remain clearly separated:
+    // current iPhones are below 600pt while iPads start well above it.
+    const shortestScreenSide = Math.min(window.screen.width, window.screen.height);
+    return shortestScreenSide < 600;
   }
-  return /Mobile/i.test(ua);
+  if (/Mobile/i.test(ua)) return true;
+  return Math.min(window.screen.width, window.screen.height) < 600;
 }
 
 export function shouldUseFullscreenNoteEditor(): boolean {

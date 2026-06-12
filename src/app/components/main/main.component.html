@@ -1,6 +1,6 @@
 <app-navbar></app-navbar>
 <app-update-banner></app-update-banner>
-<section class="main-section">
+<section class="main-section" [class.native-phone-layout]="nativePhoneLayout">
     @if ((offlineSync.state$ | async); as syncState) {
       @if (syncState !== 'saved') {
         <div class="offline-sync-state" [class.is-error]="syncState === 'error'" role="status">
@@ -9,7 +9,7 @@
         </div>
       }
     }
-    <div class="d-flex" [class.native-phone-layout]="nativePhoneLayout">
+    <div class="d-flex">
         <div class="sidenav-sticky">
             <app-sidenav></app-sidenav>
         </div>
