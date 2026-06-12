@@ -1046,6 +1046,15 @@
   }
 }
 
+@media (max-width: 599px) and (orientation: portrait) {
+  .moreMenu[data-is-tooltip-open="true"] {
+    bottom: auto !important;
+    right: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+  }
+}
+
 
 .close-btn {
   margin-right: 15px;
