@@ -26,7 +26,7 @@ Kept is a self-hosted notes app built for quick capture: text notes, checklists,
 
 ## Why Kept Exists
 
-I wanted something that felt like Google Keep: fast, colorful, easy to glance at, and never too heavy for a quick thought. Most self-hosted notes apps I tried were either powerful but fiddly, or simple but missing the feel I wanted. Kept is my attempt at that middle ground, with the data staying on a server you control.
+I wanted something that felt like Google Keep: fast, colorful, easy to glance at, and never too heavy for a quick thought. Most self-hosted notes apps I tried were either powerful but fiddly, or simple but missing the feel I wanted. Kept is my attempt at replicating the simplicity of Google Keep, while keeping the data on a server you control.
 
 ## Features
 
@@ -36,10 +36,10 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Search and filters, including note type, labels, and date-style queries.
 - Link previews and inline images.
 - Time reminders with browser push notifications.
-- Location-based reminders through the native iOS app.
-- Real-time shared notes between users on the same instance.
-- Offline note viewing/editing with sync when the client reconnects.
-- Google Keep Takeout import.
+- Location-based reminders through the native iOS and Android* app (*coming soon).
+- Real-time collaborative sharing of notes between users on the same instance.
+- Offline note viewing/editing with automatic sync when the client reconnects.
+- Google Keep Takeout data import.
 - Built-in database backups and restore flow.
 - Local user accounts, optional 2FA, and user management.
 
@@ -48,13 +48,13 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 [Kept Notes is available on the App Store](https://apps.apple.com/ca/app/kept-notes/id6768974473). It connects to your self-hosted Kept server and adds native iPhone/iPad integration:
 
 - Apple Reminders support.
-- Arrival/departure reminders for saved locations.
-- Local Smart Capture using Apple Intelligence where supported.
-- A native app shell around your Kept server.
+- Location reminders with arrival/departure settings, and the ability to save locations
+- Completely on-device AI note generation using Apple Intelligence.
+- A native app shell around your Kept instance.
 
 ## PWA / Mobile Browser
 
-The web app can also be installed as a PWA on iOS and Android. For push notifications and reliable mobile installs, Kept needs to be served from a real `https://` URL.
+The Kept web app can also be installed as a PWA on iOS and Android. For push notifications and reliable mobile installs, Kept needs to be served from a secure `https://` URL.
 
 The short setup guide is on the [Kept website](https://www.keepitkept.xyz/#pwa-mobile).
 
