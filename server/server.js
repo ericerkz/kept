@@ -1128,8 +1128,12 @@ async function appendSyncChange(userIds, resourceType, resourceSyncId, operation
 async function noteSyncSnapshot(noteId, userId) {
   const row = await getAccessibleNote(noteId, userId);
   if (!row) return null;
+  row.collaboratorIds = (await all('SELECT userId FROM note_collaborators WHERE noteId = ?', [noteId]))
+    .map(item => item.userId)
+    .filter(Boolean)
+    .join(',');
+  await hydrateNoteUserFields([row], userId);
   const note = dbNoteToApi(row);
-  note.collaborators = await getCollaboratorsForNote(noteId);
   const attachments = await all(
     `SELECT id, syncId, originalName, fileSize, mimeType, uploadedAt,
             lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId
@@ -2326,6 +2330,57 @@ async function getCollaboratorsForNote(noteId) {
     ...publicCollaborator(u),
     online: realtimeClients.has(u.id)
   }));
+}
+
+async function hydrateNoteUserFields(rows, requesterUserId) {
+  const userIds = new Set();
+  for (const row of rows || []) {
+    if (row.ownerUserId) userIds.add(row.ownerUserId);
+    if (row.collaboratorIds) {
+      for (const id of String(row.collaboratorIds).split(',')) {
+        const n = Number(id);
+        if (n) userIds.add(n);
+      }
+    }
+  }
+  if (!userIds.size) return rows || [];
+
+  const ids = Array.from(userIds);
+  const placeholders = ids.map(() => '?').join(',');
+  const userRows = await all(
+    `SELECT id, username, displayName, avatarDataUrl, avatarPreset FROM users WHERE id IN (${placeholders})`,
+    ids
+  );
+  const userMap = new Map(userRows.map(user => [user.id, user]));
+  const me = Number(requesterUserId);
+
+  for (const row of rows || []) {
+    const owner = userMap.get(row.ownerUserId);
+    if (owner) {
+      row.ownerDisplayName = owner.displayName;
+      row.ownerUsername = owner.username;
+      row.ownerAvatarPreset = owner.avatarPreset || 'cat';
+      row.ownerAvatarDataUrl = owner.id === me ? '' : (owner.avatarDataUrl || '');
+    }
+
+    const collabIds = row.collaboratorIds
+      ? String(row.collaboratorIds).split(',').map(Number).filter(Boolean)
+      : [];
+    row.collaborators = JSON.stringify(collabIds.map(id => {
+      const user = userMap.get(id);
+      if (!user) return null;
+      return {
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName,
+        avatarDataUrl: user.id === me ? '' : (user.avatarDataUrl || ''),
+        avatarPreset: user.avatarPreset || 'cat',
+        online: realtimeClients.has(user.id)
+      };
+    }).filter(Boolean));
+  }
+
+  return rows || [];
 }
 
 const realtimeClients = new Map();
@@ -3694,16 +3749,7 @@ async function syncSnapshotForUser(userId) {
             COALESCE(pos.sortOrder, notes.sortOrder) AS effectiveSortOrder,
             CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
             lastEditor.displayName AS lastEditorDisplayName,
-            (SELECT json_group_array(json_object(
-              'id', users.id,
-              'username', users.username,
-              'displayName', users.displayName,
-              'avatarDataUrl', '',
-              'avatarPreset', COALESCE(users.avatarPreset, 'cat')
-            ))
-             FROM note_collaborators nc
-             JOIN users ON users.id = nc.userId
-             WHERE nc.noteId = notes.id) AS collaborators
+            (SELECT GROUP_CONCAT(nc.userId) FROM note_collaborators nc WHERE nc.noteId = notes.id) AS collaboratorIds
      FROM notes
      LEFT JOIN users lastEditor ON lastEditor.id = notes.lastEditorUserId
      LEFT JOIN user_pins ON user_pins.noteId = notes.id AND user_pins.userId = ?
@@ -3713,6 +3759,7 @@ async function syncSnapshotForUser(userId) {
      ORDER BY userPinned DESC, effectiveSortOrder DESC, notes.id DESC`,
     [userId, userId, userId, userId]
   );
+  await hydrateNoteUserFields(notes, userId);
   const noteIds = notes.map(note => note.id);
   const attachmentsByNoteId = new Map();
   if (noteIds.length) {
