@@ -169,6 +169,7 @@ export class InputComponent implements OnInit {
   private cboxTouchIsDone = false;
   private cboxTouchStartX = 0;
   private cboxTouchStartY = 0;
+  private pendingCboxFocusPoint?: { id: number, x: number, y: number };
   private lastCboxTouchToggleAt = 0;
   activePointers: Map<number, { x: number, y: number }> = new Map();
   drawingTransform = { scale: 1, x: 0, y: 0 };
@@ -1104,6 +1105,13 @@ export class InputComponent implements OnInit {
   cboxInputFocus(event: FocusEvent) {
     const el = event.target as HTMLDivElement
     setTimeout(() => {
+      const id = Number(el.dataset['cboxId'])
+      const pending = this.pendingCboxFocusPoint
+      if (pending && pending.id === id) {
+        this.pendingCboxFocusPoint = undefined
+        this.placeCboxCaretAtPoint(el, pending.x, pending.y)
+        return
+      }
       const range = document.createRange()
       const sel = window.getSelection()
       range.selectNodeContents(el)
@@ -1111,6 +1119,47 @@ export class InputComponent implements OnInit {
       sel?.removeAllRanges()
       sel?.addRange(range)
     }, 0)
+  }
+
+  focusCboxFromTouch(event: TouchEvent, id: number, el: HTMLDivElement) {
+    const touch = event.changedTouches[0]
+    if (!touch) return
+    this.pendingCboxFocusPoint = { id, x: touch.clientX, y: touch.clientY }
+    if (document.activeElement !== el) {
+      el.focus({ preventScroll: true })
+    }
+    requestAnimationFrame(() => {
+      const pending = this.pendingCboxFocusPoint
+      if (pending && pending.id === id && document.activeElement === el) {
+        this.pendingCboxFocusPoint = undefined
+        this.placeCboxCaretAtPoint(el, pending.x, pending.y)
+      }
+    })
+  }
+
+  private placeCboxCaretAtPoint(el: HTMLDivElement, x: number, y: number) {
+    const doc = document as Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null,
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node, offset: number } | null
+    }
+    let range = doc.caretRangeFromPoint?.(x, y) || null
+    if (!range) {
+      const position = doc.caretPositionFromPoint?.(x, y)
+      if (position) {
+        range = document.createRange()
+        range.setStart(position.offsetNode, position.offset)
+      }
+    }
+    if (!range || !el.contains(range.commonAncestorContainer)) {
+      range = document.createRange()
+      range.selectNodeContents(el)
+      range.collapse(false)
+    } else {
+      range.collapse(true)
+    }
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
   }
 
   onCboxInput(id: number) {
