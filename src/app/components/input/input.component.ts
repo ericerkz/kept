@@ -1109,6 +1109,13 @@ export class InputComponent implements OnInit {
     }, 0)
   }
 
+  onCboxInput(id: number, el: HTMLDivElement) {
+    const cb = this.checkBoxes.find(item => item.id === id)
+    if (!cb) return
+    cb.data = el.innerHTML
+    this.queueCoEditAutosave()
+  }
+
   cBoxKeyDown($event: KeyboardEvent, id: number) {
     let target = $event.target as HTMLDivElement
     if ($event.key === 'Enter') {
@@ -1178,8 +1185,17 @@ export class InputComponent implements OnInit {
   }
 
   private queueCoEditAutosave() {
-    if (!this.isEditing || !this.noteToEdit.id || this.activeEditors.length === 0) return
+    if (!this.isEditing || !this.noteToEdit.id || !this.isSharedEditingNote()) return
     this.autoSaveSubject.next()
+  }
+
+  private isSharedEditingNote() {
+    const me = this.auth.currentUser?.id
+    return !!(
+      this.activeEditors.length ||
+      (this.noteToEdit.ownerUserId && me && this.noteToEdit.ownerUserId !== me) ||
+      this.noteToEdit.collaborators?.length
+    )
   }
 
   private extractUrlsFromHtml(html: string) {
@@ -2571,14 +2587,14 @@ export class InputComponent implements OnInit {
         }
       });
       this.autoSaveSubscription = this.autoSaveSubject.pipe(debounceTime(550)).subscribe(() => {
-        if (this.activeEditors.length > 0) {
+        if (this.isSharedEditingNote()) {
           this.saveNote(false);
         }
       });
       this.notesListSubscription = this.notesService.notesList$.subscribe(notes => {
-        if (!notes || this.activeEditors.length === 0) return;
+        if (!notes) return;
         const updatedNote = notes.find(n => n.id === this.noteToEdit.id);
-        if (updatedNote) {
+        if (updatedNote && updatedNote.lastEditorUserId !== this.auth.currentUser?.id) {
           this.applyExternalUpdate(updatedNote);
         }
       });

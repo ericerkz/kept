@@ -183,6 +183,20 @@ export class OfflineStoreService {
     });
   }
 
+  async overwriteNoteMetadata(partition: string, note: NoteI) {
+    const syncId = this.ensureNoteIdentity(note);
+    const existing = note.id != null
+      ? (await this.listRecords<NoteI>('notes', partition)).filter(record => record.value.id === note.id)
+      : [];
+    const db = await this.open();
+    await this.transaction(db, ['notes'], 'readwrite', stores => {
+      existing
+        .filter(record => record.syncId !== syncId)
+        .forEach(record => stores['notes'].delete(record.key));
+      stores['notes'].put({ key: this.resourceKey(partition, syncId), partition, syncId, value: note });
+    });
+  }
+
   async deleteNote(partition: string, syncId: string) {
     await this.deleteResource('notes', partition, syncId);
   }

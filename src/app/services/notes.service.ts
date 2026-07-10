@@ -303,34 +303,7 @@ export class NotesService {
 
     if (notes) {
       const next = notes.map(note => {
-        let noteChanged = false;
-        let updated = note;
-
-        if (note.ownerUserId === user.id) {
-          updated = {
-            ...updated,
-            ownerDisplayName: user.displayName,
-            ownerUsername: user.username,
-            ownerAvatarDataUrl: user.id === this.auth.currentUser?.id ? '' : (user.avatarDataUrl || ''),
-            ownerAvatarPreset: user.avatarPreset || 'cat'
-          };
-          noteChanged = true;
-        }
-
-        if (note.collaborators?.some(c => c.id === user.id)) {
-          updated = {
-            ...updated,
-            collaborators: note.collaborators.map(c => c.id === user.id ? {
-              ...c,
-              username: user.username,
-              displayName: user.displayName,
-              avatarDataUrl: user.id === this.auth.currentUser?.id ? '' : (user.avatarDataUrl || ''),
-              avatarPreset: user.avatarPreset || 'cat'
-            } : c)
-          };
-          noteChanged = true;
-        }
-
+        const { note: updated, changed: noteChanged } = this.noteWithUpdatedUserProfile(note, user);
         if (noteChanged) changed = true;
         return updated;
       });
@@ -350,6 +323,51 @@ export class NotesService {
         } : editor)
       });
     }
+
+    this.updateCachedUserProfile(user).catch(console.error);
+  }
+
+  private noteWithUpdatedUserProfile(note: NoteI, user: ShareUserI) {
+    let changed = false;
+    let updated = note;
+    const avatarDataUrl = user.id === this.auth.currentUser?.id ? '' : (user.avatarDataUrl || '');
+    const avatarPreset = user.avatarPreset || 'cat';
+
+    if (note.ownerUserId === user.id) {
+      updated = {
+        ...updated,
+        ownerDisplayName: user.displayName,
+        ownerUsername: user.username,
+        ownerAvatarDataUrl: avatarDataUrl,
+        ownerAvatarPreset: avatarPreset
+      };
+      changed = true;
+    }
+
+    if (note.collaborators?.some(c => c.id === user.id)) {
+      updated = {
+        ...updated,
+        collaborators: note.collaborators.map(c => c.id === user.id ? {
+          ...c,
+          username: user.username,
+          displayName: user.displayName,
+          avatarDataUrl,
+          avatarPreset
+        } : c)
+      };
+      changed = true;
+    }
+
+    return { note: updated, changed };
+  }
+
+  private async updateCachedUserProfile(user: ShareUserI) {
+    if (!this.offlineSync.partition) return;
+    const cached = await this.offlineStore.listNotes(this.offlineSync.partition);
+    await Promise.all(cached.map(async note => {
+      const result = this.noteWithUpdatedUserProfile(note, user);
+      if (result.changed) await this.offlineStore.overwriteNoteMetadata(this.offlineSync.partition, result.note);
+    }));
   }
 
   async deleteImage(note: NoteI, image: any, event?: Event) {
@@ -415,7 +433,7 @@ export class NotesService {
   async update(object: NoteI, id: number) {
     if (id === -1) return;
     const existing = await this.cachedOrLoadedNote(id);
-    const local = { ...existing, ...object, id, isCardPreview: false, updatedAt: new Date().toISOString() } as NoteI;
+    const local = { ...existing, ...object, id, isCardPreview: false, updatedAt: new Date().toISOString(), lastEditorUserId: this.auth.currentUser?.id } as NoteI;
     this.offlineStore.ensureNoteIdentity(local);
     if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, local);
     await this.cacheNoteMedia(local);
@@ -441,7 +459,7 @@ export class NotesService {
   async updateKey(object: UpdateKeyI, id: number) {
     if (id === -1) return;
     const existing = await this.cachedOrLoadedNote(id);
-    const local = { ...existing, ...object, id, isCardPreview: false, updatedAt: new Date().toISOString() } as NoteI;
+    const local = { ...existing, ...object, id, isCardPreview: false, updatedAt: new Date().toISOString(), lastEditorUserId: this.auth.currentUser?.id } as NoteI;
     this.offlineStore.ensureNoteIdentity(local);
     if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, local);
     await this.cacheNoteMedia(local);
