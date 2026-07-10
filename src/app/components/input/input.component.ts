@@ -370,23 +370,12 @@ export class InputComponent implements OnInit {
   //? note  -----------------------------------------------------
 
   async saveNote(closeAfterSave = true) {
-    this.cboxInput?.nativeElement.blur()
+    if (closeAfterSave) this.cboxInput?.nativeElement.blur()
     if (this.isDrawingNote) this.syncDrawingImage()
     if (this.isCbox.value && this.cboxPh?.nativeElement.innerHTML.trim()) {
       this.addCheckBoxFromPlaceholder()
     }
-    const allCboxElements = this.noteContainer.nativeElement.querySelectorAll('[data-cbox-id]')
-    allCboxElements.forEach((el: Element) => {
-      const cboxEl = el as HTMLDivElement
-      const idAttr = cboxEl.getAttribute('data-cbox-id')
-      if (idAttr) {
-        const id = Number(idAttr)
-        const cb = this.checkBoxes.find(c => c.id === id)
-        if (cb) {
-          cb.data = cboxEl.innerHTML
-        }
-      }
-    })
+    const checkBoxesForSave = this.currentCheckBoxesForSave(closeAfterSave)
     const labelsForSave = await this.labelsForSave()
     let noteObj: NoteI = {
       noteTitle: this.noteTitle.nativeElement.innerHTML,
@@ -394,14 +383,14 @@ export class InputComponent implements OnInit {
       pinned: this.notePin.nativeElement.dataset['pinned'] === "true", // converting string to bool,
       bgColor: this.noteMain.nativeElement.style.backgroundColor,
       bgImage: this.noteMain.nativeElement.style.backgroundImage || this.noteContainer.nativeElement.style.backgroundImage,
-      checkBoxes: this.checkBoxes,
+      checkBoxes: checkBoxesForSave,
       images: this.images.map(image => ({ ...image, dataUrl: this.auth.canonicalImageUrl(image.dataUrl) })),
       isCbox: this.isCbox.value,
       labels: labelsForSave,
       archived: this.isArchived,
       trashed: this.isTrashed
     }
-    const hasContent = !!(noteObj.noteTitle.length || noteObj.noteBody && noteObj.noteBody?.length || this.checkBoxes.length || this.images.length || this.attachments.length || this.pendingAttachmentFiles.length || this.isDrawingNote)
+    const hasContent = !!(noteObj.noteTitle.length || noteObj.noteBody && noteObj.noteBody?.length || checkBoxesForSave.length || this.images.length || this.attachments.length || this.pendingAttachmentFiles.length || this.isDrawingNote)
 
     if (this.isEditing) {
       const noteChanged = this.noteChangedForSave(noteObj)
@@ -455,6 +444,21 @@ export class InputComponent implements OnInit {
         }
         this.closeNote()
     }
+  }
+
+  private currentCheckBoxesForSave(updateModel: boolean) {
+    const next = this.checkBoxes.map(cb => ({ ...cb }))
+    const allCboxElements = this.noteContainer.nativeElement.querySelectorAll('[data-cbox-id]')
+    allCboxElements.forEach((el: Element) => {
+      const cboxEl = el as HTMLDivElement
+      const idAttr = cboxEl.getAttribute('data-cbox-id')
+      if (!idAttr) return
+      const id = Number(idAttr)
+      const cb = next.find(c => c.id === id)
+      if (cb) cb.data = cboxEl.innerHTML
+    })
+    if (updateModel) this.checkBoxes = next
+    return next
   }
 
   private noteChangedForSave(noteObj: NoteI) {
@@ -1109,10 +1113,8 @@ export class InputComponent implements OnInit {
     }, 0)
   }
 
-  onCboxInput(id: number, el: HTMLDivElement) {
-    const cb = this.checkBoxes.find(item => item.id === id)
-    if (!cb) return
-    cb.data = el.innerHTML
+  onCboxInput(id: number) {
+    if (!this.checkBoxes.some(item => item.id === id)) return
     this.queueCoEditAutosave()
   }
 
