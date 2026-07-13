@@ -587,19 +587,26 @@
   @if (showAndroidBackgroundLocationEducation) {
     <div class="reminder-date-dialog android-location-education"
       (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
-      role="dialog" aria-label="Allow background location">
+      role="dialog" aria-label="Allow location reminders">
       <div class="android-location-education__icon">
         <span class="material-symbols-outlined">location_on</span>
       </div>
       <h2>Allow location reminders</h2>
-      <p>Location reminders need “Allow all the time”. This lets Kept remind you when the app is closed.</p>
-      <p>On the next Android screen, choose <strong>Permissions</strong> &gt; <strong>Location</strong> &gt; <strong>Allow all the time</strong>.</p>
+      @if (androidLocationEducationMode === 'foreground') {
+        <p>Kept uses your location to create location-based reminders and check when you arrive at or leave a place.</p>
+        <p>Your saved places and reminder coordinates are stored on your Kept server and used only for reminder features.</p>
+      } @else {
+        <p>Location reminders need “Allow all the time”. This lets Kept remind you when the app is closed.</p>
+        <p>On the next Android screen, choose <strong>Permissions</strong> &gt; <strong>Location</strong> &gt; <strong>Allow all the time</strong>.</p>
+      }
       @if (androidBackgroundLocationMessage) {
         <div class="android-location-education__message">{{ androidBackgroundLocationMessage }}</div>
       }
       <div class="android-location-education__actions">
         <button type="button" class="secondary" (click)="cancelAndroidBackgroundLocationEducation()">Not now</button>
-        <button type="button" class="primary" (click)="openAndroidBackgroundLocationSettings()">Open settings</button>
+        <button type="button" class="primary" (click)="continueAndroidLocationDisclosure()">
+          {{ androidLocationEducationMode === 'foreground' ? 'Continue' : 'Open settings' }}
+        </button>
       </div>
     </div>
   }

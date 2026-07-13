@@ -105,6 +105,7 @@ export class InputComponent implements OnInit {
   resolving = false
   permissionReason = ''
   showAndroidBackgroundLocationEducation = false
+  androidLocationEducationMode: 'foreground' | 'background' = 'background'
   androidBackgroundLocationMessage = ''
   savedPlaces: LocationSavedPlace[] = []
   savedPlacesLoading = false
@@ -3482,16 +3483,17 @@ export class InputComponent implements OnInit {
 
     let locationStatus = status
     if (!locationStatus.foregroundGranted) {
-      locationStatus = await this.reminderService.requestAndroidForegroundLocationPermission() || locationStatus
-    }
-    if (!locationStatus.foregroundGranted) {
-      this.permissionReason = 'Location permission is needed to create location reminders.'
-      this.locationState = 'permission'
+      this.pendingAndroidLocationReminder = { location, trigger }
+      this.androidLocationEducationMode = 'foreground'
+      this.androidBackgroundLocationMessage = ''
+      this.showAndroidBackgroundLocationEducation = true
+      this.cd.detectChanges()
       return false
     }
 
     if (!locationStatus.backgroundGranted) {
       this.pendingAndroidLocationReminder = { location, trigger }
+      this.androidLocationEducationMode = 'background'
       this.androidBackgroundLocationMessage = ''
       this.showAndroidBackgroundLocationEducation = true
       this.bindAndroidBackgroundLocationResume()
@@ -3508,6 +3510,45 @@ export class InputComponent implements OnInit {
     return true
   }
 
+  async continueAndroidLocationDisclosure() {
+    if (this.androidLocationEducationMode === 'background') {
+      await this.openAndroidBackgroundLocationSettings()
+      return
+    }
+
+    const pending = this.pendingAndroidLocationReminder
+    if (!pending) return
+    this.androidBackgroundLocationMessage = ''
+
+    const status = await this.reminderService.requestAndroidForegroundLocationPermission()
+    if (!status?.foregroundGranted) {
+      this.androidBackgroundLocationMessage = 'Location permission is needed to create location reminders.'
+      this.cd.detectChanges()
+      return
+    }
+
+    if (!status.backgroundGranted) {
+      this.androidLocationEducationMode = 'background'
+      this.androidBackgroundLocationMessage = ''
+      this.bindAndroidBackgroundLocationResume()
+      this.cd.detectChanges()
+      return
+    }
+
+    const notificationsOk = await this.reminderService.ensureAndroidGeofenceNotificationPermission()
+    if (!notificationsOk) {
+      this.androidBackgroundLocationMessage = 'Notification permission is needed so Kept can show this reminder.'
+      this.cd.detectChanges()
+      return
+    }
+
+    this.pendingAndroidLocationReminder = null
+    this.showAndroidBackgroundLocationEducation = false
+    this.androidBackgroundLocationMessage = ''
+    this.unbindAndroidBackgroundLocationResume()
+    this.setPendingLocationReminder(pending.location, pending.trigger)
+  }
+
   async openAndroidBackgroundLocationSettings() {
     this.androidBackgroundLocationMessage = ''
     await this.reminderService.openAndroidBackgroundLocationSettings()
@@ -3515,6 +3556,7 @@ export class InputComponent implements OnInit {
 
   cancelAndroidBackgroundLocationEducation() {
     this.showAndroidBackgroundLocationEducation = false
+    this.androidLocationEducationMode = 'background'
     this.androidBackgroundLocationMessage = ''
     this.pendingAndroidLocationReminder = null
     this.unbindAndroidBackgroundLocationResume()
