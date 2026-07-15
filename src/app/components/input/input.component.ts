@@ -123,6 +123,7 @@ export class InputComponent implements OnInit {
   currentLocationLoading = false
   private placeSwipeStartPoint?: { id: number; x: number; y: number }
   private pendingAndroidLocationReminder: { location: ResolvedLocation; trigger: LocationTrigger } | null = null
+  private pendingAndroidLocationSearch: { view: PlaceDialogView } | null = null
   private androidBackgroundLocationResumeHandler?: () => void
   private androidBackgroundLocationFocusHandler?: () => void
   private androidBackgroundLocationResumeRunning = false
@@ -3388,6 +3389,7 @@ export class InputComponent implements OnInit {
     this.resolving = true
     this.locationState = 'idle'
     try {
+      if (!await this.ensureAndroidForegroundLocationDisclosureForSearch(view)) return
       await this.loadCurrentLocation()
       const result = await this.keptPlugins.resolveLocation(phrase, this.savedPlaces, this.currentLocation)
       if (!result) {
@@ -3510,14 +3512,27 @@ export class InputComponent implements OnInit {
     return true
   }
 
+  private async ensureAndroidForegroundLocationDisclosureForSearch(view: PlaceDialogView) {
+    const status = await this.reminderService.getAndroidLocationPermissionStatus()
+    if (!status || status.foregroundGranted) return true
+    this.pendingAndroidLocationSearch = { view }
+    this.pendingAndroidLocationReminder = null
+    this.androidLocationEducationMode = 'foreground'
+    this.androidBackgroundLocationMessage = ''
+    this.showAndroidBackgroundLocationEducation = true
+    this.cd.detectChanges()
+    return false
+  }
+
   async continueAndroidLocationDisclosure() {
     if (this.androidLocationEducationMode === 'background') {
       await this.openAndroidBackgroundLocationSettings()
       return
     }
 
-    const pending = this.pendingAndroidLocationReminder
-    if (!pending) return
+    const pendingReminder = this.pendingAndroidLocationReminder
+    const pendingSearch = this.pendingAndroidLocationSearch
+    if (!pendingReminder && !pendingSearch) return
     this.androidBackgroundLocationMessage = ''
 
     const status = await this.reminderService.requestAndroidForegroundLocationPermission()
@@ -3527,6 +3542,15 @@ export class InputComponent implements OnInit {
       return
     }
 
+    if (pendingSearch) {
+      this.pendingAndroidLocationSearch = null
+      this.showAndroidBackgroundLocationEducation = false
+      this.androidBackgroundLocationMessage = ''
+      this.resolveLocation(pendingSearch.view)
+      return
+    }
+
+    const pending = pendingReminder!
     if (!status.backgroundGranted) {
       this.androidLocationEducationMode = 'background'
       this.androidBackgroundLocationMessage = ''
@@ -3559,6 +3583,7 @@ export class InputComponent implements OnInit {
     this.androidLocationEducationMode = 'background'
     this.androidBackgroundLocationMessage = ''
     this.pendingAndroidLocationReminder = null
+    this.pendingAndroidLocationSearch = null
     this.unbindAndroidBackgroundLocationResume()
   }
 
@@ -3734,6 +3759,16 @@ export class InputComponent implements OnInit {
     if (this.keptPlugins.isIos || this.currentLocation || typeof navigator === 'undefined' || !navigator.geolocation) {
       return Promise.resolve()
     }
+    if (this.keptPlugins.isAndroid) {
+      return this.reminderService.getAndroidLocationPermissionStatus().then(status => {
+        if (!status?.foregroundGranted) return
+        return this.readCurrentLocation()
+      })
+    }
+    return this.readCurrentLocation()
+  }
+
+  private readCurrentLocation() {
     this.currentLocationLoading = true
     return new Promise<void>(resolve => {
       navigator.geolocation.getCurrentPosition(
