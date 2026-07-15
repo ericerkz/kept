@@ -15,6 +15,9 @@ Kept is a self-hosted notes app built for quick capture: text notes, checklists,
   <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473">
     <img src="https://img.shields.io/badge/App%20Store-Kept%20Notes-000000?logo=apple&logoColor=white" alt="Download Kept Notes on the App Store">
   </a>
+  <a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app">
+    <img src="https://img.shields.io/badge/Google%20Play-Kept%20Notes-000000?logo=googleplay&logoColor=white" alt="Get Kept Notes on Google Play">
+  </a>
   <a href="https://ko-fi.com/kept_notes">
     <img src="https://img.shields.io/badge/Ko--fi-Support%20Me-ff5e5b?logo=ko-fi&logoColor=white" alt="Ko-fi">
   </a>
@@ -36,7 +39,7 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Search and filters, including note type, labels, and date-style queries.
 - Link previews and inline images.
 - Time reminders with browser push notifications.
-- Location-based reminders through the native iOS and Android* app (*coming soon).
+- Location-based reminders through the native iOS and Android apps.
 - Real-time collaborative sharing of notes between users on the same instance.
 - Offline note viewing/editing with automatic sync when the client reconnects.
 - Google Keep Takeout data import.
@@ -52,9 +55,17 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Completely on-device AI note generation using Apple Intelligence.
 - A native app shell around your Kept instance.
 
+## Native Android App
+
+[Kept Notes is available on Google Play](https://play.google.com/store/apps/details?id=xyz.keepitkept.app). It connects to your self-hosted Kept server and adds native Android integration:
+
+- Location reminders with arrival/departure settings, background geofencing, and saved places.
+- On-device Smart Capture through supported Android AI providers or Kept's local Gemma fallback model.
+- A native app shell around your Kept instance.
+
 ## PWA / Mobile Browser
 
-The Kept web app can also be installed as a PWA on iOS and Android. For push notifications and reliable mobile installs, Kept needs to be served from a secure `https://` URL.
+The Kept web app can also be installed as a PWA on iOS and Android. For push notifications and reliable mobile installs, Kept needs to be served from a secure `https://` URL. Location-based reminders require the native iOS or Android app.
 
 The short setup guide is on the [Kept website](https://www.keepitkept.xyz/#pwa-mobile).
 
