@@ -591,12 +591,12 @@
       <div class="android-location-education__icon">
         <span class="material-symbols-outlined">location_on</span>
       </div>
-      <h2>Allow location reminders</h2>
+      <h2>Allow background location reminders</h2>
       @if (androidLocationEducationMode === 'foreground') {
-        <p>Kept uses your location to create location-based reminders and check when you arrive at or leave a place.</p>
-        <p>Your saved places and reminder coordinates are stored on your Kept server and used only for reminder features.</p>
+        <p>Kept collects, transmits, and stores location data, including saved places and reminder coordinates, to enable location-based reminders in the background when the app is closed or not in use.</p>
+        <p>This data is used only for reminder features and is stored on your Kept server.</p>
       } @else {
-        <p>Location reminders need “Allow all the time”. This lets Kept remind you when the app is closed.</p>
+        <p>Kept needs background location access to enable location reminders when the app is closed or not in use.</p>
         <p>On the next Android screen, choose <strong>Permissions</strong> &gt; <strong>Location</strong> &gt; <strong>Allow all the time</strong>.</p>
       }
       @if (androidBackgroundLocationMessage) {
@@ -605,7 +605,7 @@
       <div class="android-location-education__actions">
         <button type="button" class="secondary" (click)="cancelAndroidBackgroundLocationEducation()">Not now</button>
         <button type="button" class="primary" (click)="continueAndroidLocationDisclosure()">
-          {{ androidLocationEducationMode === 'foreground' ? 'Continue' : 'Open settings' }}
+          {{ androidLocationEducationMode === 'foreground' ? 'Allow location reminders' : 'Open settings' }}
         </button>
       </div>
     </div>

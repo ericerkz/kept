@@ -52,7 +52,7 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 
 - Apple Reminders support.
 - Location reminders with arrival/departure settings, and the ability to save locations
-- Completely on-device AI note generation using Apple Intelligence.
+- On-device Smart Capture using Apple Intelligence.
 - A native app shell around your Kept instance.
 
 ## Native Android App
@@ -60,7 +60,7 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 [Kept Notes is available on Google Play](https://play.google.com/store/apps/details?id=xyz.keepitkept.app). It connects to your self-hosted Kept server and adds native Android integration:
 
 - Location reminders with arrival/departure settings, background geofencing, and saved places.
-- On-device Smart Capture through supported Android AI providers or Kept's local Gemma fallback model.
+- On-device Smart Capture using Android's native Gemini Nano when available, or Kept's local Gemma fallback model on Android devices that need it.
 - A native app shell around your Kept instance.
 
 ## PWA / Mobile Browser
