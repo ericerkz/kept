@@ -118,7 +118,7 @@ test('resolveLabels preserves existing labels and creates missing labels through
     }
   );
 
-  assert.deepEqual(await client.resolveLabels(['work', 'Agent']), [
+  assert.deepEqual(await client.resolveLabels(['work', 'WORK', 'Agent']), [
     { id: 2, name: 'Work', added: true },
     { id: 5, name: 'Agent', added: true }
   ]);

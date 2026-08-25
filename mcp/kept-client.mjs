@@ -164,8 +164,11 @@ export class KeptClient {
     const existing = await this.listLabels();
     const byName = new Map(existing.map((label) => [String(label.name).toLowerCase(), label]));
     const resolved = [];
+    const selected = new Set();
     for (const name of names) {
       const key = name.toLowerCase();
+      if (selected.has(key)) continue;
+      selected.add(key);
       let label = byName.get(key);
       if (!label) {
         label = await this.request('/api/labels/find-or-create', {
