@@ -16,6 +16,7 @@ RUN apk add --no-cache su-exec
 COPY --from=builder /app/package*.json ./
 RUN npm ci --omit=dev --loglevel=error
 COPY --from=builder /app/server ./server
+COPY --from=builder /app/mcp ./mcp
 COPY --from=builder /app/dist ./dist
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

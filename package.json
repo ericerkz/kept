@@ -8,6 +8,8 @@
     "api": "nodemon --no-deprecation server/server.js",
     "build": "ng build && npm run purgecss",
     "test:sync": "node server/sync-smoke.test.js",
+    "mcp": "node mcp/index.mjs",
+    "test:mcp": "node --test mcp/*.test.mjs",
     "purgecss": "purgecss -c purgecss.config.js",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
@@ -29,6 +31,7 @@
     "@angular/platform-browser-dynamic": "^21.2.12",
     "@angular/router": "^21.2.12",
     "@capacitor/core": "^8.3.4",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@popperjs/core": "^2.11.5",
     "@types/jszip": "^3.4.0",
     "adm-zip": "^0.5.16",
@@ -48,6 +51,7 @@
     "unzipper": "^0.12.3",
     "web-push": "^3.6.7",
     "ws": "^8.20.0",
+    "zod": "^3.25.76",
     "zone.js": "~0.15.1"
   },
   "devDependencies": {

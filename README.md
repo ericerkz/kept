@@ -53,6 +53,7 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Google Keep Takeout data import.
 - Built-in database backups and restore flow.
 - Local user accounts, optional 2FA, and user management.
+- Local MCP server for authenticated agent access without direct database access.
 
 ## Install With Docker
 
@@ -72,6 +73,12 @@ docker compose up -d
 Open `http://localhost:6767` and create the first admin account.
 
 Kept stores its database, uploads, attachments, and generated server data in `./data`. Back that folder up if you are not using the built-in backup tools.
+
+## Agent Access With MCP
+
+Kept includes a local stdio MCP server for scoped agent access to notes and
+labels through the authenticated Kept API. See [the MCP setup and security
+guide](docs/mcp.md).
 
 ## Easy Hosted Setup
 
