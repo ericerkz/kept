@@ -258,9 +258,11 @@ server {
 }</code></pre>
           <div class="hosted-setup-callout">
             <h3>Advanced access gateways</h3>
+            <h4>Custom header support in the mobile apps</h4>
             <p>The native iOS and Android apps support optional custom connection headers for reverse proxies or access gateways that require them, such as Cloudflare Access service tokens or shared-secret proxy headers. Configure these only if your proxy setup requires them.</p>
+            <p>Custom headers help the mobile apps pass normal Kept HTTP requests through a header-auth gateway, including login, loading notes, saving notes, attachments, and settings. They are not a replacement for Kept login; users still need a Kept account/session.</p>
+            <p>Custom headers do not apply to realtime WebSocket connections. Realtime presence and live collaboration use WebSockets at <code>/api/realtime</code>, and browser/WebView WebSockets cannot attach arbitrary custom headers. Behind gateways that require header auth on WebSocket upgrade requests, normal reads/writes should still work, but live updates may only appear after refocusing the app or manually refreshing.</p>
             <p>If you access Kept through Tailscale, WireGuard, another VPN, a LAN hostname/IP, or more than one reverse-proxy domain, the CORS settings may be relevant. These setups do not require special CORS settings by themselves; CORS only matters when the browser page and Kept API are reached through different origins, or when you restrict origins with <code>KEPT_CORS_ORIGINS</code>. If you use <code>KEPT_CORS_ORIGINS</code>, include each exact browser origin you use, such as your Tailnet name, VPN-only domain, LAN IP, or public reverse-proxy domain, including the scheme and port when applicable. For the simplest personal setup, leave <code>KEPT_CORS_ALLOW_ALL=1</code> enabled instead. Same-origin access does not need extra CORS configuration.</p>
-            <p>Custom headers apply to normal HTTP API traffic. Realtime presence and live collaboration use WebSockets at <code>/api/realtime</code>; browser and WebView WebSockets cannot attach arbitrary custom headers, so realtime features may not work behind gateways that require header auth on WebSocket upgrade requests.</p>
           </div>
         </section>
 
