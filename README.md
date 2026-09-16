@@ -88,7 +88,7 @@ Railway handles the technical setup:
 
 Once deployment finishes, open the link Railway gives you and create your first Kept account.
 
-This is provided as a less technical way to try Kept, not as an endorsement of Railway. Use whatever host you trust.
+Railway is one convenient way to deploy Kept quickly. Kept remains self-hostable on any platform that supports Docker.
 
 ## Native iOS App
 
