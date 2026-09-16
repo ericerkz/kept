@@ -23,6 +23,7 @@ import { LinkPreviewComponent } from './components/link-preview/link-preview.com
 import { UpdateBannerComponent } from './components/update-banner/update-banner.component';
 import { MergeDialogComponent } from './components/merge-dialog/merge-dialog.component';
 import { AuthExpiredInterceptor } from './services/auth-expired.interceptor';
+import { ConnectionHeadersInterceptor } from './services/connection-headers.interceptor';
 
 @NgModule({ declarations: [
         AppComponent,
@@ -48,6 +49,7 @@ import { AuthExpiredInterceptor } from './services/auth-expired.interceptor';
     bootstrap: [AppComponent], imports: [BrowserModule,
         FormsModule,
         AppRoutingModule], providers: [
+        { provide: HTTP_INTERCEPTORS, useClass: ConnectionHeadersInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: AuthExpiredInterceptor, multi: true },
         provideHttpClient(withInterceptorsFromDi())
     ] })

@@ -16,6 +16,7 @@ declare var Snackbar: any
 export class SharedService {
   private tooltipOutsideListeners = new WeakMap<HTMLDivElement, (event: Event) => void>();
   private readonly binderStorageKey = 'kept_binders_v1';
+  private readonly noteViewTypeStorageKey = 'kept_note_view_type';
 
   // PWA State
   deferredInstallPrompt?: any;
@@ -94,7 +95,7 @@ export class SharedService {
   openSelectedReminder = new Subject<void>()
   saveNote = new Subject<boolean>()
   closeModal = new Subject<boolean>()
-  noteViewType = new BehaviorSubject<'list' | 'grid'>('grid')
+  noteViewType = new BehaviorSubject<'list' | 'grid'>(this.initialNoteViewType())
   selectedNoteIds = new BehaviorSubject<number[]>([])
   searchScope = new BehaviorSubject<'all' | 'current'>(this.initialSearchScope())
   searchQuery = ''
@@ -145,6 +146,23 @@ export class SharedService {
     try { localStorage.setItem('kept_search_scope', scope); } catch {}
   }
 
+  setNoteViewType(type: 'list' | 'grid') {
+    this.noteViewType.next(type)
+    try { localStorage.setItem(this.noteViewTypeStorageKey, type); } catch {}
+  }
+
+  toggleNoteViewType() {
+    this.setNoteViewType(this.noteViewType.value === 'grid' ? 'list' : 'grid')
+  }
+
+  private initialNoteViewType(): 'list' | 'grid' {
+    try {
+      return localStorage.getItem(this.noteViewTypeStorageKey) === 'list' ? 'list' : 'grid'
+    } catch {
+      return 'grid'
+    }
+  }
+
   private initialSearchScope(): 'all' | 'current' {
     try {
       return localStorage.getItem('kept_search_scope') === 'current' ? 'current' : 'all'
@@ -156,7 +174,8 @@ export class SharedService {
   async refreshData() {
     await Promise.all([
       this.Notes.load(),
-      this.Labels.load()
+      this.Labels.load(),
+      this.reminders.load()
     ])
   }
 
@@ -267,10 +286,25 @@ export class SharedService {
   }
 
   async bulkTrashSelected() {
-    for (const noteId of this.selectedNoteIds.value) {
-      await this.Notes.updateKey({ trashed: true, archived: false }, noteId)
+    const selected = this.note.all.filter(note => note.id && this.selectedNoteIds.value.includes(note.id))
+    const me = this.auth.currentUser?.id
+    let leftSharedCount = 0
+    for (const note of selected) {
+      if (note.ownerUserId && me && note.ownerUserId !== me) {
+        await this.Notes.delete(note.id!)
+        leftSharedCount++
+      } else {
+        await this.Notes.updateKey({ trashed: true, archived: false }, note.id!)
+      }
     }
     this.clearNoteSelection()
+    if (leftSharedCount) {
+      Snackbar.show({
+        pos: 'bottom-left',
+        text: leftSharedCount === 1 ? 'Shared note removed' : `${leftSharedCount} shared notes removed`,
+        duration: 3000
+      })
+    }
   }
 
   async bulkTogglePinSelected() {

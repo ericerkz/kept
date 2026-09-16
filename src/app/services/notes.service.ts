@@ -489,8 +489,13 @@ export class NotesService {
     } catch (error) {
       this.suppressedRealtimeReloads.delete(id);
       if (this.auth.notifySessionExpired(error)) throw error;
-      if (this.isOfflineError(error)) await this.offlineSync.enqueue('note.upsert', local.syncId!, local);
-      else console.log(error)
+      if (this.isOfflineError(error)) {
+        await this.offlineSync.enqueue('note.upsert', local.syncId!, local);
+        return;
+      }
+      console.log(error);
+      await this.load(this.searchQuery, { cacheBust: true }).catch(console.error);
+      throw error;
     }
   }
 
@@ -515,9 +520,14 @@ export class NotesService {
       this.mergeNoteIntoList({ ...object, id } as NoteI);
     } catch (error) {
       this.suppressedRealtimeReloads.delete(id);
-      if (this.auth.notifySessionExpired(error)) return;
-      if (this.isOfflineError(error)) await this.offlineSync.enqueue('note.upsert', local.syncId!, local);
-      else console.log(error)
+      if (this.auth.notifySessionExpired(error)) throw error;
+      if (this.isOfflineError(error)) {
+        await this.offlineSync.enqueue('note.upsert', local.syncId!, local);
+        return;
+      }
+      console.log(error);
+      await this.load(this.searchQuery, { cacheBust: true }).catch(console.error);
+      throw error;
     }
   }
 

@@ -1,10 +1,21 @@
 @let pageNotes = Shared.note.all | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value;
+@if (pullRefreshState !== 'idle') {
+  <div class="pull-refresh-indicator"
+    [class.native-phone]="nativePhoneLayout"
+    [class.ready]="pullRefreshState === 'ready'"
+    [class.refreshing]="pullRefreshState === 'refreshing'"
+    [style.transform]="'translate3d(-50%, ' + pullRefreshDistance + 'px, 0)'">
+    <span class="material-symbols-outlined">refresh</span>
+    <span>{{pullRefreshState === 'refreshing' ? 'Refreshing' : (pullRefreshState === 'ready' ? 'Release to refresh' : 'Pull to refresh')}}</span>
+  </div>
+}
 <section>
   <input #overviewImageInput class="overview-image-input" type="file" accept="image/*" multiple
     (change)="overviewImageInputChange($event)">
   <section #mainContainer class="main-container" [class.is-dragging]="!!draggedNoteId"
     [class.native-phone-layout]="nativePhoneLayout"
     [class.grid-view]="Shared.noteViewType.value === 'grid'"
+    [class.list-view]="Shared.noteViewType.value === 'list'"
     [ngClass]="notePreviewTextSizeClass">
     <div class="pb-80" [hidden]="!(Shared.note.pinned | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value).length">
       <p #title _title>pinned</p>
@@ -122,7 +133,7 @@
 
 <!--*  note template -->
 <ng-template #noteTemplate let-notes="notes">
-  <div #noteEl [class.mx-auto]="Shared.noteViewType.value === 'list' ">
+  <div #noteEl class="notes-layout" [class.list-layout]="Shared.noteViewType.value === 'list'">
     @let filteredNotes = notes | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value;
     @for (note of visibleNotes(filteredNotes); track note.id) {
       <div #noteEL class="note-container" [class.selected]="Shared.isNoteSelected(note.id)"

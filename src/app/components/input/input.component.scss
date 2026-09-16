@@ -94,6 +94,7 @@
   background-position: right bottom;
   background-repeat: no-repeat;
   background-size: cover;
+  position: relative;
 
   &.detail-bg {
     background-color: #fff !important;
@@ -348,6 +349,8 @@
     }
 
     .mobile-icon {
+      background: transparent;
+      border: 0;
       width: 44px;
       height: 44px;
       display: flex;
@@ -355,6 +358,21 @@
       justify-content: center;
       color: #5f6368; // Consistent dark grey for mobile
       cursor: pointer;
+      font-family: "Google Sans", Roboto, Arial, sans-serif;
+      font-size: 18px;
+      font-weight: 500;
+      padding: 0;
+
+      &.format.active {
+        background: color-mix(in srgb, currentColor 12%, transparent);
+        border-radius: 50%;
+        opacity: 1;
+      }
+
+      &:disabled {
+        cursor: default;
+        opacity: 0.25;
+      }
 
       .material-symbols-outlined {
         font-family: 'Material Symbols Outlined' !important;

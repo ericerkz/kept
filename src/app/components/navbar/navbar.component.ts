@@ -90,7 +90,7 @@ export class NavbarComponent implements OnInit {
   closeSideBar() { this.Shared.closeSideBar.next(true) }
 
   view() {
-    this.Shared.noteViewType.value === 'grid' ? this.Shared.noteViewType.next('list') : this.Shared.noteViewType.next('grid')
+    this.Shared.toggleNoteViewType()
   }
 
   searchExpanded = false

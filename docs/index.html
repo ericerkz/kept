@@ -163,14 +163,21 @@ docker compose up -d</code></pre>
           
           <p>That's it! Open your browser and go to <code>http://localhost:6767</code>. You'll be greeted by a friendly setup wizard to create your admin account.</p>
 
-          <div class="hosted-setup-callout">
-            <h3>Want the easier hosted path?</h3>
+          <section id="deploy-on-railway" class="hosted-setup-callout">
+            <h2>Deploy Kept on Railway</h2>
             <p>If you do not want to set up Docker or manage a server yourself, Railway can create a ready-to-use Kept instance for you with storage and HTTPS handled.</p>
             <a href="https://railway.com/deploy/kept-notes" target="_blank" rel="noopener noreferrer" aria-label="Deploy Kept on Railway">
               <img src="https://railway.com/button.svg" alt="Deploy on Railway">
             </a>
+            <ol>
+              <li>Click <strong>Deploy on Railway</strong> and sign in or create a Railway account.</li>
+              <li>Review the generated Kept service, volume, and environment settings.</li>
+              <li>Deploy the template and wait for Railway to finish building the service.</li>
+              <li>Open the public URL Railway provides.</li>
+              <li>Create your first Kept admin account from the setup screen.</li>
+            </ol>
             <p class="hosted-setup-callout__note">This is provided as a less technical way to try Kept, not as an endorsement of Railway. Use whatever host you trust.</p>
-          </div>
+          </section>
           
           <details>
             <summary>Prefer to build it yourself?</summary>
@@ -249,6 +256,12 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }</code></pre>
+          <div class="hosted-setup-callout">
+            <h3>Advanced access gateways</h3>
+            <p>The native iOS and Android apps support optional custom connection headers for reverse proxies or access gateways that require them, such as Cloudflare Access service tokens or shared-secret proxy headers. Configure these only if your proxy setup requires them.</p>
+            <p>If you access Kept through Tailscale, WireGuard, another VPN, a LAN hostname/IP, or more than one reverse-proxy domain, the CORS settings may be relevant. These setups do not require special CORS settings by themselves; CORS only matters when the browser page and Kept API are reached through different origins, or when you restrict origins with <code>KEPT_CORS_ORIGINS</code>. If you use <code>KEPT_CORS_ORIGINS</code>, include each exact browser origin you use, such as your Tailnet name, VPN-only domain, LAN IP, or public reverse-proxy domain, including the scheme and port when applicable. For the simplest personal setup, leave <code>KEPT_CORS_ALLOW_ALL=1</code> enabled instead. Same-origin access does not need extra CORS configuration.</p>
+            <p>Custom headers apply to normal HTTP API traffic. Realtime presence and live collaboration use WebSockets at <code>/api/realtime</code>; browser and WebView WebSockets cannot attach arbitrary custom headers, so realtime features may not work behind gateways that require header auth on WebSocket upgrade requests.</p>
+          </div>
         </section>
 
         <section id="pwa-mobile">

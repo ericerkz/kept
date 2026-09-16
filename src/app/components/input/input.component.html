@@ -222,6 +222,20 @@
     }
   </div>
   }
+  @if (showSelectionFormatting && canFormatText()) {
+    <div class="text-format-toolbar selection-format-toolbar" [ngStyle]="selectionFormattingStyle"
+      (mousedown)="$event.preventDefault()" (click)="$event.stopPropagation()">
+      <button type="button" (mousedown)="applyTextFormat('h1',$event)">H1</button>
+      <button type="button" (mousedown)="applyTextFormat('h2',$event)">H2</button>
+      <button type="button" class="body-format" (mousedown)="applyTextFormat('body',$event)">Aa</button>
+      <span></span>
+      <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
+      <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
+      <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
+      <button type="button" class="clear-format" aria-label="Clear formatting" title="Clear formatting"
+        (mousedown)="applyTextFormat('clear',$event)">Clear</button>
+    </div>
+  }
   <div #notePin data-pinned="false" [class.pinned]="notePin.dataset['pinned'] === 'true'" class="pin-icon H pop"
     [hidden]="isDrawingNote"
     (click)="togglePinned()"
@@ -239,7 +253,8 @@
           <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
           <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
           <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
-          <button type="button" class="clear-format" (mousedown)="applyTextFormat('clear',$event)">Tx</button>
+          <button type="button" class="clear-format" aria-label="Clear formatting" title="Clear formatting"
+            (mousedown)="applyTextFormat('clear',$event)">Clear</button>
         </div>
       }
       <div class="icons">
@@ -278,6 +293,19 @@
 
     <!--? Mobile Bottom Bar -->
     <div class="mobile-bottom-bar">
+      @if (showTextFormatting && canFormatText()) {
+        <div class="text-format-toolbar mobile-format-toolbar" (mousedown)="$event.preventDefault()" (click)="$event.stopPropagation()">
+          <button type="button" (mousedown)="applyTextFormat('h1',$event)">H1</button>
+          <button type="button" (mousedown)="applyTextFormat('h2',$event)">H2</button>
+          <button type="button" class="body-format" (mousedown)="applyTextFormat('body',$event)">Aa</button>
+          <span></span>
+          <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
+          <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
+          <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
+          <button type="button" class="clear-format" aria-label="Clear formatting" title="Clear formatting"
+            (mousedown)="applyTextFormat('clear',$event)">Clear</button>
+        </div>
+      }
       <div class="left-icons">
         <div #collaboratorMenuTtBtnMobile class="mobile-icon colab" (click)="openCollaboratorMenu(collaboratorMenuTtBtnMobile,collaboratorMenuTt)" title="Collaborator">
           <div class="glyph colab"></div>
@@ -288,9 +316,8 @@
         <div class="mobile-icon attachment" (click)="openAttachmentPicker($event)" title="Attachments">
           <div class="glyph attachment"></div>
         </div>
-        <div class="mobile-icon paint" (click)="openDrawingNote($event)" title="Add drawing">
-          <div class="glyph paint"></div>
-        </div>
+        <button type="button" class="mobile-icon format" [class.active]="showTextFormatting" [disabled]="!canFormatText()"
+          (click)="toggleTextFormatting($event)" title="Formatting options">A</button>
         <div class="mobile-icon check" (click)="toggleCbox()" title="Add checkboxes">
           <div class="glyph check"></div>
         </div>
@@ -776,13 +803,13 @@
         (drag)="cboxDrag($event)"
         (dragover)="cboxDragOver(cb.id, isDone, $event)" (drop)="cboxDrop(cb.id, isDone, $event)">
         <div class="cbox-move-icon"
+          [style.margin-left.px]="checkboxIndentPx(cb)"
           (mousedown)="cboxPrepareDrag(cb.id)" (mouseup)="cboxCancelDrag()"
           (touchstart)="cboxTouchStart(cb.id, isDone, $event)"
           (touchmove)="cboxTouchMove($event)"
           (touchend)="cboxTouchEnd()"
           (touchcancel)="cboxTouchEnd()"></div>
         <div [class.done]="cb.done" class="cbox-icon"
-          [style.margin-left.px]="checkboxIndentPx(cb)"
           (touchend)="toggleCboxDone(cb.id, $event)"
           (click)="toggleCboxDone(cb.id, $event)"></div>
         <div class="cbox-note-container">
@@ -822,6 +849,9 @@
   <div (click)="moreMenu(moreMenuTt).toggleCbox()">
     {{moreMenuEls.checkbox.value}}
   </div>
+  @if (hasCheckedCboxItems()) {
+    <div (click)="uncheckAllCboxItems(moreMenuTt)">Uncheck all items</div>
+  }
   @if (isEditing && !isSharedNoteForCurrentUser() && !noteToEdit.locked) {
     <div (click)="lockCurrentNote(moreMenuTt)">Lock note</div>
   }

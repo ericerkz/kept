@@ -85,7 +85,12 @@ export class InputComponent implements OnInit {
   isTrashed = false
   isCboxCompletedListCollapsed = false
   showTextFormatting = false
+  showSelectionFormatting = false
+  selectionFormattingStyle: Record<string, string> = {}
   private textHistoryTarget?: HTMLElement
+  private textSelectionFrame?: number
+  private readonly textSelectionChangeHandler = () => this.scheduleSelectionFormattingUpdate()
+  private readonly textSelectionRepositionHandler = () => this.scheduleSelectionFormattingUpdate()
   private cboxHistory: CheckboxI[][] = []
   private cboxHistoryIndex = -1
   private lastCboxStructuralChangeAt = 0
@@ -451,7 +456,8 @@ export class InputComponent implements OnInit {
           this.flushPendingReminderSaves(this.noteToEdit.id!, noteObj)
         } catch (error) {
           if (this.auth.isAuthExpiredError(error)) return false
-          throw error
+          this.showNoteSaveError()
+          return false
         } finally {
           this.coEditSaveInFlight = false
           if (this.coEditSaveQueued) {
@@ -464,7 +470,8 @@ export class InputComponent implements OnInit {
           await this.notesService.update(noteObj, this.noteToEdit.id!)
         } catch (error) {
           if (this.auth.isAuthExpiredError(error)) return false
-          throw error
+          this.showNoteSaveError()
+          return false
         }
         this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
         this.labelsDirty = false
@@ -601,7 +608,7 @@ export class InputComponent implements OnInit {
     if (!this.isEditing || !this.noteToEdit?.id || this.labelsDirty) return selectedLabels
 
     try {
-      const fresh = await this.notesService.get(this.noteToEdit.id, { merge: true })
+      const fresh = await this.notesService.get(this.noteToEdit.id, { merge: false })
       return this.normalizeLabels(fresh?.labels || [])
     } catch {
       return this.normalizeLabels(this.noteToEdit.labels || selectedLabels)
@@ -829,6 +836,24 @@ export class InputComponent implements OnInit {
     this.cboxHistoryRedoMode = this.canStepCboxHistory('redo')
     this.cd.detectChanges()
     this.queueCoEditAutosave()
+  }
+
+  hasCheckedCboxItems() {
+    return this.isCbox.value && this.checkBoxes.some(cb => cb.done)
+  }
+
+  uncheckAllCboxItems(tooltipEl?: HTMLDivElement) {
+    this.syncCboxDomIntoModel()
+    if (!this.checkBoxes.some(cb => cb.done)) {
+      if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
+      return
+    }
+    this.checkBoxes = this.checkBoxes.map(cb => cb.done ? { ...cb, done: false } : cb)
+    this.noteToEdit.checkBoxes = this.checkBoxes
+    this.pushCboxHistorySnapshot()
+    this.cd.detectChanges()
+    this.queueCoEditAutosave()
+    if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
   }
 
   private notePlainText(value?: string | null) {
@@ -1865,6 +1890,69 @@ export class InputComponent implements OnInit {
   toggleTextFormatting(event: Event) {
     event.stopPropagation()
     this.showTextFormatting = !this.showTextFormatting
+    if (this.showTextFormatting) this.showSelectionFormatting = false
+  }
+
+  private scheduleSelectionFormattingUpdate() {
+    if (this.textSelectionFrame) return
+    this.textSelectionFrame = requestAnimationFrame(() => {
+      this.textSelectionFrame = undefined
+      this.zone.run(() => this.updateSelectionFormatting())
+    })
+  }
+
+  private updateSelectionFormatting() {
+    if (this.destroyed || this.showTextFormatting || this.isDrawingNote || !this.canFormatText() || this.shouldUseMobileFormattingBar()) {
+      this.showSelectionFormatting = false
+      return
+    }
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      this.showSelectionFormatting = false
+      return
+    }
+    const range = selection.getRangeAt(0)
+    if (!this.selectionBelongsToTextEditor(range)) {
+      this.showSelectionFormatting = false
+      return
+    }
+    const rect = this.firstVisibleRangeRect(range)
+    const noteRect = this.noteMain?.nativeElement.getBoundingClientRect()
+    if (!rect || !noteRect) {
+      this.showSelectionFormatting = false
+      return
+    }
+    const toolbarHalfWidth = 132
+    const minLeft = toolbarHalfWidth + 8
+    const maxLeft = Math.max(minLeft, noteRect.width - toolbarHalfWidth - 8)
+    const left = Math.min(maxLeft, Math.max(minLeft, rect.left + rect.width / 2 - noteRect.left))
+    let top = rect.top - noteRect.top - 48
+    if (top < 8) top = rect.bottom - noteRect.top + 8
+    this.selectionFormattingStyle = {
+      left: `${left}px`,
+      top: `${Math.min(noteRect.height - 48, Math.max(8, top))}px`
+    }
+    this.showSelectionFormatting = true
+  }
+
+  private selectionBelongsToTextEditor(range: Range) {
+    const container = range.commonAncestorContainer
+    const element = container.nodeType === Node.ELEMENT_NODE
+      ? container as Element
+      : container.parentElement
+    if (!element) return false
+    const title = this.noteTitle?.nativeElement
+    const body = this.noteBody?.nativeElement
+    return !!(title?.contains(element) || body?.contains(element))
+  }
+
+  private firstVisibleRangeRect(range: Range) {
+    const rects = Array.from(range.getClientRects()).filter(rect => rect.width || rect.height)
+    return rects[0] || range.getBoundingClientRect()
+  }
+
+  private shouldUseMobileFormattingBar() {
+    return window.matchMedia('(max-width: 599px), (max-height: 500px) and (orientation: landscape)').matches
   }
 
   rememberTextHistoryTarget(target?: HTMLElement | null) {
@@ -1917,6 +2005,7 @@ export class InputComponent implements OnInit {
     if (command === 'italic') document.execCommand('italic')
     if (command === 'underline') document.execCommand('underline')
     if (command === 'clear') document.execCommand('removeFormat')
+    this.scheduleSelectionFormattingUpdate()
     this.updateInputLength({
       title: this.noteTitle?.nativeElement.innerHTML.length || 0,
       body: this.noteBody?.nativeElement.innerHTML.length || 0
@@ -3126,6 +3215,9 @@ export class InputComponent implements OnInit {
 
   saveNoteSubscription?: Subscription
   ngAfterViewInit() {
+    document.addEventListener('selectionchange', this.textSelectionChangeHandler)
+    window.addEventListener('resize', this.textSelectionRepositionHandler)
+    document.addEventListener('scroll', this.textSelectionRepositionHandler, true)
     this.mobileComposerSubscription = this.Shared.openMobileComposer.subscribe(open => {
       if (open) this.openMobileComposer()
     })
@@ -3284,6 +3376,10 @@ export class InputComponent implements OnInit {
     this.mobileComposerSubscription?.unsubscribe();
     this.closeMobileComposerSubscription?.unsubscribe();
     this.preferencesSubscription?.unsubscribe();
+    document.removeEventListener('selectionchange', this.textSelectionChangeHandler);
+    window.removeEventListener('resize', this.textSelectionRepositionHandler);
+    document.removeEventListener('scroll', this.textSelectionRepositionHandler, true);
+    if (this.textSelectionFrame) cancelAnimationFrame(this.textSelectionFrame);
     this.unbindKeyboardOffset();
     this.unbindAndroidBackgroundLocationResume();
     this.unlockBodyScroll();

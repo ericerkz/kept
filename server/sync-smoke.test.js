@@ -75,6 +75,24 @@ async function main() {
     const collabToken = collabLogin.token;
     const collabHeaders = authHeaders(collabToken);
     const now = Date.now();
+    const collabExistingNote = await request('/notes', {
+      method: 'POST',
+      headers: collabHeaders,
+      body: JSON.stringify({
+        syncId: 'collab-existing-note',
+        noteTitle: 'Collaborator existing note',
+        noteBody: '',
+        pinned: false,
+        bgColor: '',
+        bgImage: '',
+        checkBoxes: [],
+        images: [],
+        isCbox: false,
+        labels: [],
+        archived: false,
+        trashed: false
+      })
+    });
 
     const noteAndReminder = await request('/sync/mutations', {
       method: 'POST',
@@ -262,6 +280,10 @@ async function main() {
       headers,
       body: JSON.stringify({ userIds: [collabLogin.user.id] })
     });
+    const collabNotesAfterShare = await request('/notes?view=card&limit=5', { headers: collabHeaders });
+    const sharedIndex = collabNotesAfterShare.notes.findIndex(note => note.id === sharedNote.id);
+    const existingIndex = collabNotesAfterShare.notes.findIndex(note => note.id === collabExistingNote.id);
+    assert(sharedIndex > -1 && existingIndex > -1 && sharedIndex < existingIndex, 'newly shared note should appear above existing notes for the recipient');
     await request(`/notes/${sharedNote.id}`, {
       method: 'PATCH',
       headers: collabHeaders,
@@ -276,6 +298,41 @@ async function main() {
     const ownerView = await request(`/notes/${sharedNote.id}`, { headers });
     assert.strictEqual(ownerView.pinned, false, 'owner unpin should update only the owner pin state');
     assert.strictEqual(collaboratorView.pinned, true, 'collaborator pin should survive owner unpin');
+
+    await request(`/notes/${sharedNote.id}`, {
+      method: 'PUT',
+      headers: collabHeaders,
+      body: JSON.stringify({
+        ...collaboratorView,
+        noteTitle: 'Shared note edited by collaborator',
+        noteBody: '<div>Collaborator edit persisted</div>',
+        checkBoxes: [{ id: 1, data: 'Collaborator checklist edit', done: false, indent: 0 }]
+      })
+    });
+    const ownerAfterCollaboratorEdit = await request(`/notes/${sharedNote.id}`, { headers });
+    assert.strictEqual(ownerAfterCollaboratorEdit.noteTitle, 'Shared note edited by collaborator', 'collaborator should be able to edit shared note title');
+    assert.strictEqual(ownerAfterCollaboratorEdit.noteBody, '<div>Collaborator edit persisted</div>', 'collaborator should be able to edit shared note body');
+    assert.strictEqual(ownerAfterCollaboratorEdit.checkBoxes[0].data, 'Collaborator checklist edit', 'collaborator should be able to edit shared note checklist items');
+
+    const collaboratorSyncBeforeLeave = await request('/sync/changes?cursor=0&limit=500', { headers: collabHeaders });
+    await request(`/notes/${sharedNote.id}`, {
+      method: 'DELETE',
+      headers: collabHeaders
+    });
+    const collaboratorSyncAfterLeave = await request(`/sync/changes?cursor=${collaboratorSyncBeforeLeave.serverCursor}&limit=500`, { headers: collabHeaders });
+    assert(
+      collaboratorSyncAfterLeave.changes.some(change =>
+        change.resourceType === 'note' &&
+        change.resourceSyncId === 'shared-pin-note' &&
+        change.operation === 'delete'
+      ),
+      'collaborator self-unshare should emit a note delete sync change for that collaborator'
+    );
+    await assert.rejects(
+      () => request(`/notes/${sharedNote.id}`, { headers: collabHeaders }),
+      /404/,
+      'collaborator should lose access after self-unsharing'
+    );
 
     const ownerUnpinnedSharedNote = await request('/notes', {
       method: 'POST',

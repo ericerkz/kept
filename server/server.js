@@ -2624,6 +2624,18 @@ async function getNoteRecipientIds(noteId) {
   return rows.map(row => row.userId).filter(Boolean);
 }
 
+async function moveNoteToTopForUsers(noteId, userIds) {
+  const ids = [...new Set((userIds || []).map(Number).filter(Boolean))];
+  if (!noteId || !ids.length) return;
+  const base = Date.now();
+  for (let index = 0; index < ids.length; index += 1) {
+    await run(
+      'INSERT OR REPLACE INTO user_note_positions (userId, noteId, sortOrder) VALUES (?, ?, ?)',
+      [ids[index], noteId, base + ids.length - index]
+    );
+  }
+}
+
 async function broadcastNoteChange(noteId, action, userIds, options = {}) {
   const recipients = userIds || await getNoteRecipientIds(noteId);
   if (action !== 'deleted' && !options.preserveStamp) {
@@ -4970,9 +4982,11 @@ app.put('/api/notes/:id/collaborators', requireAuth, asyncRoute(async (req, res)
   }
   const previousRecipients = await getNoteRecipientIds(noteId);
   const previousCollaborators = await all('SELECT userId FROM note_collaborators WHERE noteId = ?', [noteId]);
+  const previousCollaboratorIds = new Set(previousCollaborators.map(row => Number(row.userId)).filter(Boolean));
 
   const userIds = Array.isArray(req.body.userIds) ? req.body.userIds.map(Number).filter(Boolean) : [];
   const nextSet = new Set(userIds.filter(userId => userId !== req.user.id));
+  const newlyAddedUserIds = [];
   await run('DELETE FROM note_collaborators WHERE noteId = ?', [noteId]);
   for (const userId of nextSet) {
     const exists = await get('SELECT id FROM users WHERE id = ?', [userId]);
@@ -4981,8 +4995,10 @@ app.put('/api/notes/:id/collaborators', requireAuth, asyncRoute(async (req, res)
         'INSERT OR IGNORE INTO note_collaborators (noteId, userId, createdAt) VALUES (?, ?, ?)',
         [noteId, userId, new Date().toISOString()]
       );
+      if (!previousCollaboratorIds.has(userId)) newlyAddedUserIds.push(userId);
     }
   }
+  await moveNoteToTopForUsers(noteId, newlyAddedUserIds);
   // Track removed collaborators so they can be re-added via the rejoin endpoint
   // (the snackbar undo flow). Without a grant, rejoin would let any user attach
   // themselves to any note id.
@@ -5040,6 +5056,7 @@ app.post('/api/notes/:id/collaborators/rejoin', requireAuth, asyncRoute(async (r
     'INSERT OR IGNORE INTO note_collaborators (noteId, userId, createdAt) VALUES (?, ?, ?)',
     [noteId, req.user.id, new Date().toISOString()]
   );
+  await moveNoteToTopForUsers(noteId, [req.user.id]);
   await run('DELETE FROM note_collaborator_rejoin_grants WHERE noteId = ? AND userId = ?', [noteId, req.user.id]);
   await broadcastNoteChange(noteId, 'collaborators-updated');
   res.status(204).end();
@@ -5523,11 +5540,25 @@ app.delete('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   } else {
     // If not owner, just remove self as collaborator (unshare).
     // Grant a rejoin token so the snackbar undo flow can re-add them.
+    const revokedStamp = serverLwwStamp();
     await run('DELETE FROM note_collaborators WHERE noteId = ? AND userId = ?', [noteId, req.user.id]);
     await run(
       'INSERT OR REPLACE INTO note_collaborator_rejoin_grants (noteId, userId, grantedAt) VALUES (?, ?, ?)',
       [noteId, req.user.id, new Date().toISOString()]
     );
+    await recordNoteSyncChange(noteId, 'delete', [req.user.id], {
+      syncId: note.syncId,
+      lwwPhysicalMs: revokedStamp.physicalMs,
+      lwwLogical: revokedStamp.logical,
+      lwwDeviceId: revokedStamp.deviceId,
+      lwwOperationId: revokedStamp.operationId
+    });
+    broadcastRealtime([req.user.id], {
+      type: 'notes-changed',
+      action: 'access-revoked',
+      noteId,
+      syncId: note.syncId
+    });
     await broadcastNoteChange(noteId, 'updated');
   }
   await cleanupUnusedLabels(req.user.id);

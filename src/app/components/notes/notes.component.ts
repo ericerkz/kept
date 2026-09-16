@@ -35,6 +35,7 @@ type KeptWidgetIntentsPlugin = {
 type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string }
 type NoteBodyPreview = { segments: NoteBodySegment[]; urls: string[] }
 type NoteMeta = { rawBody: string; title: string; bgKey: string; urls: string[]; linkOnly: boolean; textColor: string; displayBody: string; bodySegments: NoteBodySegment[]; hiddenLinkCount: number; visibleUrls: string[] }
+type PullRefreshState = 'idle' | 'pulling' | 'ready' | 'refreshing'
 
 const CapacitorApp = registerPlugin<CapacitorAppPlugin>('App');
 const KeptWidgetIntents = registerPlugin<KeptWidgetIntentsPlugin>('KeptWidgetIntents');
@@ -556,6 +557,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       if (this.mainContainer.nativeElement.clientWidth >= 600) this.noteWidth = 600
       else this.noteWidth = this.mainContainer.nativeElement.clientWidth - 10
       numberOfColumns = 1
+      masonryWidth = `${this.noteWidth}px`
     }
     document.documentElement.style.setProperty('--note-width', this.noteWidth + "px")
     // --
@@ -576,7 +578,6 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       const instance = Bricks({ container: node, packed: 'data-packed', sizes: sizes, position: false });
       instance.pack()
     }
-    window.onresize = () => { if (this.Shared.noteViewType.value === 'list') this.Shared.noteViewType.next('grid') }
     //? we align the titles to the masonry width
     this.title.forEach(el => {
       if (this.Shared.noteViewType.value === 'list') el.nativeElement.style.maxWidth = masonryWidth
@@ -1014,6 +1015,19 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   private touchStartedAt = 0
   private touchMoved = false
+  pullRefreshState: PullRefreshState = 'idle'
+  pullRefreshDistance = 0
+  private readonly pullRefreshThreshold = 118
+  private readonly pullRefreshMaxDistance = 84
+  private pullRefreshStartX = 0
+  private pullRefreshStartY = 0
+  private pullRefreshTracking = false
+  private pullRefreshActive = false
+  private pullRefreshSettleTimer?: number
+  private pullRefreshStartListener?: (event: TouchEvent) => void
+  private pullRefreshMoveListener?: (event: TouchEvent) => void
+  private pullRefreshEndListener?: (event: TouchEvent) => void
+  private pullRefreshCancelListener?: (event: TouchEvent) => void
 
   touchDragNote: NoteI | null = null
   private touchDragEl?: HTMLDivElement
@@ -1092,6 +1106,149 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.openModal(noteEl, note)
       this.suppressNextOpen = true
       setTimeout(() => { this.suppressNextOpen = false }, 350)
+    }
+  }
+
+  private registerPullToRefresh() {
+    this.pullRefreshStartListener = event => this.onPullRefreshTouchStart(event)
+    this.pullRefreshMoveListener = event => this.onPullRefreshTouchMove(event)
+    this.pullRefreshEndListener = () => this.onPullRefreshTouchEnd()
+    this.pullRefreshCancelListener = () => this.settlePullRefresh()
+
+    document.addEventListener('touchstart', this.pullRefreshStartListener, { passive: true })
+    document.addEventListener('touchmove', this.pullRefreshMoveListener, { passive: false })
+    document.addEventListener('touchend', this.pullRefreshEndListener, { passive: true })
+    document.addEventListener('touchcancel', this.pullRefreshCancelListener, { passive: true })
+  }
+
+  private unregisterPullToRefresh() {
+    if (this.pullRefreshStartListener) document.removeEventListener('touchstart', this.pullRefreshStartListener)
+    if (this.pullRefreshMoveListener) document.removeEventListener('touchmove', this.pullRefreshMoveListener)
+    if (this.pullRefreshEndListener) document.removeEventListener('touchend', this.pullRefreshEndListener)
+    if (this.pullRefreshCancelListener) document.removeEventListener('touchcancel', this.pullRefreshCancelListener)
+    this.pullRefreshStartListener = undefined
+    this.pullRefreshMoveListener = undefined
+    this.pullRefreshEndListener = undefined
+    this.pullRefreshCancelListener = undefined
+    this.clearPullRefreshSettleTimer()
+  }
+
+  private onPullRefreshTouchStart(event: TouchEvent) {
+    if (!this.canStartPullRefresh(event)) return
+    const touch = event.touches[0]
+    if (!touch) return
+    this.clearPullRefreshSettleTimer()
+    this.pullRefreshStartX = touch.clientX
+    this.pullRefreshStartY = touch.clientY
+    this.pullRefreshTracking = true
+    this.pullRefreshActive = false
+  }
+
+  private onPullRefreshTouchMove(event: TouchEvent) {
+    if (!this.pullRefreshTracking || this.pullRefreshState === 'refreshing') return
+    const touch = event.touches[0]
+    if (!touch) return
+
+    const dx = Math.abs(touch.clientX - this.pullRefreshStartX)
+    const dy = touch.clientY - this.pullRefreshStartY
+    if (dy <= 0) {
+      if (this.pullRefreshActive) {
+        this.zone.run(() => {
+          this.pullRefreshDistance = 0
+          this.pullRefreshState = 'pulling'
+        })
+      } else {
+        this.resetPullRefresh()
+      }
+      return
+    }
+    if (!this.pullRefreshActive && window.scrollY > 0) {
+      this.resetPullRefresh()
+      return
+    }
+    if (!this.pullRefreshActive && (dy < 18 || dy < dx * 1.4)) return
+
+    this.pullRefreshActive = true
+    if (event.cancelable) event.preventDefault()
+
+    const distance = Math.min(this.pullRefreshMaxDistance, Math.round(dy * 0.55))
+    const state: PullRefreshState = dy >= this.pullRefreshThreshold ? 'ready' : 'pulling'
+    this.zone.run(() => {
+      this.pullRefreshDistance = distance
+      this.pullRefreshState = state
+    })
+  }
+
+  private onPullRefreshTouchEnd() {
+    if (!this.pullRefreshTracking) return
+    const shouldRefresh = this.pullRefreshActive && this.pullRefreshState === 'ready'
+    this.pullRefreshTracking = false
+    this.pullRefreshActive = false
+    if (shouldRefresh) {
+      this.refreshFromPullGesture()
+    } else if (this.pullRefreshState !== 'refreshing') {
+      this.settlePullRefresh()
+    }
+  }
+
+  private canStartPullRefresh(event: TouchEvent) {
+    if (!this.isMobilePullRefreshView()) return false
+    if (this.pullRefreshState === 'refreshing') return false
+    if (event.touches.length !== 1) return false
+    if (window.scrollY > 0) return false
+    if (this.modalContainer?.nativeElement?.style.display === 'block') return false
+    if (this.Shared.selectedNoteIds.value.length) return false
+    if (this.touchDragNote) return false
+
+    const target = event.target as HTMLElement | null
+    if (!target) return false
+    return !target.closest('input, textarea, select, button, a, [contenteditable="true"], .reminder-date-dialog, .modal-container, .profile-menu, .filters-dropdown')
+  }
+
+  private isMobilePullRefreshView() {
+    return this.nativePhoneLayout || window.matchMedia('(max-width: 767px)').matches
+  }
+
+  private resetPullRefresh() {
+    this.clearPullRefreshSettleTimer()
+    this.pullRefreshTracking = false
+    this.pullRefreshActive = false
+    this.zone.run(() => {
+      this.pullRefreshDistance = 0
+      this.pullRefreshState = 'idle'
+    })
+  }
+
+  private settlePullRefresh() {
+    this.clearPullRefreshSettleTimer()
+    this.pullRefreshTracking = false
+    this.pullRefreshActive = false
+    this.zone.run(() => {
+      this.pullRefreshDistance = 0
+      if (this.pullRefreshState !== 'idle') this.pullRefreshState = 'pulling'
+    })
+    this.pullRefreshSettleTimer = window.setTimeout(() => this.resetPullRefresh(), 190)
+  }
+
+  private clearPullRefreshSettleTimer() {
+    if (!this.pullRefreshSettleTimer) return
+    window.clearTimeout(this.pullRefreshSettleTimer)
+    this.pullRefreshSettleTimer = undefined
+  }
+
+  private async refreshFromPullGesture() {
+    this.zone.run(() => {
+      this.pullRefreshState = 'refreshing'
+      this.pullRefreshDistance = 62
+    })
+    try {
+      await this.Shared.refreshData()
+      Snackbar.show({ pos: 'bottom-left', text: 'Notes refreshed', duration: 2200 })
+    } catch (error) {
+      console.error(error)
+      Snackbar.show({ pos: 'bottom-left', text: 'Could not refresh notes', duration: 3000 })
+    } finally {
+      setTimeout(() => this.settlePullRefresh(), 350)
     }
   }
 
@@ -2407,6 +2564,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   ngOnInit(): void {
     this.syncCurrentPage(this.router.url)
     window.addEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
+    this.registerPullToRefresh()
     this.registerWidgetOpenHandlers()
     this.subscriptions.push(
       this.Shared.closeSideBar.subscribe(() => { setTimeout(() => { this.scheduleBuildMasonry(true) }, 200) }),
@@ -2534,6 +2692,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   ngOnDestroy(): void {
     window.removeEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
+    this.unregisterPullToRefresh()
     this.widgetAppUrlOpenHandle?.remove()
     this.widgetAppStateHandle?.remove()
     this.widgetAppResumeHandle?.remove()

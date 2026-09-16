@@ -275,12 +275,22 @@ a:hover {
   padding: 20px;
 }
 
+.hosted-setup-callout h2,
 .hosted-setup-callout h3 {
   margin-top: 0;
 }
 
 .hosted-setup-callout img {
   display: block;
+}
+
+.hosted-setup-callout ol {
+  margin: 16px 0 0;
+  padding-left: 22px;
+}
+
+.hosted-setup-callout li {
+  margin: 6px 0;
 }
 
 .hosted-setup-callout__note {

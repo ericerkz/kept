@@ -480,6 +480,14 @@ app-input .text-format-toolbar {
   z-index: 5;
 }
 
+app-input .selection-format-toolbar {
+  bottom: auto;
+  left: 0;
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 20;
+}
+
 app-input .note-main.detail-bg .text-format-toolbar,
 body.light-theme app-input .text-format-toolbar {
   background: #fff;
@@ -528,7 +536,7 @@ app-input .text-format-toolbar .underline {
 
 app-input .text-format-toolbar .clear-format {
   font-weight: 500;
-  text-decoration: line-through;
+  min-width: 48px;
 }
 
 app-input .text-format-trigger {
@@ -554,6 +562,25 @@ app-input .text-format-trigger {
 app-input .text-format-trigger:disabled {
   cursor: default;
   opacity: 0.25;
+}
+
+app-input .mobile-format-toolbar {
+  bottom: calc(100% + 6px);
+  left: 8px;
+  right: 8px;
+  justify-content: center;
+  max-width: calc(100vw - 16px);
+}
+
+@media (max-width: 599px), (max-height: 500px) and (orientation: landscape) {
+  app-input .selection-format-toolbar {
+    display: none;
+  }
+
+  app-input .text-format-toolbar button {
+    min-width: 30px;
+    padding: 0 6px;
+  }
 }
 
 app-input .note-body h1,

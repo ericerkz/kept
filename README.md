@@ -188,6 +188,14 @@ server {
 }
 ```
 
+### Advanced Access Gateways
+
+The native iOS and Android apps support optional custom connection headers for reverse proxies or access gateways that require them, such as Cloudflare Access service tokens or shared-secret proxy headers. Configure these only if your proxy setup requires them.
+
+If you access Kept through Tailscale, WireGuard, another VPN, a LAN hostname/IP, or more than one reverse-proxy domain, the CORS settings may be relevant. These setups do not require special CORS settings by themselves; CORS only matters when the browser page and Kept API are reached through different origins, or when you restrict origins with `KEPT_CORS_ORIGINS`. If you use `KEPT_CORS_ORIGINS`, include each exact browser origin you use, such as your Tailnet name, VPN-only domain, LAN IP, or public reverse-proxy domain, including the scheme and port when applicable. For the simplest personal setup, leave `KEPT_CORS_ALLOW_ALL=1` enabled instead. Same-origin access does not need extra CORS configuration.
+
+Custom headers apply to normal HTTP API traffic. Realtime presence and live collaboration use WebSockets at `/api/realtime`; browser/WebView WebSockets cannot attach arbitrary custom headers, so realtime features may not work behind gateways that require header auth on WebSocket upgrade requests.
+
 ## Backups And Restore
 
 Kept can create consistent SQLite backups while the app is running. Admin users can schedule daily, weekly, or monthly backups from User Management, or create one manually.
