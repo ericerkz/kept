@@ -188,7 +188,11 @@ server {
 }
 ```
 
-### Advanced Access Gateways
+### Advanced config
+
+#### VPN/Tailscale/WireGuard setups
+
+If you access Kept through Tailscale, WireGuard, another VPN, a LAN hostname/IP, or more than one reverse-proxy domain, the CORS settings may be relevant. These setups do not require special CORS settings by themselves; CORS only matters when the browser page and Kept API are reached through different origins, or when you restrict origins with `KEPT_CORS_ORIGINS`. If you use `KEPT_CORS_ORIGINS`, include each exact browser origin you use, such as your Tailnet name, VPN-only domain, LAN IP, or public reverse-proxy domain, including the scheme and port when applicable. For the simplest personal setup, leave `KEPT_CORS_ALLOW_ALL=1` enabled instead. Same-origin access does not need extra CORS configuration.
 
 #### Custom header support in the mobile apps
 
@@ -198,7 +202,7 @@ Custom headers help the mobile apps pass normal Kept HTTP requests through a hea
 
 Custom headers do not apply to realtime WebSocket connections. Realtime presence and live collaboration use WebSockets at `/api/realtime`, and browser/WebView WebSockets cannot attach arbitrary custom headers. Behind gateways that require header auth on WebSocket upgrade requests, normal reads/writes should still work, but live updates may only appear after refocusing the app or manually refreshing.
 
-If you access Kept through Tailscale, WireGuard, another VPN, a LAN hostname/IP, or more than one reverse-proxy domain, the CORS settings may be relevant. These setups do not require special CORS settings by themselves; CORS only matters when the browser page and Kept API are reached through different origins, or when you restrict origins with `KEPT_CORS_ORIGINS`. If you use `KEPT_CORS_ORIGINS`, include each exact browser origin you use, such as your Tailnet name, VPN-only domain, LAN IP, or public reverse-proxy domain, including the scheme and port when applicable. For the simplest personal setup, leave `KEPT_CORS_ALLOW_ALL=1` enabled instead. Same-origin access does not need extra CORS configuration.
+
 
 ## Backups And Restore
 
