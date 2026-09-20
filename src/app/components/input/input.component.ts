@@ -278,6 +278,7 @@ export class InputComponent implements OnInit {
     }
     this.labels = JSON.parse(JSON.stringify(this.Shared.label.list))
     this.labelsDirty = false
+    if (!this.isEditing) this.preselectRouteLabel()
     this.binderName = this.isEditing ? (this.noteToEdit.binder || '') : this.currentRouteBinder()
     /*
     the correct way is to use `mousedown` because : 
@@ -3133,6 +3134,34 @@ export class InputComponent implements OnInit {
     if (!this.isEditing || !this.noteToEdit?.id || !this.noteToEdit.locked) return
     this.noteLock.clearUnlocked(this.noteToEdit)
     this.Shared.closeModal.next(true)
+  }
+
+  private currentRouteLabel() {
+    const path = this.router.url.split('?')[0].split('#')[0]
+    const match = path.match(/\/label\/([^/]+)/)
+    if (!match) return ''
+    try {
+      return decodeURIComponent(match[1])
+    } catch {
+      return match[1]
+    }
+  }
+
+  /**
+   * Ticks the label of the page the note is being written on, the way binders
+   * are already prefilled from the route just below. Without it a note created
+   * from a label page is saved with no label at all, so it leaves the view the
+   * moment it is saved.
+   *
+   * Names are compared exactly, because that is how the notes pipe decides
+   * which notes a label page shows; a looser match here could tick a label
+   * that still leaves the note filtered out.
+   */
+  private preselectRouteLabel() {
+    const name = this.currentRouteLabel()
+    if (!name) return
+    const label = this.labels.find(candidate => candidate.name === name)
+    if (label) label.added = true
   }
 
   private currentRouteBinder() {
