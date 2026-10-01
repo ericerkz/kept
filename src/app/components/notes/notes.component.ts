@@ -780,18 +780,19 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   clickedNoteEl?: HTMLDivElement // needed in setModalStyling()
+  private keyboardTrashInFlight = false
 
-  @HostListener('document:keydown.escape')
-  onEscapeKey() {
+  @HostListener('document:keydown.escape', ['$event'])
+  onEscapeKey(event: Event) {
+    const isTooltipOpen = !!document.querySelector('[data-is-tooltip-open="true"]')
     if (this.modalContainer.nativeElement.style.display === 'block') {
-      let isTooltipOpen = document.querySelector('[data-is-tooltip-open="true"]')
       if (!isTooltipOpen) {
         this.Shared.saveNote.next(true)
       }
       return
     }
-    // Same order the Android back button already follows: with no note open,
-    // Escape drops the selection.
+    if (!this.isDesktopKeyboardShortcutView()) return
+    if (event.defaultPrevented || isTooltipOpen || this.isTextEntryTarget(event.target)) return
     if (this.Shared.selectedNoteIds.value.length) this.Shared.clearNoteSelection()
   }
 
@@ -808,12 +809,24 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
    */
   @HostListener('document:keydown.delete', ['$event'])
   @HostListener('document:keydown.backspace', ['$event'])
-  onDeleteKey(event: Event) {
+  async onDeleteKey(event: Event) {
+    if (!this.isDesktopKeyboardShortcutView()) return
+    if (event.defaultPrevented || (event as KeyboardEvent).repeat || this.keyboardTrashInFlight) return
     if (!this.Shared.selectedNoteIds.value.length) return
     if (this.currentPage.trash) return
     if (this.isTextEntryTarget(event.target)) return
     event.preventDefault()
-    this.Shared.bulkTrashSelected()
+    this.keyboardTrashInFlight = true
+    try {
+      await this.Shared.bulkTrashSelected()
+    } finally {
+      this.keyboardTrashInFlight = false
+    }
+  }
+
+  private isDesktopKeyboardShortcutView() {
+    if (Capacitor.isNativePlatform()) return false
+    return window.matchMedia('(min-width: 768px) and (hover: hover) and (pointer: fine)').matches
   }
 
   private isTextEntryTarget(target: EventTarget | null) {
