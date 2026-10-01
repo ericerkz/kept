@@ -653,9 +653,10 @@ export class InputComponent implements OnInit {
   }
 
   checklistRowsForSection(isDone: boolean) {
-    return this.preferences.value.moveCompletedChecklistItemsToBottom
+    const rows = this.preferences.value.moveCompletedChecklistItemsToBottom
       ? this.checkBoxes.filter(cb => cb.done === isDone)
       : (isDone ? [] : this.checkBoxes)
+    return normalizeIndentLevels(rows)
   }
 
   completedChecklistCount() {

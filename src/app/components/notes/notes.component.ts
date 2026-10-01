@@ -19,7 +19,7 @@ import { isNativePhonePlatform, shouldUseFullscreenNoteEditor } from 'src/app/ut
 import { NoteLockService } from 'src/app/services/note-lock.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
-import { descendantIndexes, normalizeIndentLevel } from 'src/app/utils/checkbox-indent';
+import { descendantIndexes, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
 
 declare var Snackbar: any;
 type PluginListenerHandle = { remove: () => Promise<void> | void };
@@ -261,9 +261,10 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   overviewChecklistItems(note: NoteI) {
     const checkBoxes = note.checkBoxes || []
-    return this.preferences.value.moveCompletedChecklistItemsToBottom
+    const rows = this.preferences.value.moveCompletedChecklistItemsToBottom
       ? checkBoxes.filter(item => !item.done)
       : checkBoxes
+    return normalizeIndentLevels(rows)
   }
 
   overviewCompletedChecklistCount(note: NoteI) {

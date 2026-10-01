@@ -45,3 +45,22 @@ test('normalizeIndentLevels removes orphaned deep rows after reorder', () => {
   assert.deepEqual(normalizeIndentLevels(rows(2, 0, 3, 2, 1)).map(item => item.indentLevel), [0, 0, 1, 2, 1]);
   assert.deepEqual(normalizeIndentLevels(rows(0, 1, 3, 0, 2)).map(item => item.indentLevel), [0, 1, 2, 0, 1]);
 });
+
+test('normalizeIndentLevels repairs filtered checklist sections without changing stored rows', () => {
+  const stored = [
+    { done: true, indentLevel: 0 },
+    { done: false, indentLevel: 1 },
+    { done: false, indentLevel: 2 },
+    { done: true, indentLevel: 1 }
+  ];
+
+  assert.deepEqual(
+    normalizeIndentLevels(stored.filter(item => !item.done)).map(item => item.indentLevel),
+    [0, 1]
+  );
+  assert.deepEqual(
+    normalizeIndentLevels(stored.filter(item => item.done)).map(item => item.indentLevel),
+    [0, 1]
+  );
+  assert.deepEqual(stored.map(item => item.indentLevel), [0, 1, 2, 1]);
+});
