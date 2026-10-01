@@ -21,7 +21,7 @@ import { isNativePhonePlatform, shouldUseFullscreenNoteEditor } from 'src/app/ut
 import { NoteLockService } from 'src/app/services/note-lock.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
-import { descendantIndexes, maxIndentLevelAt, normalizeIndentLevel } from 'src/app/utils/checkbox-indent';
+import { descendantIndexes, maxIndentLevelAt, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
 import { environment } from 'src/environments/environment';
 
 declare var Snackbar: any;
@@ -2713,6 +2713,7 @@ export class InputComponent implements OnInit {
     const previousRects = this.getCboxRowRects(isDone)
     const [moved] = this.checkBoxes.splice(fromIdx, 1)
     this.checkBoxes.splice(adjustedInsertIdx, 0, moved)
+    this.checkBoxes = normalizeIndentLevels(this.checkBoxes)
     this.checkBoxes = [...this.checkBoxes]
     this.animateCboxRows(previousRects, this.draggedCboxId)
     this.cboxDragOrderChanged = true

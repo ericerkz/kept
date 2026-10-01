@@ -19,6 +19,20 @@ export function maxIndentLevelAt(items: IndentableI[], index: number): number {
   return Math.min(normalizeIndentLevel(items[index - 1]?.indentLevel) + 1, MAX_INDENT_LEVEL);
 }
 
+/** Clamp every row so no item is orphaned deeper than the row above allows. */
+export function normalizeIndentLevels<T extends IndentableI>(items: T[]): T[] {
+  const normalized: T[] = [];
+  for (const item of items) {
+    const currentLevel = normalizeIndentLevel(item?.indentLevel);
+    const maxLevel = normalized.length
+      ? Math.min(normalizeIndentLevel(normalized[normalized.length - 1]?.indentLevel) + 1, MAX_INDENT_LEVEL)
+      : 0;
+    const nextLevel = Math.min(currentLevel, maxLevel);
+    normalized.push(currentLevel === nextLevel ? item : { ...item, indentLevel: nextLevel });
+  }
+  return normalized;
+}
+
 /** Indexes of the contiguous rows nested below the row at `index`. */
 export function descendantIndexes(items: IndentableI[], index: number): number[] {
   if (index < 0) return [];

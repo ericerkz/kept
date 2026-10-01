@@ -1,7 +1,7 @@
 // node --test src/app/utils/checkbox-indent.test.ts
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MAX_INDENT_LEVEL, descendantIndexes, maxIndentLevelAt, normalizeIndentLevel } from './checkbox-indent.ts';
+import { MAX_INDENT_LEVEL, descendantIndexes, maxIndentLevelAt, normalizeIndentLevel, normalizeIndentLevels } from './checkbox-indent.ts';
 
 const rows = (...levels: number[]) => levels.map(indentLevel => ({ indentLevel }));
 
@@ -39,4 +39,9 @@ test('descendantIndexes covers the contiguous deeper block', () => {
   assert.deepEqual(descendantIndexes(items, 1), [2]);
   assert.deepEqual(descendantIndexes(items, 2), []);
   assert.deepEqual(descendantIndexes(items, 4), []);
+});
+
+test('normalizeIndentLevels removes orphaned deep rows after reorder', () => {
+  assert.deepEqual(normalizeIndentLevels(rows(2, 0, 3, 2, 1)).map(item => item.indentLevel), [0, 0, 1, 2, 1]);
+  assert.deepEqual(normalizeIndentLevels(rows(0, 1, 3, 0, 2)).map(item => item.indentLevel), [0, 1, 2, 0, 1]);
 });
