@@ -788,7 +788,39 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       if (!isTooltipOpen) {
         this.Shared.saveNote.next(true)
       }
+      return
     }
+    // Same order the Android back button already follows: with no note open,
+    // Escape drops the selection.
+    if (this.Shared.selectedNoteIds.value.length) this.Shared.clearNoteSelection()
+  }
+
+  /**
+   * Bins the selected notes, the way Google Keep does.
+   *
+   * The guard is the important part: Delete and Backspace have to keep editing
+   * text whenever the caret is in the search box, a note body or any other
+   * field, so only presses landing outside a text entry count as the shortcut.
+   *
+   * Trash is deliberately left out. Notes there are already binned, and the
+   * only action left would be permanent deletion, which is too destructive to
+   * hang off a bare keypress with no confirmation.
+   */
+  @HostListener('document:keydown.delete', ['$event'])
+  @HostListener('document:keydown.backspace', ['$event'])
+  onDeleteKey(event: Event) {
+    if (!this.Shared.selectedNoteIds.value.length) return
+    if (this.currentPage.trash) return
+    if (this.isTextEntryTarget(event.target)) return
+    event.preventDefault()
+    this.Shared.bulkTrashSelected()
+  }
+
+  private isTextEntryTarget(target: EventTarget | null) {
+    const el = target as HTMLElement | null
+    if (!el || typeof el.tagName !== 'string') return false
+    if (el.isContentEditable) return true
+    return ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)
   }
 
   closeModal() {
