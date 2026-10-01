@@ -21,6 +21,7 @@ import { isNativePhonePlatform, shouldUseFullscreenNoteEditor } from 'src/app/ut
 import { NoteLockService } from 'src/app/services/note-lock.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
+import { descendantIndexes, maxIndentLevelAt, normalizeIndentLevel } from 'src/app/utils/checkbox-indent';
 import { environment } from 'src/environments/environment';
 
 declare var Snackbar: any;
@@ -711,12 +712,14 @@ export class InputComponent implements OnInit {
   }
 
   private normalizedCboxIndentLevel(value: unknown) {
-    return Number(value) === 1 ? 1 : 0
+    return normalizeIndentLevel(value)
   }
 
-  private canIndentCboxAt(index: number) {
-    if (index <= 0) return false
-    return this.checkBoxes.slice(0, index).some(cb => this.checkboxIndentLevel(cb) === 0)
+  private adjustCboxIndentLevel(id: number, step: number, options: { commit?: boolean } = {}) {
+    this.syncCboxDomIntoModel()
+    const cb = this.checkBoxes.find(item => item.id === id)
+    if (!cb) return false
+    return this.setCboxIndentLevel(id, this.checkboxIndentLevel(cb) + step, options)
   }
 
   private setCboxIndentLevel(id: number, indentLevel: number, options: { commit?: boolean } = {}) {
@@ -724,10 +727,18 @@ export class InputComponent implements OnInit {
     const index = this.checkBoxes.findIndex(cb => cb.id === id)
     if (index < 0) return false
 
-    const nextIndent = this.normalizedCboxIndentLevel(indentLevel)
-    if (nextIndent === 1 && !this.canIndentCboxAt(index)) return false
-    if (this.checkboxIndentLevel(this.checkBoxes[index]) === nextIndent) return false
+    const currentIndent = this.checkboxIndentLevel(this.checkBoxes[index])
+    const nextIndent = Math.min(normalizeIndentLevel(indentLevel), maxIndentLevelAt(this.checkBoxes, index))
+    if (currentIndent === nextIndent) return false
 
+    // Nested rows keep their relative depth when their parent moves.
+    const delta = nextIndent - currentIndent
+    for (const childIndex of descendantIndexes(this.checkBoxes, index)) {
+      this.checkBoxes[childIndex] = {
+        ...this.checkBoxes[childIndex],
+        indentLevel: normalizeIndentLevel(this.checkboxIndentLevel(this.checkBoxes[childIndex]) + delta)
+      }
+    }
     this.checkBoxes[index] = { ...this.checkBoxes[index], indentLevel: nextIndent }
     this.checkBoxes = [...this.checkBoxes]
     this.noteToEdit.checkBoxes = this.checkBoxes
@@ -741,13 +752,7 @@ export class InputComponent implements OnInit {
   }
 
   private childIndexesForParent(index: number) {
-    if (index < 0 || this.checkboxIndentLevel(this.checkBoxes[index]) !== 0) return []
-    const indexes: number[] = []
-    for (let i = index + 1; i < this.checkBoxes.length; i++) {
-      if (this.checkboxIndentLevel(this.checkBoxes[i]) === 0) break
-      indexes.push(i)
-    }
-    return indexes
+    return descendantIndexes(this.checkBoxes, index)
   }
 
   private toggleCboxDoneWithChildren(id: number) {
@@ -771,12 +776,7 @@ export class InputComponent implements OnInit {
     if (absDx < 42 || absDx < absDy * 1.15) return false
 
     if (!this.cboxTouchIndentHandled) {
-      const dragged = this.checkBoxes.find(cb => cb.id === this.draggedCboxId)
-      const currentIndent = this.checkboxIndentLevel(dragged)
-      const nextIndent = rawDx > 0
-        ? (currentIndent === 1 ? 0 : 1)
-        : currentIndent
-      const changed = this.setCboxIndentLevel(this.draggedCboxId, nextIndent, { commit: false })
+      const changed = this.adjustCboxIndentLevel(this.draggedCboxId, rawDx > 0 ? 1 : -1, { commit: false })
       if (changed) {
         this.cboxDragOrderChanged = true
         try { (navigator as any).vibrate?.(8) } catch {}
@@ -1553,7 +1553,7 @@ export class InputComponent implements OnInit {
     let target = $event.target as HTMLDivElement
     if ($event.key === 'Tab') {
       $event.preventDefault()
-      this.setCboxIndentLevel(id, $event.shiftKey ? 0 : 1)
+      this.adjustCboxIndentLevel(id, $event.shiftKey ? -1 : 1)
       return
     }
     if ($event.key === 'Enter') {

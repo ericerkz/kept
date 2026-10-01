@@ -6975,10 +6975,14 @@ function keepListText(item) {
   return String(item?.text ?? item?.title ?? item?.data ?? item?.name ?? '');
 }
 
+// Keep in sync with MAX_INDENT_LEVEL in src/app/utils/checkbox-indent.ts.
+const MAX_CHECKBOX_INDENT_LEVEL = 3;
+
 function keepListIndentFromValue(value) {
   if (value === true) return 1;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric > 0 ? 1 : 0;
+  const numeric = Math.floor(Number(value));
+  if (!Number.isFinite(numeric) || numeric < 1) return 0;
+  return Math.min(numeric, MAX_CHECKBOX_INDENT_LEVEL);
 }
 
 function keepListIndentLevel(item, fallbackLevel = 0) {
@@ -6997,11 +7001,13 @@ function keepListIndentLevel(item, fallbackLevel = 0) {
     }
   }
 
+  const nestedLevel = Math.max(keepListIndentFromValue(fallbackLevel), 1);
+
   const parentKeys = ['parentId', 'parentItemId', 'parentListItemId', 'superListItemId', 'parent'];
-  if (parentKeys.some(key => item && item[key] !== undefined && item[key] !== null && item[key] !== '')) return 1;
+  if (parentKeys.some(key => item && item[key] !== undefined && item[key] !== null && item[key] !== '')) return nestedLevel;
 
   const text = keepListText(item);
-  if (/^(?:\t| {2,}|\u00a0{2,})/.test(text)) return 1;
+  if (/^(?:\t| {2,}|\u00a0{2,})/.test(text)) return nestedLevel;
 
   return keepListIndentFromValue(fallbackLevel);
 }
@@ -7029,7 +7035,7 @@ function importedKeepChecklistItems(listContent, fallbackLevel = 0, state = { ne
 
     const children = keepListChildren(item);
     if (children.length) {
-      checkBoxes.push(...importedKeepChecklistItems(children, 1, state));
+      checkBoxes.push(...importedKeepChecklistItems(children, indentLevel + 1, state));
     }
   }
 

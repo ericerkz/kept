@@ -19,6 +19,7 @@ import { isNativePhonePlatform, shouldUseFullscreenNoteEditor } from 'src/app/ut
 import { NoteLockService } from 'src/app/services/note-lock.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
+import { descendantIndexes, normalizeIndentLevel } from 'src/app/utils/checkbox-indent';
 
 declare var Snackbar: any;
 type PluginListenerHandle = { remove: () => Promise<void> | void };
@@ -270,7 +271,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   checkboxIndentLevel(cb?: CheckboxI) {
-    return Number(cb?.indentLevel) === 1 ? 1 : 0
+    return normalizeIndentLevel(cb?.indentLevel)
   }
 
   checkboxIndentPx(cb?: CheckboxI) {
@@ -282,11 +283,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (index < 0) return
     const done = !checkBoxes[index].done
     checkBoxes[index].done = done
-    if (this.checkboxIndentLevel(checkBoxes[index]) !== 0) return
-
-    for (let i = index + 1; i < checkBoxes.length; i++) {
-      if (this.checkboxIndentLevel(checkBoxes[i]) === 0) break
-      checkBoxes[i].done = done
+    for (const childIndex of descendantIndexes(checkBoxes, index)) {
+      checkBoxes[childIndex].done = done
     }
   }
 
