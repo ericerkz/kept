@@ -44,6 +44,10 @@
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2l4 4h-3v7h-2V6H8l4-4zm-7 8h4v2H5v8h14v-8h-4v-2h4c1.1 0 2 .9 2 2v8c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2v-8c0-1.1.9-2 2-2z"/></svg>
         Reverse proxy
       </a>
+      <a href="#external-access" class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2a5 5 0 0 1 4.9 4H20v2h-3.1a5 5 0 0 1-1.1 2.1l2.2 2.2-1.4 1.4-2.3-2.2a5.5 5.5 0 0 1-1.3.4V15h3v2h-3v5h-2v-5H8v-2h3v-3.1a5.5 5.5 0 0 1-1.3-.4l-2.3 2.2L6 12.3l2.2-2.2A5 5 0 0 1 7.1 8H4V6h3.1A5 5 0 0 1 12 2Zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg>
+        External access
+      </a>
       <a href="#pwa-mobile" class="nav-item">
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M17 1H7C5.9 1 5 1.9 5 3v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 17H7V4h10v14zm-5 4c-.8 0-1.5-.7-1.5-1.5S11.2 19 12 19s1.5.7 1.5 1.5S12.8 22 12 22z"/></svg>
         Mobile app
@@ -124,6 +128,11 @@
               <h3>🤖 Native Android App</h3>
               <p><a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer">Kept Notes on Google Play</a> connects to your self-hosted server and adds native Android location reminders, saved places, quick share, home screen widgets, and on-device Smart Capture support.</p>
             </div>
+
+            <div class="feature-box">
+              <h3>📐 Foldable-Friendly Layouts</h3>
+              <p>Kept adapts better on expanded foldables, with a mobile-style editor where it belongs and wider multi-column note grids when the device has room.</p>
+            </div>
             
             <div class="feature-box">
               <h3>🤝 Real-Time Sharing</h3>
@@ -138,6 +147,16 @@
             <div class="feature-box">
               <h3>💾 Backups Without Drama</h3>
               <p>Schedule automatic daily, weekly, or monthly backups, or make one on demand before you poke at the server and pretend that was always the plan.</p>
+            </div>
+
+            <div class="feature-box">
+              <h3>🔌 External Access</h3>
+              <p>Enable optional OAuth and MCP access for trusted tools and agents. Access is scoped, revocable, and off by default.</p>
+            </div>
+
+            <div class="feature-box">
+              <h3>🔑 Optional SSO</h3>
+              <p>Connect an OpenID Connect provider such as Google, Authentik, or Pocket ID while keeping normal Kept username/password login available.</p>
             </div>
 
             <div class="feature-box">
@@ -267,6 +286,34 @@ server {
           </div>
         </section>
 
+        <section id="external-access">
+          <h2>External access, MCP, and SSO</h2>
+          <p>Kept can connect to trusted external tools, but these paths stay off until each user enables them from Settings. Normal Kept setup does not require OAuth, MCP, or SSO.</p>
+
+          <div class="hosted-setup-callout">
+            <h3>OpenID Connect SSO</h3>
+            <p>Server admins can configure one OpenID Connect provider, such as Google, Authentik, Pocket ID, or another compatible identity provider. Users still need a local Kept account first, then they can connect their SSO identity from Settings.</p>
+            <pre><code>BASE_URL=https://kept.example.com
+KEPT_OIDC_ISSUER=https://accounts.google.com
+KEPT_OIDC_CLIENT_ID=your-client-id
+KEPT_OIDC_CLIENT_SECRET=your-client-secret
+KEPT_OIDC_NAME=Google</code></pre>
+            <p>Register this redirect URI with the provider: <code>https://kept.example.com/api/auth/oidc/callback</code>. See the <a href="https://github.com/ericerkz/kept/blob/master/docs/oidc.md" target="_blank" rel="noopener noreferrer">OIDC setup guide</a> for Google, Authentik, and Pocket ID examples.</p>
+          </div>
+
+          <div class="hosted-setup-callout">
+            <h3>OAuth app access</h3>
+            <p>Kept includes an OAuth 2.1 authorization server for approved external apps. Users enable OAuth app access in Settings, approve each connection, and can revoke connected apps later without changing their password.</p>
+            <p>OAuth clients can request read-only or read/write scopes. Remote MCP clients, including ChatGPT-style MCP connections, use this same OAuth layer. See the <a href="https://github.com/ericerkz/kept/blob/master/docs/oauth.md" target="_blank" rel="noopener noreferrer">OAuth integration guide</a>.</p>
+          </div>
+
+          <div class="hosted-setup-callout">
+            <h3>MCP access</h3>
+            <p>Kept's MCP server lets trusted clients search and read notes, create notes and checklists, manage reminders, work with images and attachments, add collaborators, and archive or trash notes through Kept's normal API permissions.</p>
+            <p>Local MCP access uses a dedicated token generated in Settings. Remote MCP uses <code>https://kept.example.com/mcp</code> with OAuth. Locked-note access and permanent deletion remain separate opt-ins. See the <a href="https://github.com/ericerkz/kept/blob/master/docs/mcp.md" target="_blank" rel="noopener noreferrer">MCP setup and security guide</a>.</p>
+          </div>
+        </section>
+
         <section id="pwa-mobile">
           <h2>Install on iOS and Android</h2>
           <p>Kept can be installed from the browser as a Progressive Web App. Once it is running from a real HTTPS address, reminder push notifications work on desktop browsers, Android, and iOS home-screen installs. Location-based reminders require the native iOS or Android app.</p>
@@ -283,7 +330,7 @@ server {
 
           <div class="app-store-callout">
             <h3>Native Android app</h3>
-            <p><a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer">Kept Notes is available on Google Play</a> as a companion app for your self-hosted Kept server. It adds native Android location reminders with arrival/departure triggers, saved places, quick share from other apps, home screen widgets for recent or pinned notes, and on-device Smart Capture on supported devices.</p>
+            <p><a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer">Kept Notes is available on Google Play</a> as a companion app for your self-hosted Kept server. It adds native Android location reminders with arrival/departure triggers, saved places, quick share from other apps, home screen widgets for recent notes, pinned notes, filtered labels/binders, quick note creation, and a single selected note, plus on-device Smart Capture on supported devices.</p>
             <a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer" class="app-store-badge" aria-label="Get Kept Notes on Google Play">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3.6 1.62c-.37.2-.6.58-.6 1.07v18.62c0 .49.23.87.6 1.07l10.56-10.38L3.6 1.62Zm12.01 8.95 2.68-2.63L5.55.52l10.06 10.05Zm0 2.86L5.55 23.48l12.74-7.42-2.68-2.63Zm1.43-1.43 3.38 3.32c.78-.43.78-1.53 0-1.96l-3.38-1.36Zm0 0 3.38-1.36c.78-.43.78-1.53 0-1.96l-3.38 3.32Z"/></svg>
               <span><small>Get it on</small>Google Play</span>

@@ -47,14 +47,14 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Time reminders with browser push notifications.
 - Location-based reminders through the native iOS and Android apps.
 - Quick share to Kept from the native iOS and Android share sheets.
-- Android home screen widget for recent or pinned notes.
+- Android home screen widgets for recent notes, pinned notes, specific labels/binders, quick note creation, and a single selected note.
 - Real-time collaborative sharing of notes between users on the same instance.
 - Offline note viewing/editing with automatic sync when the client reconnects.
 - Google Keep Takeout data import.
 - Built-in database backups and restore flow.
 - Local user accounts, optional 2FA, and user management.
 - Local and remote MCP server options for authenticated agent access without direct database access.
-- OAuth 2.1 access for scoped third-party API integrations.
+- OAuth 2.1 access for scoped third-party API integrations and remote MCP clients.
 - Optional OpenID Connect (OIDC) single sign-on alongside Kept's local accounts.
 
 ## Install With Docker
@@ -75,20 +75,6 @@ docker compose up -d
 Open `http://localhost:6767` and create the first admin account.
 
 Kept stores its database, uploads, attachments, and generated server data in `./data`. Back that folder up if you are not using the built-in backup tools.
-
-## OAuth And MCP Access
-
-Kept includes an optional OAuth 2.1 authorization server for third-party apps
-and integrations. OAuth clients can request read-only or read/write access to
-the supported Kept API without receiving a user's password or long-lived MCP
-token. See [the OAuth integration guide](docs/oauth.md).
-
-Remote MCP is one consumer of that OAuth layer. Local MCP clients can use stdio
-with a dedicated token; remote clients such as ChatGPT can connect to the Streamable
-HTTP endpoint at `/mcp`. OAuth app access and local MCP access are independent,
-off-by-default settings, so either can be enabled or revoked without affecting
-the other. Locked notes and permanent deletion have separate shared opt-in
-controls. See [the MCP setup and security guide](docs/mcp.md).
 
 ## Easy Hosted Setup
 
@@ -123,7 +109,7 @@ Railway is one convenient way to deploy Kept quickly. Kept remains self-hostable
 
 - Location reminders with arrival/departure settings, background geofencing, and saved places.
 - Quick share into Kept from the Android share sheet.
-- Home screen widget for recent or pinned notes.
+- Home screen widgets for recent notes, pinned notes, filtered labels/binders, quick note creation, and a single selected note.
 - On-device Smart Capture using Android's native Gemini Nano when available, or Kept's local Gemma fallback model on Android devices that need it.
 - A native app shell around your Kept instance.
 
@@ -264,6 +250,12 @@ Useful environment variables are documented in `docker-compose.yml`. The common 
 - `PUID` / `PGID`: run the container as a specific Linux user/group.
 - `KEPT_ALLOW_RESTORE`: temporarily enables restore from backup during setup.
 - `VAPID_SUBJECT`: optional public URL/contact identity for web push. Kept auto-generates VAPID keys if you do not set them; only set this if push notifications need a more explicit public origin.
+
+## OAuth, MCP, And External Access
+
+Kept includes an optional OAuth 2.1 authorization server for third-party apps and integrations. OAuth clients can request read-only or read/write access to the supported Kept API without receiving a user's password or long-lived local MCP token. See [the OAuth integration guide](docs/oauth.md).
+
+Remote MCP is one consumer of that OAuth layer. Local MCP clients can use stdio with a dedicated token; remote clients such as ChatGPT can connect to the Streamable HTTP endpoint at `/mcp`. OAuth app access and local MCP access are independent, off-by-default settings, so either can be enabled or revoked without affecting the other. Locked notes and permanent deletion have separate shared opt-in controls. See [the MCP setup and security guide](docs/mcp.md).
 
 ## Development
 
