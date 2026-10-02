@@ -131,11 +131,14 @@ async function initOAuthTables({ run, all }) {
   )`);
   await run(`CREATE TABLE IF NOT EXISTS oidc_flows (
     stateHash TEXT PRIMARY KEY, codeVerifier TEXT NOT NULL, nonce TEXT NOT NULL,
-    oauthRequest TEXT, linkUserId INTEGER, createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL
+    oauthRequest TEXT, linkUserId INTEGER, returnUrl TEXT, createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL
   )`);
   const oidcFlowColumns = await all('PRAGMA table_info(oidc_flows)');
   if (!oidcFlowColumns.some(column => column.name === 'linkUserId')) {
     await run('ALTER TABLE oidc_flows ADD COLUMN linkUserId INTEGER');
+  }
+  if (!oidcFlowColumns.some(column => column.name === 'returnUrl')) {
+    await run('ALTER TABLE oidc_flows ADD COLUMN returnUrl TEXT');
   }
   await run(`CREATE TABLE IF NOT EXISTS oidc_identities (
     issuer TEXT NOT NULL, subject TEXT NOT NULL, userId INTEGER NOT NULL,
@@ -190,6 +193,25 @@ function oidcSettings() {
   };
 }
 
+function validOidcReturnUrl(value) {
+  if (!value) return '';
+  let parsed;
+  try { parsed = new URL(String(value)); } catch { return ''; }
+  if (parsed.protocol !== 'kept:' || parsed.hostname !== 'auth' || parsed.pathname !== '/oidc') return '';
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) return '';
+  return 'kept://auth/oidc';
+}
+
+function oidcReturnTarget(flow, params) {
+  const returnUrl = validOidcReturnUrl(flow?.returnUrl);
+  if (!returnUrl) return '';
+  const target = new URL(returnUrl);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && String(value) !== '') target.searchParams.set(key, String(value));
+  }
+  return target.toString();
+}
+
 let oidcModulePromise;
 let oidcConfigPromise;
 async function oidcClient(settings) {
@@ -226,7 +248,7 @@ function mountOAuthAndMcpRoutes(app, dependencies) {
   app.use('/oauth/authorize', (_req, res, next) => {
     res.set({
       'Cache-Control': 'no-store',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+      'Content-Security-Policy': "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
       Pragma: 'no-cache'
     });
     next();
@@ -429,9 +451,10 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     res.json({ enabled: settings.enabled, name: settings.name });
   });
 
-  async function createOidcAuthorizationUrl(req, { oauthRequest = '', linkUserId = null } = {}) {
+  async function createOidcAuthorizationUrl(req, { oauthRequest = '', linkUserId = null, returnUrl = '' } = {}) {
     const settings = oidcSettings();
     if (!settings.enabled) return null;
+    const nativeReturnUrl = validOidcReturnUrl(returnUrl);
     const { client, config } = await oidcClient(settings);
     const state = client.randomState();
     const nonce = client.randomNonce();
@@ -439,9 +462,9 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     const challenge = await client.calculatePKCECodeChallenge(verifier);
     await run(
       `INSERT INTO oidc_flows
-       (stateHash, codeVerifier, nonce, oauthRequest, linkUserId, createdAt, expiresAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [sha256(state), verifier, nonce, oauthRequest, linkUserId, new Date().toISOString(), addSeconds(PENDING_TTL_SECONDS)]
+       (stateHash, codeVerifier, nonce, oauthRequest, linkUserId, returnUrl, createdAt, expiresAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sha256(state), verifier, nonce, oauthRequest, linkUserId, nativeReturnUrl || null, new Date().toISOString(), addSeconds(PENDING_TTL_SECONDS)]
     );
     const redirectUri = `${baseUrlFor(req)}/api/auth/oidc/callback`;
     return client.buildAuthorizationUrl(config, {
@@ -455,7 +478,10 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
   }
 
   app.get('/api/auth/oidc/start', asyncRoute(async (req, res) => {
-    const target = await createOidcAuthorizationUrl(req, { oauthRequest: String(req.query.oauth_request || '') });
+    const target = await createOidcAuthorizationUrl(req, {
+      oauthRequest: String(req.query.oauth_request || ''),
+      returnUrl: String(req.query.return_url || '')
+    });
     if (!target) return res.status(404).json({ error: 'OIDC sign-in is not configured.' });
     res.redirect(target);
   }));
@@ -483,7 +509,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     if (!settings.enabled) return res.status(404).json({ error: 'OIDC sign-in is not configured.' });
     const existing = await get('SELECT subject FROM oidc_identities WHERE issuer = ? AND userId = ?', [settings.issuer, req.user.id]);
     if (existing) return res.status(409).json({ error: `${settings.name} is already connected to this account.` });
-    const url = await createOidcAuthorizationUrl(req, { linkUserId: req.user.id });
+    const url = await createOidcAuthorizationUrl(req, { linkUserId: req.user.id, returnUrl: String(req.body?.return_url || '') });
     res.json({ url });
   }));
 
@@ -505,14 +531,21 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     const currentUrl = new URL(`${baseUrlFor(req)}${req.originalUrl}`);
     const tokens = await client.authorizationCodeGrant(config, currentUrl, { pkceCodeVerifier: flow.codeVerifier, expectedState: state, expectedNonce: flow.nonce });
     const claims = tokens.claims();
-    if (!claims?.sub) return res.redirect(flow.linkUserId ? '/settings?oidc_link=missing_identity' : '/login?oidc_error=missing_identity');
+    if (!claims?.sub) {
+      const target = oidcReturnTarget(flow, flow.linkUserId ? { oidc_link: 'missing_identity' } : { oidc_error: 'missing_identity' });
+      return res.redirect(target || (flow.linkUserId ? '/settings?oidc_link=missing_identity' : '/login?oidc_error=missing_identity'));
+    }
     const email = String(claims.email || '').trim().toLowerCase();
     if (flow.linkUserId) {
       const targetUser = await get('SELECT * FROM users WHERE id = ? AND enabled = 1', [flow.linkUserId]);
-      if (!targetUser) return res.redirect('/settings?oidc_link=account_unavailable');
+      if (!targetUser) {
+        const target = oidcReturnTarget(flow, { oidc_link: 'account_unavailable' });
+        return res.redirect(target || '/settings?oidc_link=account_unavailable');
+      }
       const linkedIdentity = await get('SELECT userId FROM oidc_identities WHERE issuer = ? AND subject = ?', [settings.issuer, claims.sub]);
       if (linkedIdentity && linkedIdentity.userId !== targetUser.id) {
-        return res.redirect('/settings?oidc_link=already_connected');
+        const target = oidcReturnTarget(flow, { oidc_link: 'already_connected' });
+        return res.redirect(target || '/settings?oidc_link=already_connected');
       }
       const now = new Date().toISOString();
       if (linkedIdentity) {
@@ -523,15 +556,20 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
           [settings.issuer, claims.sub, targetUser.id, email || null, now, now]
         );
       }
-      return res.redirect('/settings?oidc_link=connected');
+      const target = oidcReturnTarget(flow, { oidc_link: 'connected' });
+      return res.redirect(target || '/settings?oidc_link=connected');
     }
     const identity = await get('SELECT users.* FROM oidc_identities JOIN users ON users.id = oidc_identities.userId WHERE issuer = ? AND subject = ? AND users.enabled = 1', [settings.issuer, claims.sub]);
-    if (!identity) return res.redirect(`/login?oidc_error=no_account${flow.oauthRequest ? `&oauth_request=${encodeURIComponent(flow.oauthRequest)}` : ''}`);
+    if (!identity) {
+      const target = oidcReturnTarget(flow, { oidc_error: 'no_account', oauth_request: flow.oauthRequest });
+      return res.redirect(target || `/login?oidc_error=no_account${flow.oauthRequest ? `&oauth_request=${encodeURIComponent(flow.oauthRequest)}` : ''}`);
+    }
     const loginCode = randomToken('kept_login_');
     await run('INSERT INTO oidc_login_codes (codeHash, userId, createdAt, expiresAt) VALUES (?, ?, ?, ?)', [sha256(loginCode), identity.id, new Date().toISOString(), addSeconds(60)]);
     const params = new URLSearchParams({ oidc_code: loginCode });
     if (flow.oauthRequest) params.set('oauth_request', flow.oauthRequest);
-    res.redirect(`/login?${params.toString()}`);
+    const target = oidcReturnTarget(flow, Object.fromEntries(params.entries()));
+    res.redirect(target || `/login?${params.toString()}`);
   }));
 
   app.post('/api/auth/oidc/exchange', asyncRoute(async (req, res) => {

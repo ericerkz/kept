@@ -120,7 +120,7 @@ test('OAuth grants scoped access to the Kept API and remote MCP', async t => {
     headers: { authorization: `Bearer ${tokens.access_token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
   });
-  assert.equal(tools.result.tools.length, 22);
+  assert.equal(tools.result.tools.length, 23);
   assert.deepEqual(tools.result.tools[0]._meta.securitySchemes, [{ type: 'oauth2', scopes: ['kept.read', 'kept.write'] }]);
   const mcpSearch = await json(`${origin}/mcp`, {
     method: 'POST',

@@ -24,6 +24,7 @@ function stubKeptClient(overrides = {}) {
     deleteReminder: async reminderId => ({ ok: true, reminderId }), searchUsers: async () => [],
     setCollaborators: async (noteId, userIds) => ({ noteId, userIds }), uploadAttachment: async () => ({ id: 4 }),
     uploadImage: async file => ({ url: '/api/uploads/images/test.png', name: file.filename }),
+    fileParamToUpload: async (file, { kind }) => ({ filename: file.file_name || kind, mimeType: file.mime_type, base64Data: Buffer.from('file').toString('base64') }),
     readImage: async () => ({ contentType: 'image/png', base64Data: Buffer.from('png').toString('base64') }),
     readAttachment: async () => ({ contentType: 'text/plain', base64Data: Buffer.from('hello').toString('base64') }),
     deleteAttachment: async (noteId, attachmentId) => ({ ok: true, noteId, attachmentId }), ...overrides
@@ -31,7 +32,7 @@ function stubKeptClient(overrides = {}) {
 }
 
 const expectedTools = [
-  'kept_add_image', 'kept_archive_note', 'kept_create_note', 'kept_delete_attachment', 'kept_delete_reminder',
+  'kept_add_image', 'kept_archive_note', 'kept_create_note', 'kept_delete_attachment', 'kept_delete_image', 'kept_delete_reminder',
   'kept_get_note', 'kept_list_labels', 'kept_list_reminders', 'kept_manage_checklist', 'kept_permanently_delete_note',
   'kept_read_attachment', 'kept_read_image', 'kept_request_locked_note_access', 'kept_restore_note', 'kept_search_notes', 'kept_search_users',
   'kept_set_collaborators', 'kept_set_reminder', 'kept_trash_note', 'kept_update_note', 'kept_update_reminder',
@@ -113,6 +114,66 @@ test('attachment reads return an embedded binary resource', async () => {
     assert.equal(result.content[0].type, 'resource');
     assert.equal(result.content[0].resource.mimeType, 'text/plain');
     assert.equal(Buffer.from(result.content[0].resource.blob, 'base64').toString(), 'hello');
+  });
+});
+
+test('image and attachment tools accept ChatGPT file params', async () => {
+  const uploaded = [];
+  await withMcpClient(stubKeptClient({
+    uploadImage: async file => {
+      uploaded.push({ type: 'image', ...file });
+      return { url: '/api/uploads/images/photo.png', name: file.filename };
+    },
+    uploadAttachment: async (noteId, file) => {
+      uploaded.push({ type: 'attachment', noteId, ...file });
+      return { id: 9, noteId, originalName: file.filename };
+    }
+  }), async client => {
+    const image = await client.callTool({ name: 'kept_add_image', arguments: {
+      noteId: 3,
+      file: { download_url: 'https://files.example/photo.png', file_id: 'file_1', mime_type: 'image/png', file_name: 'photo.png' }
+    } });
+    const attachment = await client.callTool({ name: 'kept_upload_attachment', arguments: {
+      noteId: 3,
+      file: { download_url: 'https://files.example/report.pdf', file_id: 'file_2', mime_type: 'application/pdf', file_name: 'report.pdf' }
+    } });
+    assert.equal(image.isError, undefined);
+    assert.equal(attachment.isError, undefined);
+  });
+  assert.equal(uploaded[0].type, 'image');
+  assert.equal(uploaded[0].filename, 'photo.png');
+  assert.equal(uploaded[1].type, 'attachment');
+  assert.equal(uploaded[1].filename, 'report.pdf');
+});
+
+test('delete image removes one image by id and preserves the rest', async () => {
+  let changes;
+  await withMcpClient(stubKeptClient({
+    getNote: async () => ({
+      id: 3,
+      images: [
+        { id: 'keep', dataUrl: '/api/uploads/images/keep.png' },
+        { id: 'remove-me', dataUrl: '/api/uploads/images/remove.png' }
+      ]
+    }),
+    updateNote: async (_id, next) => { changes = next; return next; }
+  }), async client => {
+    const result = await client.callTool({ name: 'kept_delete_image', arguments: { noteId: 3, imageId: 'remove-me' } });
+    assert.equal(result.isError, undefined);
+  });
+  assert.deepEqual(changes.images, [{ id: 'keep', dataUrl: '/api/uploads/images/keep.png' }]);
+});
+
+test('delete image requires an existing image and unlocked content', async () => {
+  await withMcpClient(stubKeptClient({ getNote: async () => ({ id: 3, images: [{ id: 'one' }] }) }), async client => {
+    const result = await client.callTool({ name: 'kept_delete_image', arguments: { noteId: 3, imageId: 'missing' } });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Image not found/);
+  });
+  await withMcpClient(stubKeptClient({ getNote: async () => ({ id: 3, locked: true, lockedContentAvailable: false, images: [{ id: 'one' }] }) }), async client => {
+    const result = await client.callTool({ name: 'kept_delete_image', arguments: { noteId: 3, imageId: 'one' } });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Unlock this note/);
   });
 });
 

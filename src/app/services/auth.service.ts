@@ -1,5 +1,6 @@
 import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
 import { Injectable } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
 import { firstValueFrom, BehaviorSubject } from 'rxjs';
 import { environment } from 'src/environments/environment';
 import { AuthSessionI, UserI, UserRole, UserTheme } from '../interfaces/users';
@@ -59,6 +60,7 @@ export class AuthService {
   private readonly sessionKey = 'gk_session';
   private readonly apiUrl = environment.apiUrl;
   private lastSessionExpiredNoticeAt = 0;
+  private suppressSessionExpiredUntil = 0;
   currentUser$ = new BehaviorSubject<AuthSessionI | null>(this.getStoredSession());
 
   constructor(private http: HttpClient) {
@@ -87,6 +89,7 @@ export class AuthService {
 
   notifySessionExpired(error?: unknown) {
     if (error && !this.isAuthExpiredError(error)) return false;
+    if (Date.now() < this.suppressSessionExpiredUntil) return true;
     const now = Date.now();
     if (now - this.lastSessionExpiredNoticeAt < 4000) return true;
     this.lastSessionExpiredNoticeAt = now;
@@ -98,6 +101,10 @@ export class AuthService {
       });
     } catch {}
     return true;
+  }
+
+  suppressSessionExpiredNotice(durationMs = 8000) {
+    this.suppressSessionExpiredUntil = Math.max(this.suppressSessionExpiredUntil, Date.now() + durationMs);
   }
 
   canonicalImageUrl(value: string) {
@@ -232,7 +239,11 @@ export class AuthService {
   }
 
   startOidcLogin(oauthRequest = '') {
-    const query = oauthRequest ? `?oauth_request=${encodeURIComponent(oauthRequest)}` : '';
+    const params = new URLSearchParams();
+    if (oauthRequest) params.set('oauth_request', oauthRequest);
+    const returnUrl = this.nativeOidcReturnUrl();
+    if (returnUrl) params.set('return_url', returnUrl);
+    const query = params.toString() ? `?${params.toString()}` : '';
     window.location.assign(`${this.apiUrl}/auth/oidc/start${query}`);
   }
 
@@ -249,9 +260,10 @@ export class AuthService {
   }
 
   async startOidcLink() {
+    const returnUrl = this.nativeOidcReturnUrl();
     return await firstValueFrom(this.http.post<{ url: string }>(
       `${this.apiUrl}/auth/oidc/link/start`,
-      {},
+      returnUrl ? { return_url: returnUrl } : {},
       { headers: this.authHeaders() }
     ));
   }
@@ -281,6 +293,10 @@ export class AuthService {
     localStorage.setItem(this.sessionKey, JSON.stringify(session));
     this.currentUser$.next(session);
     this.applyTheme(session.theme);
+  }
+
+  private nativeOidcReturnUrl() {
+    return Capacitor.isNativePlatform() ? 'kept://auth/oidc' : '';
   }
 
   async updateTheme(theme: UserTheme) {

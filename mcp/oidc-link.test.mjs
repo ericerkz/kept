@@ -181,6 +181,13 @@ test('OIDC accounts can be explicitly linked, signed in, and safely disconnected
   });
   assert.equal(ssoLogin.user.id, admin.user.id);
 
+  const nativeSsoStart = await fetch(`${origin}/api/auth/oidc/start?return_url=${encodeURIComponent('kept://auth/oidc')}`, { redirect: 'manual' });
+  const nativeSsoCallback = await completeProviderRedirect(nativeSsoStart.headers.get('location'));
+  const nativeSsoResult = await fetch(nativeSsoCallback, { redirect: 'manual' });
+  const nativeRedirect = new URL(nativeSsoResult.headers.get('location'));
+  assert.equal(`${nativeRedirect.protocol}//${nativeRedirect.hostname}${nativeRedirect.pathname}`, 'kept://auth/oidc');
+  assert.match(nativeRedirect.searchParams.get('oidc_code'), /^kept_login_/);
+
   const second = await json(`${origin}/api/users`, {
     method: 'POST', headers: bearer(admin.token),
     body: JSON.stringify({ username: 'email-match', displayName: 'Email Match', password: 'testing123', role: 'user', email: 'new@example.test' })
@@ -202,10 +209,16 @@ test('OIDC accounts can be explicitly linked, signed in, and safely disconnected
   const unlinkedRedirect = new URL(unlinkedResult.headers.get('location'), origin);
   assert.equal(unlinkedRedirect.searchParams.get('oidc_error'), 'no_account', 'matching email must not link or create an account');
 
-  const secondLinkStart = await json(`${origin}/api/auth/oidc/link/start`, { method: 'POST', headers: bearer(secondLogin.token), body: '{}' });
-  const secondLinkCallback = await completeProviderRedirect(secondLinkStart.url);
-  const secondLinkResult = await fetch(secondLinkCallback, { redirect: 'manual' });
-  assert.equal(new URL(secondLinkResult.headers.get('location'), origin).searchParams.get('oidc_link'), 'connected');
+  provider.setIdentity({ sub: 'native-link-subject', email: 'native@example.test', name: 'Native Link' });
+  const nativeLinkStart = await json(`${origin}/api/auth/oidc/link/start`, {
+    method: 'POST', headers: bearer(secondLogin.token),
+    body: JSON.stringify({ return_url: 'kept://auth/oidc' })
+  });
+  const nativeLinkCallback = await completeProviderRedirect(nativeLinkStart.url);
+  const nativeLinkResult = await fetch(nativeLinkCallback, { redirect: 'manual' });
+  const nativeLinkRedirect = new URL(nativeLinkResult.headers.get('location'));
+  assert.equal(`${nativeLinkRedirect.protocol}//${nativeLinkRedirect.hostname}${nativeLinkRedirect.pathname}`, 'kept://auth/oidc');
+  assert.equal(nativeLinkRedirect.searchParams.get('oidc_link'), 'connected');
 
   const secondSsoStart = await fetch(`${origin}/api/auth/oidc/start`, { redirect: 'manual' });
   const secondSsoCallback = await completeProviderRedirect(secondSsoStart.headers.get('location'));

@@ -5,13 +5,14 @@ import { Subscription, filter } from 'rxjs';
 import { PushNotificationService } from './services/push-notification.service';
 import { SharedService } from './services/shared.service';
 import { ShareIntentsService } from './services/share-intents.service';
+import { AuthService } from './services/auth.service';
 
 type AppBackButtonEvent = { canGoBack?: boolean };
 type PluginListenerHandle = { remove: () => Promise<void> | void };
 type CapacitorAppPlugin = {
   addListener: (
-    eventName: 'backButton',
-    listenerFunc: (event: AppBackButtonEvent) => void
+    eventName: 'backButton' | 'appUrlOpen',
+    listenerFunc: (event: AppBackButtonEvent & { url?: string }) => void
   ) => Promise<PluginListenerHandle>;
   exitApp?: () => Promise<void>;
 };
@@ -100,6 +101,7 @@ const CapacitorApp = registerPlugin<CapacitorAppPlugin>('App');
 })
 export class AppComponent implements OnInit, OnDestroy {
   private androidBackButtonHandle?: PluginListenerHandle;
+  private oidcDeepLinkHandle?: PluginListenerHandle;
   private notificationPromptResetListener?: () => void;
   private notificationPromptVisibilityListener?: () => void;
   private notificationPromptFocusListener?: () => void;
@@ -111,6 +113,7 @@ export class AppComponent implements OnInit, OnDestroy {
     private push: PushNotificationService,
     private shared: SharedService,
     private shareIntents: ShareIntentsService,
+    private auth: AuthService,
     private ngZone: NgZone,
     private router: Router
   ) {}
@@ -119,6 +122,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.shared.initPwa();
     this.shareIntents.init().catch(console.error);
     this.registerAndroidBackButton();
+    this.registerOidcDeepLinkHandler();
     this.notificationPromptResetListener = () => {
       this.ngZone.run(() => this.refreshNotificationPrompt(true));
     };
@@ -145,6 +149,7 @@ export class AppComponent implements OnInit, OnDestroy {
   ngOnDestroy() {
     this.shareIntents.destroy().catch(console.error);
     this.androidBackButtonHandle?.remove();
+    this.oidcDeepLinkHandle?.remove();
     if (this.notificationPromptResetListener) {
       window.removeEventListener('kept-notification-permission-reprompt', this.notificationPromptResetListener);
     }
@@ -184,6 +189,51 @@ export class AppComponent implements OnInit, OnDestroy {
       });
     } catch (error) {
       console.warn('Android back button listener unavailable', error);
+    }
+  }
+
+  private async registerOidcDeepLinkHandler() {
+    if (!Capacitor.isNativePlatform()) return;
+
+    try {
+      this.oidcDeepLinkHandle = await CapacitorApp.addListener('appUrlOpen', event => {
+        if (!event?.url) return;
+        this.ngZone.run(() => this.handleOidcDeepLink(event.url || ''));
+      });
+    } catch (error) {
+      console.warn('OIDC deep link listener unavailable', error);
+    }
+  }
+
+  private handleOidcDeepLink(rawUrl: string) {
+    let url: URL;
+    try { url = new URL(rawUrl); } catch { return; }
+    if (url.protocol !== 'kept:' || url.hostname !== 'auth' || url.pathname !== '/oidc') return;
+
+    const oidcCode = url.searchParams.get('oidc_code');
+    const oidcError = url.searchParams.get('oidc_error');
+    const oidcLink = url.searchParams.get('oidc_link');
+    const oauthRequest = url.searchParams.get('oauth_request');
+    const params = new URLSearchParams();
+    this.auth.suppressSessionExpiredNotice();
+
+    if (oidcCode) {
+      params.set('oidc_code', oidcCode);
+      if (oauthRequest) params.set('oauth_request', oauthRequest);
+      this.router.navigateByUrl(`/login?${params.toString()}`);
+      return;
+    }
+
+    if (oidcError) {
+      params.set('oidc_error', oidcError);
+      if (oauthRequest) params.set('oauth_request', oauthRequest);
+      this.router.navigateByUrl(`/login?${params.toString()}`);
+      return;
+    }
+
+    if (oidcLink) {
+      params.set('oidc_link', oidcLink);
+      this.router.navigateByUrl(`/settings?${params.toString()}`);
     }
   }
 

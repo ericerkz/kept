@@ -11,6 +11,12 @@ const bodyFormatSchema = z.enum(['plain_text', 'html']).default('plain_text');
 const colorSchema = z.string().max(200);
 const imageBase64Schema = z.string().max(14_000_000).describe('Base64-encoded image content without a data URL prefix');
 const attachmentBase64Schema = z.string().max(36_000_000).describe('Base64-encoded file content without a data URL prefix');
+const openAiFileSchema = z.object({
+  download_url: z.string().url(),
+  file_id: z.string().min(1),
+  mime_type: z.string().optional(),
+  file_name: z.string().optional()
+}).strict().describe('ChatGPT-provided file input');
 const repeatRuleSchema = z.object({
   type: z.enum(['none', 'daily', 'weekly', 'monthly', 'custom_days']),
   intervalDays: z.number().int().positive().optional(),
@@ -201,19 +207,24 @@ export function createKeptMcpServer(client, { oauth = false } = {}) {
   }));
 
   server.registerTool('kept_add_image', {
-    title: 'Add an image to a note', description: 'Add a PNG, JPEG, GIF, or WebP image to a note, or use it as the editable drawing canvas image.',
+    title: 'Add an image to a note', description: 'Add a PNG, JPEG, GIF, or WebP image to a note, or use it as the editable drawing canvas image. Prefer the file input when ChatGPT provides an uploaded file; use base64Data only as a fallback.',
     inputSchema: {
-      noteId: noteIdSchema, mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']), base64Data: imageBase64Schema,
+      noteId: noteIdSchema, file: openAiFileSchema.optional(), mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']).optional(), base64Data: imageBase64Schema.optional(),
       name: z.string().trim().min(1).max(255).optional().default('image'), placement: z.enum(['top', 'bottom']).optional().default('top'),
       asDrawing: z.boolean().optional().default(false), drawingBackground: z.enum(['square', 'dots', 'rules', 'none']).optional().default('none')
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, safely(async ({ noteId, mimeType, base64Data, name, placement, asDrawing, drawingBackground }) => {
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    _meta: { 'openai/fileParams': ['file'] }
+  }, safely(async ({ noteId, file, mimeType, base64Data, name, placement, asDrawing, drawingBackground }) => {
     const note = await client.getNote(noteId);
     if (note.locked && note.lockedContentAvailable === false) throw new Error('Unlock this note before adding an image.');
-    const uploaded = await client.uploadImage({ filename: name, mimeType, base64Data });
+    const upload = file
+      ? await client.fileParamToUpload(file, { kind: 'image', fallbackName: name })
+      : { filename: name, mimeType, base64Data };
+    if (!upload.mimeType || !upload.base64Data) throw new Error('Provide either a ChatGPT file input or both mimeType and base64Data.');
+    const uploaded = await client.uploadImage(upload);
     const id = asDrawing ? 'drawing' : `mcp-image-${Date.now()}`;
-    const image = { id, dataUrl: uploaded.url, name: asDrawing ? `${uploaded.name || 'Drawing'}|bg:${drawingBackground}` : (uploaded.name || name), placement };
+    const image = { id, dataUrl: uploaded.url, name: asDrawing ? `${uploaded.name || 'Drawing'}|bg:${drawingBackground}` : (uploaded.name || upload.filename || name), placement };
     const images = (note.images || []).filter(existing => !asDrawing || existing.id !== 'drawing');
     images.push(image);
     return toolResult(await client.updateNote(noteId, { images }));
@@ -224,6 +235,19 @@ export function createKeptMcpServer(client, { oauth = false } = {}) {
     inputSchema: { noteId: noteIdSchema, imageId: z.string().min(1).max(200) },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
   }, safely(async ({ noteId, imageId }) => binaryResult(`kept://notes/${noteId}/images/${encodeURIComponent(imageId)}`, await client.readImage(noteId, imageId))));
+
+  server.registerTool('kept_delete_image', {
+    title: 'Remove an image from a note', description: 'Remove one image or drawing from a note by image id.',
+    inputSchema: { noteId: noteIdSchema, imageId: z.string().min(1).max(200) },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
+  }, safely(async ({ noteId, imageId }) => {
+    const note = await client.getNote(noteId);
+    if (note.locked && note.lockedContentAvailable === false) throw new Error('Unlock this note before removing an image.');
+    const images = Array.isArray(note.images) ? note.images : [];
+    const nextImages = images.filter(image => String(image?.id) !== String(imageId));
+    if (nextImages.length === images.length) throw new Error('Image not found on this note.');
+    return toolResult(await client.updateNote(noteId, { images: nextImages }));
+  }));
 
   for (const [name, title, state] of [
     ['kept_archive_note', 'Archive a Kept note', 'archive'], ['kept_trash_note', 'Move a Kept note to trash', 'trash'], ['kept_restore_note', 'Restore a Kept note', 'restore']
@@ -252,7 +276,22 @@ export function createKeptMcpServer(client, { oauth = false } = {}) {
   server.registerTool('kept_search_users', { title: 'Search Kept users', description: 'Find enabled Kept users who can be collaborators.', inputSchema: { query: z.string().trim().min(1).max(100) }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, safely(async ({ query }) => toolResult(await client.searchUsers(query))));
   server.registerTool('kept_set_collaborators', { title: 'Set note collaborators', description: 'Replace the collaborators on an owned note with the supplied user IDs.', inputSchema: { noteId: noteIdSchema, userIds: z.array(z.number().int().positive()).max(100) }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false } }, safely(async ({ noteId, userIds }) => toolResult(await client.setCollaborators(noteId, [...new Set(userIds)]))));
 
-  server.registerTool('kept_upload_attachment', { title: 'Upload an attachment', description: 'Attach a supported base64-encoded file to a note.', inputSchema: { noteId: noteIdSchema, filename: z.string().trim().min(1).max(255), mimeType: z.string().trim().min(1).max(200), base64Data: attachmentBase64Schema }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } }, safely(async ({ noteId, ...file }) => toolResult(await client.uploadAttachment(noteId, file))));
+  server.registerTool('kept_upload_attachment', {
+    title: 'Upload an attachment',
+    description: 'Attach a supported file to a note. Prefer the file input when ChatGPT provides an uploaded file; use base64Data only as a fallback.',
+    inputSchema: {
+      noteId: noteIdSchema, file: openAiFileSchema.optional(), filename: z.string().trim().min(1).max(255).optional(),
+      mimeType: z.string().trim().min(1).max(200).optional(), base64Data: attachmentBase64Schema.optional()
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    _meta: { 'openai/fileParams': ['file'] }
+  }, safely(async ({ noteId, file, filename, mimeType, base64Data }) => {
+    const upload = file
+      ? await client.fileParamToUpload(file, { kind: 'attachment', fallbackName: filename || 'attachment' })
+      : { filename, mimeType, base64Data };
+    if (!upload.filename || !upload.mimeType || !upload.base64Data) throw new Error('Provide either a ChatGPT file input or filename, mimeType, and base64Data.');
+    return toolResult(await client.uploadAttachment(noteId, upload));
+  }));
   server.registerTool('kept_read_attachment', { title: 'Read an attachment', description: 'Read an accessible attachment as an MCP embedded resource.', inputSchema: { attachmentId: z.number().int().positive() }, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, safely(async ({ attachmentId }) => binaryResult(`kept://attachments/${attachmentId}`, await client.readAttachment(attachmentId))));
   server.registerTool('kept_delete_attachment', { title: 'Delete an attachment', description: 'Permanently delete an attachment from an owned note.', inputSchema: { noteId: noteIdSchema, attachmentId: z.number().int().positive() }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false } }, safely(async ({ noteId, attachmentId }) => toolResult(await client.deleteAttachment(noteId, attachmentId))));
 
