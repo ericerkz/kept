@@ -147,6 +147,7 @@ h1 { margin-bottom: 0; }
   background: rgb(251 188 4 / 10%);
   border: 1px solid rgb(251 188 4 / 48%);
   border-radius: 6px;
+  color: #e8eaed;
   margin: 14px 0;
   padding: 14px;
 
@@ -164,12 +165,23 @@ h1 { margin-bottom: 0; }
 
   code {
     background: #171717;
+    border: 1px solid #3c4043;
     border-radius: 4px;
+    color: #e8eaed;
     flex: 1;
     min-width: 0;
     overflow-wrap: anywhere;
     padding: 10px;
     user-select: all;
+  }
+
+  button {
+    border-radius: 6px;
+    font-family: 'Google Sans', Roboto, Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    min-height: 40px;
+    padding: 0 16px;
   }
 }
 
@@ -563,6 +575,19 @@ h1 { margin-bottom: 0; }
   .preference-row { border-top-color: #dadce0; }
   .preference-label { color: #202124; }
   .preference-desc { color: #5f6368; }
+  .mcp-token-panel {
+    background: #fff8e1;
+    border-color: #f9ab00;
+    color: #202124;
+
+    p { color: #5f6368; }
+
+    code {
+      background: #f8f9fa;
+      border-color: #dadce0;
+      color: #202124;
+    }
+  }
   .segmented-control {
     background: #f1f3f4;
     border-color: #dadce0;
