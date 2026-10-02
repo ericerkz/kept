@@ -30,6 +30,9 @@ export class OfflineSyncService {
   readonly state$ = new BehaviorSubject<OfflineSyncState>(navigator.onLine ? 'saved' : 'offline');
   readonly cacheChanged$ = new Subject<void>();
   private readonly apiUrl = environment.apiUrl;
+  private readonly syncRequestTimeoutMs = 12000;
+  private degradedUntil = 0;
+  private degradedRetryTimers: ReturnType<typeof setTimeout>[] = [];
   private running = false;
   private rerun = false;
   private currentPartition = '';
@@ -57,6 +60,19 @@ export class OfflineSyncService {
 
   get partition() {
     return this.currentPartition;
+  }
+
+  isConnectionDegraded() {
+    return Date.now() < this.degradedUntil;
+  }
+
+  markConnectionDegraded(durationMs = 10000) {
+    this.degradedUntil = Math.max(this.degradedUntil, Date.now() + durationMs);
+    this.scheduleDegradedRetries();
+  }
+
+  clearConnectionDegraded() {
+    this.degradedUntil = 0;
   }
 
   async enqueue(type: OutboxEntry['type'], syncId: string, payload: unknown) {
@@ -90,9 +106,13 @@ export class OfflineSyncService {
       }
       await this.flushOutbox();
       await this.pullChanges();
+      this.clearConnectionDegraded();
       this.state$.next('saved');
     } catch (error) {
-      if (this.isOfflineError(error)) this.state$.next('offline');
+      if (this.isOfflineError(error)) {
+        this.markConnectionDegraded();
+        this.state$.next('offline');
+      }
       else {
         this.state$.next('error');
         console.error('Offline sync failed', error);
@@ -108,9 +128,12 @@ export class OfflineSyncService {
 
   async bootstrap() {
     if (!this.currentPartition) return;
-    const snapshot = await firstValueFrom(this.http.get<SyncSnapshot>(`${this.apiUrl}/sync/bootstrap`, {
-      headers: this.auth.authHeaders()
-    }));
+    const snapshot = await this.withTimeout(
+      firstValueFrom(this.http.get<SyncSnapshot>(`${this.apiUrl}/sync/bootstrap`, {
+        headers: this.auth.authHeaders()
+      })),
+      this.syncRequestTimeoutMs
+    );
     await this.store.replaceSnapshot(
       this.currentPartition,
       snapshot.notes || [],
@@ -135,7 +158,7 @@ export class OfflineSyncService {
 
   private async flushMutations(entries: OutboxEntry[]) {
     if (!this.currentPartition || !entries.length) return;
-    const response = await firstValueFrom(this.http.post<{
+    const response = await this.withTimeout(firstValueFrom(this.http.post<{
       results: Array<{ ok: boolean; syncId?: string; id?: number; skipped?: boolean; error?: string }>;
       serverTime: number;
       snapshot?: SyncSnapshot;
@@ -146,7 +169,7 @@ export class OfflineSyncService {
         payload: entry.payload,
         lww: entry.lww
       }))
-    }, { headers: this.auth.authHeaders() }));
+    }, { headers: this.auth.authHeaders() })), this.syncRequestTimeoutMs);
     const completed = entries.filter((entry, index) => response.results?.[index]?.ok);
     await this.store.removeOutbox(completed.map(entry => entry.key));
     const failed = response.results?.find(result => !result.ok);
@@ -187,11 +210,14 @@ export class OfflineSyncService {
       const formData = new FormData();
       formData.append('file', blob, payload.filename || 'attachment');
       formData.append('syncId', payload.syncId);
-      const attachment = await firstValueFrom(this.http.post<NoteAttachmentI>(
-        `${this.apiUrl}/notes/${note.id}/attachments?syncId=${encodeURIComponent(payload.syncId)}`,
-        formData,
-        { headers: this.auth.authHeaders() }
-      ));
+      const attachment = await this.withTimeout(
+        firstValueFrom(this.http.post<NoteAttachmentI>(
+          `${this.apiUrl}/notes/${note.id}/attachments?syncId=${encodeURIComponent(payload.syncId)}`,
+          formData,
+          { headers: this.auth.authHeaders() }
+        )),
+        this.syncRequestTimeoutMs
+      );
       await this.store.putAttachment(this.currentPartition, attachment);
       const updatedNote = {
         ...note,
@@ -209,7 +235,7 @@ export class OfflineSyncService {
     let state = await this.store.getSyncState(this.currentPartition);
     let hasMore = true;
     while (hasMore) {
-      const response = await firstValueFrom(this.http.get<{
+      const response = await this.withTimeout(firstValueFrom(this.http.get<{
         changes: SyncChange[];
         cursor: number;
         hasMore: boolean;
@@ -217,7 +243,7 @@ export class OfflineSyncService {
       }>(`${this.apiUrl}/sync/changes`, {
         headers: this.auth.authHeaders(),
         params: { cursor: String(state.cursor), limit: '500' }
-      }));
+      })), this.syncRequestTimeoutMs);
       for (const change of response.changes || []) await this.applyChange(change);
       await this.store.setSyncState(this.currentPartition, response.cursor || state.cursor, response.serverTime);
       state = await this.store.getSyncState(this.currentPartition);
@@ -243,7 +269,41 @@ export class OfflineSyncService {
   }
 
   private isOfflineError(error: unknown) {
-    return !navigator.onLine || (error instanceof HttpErrorResponse && error.status === 0);
+    return !navigator.onLine || this.isRequestTimeout(error) || (error instanceof HttpErrorResponse && error.status === 0);
+  }
+
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            const error = new Error('Request timed out.');
+            error.name = 'KeptRequestTimeout';
+            reject(error);
+          }, timeoutMs);
+        })
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private isRequestTimeout(error: unknown) {
+    return error instanceof Error && error.name === 'KeptRequestTimeout';
+  }
+
+  private scheduleDegradedRetries() {
+    if (!navigator.onLine) return;
+    if (this.degradedRetryTimers.length) return;
+    for (const delay of [1500, 5000, 10000]) {
+      const timer = setTimeout(() => {
+        this.degradedRetryTimers = this.degradedRetryTimers.filter(item => item !== timer);
+        if (navigator.onLine && this.currentPartition) this.syncNow().catch(console.error);
+      }, delay);
+      this.degradedRetryTimers.push(timer);
+    }
   }
 
   private async cacheSnapshotMedia(notes: NoteI[]) {

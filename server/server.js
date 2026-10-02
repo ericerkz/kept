@@ -4459,6 +4459,19 @@ app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single(
   const now = new Date().toISOString();
   const stamp = serverLwwStamp();
   const syncId = String(req.body?.syncId || req.query?.syncId || `attachment-${crypto.randomUUID()}`);
+  const existing = await get(
+    `SELECT na.*
+     FROM note_attachments na
+     JOIN notes n ON n.id = na.noteId
+     LEFT JOIN note_collaborators nc ON nc.noteId = n.id AND nc.userId = ?
+     WHERE na.syncId = ?
+       AND (n.ownerUserId = ? OR nc.userId IS NOT NULL)`,
+    [req.user.id, syncId, req.user.id]
+  );
+  if (existing) {
+    fs.unlink(req.file.path, () => undefined);
+    return res.status(200).json(attachmentResponse(existing));
+  }
   const result = await run(
     `INSERT INTO note_attachments
        (noteId, syncId, originalName, storedFilename, fileSize, mimeType, uploadedAt, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)

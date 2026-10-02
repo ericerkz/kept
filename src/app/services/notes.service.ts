@@ -47,6 +47,8 @@ const KeptDownloads = registerPlugin<KeptDownloadsPlugin>('KeptDownloads');
 })
 export class NotesService {
   private readonly apiUrl = `${environment.apiUrl}/notes`;
+  private readonly noteWriteTimeoutMs = 5500;
+  private readonly mediaUploadTimeoutMs = 12000;
   notesList$ = new BehaviorSubject<NoteI[] | null>(null);
   activeEditors$ = new BehaviorSubject<{noteId: number, editors: any[]} | null>(null);
   private realtimeSocket?: WebSocket;
@@ -430,13 +432,20 @@ export class NotesService {
       sortOrder: noteObj.sortOrder ?? Date.now()
     };
     this.offlineStore.ensureNoteIdentity(pendingNote);
+    if ((!navigator.onLine || this.offlineSync.isConnectionDegraded()) && this.offlineSync.partition) {
+      return this.saveLocalNewNote(pendingNote);
+    }
     if (pendingNote.syncId) this.suppressedRealtimeCreates.set(pendingNote.syncId, Date.now() + 5000);
     try {
-      const result = await firstValueFrom(this.http.post<NoteI & { id: number }>(
-        this.apiUrl,
-        pendingNote,
-        { headers: this.auth.authHeaders() }
-      ));
+      const result = await this.withTimeout(
+        firstValueFrom(this.http.post<NoteI & { id: number }>(
+          this.apiUrl,
+          pendingNote,
+          { headers: this.auth.authHeaders() }
+        )),
+        this.noteWriteTimeoutMs
+      );
+      this.offlineSync.clearConnectionDegraded();
       try {
         const saved = result.sortOrder != null
           ? { ...pendingNote, ...result }
@@ -459,15 +468,21 @@ export class NotesService {
         console.log(error);
         return -1;
       }
-      let localId = -Date.now();
-      while (await this.offlineStore.getNote(this.offlineSync.partition, localId)) localId -= 1;
-      const now = new Date().toISOString();
-      const localNote: NoteI = { ...pendingNote, id: localId, createdAt: now, updatedAt: now };
-      await this.offlineStore.putNote(this.offlineSync.partition, localNote);
-      await this.offlineSync.enqueue('note.upsert', localNote.syncId!, localNote);
-      this.prependNotesIntoList([localNote]);
-      return localId;
+      this.offlineSync.markConnectionDegraded();
+      return this.saveLocalNewNote(pendingNote);
     }
+  }
+
+  private async saveLocalNewNote(pendingNote: NoteI) {
+    if (!this.offlineSync.partition || !pendingNote.syncId) return -1;
+    let localId = -Date.now();
+    while (await this.offlineStore.getNote(this.offlineSync.partition, localId)) localId -= 1;
+    const now = new Date().toISOString();
+    const localNote: NoteI = { ...pendingNote, id: localId, createdAt: pendingNote.createdAt || now, updatedAt: now };
+    await this.offlineStore.putNote(this.offlineSync.partition, localNote);
+    await this.offlineSync.enqueue('note.upsert', localNote.syncId!, localNote);
+    this.prependNotesIntoList([localNote]);
+    return localId;
   }
 
   async update(object: NoteI, id: number) {
@@ -486,15 +501,20 @@ export class NotesService {
     this.suppressRealtimeReload(id);
     try {
       await this.noteWriteWithRetry(
-        () => firstValueFrom(this.http.put(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() })),
+        () => this.withTimeout(
+          firstValueFrom(this.http.put(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() })),
+          this.noteWriteTimeoutMs
+        ),
         `update note ${id}`
       );
+      this.offlineSync.clearConnectionDegraded();
       this.mergeNoteIntoList({ ...object, id });
       this.scheduleIosReminderRefresh(id);
     } catch (error) {
       this.suppressedRealtimeReloads.delete(id);
       if (this.auth.notifySessionExpired(error)) throw error;
       if (this.isOfflineError(error)) {
+        this.offlineSync.markConnectionDegraded();
         await this.offlineSync.enqueue('note.upsert', local.syncId!, local);
         return;
       }
@@ -520,15 +540,20 @@ export class NotesService {
     this.suppressRealtimeReload(id);
     try {
       await this.noteWriteWithRetry(
-        () => firstValueFrom(this.http.patch(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() })),
+        () => this.withTimeout(
+          firstValueFrom(this.http.patch(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() })),
+          this.noteWriteTimeoutMs
+        ),
         `update note fields ${id}`
       );
+      this.offlineSync.clearConnectionDegraded();
       this.mergeNoteIntoList({ ...object, id } as NoteI);
       this.scheduleIosReminderRefresh(id);
     } catch (error) {
       this.suppressedRealtimeReloads.delete(id);
       if (this.auth.notifySessionExpired(error)) throw error;
       if (this.isOfflineError(error)) {
+        this.offlineSync.markConnectionDegraded();
         await this.offlineSync.enqueue('note.upsert', local.syncId!, local);
         return;
       }
@@ -554,6 +579,7 @@ export class NotesService {
   }
 
   private isRetryableNoteWriteError(error: unknown) {
+    if (this.isRequestTimeout(error)) return false;
     if (!(error instanceof HttpErrorResponse)) return true;
     return error.status === 0 || error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500;
   }
@@ -568,10 +594,17 @@ export class NotesService {
         await this.queueReorder(ids);
         return;
       }
-      await firstValueFrom(this.http.patch(`${this.apiUrl}/reorder`, { ids }, { headers: this.auth.authHeaders() }));
+      await this.withTimeout(
+        firstValueFrom(this.http.patch(`${this.apiUrl}/reorder`, { ids }, { headers: this.auth.authHeaders() })),
+        this.noteWriteTimeoutMs
+      );
+      this.offlineSync.clearConnectionDegraded();
     } catch (error) {
       this.suppressNextReorderReloadUntil = 0;
-      if (this.isOfflineError(error)) await this.queueReorder(ids);
+      if (this.isOfflineError(error)) {
+        this.offlineSync.markConnectionDegraded();
+        await this.queueReorder(ids);
+      }
       else console.log(error)
       await this.load();
     }
@@ -590,18 +623,33 @@ export class NotesService {
   async uploadImage(file: File) {
     const formData = new FormData();
     formData.append('image', file);
-    return await firstValueFrom(this.http.post<{ url: string, name: string }>(
-      `${environment.apiUrl}/uploads/images`,
-      formData,
-      { headers: this.auth.authHeaders() }
-    ));
+    if (!navigator.onLine || this.offlineSync.isConnectionDegraded()) {
+      return { url: await this.fileToDataUrl(file), name: file.name };
+    }
+    try {
+      const uploaded = await this.withTimeout(
+        firstValueFrom(this.http.post<{ url: string, name: string }>(
+          `${environment.apiUrl}/uploads/images`,
+          formData,
+          { headers: this.auth.authHeaders() }
+        )),
+        this.mediaUploadTimeoutMs
+      );
+      this.offlineSync.clearConnectionDegraded();
+      return uploaded;
+    } catch (error) {
+      if (!this.isOfflineError(error)) throw error;
+      this.offlineSync.markConnectionDegraded();
+      return { url: await this.fileToDataUrl(file), name: file.name };
+    }
   }
 
   async uploadAttachment(noteId: number, file: File | Blob, filename?: string) {
     const syncId = `attachment-${crypto.randomUUID()}`;
     const note = await this.cachedOrLoadedNote(noteId);
     const resolvedName = filename || (file instanceof File ? file.name : 'attachment');
-    if ((!navigator.onLine || noteId < 0) && this.offlineSync.partition && note?.syncId) {
+    const queueLocalAttachment = async () => {
+      if (!this.offlineSync.partition || !note?.syncId) throw new Error('No offline note available for attachment upload.');
       const blobKey = crypto.randomUUID();
       const localAttachment: NoteAttachmentI = {
         id: -Date.now(),
@@ -614,10 +662,12 @@ export class NotesService {
       };
       await this.offlineStore.putBlob(this.offlineSync.partition, blobKey, file);
       await this.offlineStore.putAttachment(this.offlineSync.partition, localAttachment);
-      await this.offlineStore.putNote(this.offlineSync.partition, {
+      const updatedNote = {
         ...note,
         attachments: [localAttachment, ...(note.attachments || [])]
-      });
+      };
+      await this.offlineStore.putNote(this.offlineSync.partition, updatedNote);
+      this.mergeNoteIntoList(updatedNote);
       await this.offlineSync.enqueue('attachment.upload', syncId, {
         noteSyncId: note.syncId,
         blobKey,
@@ -625,17 +675,30 @@ export class NotesService {
         syncId
       });
       return localAttachment;
+    };
+    if ((!navigator.onLine || noteId < 0 || this.offlineSync.isConnectionDegraded()) && this.offlineSync.partition && note?.syncId) {
+      return queueLocalAttachment();
     }
     const formData = new FormData();
     formData.append('file', file, resolvedName);
     formData.append('syncId', syncId);
-    const attachment = await firstValueFrom(this.http.post<NoteAttachmentI>(
-      `${environment.apiUrl}/notes/${noteId}/attachments?syncId=${encodeURIComponent(syncId)}`,
-      formData,
-      { headers: this.auth.authHeaders() }
-    ));
-    if (this.offlineSync.partition) await this.offlineStore.putAttachment(this.offlineSync.partition, attachment);
-    return attachment;
+    try {
+      const attachment = await this.withTimeout(
+        firstValueFrom(this.http.post<NoteAttachmentI>(
+          `${environment.apiUrl}/notes/${noteId}/attachments?syncId=${encodeURIComponent(syncId)}`,
+          formData,
+          { headers: this.auth.authHeaders() }
+        )),
+        this.mediaUploadTimeoutMs
+      );
+      this.offlineSync.clearConnectionDegraded();
+      if (this.offlineSync.partition) await this.offlineStore.putAttachment(this.offlineSync.partition, attachment);
+      return attachment;
+    } catch (error) {
+      if (!this.isOfflineError(error) || !this.offlineSync.partition || !note?.syncId) throw error;
+      this.offlineSync.markConnectionDegraded();
+      return queueLocalAttachment();
+    }
   }
 
   async deleteAttachment(noteId: number, attachmentId: number) {
@@ -1121,7 +1184,38 @@ export class NotesService {
   }
 
   private isOfflineError(error: unknown) {
-    return !navigator.onLine || (error instanceof HttpErrorResponse && error.status === 0);
+    return !navigator.onLine || this.isRequestTimeout(error) || (error instanceof HttpErrorResponse && error.status === 0);
+  }
+
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            const error = new Error('Request timed out.');
+            error.name = 'KeptRequestTimeout';
+            reject(error);
+          }, timeoutMs);
+        })
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private isRequestTimeout(error: unknown) {
+    return error instanceof Error && error.name === 'KeptRequestTimeout';
+  }
+
+  private fileToDataUrl(file: File | Blob) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error('Could not read file.'));
+      reader.readAsDataURL(file);
+    });
   }
 
   private async cacheNoteMedia(note: NoteI) {
