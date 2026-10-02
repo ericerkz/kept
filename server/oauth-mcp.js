@@ -180,7 +180,7 @@ function oauthTokenCanCallApi(access, req) {
 }
 
 function oidcSettings() {
-  const issuer = String(process.env.KEPT_OIDC_ISSUER || '').trim().replace(/\/+$/, '');
+  const issuer = String(process.env.KEPT_OIDC_ISSUER || '').trim();
   const clientId = String(process.env.KEPT_OIDC_CLIENT_ID || '').trim();
   return {
     enabled: !!(issuer && clientId), issuer, clientId,

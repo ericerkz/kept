@@ -22,7 +22,7 @@ KEPT_OIDC_CLIENT_SECRET=your-client-secret
 KEPT_OIDC_NAME=Your provider name
 ```
 
-`KEPT_OIDC_CLIENT_SECRET` is optional for public clients when the provider permits PKCE without a secret. The issuer must be the provider's OIDC issuer URL, not merely its login page. Kept discovers the provider metadata from the issuer.
+`KEPT_OIDC_CLIENT_SECRET` is optional for public clients when the provider permits PKCE without a secret. The issuer must exactly match the `issuer` value in the provider's OIDC discovery document, including any trailing slash; it is not merely the provider's login page. Kept discovers the remaining provider metadata from that issuer.
 
 The default scopes are `openid profile email`. Override them with `KEPT_OIDC_SCOPES` if your provider requires different scopes.
 
