@@ -3,7 +3,7 @@ import { Component, OnInit, ViewChild, ElementRef, ChangeDetectorRef, Input, Hos
 import { Router } from '@angular/router';
 
 import { bgImages, bgColors } from 'src/app/interfaces/tooltip';
-import { SharedService } from 'src/app/services/shared.service';
+import { SharedService, type WidgetCreateRequest } from 'src/app/services/shared.service';
 import { BehaviorSubject, Subscription, Subject } from 'rxjs';
 import { debounceTime } from 'rxjs/operators';
 import { LabelI } from 'src/app/interfaces/labels';
@@ -21,7 +21,7 @@ import { isNativePhonePlatform, shouldUseFullscreenNoteEditor } from 'src/app/ut
 import { NoteLockService } from 'src/app/services/note-lock.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
-import { descendantIndexes, maxIndentLevelAt, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
+import { MAX_INDENT_LEVEL, descendantIndexes, maxIndentLevelAt, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
 import { environment } from 'src/environments/environment';
 
 declare var Snackbar: any;
@@ -41,7 +41,9 @@ export class InputComponent implements OnInit {
   @HostBinding('class.mobile-active') get isMobileActive() {
     return this.mobileComposeMode;
   }
-  @HostBinding('class.native-phone-layout') readonly nativePhoneLayout = isNativePhonePlatform();
+  @HostBinding('class.native-phone-layout') get nativePhoneLayout() {
+    return isNativePhonePlatform();
+  }
 
   constructor(private cd: ChangeDetectorRef, public Shared: SharedService, public auth: AuthService, private notesService: NotesService, private push: PushNotificationService, private reminderService: ReminderService, public keptPlugins: KeptPluginsService, private savedPlacesService: LocationSavedPlacesService, private zone: NgZone, private router: Router, public noteLock: NoteLockService, public preferences: UserPreferencesService) { }
 
@@ -97,6 +99,11 @@ export class InputComponent implements OnInit {
   private lastCboxStructuralChangeAt = 0
   private lastCboxTextInputAt = 0
   private cboxHistoryRedoMode = false
+  private cboxSuggestionEligibleIds = new Set<number>()
+  private cboxSuggestionDraftValues = new Map<number, string>()
+  private dismissedCboxSuggestionIds = new Set<number>()
+  activeCboxSuggestionRowId?: number
+  private cboxSuggestionBlurTimer?: ReturnType<typeof setTimeout>
   isCbox = new BehaviorSubject<boolean>(false)
   inputLength = new BehaviorSubject<InputLengthI>({ title: 0, body: 0, cb: 0 })
   collaboratorUsers: ShareUserI[] = []
@@ -203,6 +210,7 @@ export class InputComponent implements OnInit {
   private cboxTouchStartX = 0;
   private cboxTouchStartY = 0;
   private cboxTouchIndentHandled = false;
+  private cboxTouchStartIndent = 0;
   private pendingCboxFocusPoint?: { id: number, x: number, y: number };
   private cboxTextTouch?: { id: number, x: number, y: number, moved: boolean, wasFocused: boolean, disabledEditing: boolean };
   private lastCboxTouchToggleAt = 0;
@@ -219,6 +227,7 @@ export class InputComponent implements OnInit {
   coEditSubscription?: Subscription;
   notesListSubscription?: Subscription;
   mobileComposerSubscription?: Subscription;
+  widgetCreateSubscription?: Subscription;
   closeMobileComposerSubscription?: Subscription;
   preferencesSubscription?: Subscription;
   private coEditSaveInFlight = false;
@@ -229,6 +238,7 @@ export class InputComponent implements OnInit {
   private editorLinkDecorationFrame?: number
   private saveBaselineSnapshot?: string
   mobileComposeMode = false
+  mobileNewNoteStarterDismissed = false
   lastEditedTime = ''
   //
   bgColors = bgColors
@@ -274,6 +284,7 @@ export class InputComponent implements OnInit {
     if (this.isCbox.value) this.cboxPh?.nativeElement.focus()
     else this.noteBody?.nativeElement.focus()
     if (!this.isEditing) {
+      this.mobileNewNoteStarterDismissed = false
       this.inputLength.next({ title: 0, body: 0, cb: 0 })
       document.addEventListener('mousedown', this.mouseDownEvent)
     }
@@ -334,6 +345,36 @@ export class InputComponent implements OnInit {
     this.notePhClick()
   }
 
+  private async openWidgetComposer(request: WidgetCreateRequest) {
+    if (this.isEditing) return
+    try {
+      if (!this.noteMain.nativeElement.hidden) {
+        const saved = await this.saveNote()
+        if (saved === false) return
+        if (!this.noteMain.nativeElement.hidden) this.closeNote()
+      }
+
+      this.openMobileComposer()
+      this.mobileNewNoteStarterDismissed = true
+      if (request.type === 'checklist') this.startMobileChecklist()
+      else if (request.type === 'drawing') this.startMobileDrawing()
+      else requestAnimationFrame(() => this.noteBody?.nativeElement.focus())
+
+      this.cd.detectChanges()
+      await new Promise<void>(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      })
+      const openedInRequestedMode = this.mobileComposeMode
+        && !this.noteMain.nativeElement.hidden
+        && (request.type !== 'checklist' || this.isCbox.value)
+        && (request.type !== 'drawing' || this.isDrawingNote)
+        && (request.type !== 'plain' || (!this.isCbox.value && !this.isDrawingNote))
+      if (openedInRequestedMode) this.Shared.widgetComposerOpened.next(request)
+    } catch (error) {
+      console.warn('Could not open widget quick-create composer', error)
+    }
+  }
+
   mobileBack() {
     const hasTitle = this.noteTitle?.nativeElement.innerHTML.trim().length > 0
     const hasBody = (this.noteBody?.nativeElement.innerHTML.trim().length ?? 0) > 0
@@ -376,6 +417,33 @@ export class InputComponent implements OnInit {
     this.cd.detectChanges()
     this.restoreBodyHtmlAfterTemplateSwap(currentBodyHtml)
     requestAnimationFrame(() => this.cboxPh?.nativeElement.focus())
+  }
+
+  showMobileNewNoteStarters() {
+    const length = this.inputLength.value
+    return this.mobileComposeMode
+      && !this.isEditing
+      && !this.mobileNewNoteStarterDismissed
+      && !this.isCbox.value
+      && !this.isDrawingNote
+      && !(length.title || length.body || length.cb)
+      && !this.images.length
+      && !this.attachments.length
+      && !this.pendingAttachmentFiles.length
+  }
+
+  startMobileChecklist() {
+    this.mobileNewNoteStarterDismissed = true
+    this.toggleCbox()
+  }
+
+  startMobileDrawing(event?: Event) {
+    this.mobileNewNoteStarterDismissed = true
+    this.openDrawingNote(event)
+  }
+
+  private dismissMobileNewNoteStarters() {
+    if (this.mobileComposeMode && !this.isEditing) this.mobileNewNoteStarterDismissed = true
   }
 
   hasHybridBody(): boolean {
@@ -775,15 +843,22 @@ export class InputComponent implements OnInit {
     if (this.draggedCboxId === undefined) return false
     const absDx = Math.abs(rawDx)
     const absDy = Math.abs(rawDy)
-    if (absDx < 42 || absDx < absDy * 1.15) return false
+    const indentWidth = 32
+    const activationDistance = 24
 
     if (!this.cboxTouchIndentHandled) {
-      const changed = this.adjustCboxIndentLevel(this.draggedCboxId, rawDx > 0 ? 1 : -1, { commit: false })
-      if (changed) {
-        this.cboxDragOrderChanged = true
-        try { (navigator as any).vibrate?.(8) } catch {}
-      }
+      if (absDx < activationDistance || absDx < absDy * 1.15) return false
       this.cboxTouchIndentHandled = true
+    }
+
+    const levelDelta = absDx < activationDistance
+      ? 0
+      : Math.min(Math.round(absDx / indentWidth), MAX_INDENT_LEVEL)
+    const targetIndent = this.cboxTouchStartIndent + (rawDx < 0 ? -levelDelta : levelDelta)
+    const changed = this.setCboxIndentLevel(this.draggedCboxId, targetIndent, { commit: false })
+    if (changed) {
+      this.cboxDragOrderChanged = true
+      try { (navigator as any).vibrate?.(8) } catch {}
     }
     return true
   }
@@ -858,6 +933,23 @@ export class InputComponent implements OnInit {
     if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
   }
 
+  deleteAllCompletedCboxItems(tooltipEl?: HTMLDivElement) {
+    this.syncCboxDomIntoModel()
+    const completedCount = this.checkBoxes.filter(cb => cb.done).length
+    if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
+    if (!completedCount) return
+
+    const itemLabel = completedCount === 1 ? 'item' : 'items'
+    if (!confirm(`Delete ${completedCount} completed ${itemLabel}?`)) return
+
+    this.checkBoxes = normalizeIndentLevels(this.checkBoxes.filter(cb => !cb.done))
+    this.noteToEdit.checkBoxes = this.checkBoxes
+    this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
+    this.pushCboxHistorySnapshot()
+    this.cd.detectChanges()
+    this.queueCoEditAutosave()
+  }
+
   private notePlainText(value?: string | null) {
     const div = document.createElement('div')
     div.innerHTML = value || ''
@@ -876,12 +968,17 @@ export class InputComponent implements OnInit {
     this.hasBackgroundImage = false
     //
     this.checkBoxes = []
+    this.cboxSuggestionEligibleIds.clear()
+    this.cboxSuggestionDraftValues.clear()
+    this.dismissedCboxSuggestionIds.clear()
+    this.activeCboxSuggestionRowId = undefined
     this.resetCboxHistory()
     this.images = []
     this.attachments = []
     this.pendingAttachmentFiles = []
     this.isUploadingAttachment = false
     this.isDrawingNote = false
+    this.mobileNewNoteStarterDismissed = false
     this.isDrawingFullscreen = false
     this.isHybridNote = false
     this.showTextFormatting = false
@@ -918,6 +1015,7 @@ export class InputComponent implements OnInit {
     let text = event.clipboardData?.getData('text/plain');
     let target = event.currentTarget as HTMLDivElement
     this.insertPlainTextAtCursor(target, text || '')
+    if (text) this.dismissMobileNewNoteStarters()
     if (this.noteBody?.nativeElement === target) {
       this.queueEditorLinkDecoration()
     } else if (this.noteTitle?.nativeElement === target) {
@@ -1424,6 +1522,7 @@ export class InputComponent implements OnInit {
     } else {
       this.checkBoxes.push(cb)
     }
+    this.cboxSuggestionEligibleIds.add(cb.id)
     this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
     this.pushCboxHistorySnapshot()
     this.queueCoEditAutosave()
@@ -1438,6 +1537,9 @@ export class InputComponent implements OnInit {
 
   cboxInputFocus(event: FocusEvent) {
     const el = event.target as HTMLDivElement
+    if (this.cboxSuggestionBlurTimer) clearTimeout(this.cboxSuggestionBlurTimer)
+    const focusedId = Number(el.dataset['cboxId'])
+    this.activeCboxSuggestionRowId = Number.isFinite(focusedId) ? focusedId : undefined
     this.rememberTextHistoryTarget(el)
     setTimeout(() => {
       const id = Number(el.dataset['cboxId'])
@@ -1454,6 +1556,18 @@ export class InputComponent implements OnInit {
       sel?.removeAllRanges()
       sel?.addRange(range)
     }, 0)
+  }
+
+  cboxInputBlur(id: number) {
+    if (this.cboxSuggestionBlurTimer) clearTimeout(this.cboxSuggestionBlurTimer)
+    this.cboxSuggestionBlurTimer = setTimeout(() => {
+      const focused = document.activeElement as HTMLElement | null
+      if (focused?.closest(`[data-cbox-suggestion-draft-id="${id}"]`)) return
+      if (this.activeCboxSuggestionRowId === id) {
+        this.activeCboxSuggestionRowId = undefined
+        this.cd.detectChanges()
+      }
+    }, 150)
   }
 
   cboxTextTouchStart(event: TouchEvent, id: number, el: HTMLDivElement) {
@@ -1544,16 +1658,135 @@ export class InputComponent implements OnInit {
     sel?.addRange(range)
   }
 
-  onCboxInput(id: number) {
-    if (!this.checkBoxes.some(item => item.id === id)) return
+  onCboxInput(id: number, el?: HTMLDivElement) {
+    if (!this.checkBoxes.some(candidate => candidate.id === id)) return
+    if (el) this.cboxSuggestionDraftValues.set(id, el.innerHTML)
+    this.dismissedCboxSuggestionIds.delete(id)
     this.lastCboxTextInputAt = Date.now()
     this.cboxHistoryRedoMode = false
     this.queueCoEditAutosave()
   }
 
+  completedCboxSuggestions(id: number) {
+    if (this.activeCboxSuggestionRowId !== id || !this.cboxSuggestionEligibleIds.has(id) || this.dismissedCboxSuggestionIds.has(id)) return []
+    const draft = this.checkBoxes.find(item => item.id === id)
+    if (!draft || draft.done) return []
+    const query = this.normalizedCboxSuggestionText(this.cboxSuggestionDraftValues.get(id) ?? draft.data)
+    if (!query) return []
+
+    return this.checkBoxes
+      .filter(item => item.done && this.normalizedCboxSuggestionText(item.data).startsWith(query))
+      .slice(0, 5)
+  }
+
+  cboxSuggestionLabel(item: CheckboxI) {
+    return this.notePlainText(String(item.data || ''))
+  }
+
+  cboxSuggestionKeyDown(event: KeyboardEvent, draftId: number, completedId: number, index: number) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      event.stopPropagation()
+      this.restoreCompletedCboxSuggestion(draftId, completedId, event)
+      return
+    }
+    if (event.key === 'Escape') {
+      this.dismissCboxSuggestions(draftId, event, true)
+      return
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+
+    event.preventDefault()
+    event.stopPropagation()
+    const buttons = this.cboxSuggestionButtons(draftId)
+    if (!buttons.length) return
+    const step = event.key === 'ArrowDown' ? 1 : -1
+    buttons[(index + step + buttons.length) % buttons.length]?.focus()
+  }
+
+  private focusFirstCboxSuggestion(draftId: number) {
+    requestAnimationFrame(() => this.cboxSuggestionButtons(draftId)[0]?.focus())
+  }
+
+  private cboxSuggestionButtons(draftId: number) {
+    return Array.from(document.querySelectorAll<HTMLButtonElement>(
+      `[data-cbox-suggestion-draft-id="${draftId}"] .cbox-restore-suggestion`
+    ))
+  }
+
+  private dismissCboxSuggestions(draftId: number, event: KeyboardEvent, restoreDraftFocus = false) {
+    event.preventDefault()
+    event.stopPropagation()
+    this.dismissedCboxSuggestionIds.add(draftId)
+    this.cd.detectChanges()
+
+    if (restoreDraftFocus) {
+      requestAnimationFrame(() => {
+        const draft = document.querySelector(`[data-cbox-id="${draftId}"]`) as HTMLDivElement | null
+        draft?.focus({ preventScroll: true })
+      })
+    }
+  }
+
+  restoreCompletedCboxSuggestion(draftId: number, completedId: number, event?: Event) {
+    event?.preventDefault()
+    event?.stopPropagation()
+    this.syncCboxDomIntoModel()
+
+    const draftIndex = this.checkBoxes.findIndex(item => item.id === draftId)
+    const completedIndex = this.checkBoxes.findIndex(item => item.id === completedId && item.done)
+    if (draftIndex < 0 || completedIndex < 0 || draftId === completedId) return
+
+    const draftIndent = this.checkboxIndentLevel(this.checkBoxes[draftIndex])
+    const subtreeIndexes = [completedIndex, ...this.childIndexesForParent(completedIndex)]
+    const subtreeIds = new Set(subtreeIndexes.map(index => this.checkBoxes[index].id))
+    const baseIndent = this.checkboxIndentLevel(this.checkBoxes[completedIndex])
+    const indentDelta = draftIndent - baseIndent
+    const restored = subtreeIndexes.map(index => ({
+      ...this.checkBoxes[index],
+      done: false,
+      indentLevel: normalizeIndentLevel(this.checkboxIndentLevel(this.checkBoxes[index]) + indentDelta)
+    }))
+    const removedBeforeDraft = subtreeIndexes.filter(index => index < draftIndex).length
+    const remaining = this.checkBoxes.filter(item => item.id !== draftId && !subtreeIds.has(item.id))
+    const insertAt = Math.max(0, Math.min(draftIndex - removedBeforeDraft, remaining.length))
+    remaining.splice(insertAt, 0, ...restored)
+
+    this.checkBoxes = normalizeIndentLevels(remaining)
+    this.noteToEdit.checkBoxes = this.checkBoxes
+    this.cboxSuggestionEligibleIds.delete(draftId)
+    this.cboxSuggestionDraftValues.delete(draftId)
+    this.dismissedCboxSuggestionIds.delete(draftId)
+    this.activeCboxSuggestionRowId = undefined
+    this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
+    this.pushCboxHistorySnapshot()
+    this.cd.detectChanges()
+    this.queueCoEditAutosave()
+
+    requestAnimationFrame(() => {
+      const restoredEl = document.querySelector(`[data-cbox-id="${completedId}"]`) as HTMLDivElement | null
+      restoredEl?.focus({ preventScroll: true })
+    })
+  }
+
+  private normalizedCboxSuggestionText(value: unknown) {
+    return this.notePlainText(String(value || '')).toLocaleLowerCase().trim()
+  }
+
   cBoxKeyDown($event: KeyboardEvent, id: number) {
     let target = $event.target as HTMLDivElement
+    const suggestions = this.completedCboxSuggestions(id)
+    if ($event.key === 'Escape' && suggestions.length) {
+      this.dismissCboxSuggestions(id, $event)
+      return
+    }
     if ($event.key === 'Tab') {
+      if (!$event.shiftKey && suggestions.length) {
+        $event.preventDefault()
+        $event.stopPropagation()
+        this.focusFirstCboxSuggestion(id)
+        return
+      }
       $event.preventDefault()
       this.adjustCboxIndentLevel(id, $event.shiftKey ? -1 : 1)
       return
@@ -1615,12 +1848,14 @@ export class InputComponent implements OnInit {
   }
 
   onNoteBodyInput(body: HTMLDivElement) {
+    this.dismissMobileNewNoteStarters()
     const saveHtml = this.cleanEditorBodyForSave(body.innerHTML)
     this.updateInputLength({ body: saveHtml.length })
     this.queueCoEditAutosave()
   }
 
   onNoteTitleInput() {
+    this.dismissMobileNewNoteStarters()
     this.updateInputLength({ title: this.noteTitle.nativeElement.innerHTML.length })
     this.queueCoEditAutosave()
   }
@@ -2643,6 +2878,7 @@ export class InputComponent implements OnInit {
       this.draggedCboxId = id
       this.dragReadyCboxId = id
       this.cboxTouchDragging = true
+      this.cboxTouchStartIndent = this.checkboxIndentLevel(this.checkBoxes.find(cb => cb.id === id))
       const row = document.querySelector<HTMLElement>(`[data-cbox-row-id="${id}"]`)
       if (row) {
         this.createCboxDragImage(row, this.cboxTouchStartX, this.cboxTouchStartY)
@@ -2754,6 +2990,7 @@ export class InputComponent implements OnInit {
     this.dragReadyCboxId = undefined
     this.cboxDragOrderChanged = false
     this.cboxTouchIndentHandled = false
+    this.cboxTouchStartIndent = 0
     this.cboxDragImage?.remove()
     this.cboxDragImage = undefined
   }
@@ -2840,6 +3077,10 @@ export class InputComponent implements OnInit {
         const i = this.checkBoxes.findIndex(x => x.id === id)
         if (i < 0) return
         this.checkBoxes.splice(i, 1)
+        this.cboxSuggestionEligibleIds.delete(id)
+        this.cboxSuggestionDraftValues.delete(id)
+        this.dismissedCboxSuggestionIds.delete(id)
+        if (this.activeCboxSuggestionRowId === id) this.activeCboxSuggestionRowId = undefined
         this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
         this.pushCboxHistorySnapshot()
         this.queueCoEditAutosave()
@@ -2889,6 +3130,10 @@ export class InputComponent implements OnInit {
     this.noteMain.nativeElement.style.backgroundColor = note.bgColor
     this.noteMain.nativeElement.style.borderColor = note.bgColor
     this.updateTextColor(note.bgColor)
+    this.cboxSuggestionEligibleIds.clear()
+    this.cboxSuggestionDraftValues.clear()
+    this.dismissedCboxSuggestionIds.clear()
+    this.activeCboxSuggestionRowId = undefined
     this.checkBoxes = this.normalizeCheckBoxes(note.checkBoxes || [])
     this.loadCompletedChecklistCollapseState(note)
     this.resetCboxHistory()
@@ -2919,7 +3164,7 @@ export class InputComponent implements OnInit {
 
   //? tooltip  -----------------------------------------------------------
 
-  openTooltip(button: HTMLDivElement, tooltipEl: HTMLDivElement) {
+  openTooltip(button: HTMLElement, tooltipEl: HTMLDivElement) {
     this.Shared.createTooltip(button, tooltipEl)
   }
 
@@ -3252,6 +3497,9 @@ export class InputComponent implements OnInit {
     this.mobileComposerSubscription = this.Shared.openMobileComposer.subscribe(open => {
       if (open) this.openMobileComposer()
     })
+    this.widgetCreateSubscription = this.Shared.widgetCreateRequested.subscribe(request => {
+      this.openWidgetComposer(request)
+    })
     this.closeMobileComposerSubscription = this.Shared.closeMobileComposer.subscribe(close => {
       if (close && this.mobileComposeMode && !this.isEditing) this.mobileBack()
     })
@@ -3405,6 +3653,7 @@ export class InputComponent implements OnInit {
     this.notesListSubscription?.unsubscribe();
     this.autoSaveSubscription?.unsubscribe();
     this.mobileComposerSubscription?.unsubscribe();
+    this.widgetCreateSubscription?.unsubscribe();
     this.closeMobileComposerSubscription?.unsubscribe();
     this.preferencesSubscription?.unsubscribe();
     document.removeEventListener('selectionchange', this.textSelectionChangeHandler);
@@ -3501,13 +3750,49 @@ export class InputComponent implements OnInit {
 
   getActiveReminder() {
     if (this.pendingReminderDate) {
-      return { dueAtUtc: this.pendingReminderDate.toISOString() }
+      return { dueAtUtc: this.pendingReminderDate.toISOString(), status: 'pending' as const }
     }
     if (this.pendingReminderLocation) {
-      return { locationName: this.pendingReminderLocation.locationName }
+      return { locationName: this.pendingReminderLocation.locationName, status: 'pending' as const }
     }
     if (!this.isEditing || !this.noteToEdit.id) return null
     return this.reminderService.reminders$.value.find(r => r.noteId === this.noteToEdit.id && r.status === 'pending')
+  }
+
+  getPastReminder() {
+    if (!this.preferences.value.showPastReminders || !this.isEditing || !this.noteToEdit.id) return null
+    return this.reminderService.getFiredForNote(this.noteToEdit.id) || null
+  }
+
+  getDisplayedReminder() {
+    return this.getActiveReminder() || this.getPastReminder()
+  }
+
+  reminderChipTapped(event: Event, status?: string) {
+    if (status !== 'fired') {
+      this.alarmIconTapped(event)
+      return
+    }
+    event.stopPropagation()
+    this.showReminderPicker = !this.showReminderPicker
+    document.removeEventListener('mousedown', this.pickerOutsideHandler)
+    if (this.showReminderPicker) {
+      setTimeout(() => document.addEventListener('mousedown', this.pickerOutsideHandler), 0)
+    }
+  }
+
+  reschedulePastReminder(event: Event) {
+    event.stopPropagation()
+    this.closeReminderPicker()
+    if (this.keptPlugins.supportsNativeLocationReminders) {
+      this.openReminderTypeDialog()
+      return
+    }
+    this.customDate = ''
+    this.customTime = ''
+    this.calendarMonth = this.startOfMonth(new Date())
+    this.destroyTimePicker()
+    this.showReminderDateDialog = true
   }
 
   @ViewChild('alarmDateInp') customDateInp?: ElementRef<HTMLInputElement>
@@ -3823,7 +4108,7 @@ export class InputComponent implements OnInit {
     this.promptForNotificationPermission()
     const repeatRule = this.selectedReminderRepeatRule()
     if (this.isEditing && this.noteToEdit.id) {
-      const existing = this.getActiveReminder()
+      const existing = this.getDisplayedReminder()
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
       if (existing && (existing as any).id) {
         this.reminderService.update((existing as any).id, { dueAtUtc: date.toISOString(), status: 'pending', repeatRule })
@@ -3875,7 +4160,7 @@ export class InputComponent implements OnInit {
       return
     }
     if (this.isEditing && this.noteToEdit.id) {
-      const existing = this.getActiveReminder()
+      const existing = this.getDisplayedReminder()
       if (existing && (existing as any).id) await this.reminderService.delete((existing as any).id)
     } else {
       this.pendingReminderDate = null

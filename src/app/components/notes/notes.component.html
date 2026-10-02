@@ -52,7 +52,7 @@
      transformed .note-container ancestors (bricks.js masonry positions
      each note via translate3d, which creates a containing block for
      position:fixed descendants and traps any popover rendered inside). -->
-@if (activePickerNote && !getActiveReminderForNote(activePickerNote.id!)) {
+@if (activePickerNote && (!getDisplayedReminderForNote(activePickerNote.id!) || reschedulingPastReminderNoteId === activePickerNote.id)) {
   <div class="reminder-date-dialog__backdrop" aria-hidden="true"
     (click)="cancelPendingNoteDate()"></div>
   <div class="reminder-date-dialog reminder-date-dialog--note"
@@ -122,7 +122,7 @@
   </div>
 }
 
-<div #modalContainer class="modal-container">
+<div #modalContainer class="modal-container" [class.native-phone-modal]="nativePhoneLayout">
   <div #modal class="modal">
     @if (modalContainer.style.display == 'block') {
       <app-input [noteToEdit]="clickedNoteData" [isEditing]="true" [autoOpenImagePicker]="openImagePickerOnModal">
@@ -153,7 +153,9 @@
           [innerText]="note.archived ? 'archive': (note.trashed ? 'trash' : '') "></span>
         }
           @let noteIsLinkOnly = isLinkOnlyNote(note);
+          @let noteHasTitle = hasVisibleNoteTitle(note);
           <div class="note-main" [class.note-main--link-only]="noteIsLinkOnly"
+          [class.note-main--untitled]="!noteHasTitle && !noteIsLinkOnly"
           [ngStyle]="{'background-color':note.bgColor,'border-color':note.bgColor,'background-image' : note.bgImage, 'color': noteTextColor(note)}">
           @if (note.ownerUserId && auth.currentUser?.id && note.ownerUserId !== auth.currentUser?.id) {
             <div class="shared-indicator H pop" [attr.data-pop]="'Shared by ' + (note.ownerDisplayName || note.ownerUsername || 'another user')">
@@ -171,9 +173,11 @@
           }
           <div (click)="openModal(noteEL,note)">
             @if (noteLock.lockPreviewHidden(note)) {
+              @if (noteHasTitle) {
               <div class="title">
                 <span [innerHTML]="note.noteTitle"></span>
               </div>
+              }
               <div class="locked-note-preview">
                 <span class="material-symbols-outlined">lock</span>
                 <span>Locked note</span>
@@ -189,9 +193,11 @@
                   <div class="link-overflow-chip">+{{extraLinks}} link{{extraLinks === 1 ? '' : 's'}}</div>
                 }
             } @else {
+            @if (noteHasTitle) {
             <div class="title">
               <span [innerHTML]="note.noteTitle"></span>
             </div>
+            }
             <div class="note-images">
                 @for (image of note.images || []; track image.id) {
                   @if (image.placement === 'top') {
@@ -225,7 +231,7 @@
                   <div class="cbox-container overview-cbox-row">
                     <div (touchstart)="$event.stopPropagation()" (touchend)="toggleOverviewCheckbox(note, cb, $event)"
                     (mousedown)="$event.stopPropagation()" (mouseup)="toggleOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()" [class.done]="cb.done"
-                    [style.margin-left.px]="checkboxIndentPx(cb)"
+                    [style.--overview-cbox-indent.px]="checkboxIndentPx(cb)"
                     class="cbox-icon"></div>
                     <div class="cbox-note-container min overview-cbox-note-container">
                       <div [attr.data-id]="cb.id" [class.cbox-done]="cb.done"
@@ -294,8 +300,9 @@
           </div>
         }
         @if (!note.trashed) {
-          @if (getActiveReminderForNote(note.id!); as r) {
-            <div class="reminder-chip" (mousedown)="$event.stopPropagation()" (click)="toggleReminderPicker(note, $event)">
+          @if (getDisplayedReminderForNote(note.id!); as r) {
+            <div class="reminder-chip" [class.reminder-chip--past]="r.status === 'fired'"
+              (mousedown)="$event.stopPropagation()" (click)="toggleReminderPicker(note, $event)">
               <img src="./assets/images/svg/clock.svg" alt="" width="12" height="12">
               @if (r.dueAtUtc) {
                 {{formatReminderDate(r.dueAtUtc)}}
@@ -304,9 +311,12 @@
               }
             </div>
           }
-          @if (activePickerNoteId === note.id && getActiveReminderForNote(note.id!)) {
+          @if (activePickerNoteId === note.id && reschedulingPastReminderNoteId !== note.id && getDisplayedReminderForNote(note.id!); as displayedReminder) {
             <div class="reminder-picker reminder-picker--inline"
               (mousedown)="$event.stopPropagation()" (mouseup)="$event.stopPropagation()" (click)="$event.stopPropagation()">
+              @if (displayedReminder.status === 'fired') {
+                <button type="button" class="rp-clear" (click)="reschedulePastReminderForNote(note, $event)">Set new reminder</button>
+              }
               <button type="button" class="rp-clear" (click)="clearReminder(note, $event)">Remove reminder</button>
             </div>
           }

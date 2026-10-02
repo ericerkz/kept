@@ -333,6 +333,7 @@ async function init() {
       theme TEXT NOT NULL DEFAULT 'light',
       avatarDataUrl TEXT,
       avatarPreset TEXT NOT NULL DEFAULT 'cat',
+      showPastReminders INTEGER NOT NULL DEFAULT 0,
       createdAt TEXT NOT NULL
     )
   `);
@@ -366,6 +367,9 @@ async function init() {
   }
   if (!userColumns.some(column => column.name === 'demoNotesCreatedAt')) {
     await run(`ALTER TABLE users ADD COLUMN demoNotesCreatedAt TEXT`);
+  }
+  if (!userColumns.some(column => column.name === 'showPastReminders')) {
+    await run(`ALTER TABLE users ADD COLUMN showPastReminders INTEGER NOT NULL DEFAULT 0`);
   }
   await run(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -812,6 +816,7 @@ function publicUser(user) {
     theme: user.theme || 'light',
     avatarDataUrl: user.avatarDataUrl || '',
     avatarPreset: user.avatarPreset || 'cat',
+    showPastReminders: !!user.showPastReminders,
     totpEnabled: !!user.totpEnabled,
     hasBackupCodes: !!user.totpBackupCodes,
     email: user.email || '',
@@ -3400,9 +3405,30 @@ app.post('/api/auth/logout', requireAuth, asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
+app.get('/api/users/me/preferences', requireAuth, asyncRoute(async (req, res) => {
+  const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+  res.json(publicUser(user));
+}));
+
 app.patch('/api/users/me/preferences', requireAuth, asyncRoute(async (req, res) => {
-  const theme = req.body.theme === 'light' ? 'light' : 'dark';
-  await run('UPDATE users SET theme = ? WHERE id = ?', [theme, req.user.id]);
+  const assignments = [];
+  const params = [];
+  if (req.body.theme !== undefined) {
+    if (!['light', 'dark'].includes(req.body.theme)) return res.status(400).json({ error: 'Invalid theme.' });
+    assignments.push('theme = ?');
+    params.push(req.body.theme);
+  }
+  if (req.body.showPastReminders !== undefined) {
+    if (typeof req.body.showPastReminders !== 'boolean') {
+      return res.status(400).json({ error: 'showPastReminders must be a boolean.' });
+    }
+    assignments.push('showPastReminders = ?');
+    params.push(req.body.showPastReminders ? 1 : 0);
+  }
+  if (assignments.length) {
+    params.push(req.user.id);
+    await run(`UPDATE users SET ${assignments.join(', ')} WHERE id = ?`, params);
+  }
   const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
   res.json(publicUser(user));
 }));
@@ -5572,7 +5598,7 @@ async function reminderNoteMap(reminders) {
   if (!noteIds.length) return new Map();
   const placeholders = noteIds.map(() => '?').join(',');
   const notes = await all(
-    `SELECT id, noteTitle, noteBody FROM notes WHERE id IN (${placeholders})`,
+    `SELECT id, noteTitle, noteBody, checkBoxes, isCbox, locked FROM notes WHERE id IN (${placeholders})`,
     noteIds
   );
   return new Map(notes.map(note => [Number(note.id), note]));
@@ -5693,7 +5719,8 @@ function reminderResponse(reminder, notesById = new Map()) {
   const explicitTitle = plainText(reminder.title || '');
   const explicitBody = plainText(reminder.body || '');
   const noteTitle = plainText(note?.noteTitle || '');
-  const noteBody = plainText(note?.noteBody || '').slice(0, 500);
+  const noteBody = note ? notePreviewText(note).slice(0, 500) : '';
+  const useCurrentNoteContent = !!note && !note.locked;
   const latitude = reminder.latitude != null ? Number(reminder.latitude) : null;
   const longitude = reminder.longitude != null ? Number(reminder.longitude) : null;
   const radiusMeters = reminder.radiusMeters != null ? Number(reminder.radiusMeters) : null;
@@ -5705,8 +5732,8 @@ function reminderResponse(reminder, notesById = new Map()) {
     syncId: reminder.syncId || '',
     noteId,
     dueAtUtc: reminder.dueAtUtc || null,
-    title: explicitTitle || noteTitle || null,
-    body: explicitBody || noteBody || null,
+    title: useCurrentNoteContent ? (noteTitle || null) : (explicitTitle || noteTitle || null),
+    body: useCurrentNoteContent ? (noteBody || null) : (explicitBody || noteBody || null),
     locationName,
     latitude,
     longitude,
@@ -5733,7 +5760,8 @@ function reminderResponse(reminder, notesById = new Map()) {
 async function recordReminderSyncChange(reminder, operation = 'upsert') {
   if (!reminder?.syncId) return;
   const stamp = rowLwwStamp(reminder);
-  await appendSyncChange([reminder.userId], 'reminder', reminder.syncId, operation, operation === 'delete' ? null : reminderResponse(reminder), stamp);
+  const payload = operation === 'delete' ? null : await enrichReminderResponse(reminder);
+  await appendSyncChange([reminder.userId], 'reminder', reminder.syncId, operation, payload, stamp);
 }
 
 function attachmentResponse(attachment) {

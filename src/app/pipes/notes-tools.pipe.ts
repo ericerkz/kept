@@ -75,7 +75,7 @@ export class NotesToolsPipe implements PipeTransform {
         : activeNotes.filter(note => (note.binder || '') === binder)
     }
     else {
-      notes = object.filter(note => note.labels.some(label => label.name === type && label.added))
+      notes = object.filter(note => !note.trashed && note.labels.some(label => label.name === type && label.added))
     }
 
     return this.filterSearch(notes, searchQuery)

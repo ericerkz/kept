@@ -189,6 +189,7 @@ export class AuthService {
       theme: result.user.theme || 'light',
       avatarDataUrl: result.user.avatarDataUrl || '',
       avatarPreset: result.user.avatarPreset || 'cat',
+      showPastReminders: result.user.showPastReminders === true,
       totpEnabled: result.user.totpEnabled,
       hasBackupCodes: result.user.hasBackupCodes,
       demoNotesCreatedAt: result.user.demoNotesCreatedAt ?? null
@@ -200,15 +201,36 @@ export class AuthService {
   }
 
   async updateTheme(theme: UserTheme) {
-    const user = await firstValueFrom(this.http.patch<UserI>(
+    await this.updateAccountPreferences({ theme });
+  }
+
+  async loadAccountPreferences() {
+    const user = await firstValueFrom(this.http.get<UserI>(
       `${this.apiUrl}/users/me/preferences`,
-      { theme },
       { headers: this.authHeaders() }
     ));
+    this.mergeAccountPreferences(user);
+    return user;
+  }
+
+  async updateAccountPreferences(patch: { theme?: UserTheme; showPastReminders?: boolean }) {
+    const user = await firstValueFrom(this.http.patch<UserI>(
+      `${this.apiUrl}/users/me/preferences`,
+      patch,
+      { headers: this.authHeaders() }
+    ));
+    this.mergeAccountPreferences(user);
+    return user;
+  }
+
+  private mergeAccountPreferences(user: UserI) {
     const current = this.currentUser;
     if (!current) return;
-
-    const session = { ...current, theme: user.theme || theme };
+    const session = {
+      ...current,
+      theme: user.theme || current.theme,
+      showPastReminders: user.showPastReminders === true
+    };
     localStorage.setItem(this.sessionKey, JSON.stringify(session));
     this.currentUser$.next(session);
     this.applyTheme(session.theme);

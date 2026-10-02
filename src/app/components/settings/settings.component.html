@@ -173,6 +173,17 @@
 
         <div class="preference-row">
           <div class="preference-info">
+            <span class="preference-label">Show past reminders on notes</span>
+            <span class="preference-desc">Keep fired reminder times visible in a muted style.</span>
+          </div>
+          <label class="toggle-label">
+            <input type="checkbox" [checked]="showPastReminders" (change)="toggleShowPastReminders($event)">
+            <span class="toggle-text">{{showPastReminders ? 'Enabled' : 'Disabled'}}</span>
+          </label>
+        </div>
+
+        <div class="preference-row">
+          <div class="preference-info">
             <span class="preference-label">Move completed checklist items to bottom</span>
             <span class="preference-desc">Turn off to keep checked items in their manual list order.</span>
           </div>

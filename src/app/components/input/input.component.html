@@ -146,7 +146,7 @@
         </div>
       </div>
     } @else {
-    <div #noteContainer class="note-container">
+    <div #noteContainer class="note-container" [class.mobile-new-note-empty]="showMobileNewNoteStarters()">
       <!--? Mobile Top Bar -->
       <div class="mobile-top-bar">
         <button type="button" class="mobile-icon back" (click)="mobileBack()">
@@ -210,8 +210,9 @@
       }
     </div>
     <ng-container [ngTemplateOutlet]="attachmentsTemplate"></ng-container>
-    @if (getActiveReminder(); as r) {
-      <div class="reminder-chip" (mousedown)="$event.stopPropagation()" (click)="alarmIconTapped($event)">
+    @if (getDisplayedReminder(); as r) {
+      <div class="reminder-chip" [class.reminder-chip--past]="r.status === 'fired'"
+        (mousedown)="$event.stopPropagation()" (click)="reminderChipTapped($event, r.status)">
         <img src="./assets/images/svg/clock.svg" alt="" width="12" height="12">
         @if (r.dueAtUtc) {
           {{formatReminderDate(r.dueAtUtc)}}
@@ -343,9 +344,12 @@
   }
   <!--? icons if trashed -->
 
-  @if (showReminderPicker && getActiveReminder()) {
+  @if (showReminderPicker && getDisplayedReminder(); as displayedReminder) {
     <div class="reminder-picker reminder-picker--inline"
       (mousedown)="$event.stopPropagation()" (mouseup)="$event.stopPropagation()" (click)="$event.stopPropagation()">
+      @if (displayedReminder.status === 'fired') {
+        <button type="button" class="rp-clear" (click)="reschedulePastReminder($event)">Set new reminder</button>
+      }
       <button type="button" class="rp-clear" (click)="clearReminder($event)">Remove reminder</button>
     </div>
   }
@@ -764,6 +768,25 @@
     (click)="onNoteBodyClick($event)" (contextmenu)="downloadInlineImage($event)"
     class="note-body" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
   </div>
+  @if (showMobileNewNoteStarters()) {
+    <section class="mobile-new-note-starters" aria-label="Start note as">
+      <div class="mobile-new-note-starters-label">Or start as</div>
+      <div class="mobile-new-note-starter-actions">
+        <button type="button" (click)="startMobileChecklist()">
+          <span class="material-symbols-outlined">check_box</span>
+          <span>List</span>
+        </button>
+        <button type="button" (click)="startMobileDrawing($event)">
+          <span class="material-symbols-outlined">draw</span>
+          <span>Drawing</span>
+        </button>
+        <button type="button" (click)="openImagePicker($event)">
+          <span class="material-symbols-outlined">image</span>
+          <span>Image</span>
+        </button>
+      </div>
+    </section>
+  }
 </ng-template>
 <!--* cboxes template -->
 <ng-template #checkboxesTemplate>
@@ -781,11 +804,16 @@
   <!--? isDone: true -->
   @if (preferences.value.moveCompletedChecklistItemsToBottom && completedChecklistCount()) {
     <div class="hr"></div>
-    <div class="cbox-done-container" (click)="toggleCompletedChecklistCollapse()">
+    <div class="cbox-done-container completed-items-header" (click)="toggleCompletedChecklistCollapse()">
       <div [class.rotate]="!isCboxCompletedListCollapsed" class="cbox-arrow"></div>
       <div>
         <span>({{completedChecklistCount()}}) Completed items</span>
       </div>
+      <button #completedItemsMenuBtn type="button" class="completed-items-menu-button"
+        aria-label="Completed item actions" title="Completed item actions"
+        (click)="$event.stopPropagation(); openTooltip(completedItemsMenuBtn, completedItemsMenuTt)">
+        <span class="material-symbols-outlined">more_vert</span>
+      </button>
     </div>
   }
   @if (preferences.value.moveCompletedChecklistItemsToBottom && !isCboxCompletedListCollapsed) {
@@ -814,7 +842,7 @@
           (click)="toggleCboxDone(cb.id, $event)"></div>
         <div class="cbox-note-container">
           <div #cboxInput [attr.data-cbox-last]="last" [attr.data-cbox-id]="cb.id" [class.cbox-done]="cb.done"
-            (input)="onCboxInput(cb.id)" (blur)="cboxTools(cb.id).update(cboxInput)" (keydown)="cBoxKeyDown($event,cb.id)"
+            (input)="onCboxInput(cb.id, cboxInput)" (blur)="cboxTools(cb.id).update(cboxInput); cboxInputBlur(cb.id)" (keydown)="cBoxKeyDown($event,cb.id)"
             (touchstart)="cboxTextTouchStart($event, cb.id, cboxInput)" (touchmove)="cboxTextTouchMove($event, cb.id, cboxInput)"
             (touchcancel)="cboxTextTouchCancel(cb.id, cboxInput)"
             (focus)="cboxInputFocus($event)" (touchend)="focusCboxFromTouch($event, cb.id, cboxInput)"
@@ -823,8 +851,31 @@
         </div>
         <div class="cbox-cancel-icon H" (click)="cboxTools(cb.id!).remove()"></div>
       </div>
+      @if (completedCboxSuggestions(cb.id); as suggestions) {
+        @if (suggestions.length) {
+          <div class="cbox-restore-suggestions" role="listbox" aria-label="Matching completed items"
+            [attr.data-cbox-suggestion-draft-id]="cb.id"
+            [style.margin-left.px]="68 + checkboxIndentPx(cb)">
+            @for (suggestion of suggestions; track suggestion.id; let suggestionIndex = $index) {
+              <button type="button" role="option" class="cbox-restore-suggestion"
+                (pointerdown)="$event.preventDefault()"
+                (keydown)="cboxSuggestionKeyDown($event, cb.id, suggestion.id, suggestionIndex)"
+                (click)="restoreCompletedCboxSuggestion(cb.id, suggestion.id, $event)">
+                <span class="material-symbols-outlined" aria-hidden="true">check_box</span>
+                <span>{{cboxSuggestionLabel(suggestion)}}</span>
+              </button>
+            }
+          </div>
+        }
+      }
     }
   </ng-template>
+
+  <div #completedItemsMenuTt data-tooltip="true" data-is-tooltip-open="false"
+    class="moreMenu selectionMoreMenu completed-items-menu">
+    <div (click)="uncheckAllCboxItems(completedItemsMenuTt)">Uncheck all</div>
+    <div class="destructive" (click)="deleteAllCompletedCboxItems(completedItemsMenuTt)">Delete completed items</div>
+  </div>
 </ng-template>
 
 <!--? --------tooltips-------- -->

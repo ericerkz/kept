@@ -3,8 +3,8 @@ import { AfterViewChecked, ChangeDetectorRef, Component, HostListener, NgZone, O
 import { Capacitor, registerPlugin } from '@capacitor/core';
 // @ts-ignore
 import Bricks from 'bricks.js'
-import { firstValueFrom, Subscription, filter } from 'rxjs';
-import { SharedService } from 'src/app/services/shared.service';
+import { firstValueFrom, Subscription, filter, first, timeout } from 'rxjs';
+import { SharedService, type WidgetCreateRequest, type WidgetCreateType } from 'src/app/services/shared.service';
 import { bgColors, bgImages } from 'src/app/interfaces/tooltip';
 import { LabelI } from 'src/app/interfaces/labels';
 import { ActivationEnd, NavigationEnd, Router } from '@angular/router';
@@ -15,7 +15,7 @@ import { ReminderRepeatRule, ReminderRepeatType } from 'src/app/interfaces/remin
 import { NotesService } from 'src/app/services/notes.service';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 import { NotesToolsPipe } from 'src/app/pipes/notes-tools.pipe';
-import { isNativePhonePlatform, shouldUseFullscreenNoteEditor } from 'src/app/utils/platform';
+import { isExpandedNativeFoldable, isNativePhonePlatform, shouldUseFullscreenNoteEditor } from 'src/app/utils/platform';
 import { NoteLockService } from 'src/app/services/note-lock.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
@@ -32,6 +32,8 @@ type CapacitorAppPlugin = {
 type KeptWidgetIntentsPlugin = {
   getPendingOpenNoteId: () => Promise<{ noteId: number | null }>;
   acknowledgeOpenNoteId: () => Promise<void>;
+  getPendingCreateType: () => Promise<{ type: WidgetCreateType | null }>;
+  acknowledgeCreateType: () => Promise<void>;
 };
 type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string }
 type NoteBodyPreview = { segments: NoteBodySegment[]; urls: string[] }
@@ -49,11 +51,20 @@ const KeptWidgetIntents = registerPlugin<KeptWidgetIntentsPlugin>('KeptWidgetInt
 })
 export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   activeNote: NoteI | null = null
-  readonly nativePhoneLayout = isNativePhonePlatform()
+  get nativePhoneLayout() {
+    return isNativePhonePlatform()
+  }
   constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, public notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe, public noteLock: NoteLockService, public preferences: UserPreferencesService) { }
 
   get notePreviewTextSizeClass() {
     return `preview-text-${this.preferences.value.notePreviewTextSize}`;
+  }
+
+  hasVisibleNoteTitle(note: NoteI) {
+    return (note.noteTitle || '')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;|&#160;|&#x[a-f0-9]*a0;/gi, '')
+      .trim().length > 0
   }
 
   private subscriptions: Subscription[] = []
@@ -66,6 +77,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   @ViewChild('loadMoreSentinel') loadMoreSentinel?: ElementRef<HTMLDivElement>
   private pendingPickerNote: NoteI | null = null
   @ViewChildren('noteEl') noteEl!: QueryList<ElementRef<HTMLDivElement>>
+  @ViewChildren('noteEL') noteCards!: QueryList<ElementRef<HTMLDivElement>>
   @ViewChildren('title') title!: QueryList<ElementRef<HTMLDivElement>>
   //? -----------------------------------------------------
   currentPage = {
@@ -108,6 +120,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   isSavingCollaborators = false
   openImagePickerOnModal = false
   activePickerNoteId: number | null = null
+  reschedulingPastReminderNoteId: number | null = null
 
   // Returns the note object the date picker is currently open for. Used by
   // the template's body-level reminder-date-dialog (the dialog is rendered
@@ -141,7 +154,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   private masonrySignatureToken = 0
   private masonryQueued = false
   private noteMetaCache = new WeakMap<NoteI, NoteMeta>()
-  private reminderLookupCache?: { reminders: any[]; byNoteId: Map<number, any> }
+  private reminderLookupCache?: { reminders: any[]; activeByNoteId: Map<number, any>; firedByNoteId: Map<number, any> }
   private trashCountdownCache = new WeakMap<NoteI, { trashedAt: string; bucket: number; value: string }>()
   private reminderDateCache = new Map<string, string>()
   private pendingPermanentDeletes = new Map<number, { note: NoteI; allIndex: number; pinnedIndex: number; unpinnedIndex: number; timer: ReturnType<typeof setTimeout> }>()
@@ -174,6 +187,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   private keptAppReadySent = false
   private keptAppReadyRetry?: ReturnType<typeof setTimeout>
   private viewportMasonryTimers: ReturnType<typeof setTimeout>[] = []
+  private noteCardResizeObserver?: ResizeObserver
+  private observedNoteCards = new Set<HTMLElement>()
   private widgetAppUrlOpenHandle?: PluginListenerHandle
   private widgetAppStateHandle?: PluginListenerHandle
   private widgetAppResumeHandle?: PluginListenerHandle
@@ -535,18 +550,28 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     let containerWidth = container.clientWidth - containerPadding
     let numberOfColumns = 0
     let masonryWidth = '0px'
+    const expandedFoldableGrid = isExpandedNativeFoldable()
+      && this.Shared.noteViewType.value === 'grid'
+    const foldableColumnCount = 3
+    const foldableMinimumNoteWidth = 190
+    const foldableGridFits = containerWidth >= foldableColumnCount * foldableMinimumNoteWidth
+      + gutter * (foldableColumnCount + 1)
     const centerLandscapePhoneGrid = this.nativePhoneLayout
       && window.matchMedia('(orientation: landscape)').matches
       && this.Shared.noteViewType.value === 'grid'
     // --
     if (this.Shared.noteViewType.value === 'grid') {
-      // On mobile screens, use a smaller note width so 2 columns fit
-      if (containerWidth < 600) {
+      if (expandedFoldableGrid && foldableGridFits) {
+        numberOfColumns = foldableColumnCount
+        this.noteWidth = Math.floor((containerWidth - gutter * (foldableColumnCount + 1)) / foldableColumnCount)
+      }
+      // On mobile screens, use a smaller note width so 2 columns fit.
+      else if (containerWidth < 600) {
         this.noteWidth = Math.floor((containerWidth - gutter * 3) / 2)
       } else {
         this.noteWidth = 240
       }
-      numberOfColumns = Math.floor(containerWidth / (this.noteWidth + gutter))
+      if (!numberOfColumns) numberOfColumns = Math.floor(containerWidth / (this.noteWidth + gutter))
       if (numberOfColumns < 2 && containerWidth >= 320) numberOfColumns = 2
       if (centerLandscapePhoneGrid) {
         masonryWidth = `${numberOfColumns * this.noteWidth + Math.max(0, numberOfColumns - 1) * gutter}px`
@@ -784,6 +809,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   @HostListener('document:keydown.escape', ['$event'])
   onEscapeKey(event: Event) {
+    if (event.defaultPrevented) return
     const isTooltipOpen = !!document.querySelector('[data-is-tooltip-open="true"]')
     if (this.modalContainer.nativeElement.style.display === 'block') {
       if (!isTooltipOpen) {
@@ -2028,13 +2054,26 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   getActiveReminderForNote(noteId: number) {
     const reminders = this.reminderService.reminders$.value
     if (!this.reminderLookupCache || this.reminderLookupCache.reminders !== reminders) {
-      const byNoteId = new Map<number, any>()
-      reminders
-        .filter(reminder => reminder.status === 'pending' && reminder.noteId)
-        .forEach(reminder => byNoteId.set(reminder.noteId!, reminder))
-      this.reminderLookupCache = { reminders, byNoteId }
+      const activeByNoteId = new Map<number, any>()
+      const firedByNoteId = new Map<number, any>()
+      reminders.forEach(reminder => {
+        if (!reminder.noteId) return
+        if (reminder.status === 'pending') activeByNoteId.set(reminder.noteId, reminder)
+        else if (reminder.status === 'fired') firedByNoteId.set(reminder.noteId, reminder)
+      })
+      this.reminderLookupCache = { reminders, activeByNoteId, firedByNoteId }
     }
-    return this.reminderLookupCache.byNoteId.get(noteId)
+    return this.reminderLookupCache.activeByNoteId.get(noteId)
+  }
+
+  getPastReminderForNote(noteId: number) {
+    if (!this.preferences.value.showPastReminders) return undefined
+    this.getActiveReminderForNote(noteId)
+    return this.reminderLookupCache?.firedByNoteId.get(noteId)
+  }
+
+  getDisplayedReminderForNote(noteId: number) {
+    return this.getActiveReminderForNote(noteId) || this.getPastReminderForNote(noteId)
   }
 
   toggleReminderPicker(note: NoteI, event: Event) {
@@ -2050,10 +2089,11 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     // panel. When no reminder exists, the transparent date input overlaid
     // on the alarm icon receives the same tap and the OS opens its native
     // date picker — see noteTemplate in notes.component.html.
-    if (this.getActiveReminderForNote(note.id!)) {
+    if (this.getDisplayedReminderForNote(note.id!)) {
       if (this.activePickerNoteId === note.id) {
         this.closeReminderPicker()
       } else {
+        this.reschedulingPastReminderNoteId = null
         this.activePickerNoteId = note.id!
         document.removeEventListener('mousedown', this.pickerOutsideHandler)
         setTimeout(() => document.addEventListener('mousedown', this.pickerOutsideHandler), 0)
@@ -2069,6 +2109,18 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       document.removeEventListener('mousedown', this.pickerOutsideHandler)
       setTimeout(() => document.addEventListener('mousedown', this.pickerOutsideHandler), 0)
     }
+  }
+
+  reschedulePastReminderForNote(note: NoteI, event: Event) {
+    event.stopPropagation()
+    this.reschedulingPastReminderNoteId = note.id!
+    this.pendingPickerNote = note
+    this.activePickerNoteId = note.id!
+    this.customDate = ''
+    this.customTime = ''
+    this.calendarMonth = this.startOfMonth(new Date())
+    this.resetReminderRepeatState()
+    this.destroyTimePicker()
   }
 
   openReminderForSelectedNote() {
@@ -2223,6 +2275,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   closeReminderPicker() {
     this.activePickerNoteId = null
+    this.reschedulingPastReminderNoteId = null
     this.pendingPickerNote = null
     this.resetReminderRepeatState()
     this.destroyTimePicker()
@@ -2285,7 +2338,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     // (toggleReminderPicker → promptForNotificationPermission). Re-prompt
     // here as a backup for users who jumped straight to a custom date input.
     this.promptForNotificationPermission()
-    const existing = note.id ? this.getActiveReminderForNote(note.id) : undefined
+    const existing = note.id ? this.getDisplayedReminderForNote(note.id) : undefined
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
     const repeatRule = this.selectedReminderRepeatRule()
     this.closeReminderPicker()
@@ -2438,7 +2491,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   async clearReminder(note: NoteI, event: Event) {
     event.stopPropagation()
-    const existing = note.id ? this.getActiveReminderForNote(note.id) : undefined
+    const existing = note.id ? this.getDisplayedReminderForNote(note.id) : undefined
     if (existing) await this.reminderService.delete(existing.id)
     this.closeReminderPicker()
   }
@@ -2605,6 +2658,23 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     }
   }
 
+  private observeRenderedNoteCards() {
+    if (!this.noteCardResizeObserver || !this.noteCards) return
+    const renderedCards = new Set<HTMLElement>(this.noteCards.map(card => card.nativeElement))
+
+    for (const card of this.observedNoteCards) {
+      if (renderedCards.has(card)) continue
+      this.noteCardResizeObserver.unobserve(card)
+      this.observedNoteCards.delete(card)
+    }
+
+    for (const card of renderedCards) {
+      if (this.observedNoteCards.has(card)) continue
+      this.observedNoteCards.add(card)
+      this.noteCardResizeObserver.observe(card)
+    }
+  }
+
   ngOnInit(): void {
     this.syncCurrentPage(this.router.url)
     window.addEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
@@ -2647,14 +2717,24 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   ngAfterViewInit() {
-    if (!('IntersectionObserver' in window)) return
-    this.loadMoreObserver = new IntersectionObserver(entries => {
-      if (!entries.some(entry => entry.isIntersecting)) return
-      this.zone.run(() => {
-        if (this.hasMoreServerNotes()) this.loadMoreNotesIfNeeded()
-        else this.increaseVisibleNoteLimit()
+    if ('ResizeObserver' in window) {
+      this.noteCardResizeObserver = new ResizeObserver(entries => {
+        if (!entries.some(entry => entry.contentRect.height > 0)) return
+        this.scheduleBuildMasonry(true)
       })
-    }, { root: null, rootMargin: '70% 0px', threshold: 0 })
+      this.observeRenderedNoteCards()
+      this.subscriptions.push(this.noteCards.changes.subscribe(() => this.observeRenderedNoteCards()))
+    }
+
+    if ('IntersectionObserver' in window) {
+      this.loadMoreObserver = new IntersectionObserver(entries => {
+        if (!entries.some(entry => entry.isIntersecting)) return
+        this.zone.run(() => {
+          if (this.hasMoreServerNotes()) this.loadMoreNotesIfNeeded()
+          else this.increaseVisibleNoteLimit()
+        })
+      }, { root: null, rootMargin: '70% 0px', threshold: 0 })
+    }
     setTimeout(() => {
       this.observeLoadMoreSentinelIfNeeded()
     })
@@ -2692,15 +2772,58 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.pendingWidgetOpenInFlight = true
     try {
       await this.waitForAuth()
+      const createType = await this.getPendingWidgetCreateType()
+      if (createType) {
+        await this.openWidgetComposer(createType)
+        return
+      }
       const result = await KeptWidgetIntents.getPendingOpenNoteId()
       const noteId = Number(result?.noteId || 0)
       if (!Number.isFinite(noteId) || noteId <= 0) return
       await this.openWidgetNote(noteId, true)
     } catch (error) {
-      console.warn('Could not open pending Kept widget note', error)
+      console.warn('Could not process pending Kept widget action', error)
     } finally {
       this.pendingWidgetOpenInFlight = false
     }
+  }
+
+  private async getPendingWidgetCreateType(): Promise<WidgetCreateType | null> {
+    try {
+      const result = await KeptWidgetIntents.getPendingCreateType()
+      return result?.type === 'plain' || result?.type === 'checklist' || result?.type === 'drawing'
+        ? result.type
+        : null
+    } catch (error: any) {
+      const message = String(error?.message || error || '')
+      if (!/not implemented|does not exist|unavailable/i.test(message)) {
+        console.warn('Could not read pending widget create type', error)
+      }
+      return null
+    }
+  }
+
+  private async openWidgetComposer(type: WidgetCreateType) {
+    await this.waitForAuth()
+    if (this.modalContainer?.nativeElement?.style.display === 'block') {
+      this.Shared.saveNote.next(true)
+      await new Promise(resolve => setTimeout(resolve, shouldUseFullscreenNoteEditor() ? 220 : 460))
+      if (this.modalContainer?.nativeElement?.style.display === 'block') return
+    }
+
+    this.Shared.clearNoteSelection()
+    const request: WidgetCreateRequest = {
+      requestId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type
+    }
+    const opened = firstValueFrom(this.Shared.widgetComposerOpened.pipe(
+      filter(result => result.requestId === request.requestId),
+      first(),
+      timeout(5000)
+    ))
+    this.Shared.widgetCreateRequested.next(request)
+    await opened
+    await KeptWidgetIntents.acknowledgeCreateType()
   }
 
   private async openWidgetNote(noteId: number, acknowledge: boolean) {
@@ -2741,6 +2864,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.widgetAppStateHandle?.remove()
     this.widgetAppResumeHandle?.remove()
     this.loadMoreObserver?.disconnect()
+    this.noteCardResizeObserver?.disconnect()
+    this.observedNoteCards.clear()
     if (this.keptAppReadyRetry) clearTimeout(this.keptAppReadyRetry)
     if (this.pendingWidgetOpenTimer) clearTimeout(this.pendingWidgetOpenTimer)
     this.viewportMasonryTimers.forEach(timer => clearTimeout(timer))

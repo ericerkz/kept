@@ -63,6 +63,16 @@ async function main() {
     });
     const token = login.token;
     const headers = authHeaders(token);
+    assert.strictEqual(login.user.showPastReminders, false, 'past reminders should be hidden by default');
+    const updatedPreferences = await request('/users/me/preferences', {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ showPastReminders: true })
+    });
+    assert.strictEqual(updatedPreferences.showPastReminders, true, 'past reminder preference should be persisted');
+    assert.strictEqual(updatedPreferences.theme, 'light', 'updating another preference should not change the theme');
+    const loadedPreferences = await request('/users/me/preferences', { headers });
+    assert.strictEqual(loadedPreferences.showPastReminders, true, 'past reminder preference should load on another device');
     await request('/users', {
       method: 'POST',
       headers,
@@ -145,6 +155,34 @@ async function main() {
     assert(note?.id > 0, 'offline note should receive a server id');
     assert.strictEqual(reminder?.noteId, note.id, 'reminder should resolve noteSyncId to server note id');
     assert.strictEqual(reminder?.locationTrigger, 'arrive');
+
+    const remindersBeforeNoteEdit = await request('/reminders', { headers });
+    const linkedReminderBeforeEdit = remindersBeforeNoteEdit.find(item => item.id === reminder.id);
+    assert.strictEqual(linkedReminderBeforeEdit?.title, 'Offline note', 'linked reminder title should come from its current note');
+    assert.strictEqual(linkedReminderBeforeEdit?.body, 'Created offline', 'linked reminder body should come from its current note');
+
+    await request(`/notes/${note.id}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ noteTitle: 'Updated reminder note', noteBody: 'Updated reminder body' })
+    });
+    const remindersAfterNoteEdit = await request('/reminders', { headers });
+    const linkedReminderAfterEdit = remindersAfterNoteEdit.find(item => item.id === reminder.id);
+    assert.strictEqual(linkedReminderAfterEdit?.title, 'Updated reminder note', 'linked reminder title should reflect later note edits');
+    assert.strictEqual(linkedReminderAfterEdit?.body, 'Updated reminder body', 'linked reminder body should reflect later note edits');
+
+    await request(`/notes/${note.id}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ trashed: true })
+    });
+    const remindersAfterTrash = await request('/reminders', { headers });
+    assert(!remindersAfterTrash.some(item => item.id === reminder.id), 'trashed notes should not retain active reminders');
+    await request(`/notes/${note.id}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ trashed: false })
+    });
 
     const secondNoteResult = await request('/sync/mutations', {
       method: 'POST',

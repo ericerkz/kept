@@ -24,7 +24,9 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('labelsScroll') labelsScroll?: ElementRef<HTMLDivElement>
 
   isMobileOpen = false;
-  readonly nativePhoneDrawer = isNativePhonePlatform();
+  get nativePhoneDrawer() {
+    return isNativePhonePlatform();
+  }
 
   installHelpOpen = false;
 

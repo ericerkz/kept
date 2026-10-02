@@ -111,6 +111,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   useTwentyFourHourTime = false;
   moveCompletedChecklistItemsToBottom = true;
   richLinkPreviews = true;
+  showPastReminders = false;
   notePreviewTextSize: 'compact' | 'default' | 'large' = 'default';
   readonly notePreviewTextSizeOptions: Array<{ value: 'compact' | 'default' | 'large'; label: string }> = [
     { value: 'compact', label: 'Compact' },
@@ -208,6 +209,17 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.preferences.update({ richLinkPreviews: this.richLinkPreviews });
   }
 
+  async toggleShowPastReminders(event: Event) {
+    const enabled = (event.target as HTMLInputElement).checked;
+    this.showPastReminders = enabled;
+    try {
+      await this.preferences.updateShowPastReminders(enabled);
+    } catch {
+      this.refreshDisplayPreferences();
+      this.error = 'Could not save the past reminders preference.';
+    }
+  }
+
   setNotePreviewTextSize(size: 'compact' | 'default' | 'large') {
     this.notePreviewTextSize = size;
     this.preferences.update({ notePreviewTextSize: size });
@@ -224,6 +236,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.useTwentyFourHourTime = value.useTwentyFourHourTime;
     this.moveCompletedChecklistItemsToBottom = value.moveCompletedChecklistItemsToBottom;
     this.richLinkPreviews = value.richLinkPreviews;
+    this.showPastReminders = value.showPastReminders;
     this.notePreviewTextSize = value.notePreviewTextSize;
   }
 

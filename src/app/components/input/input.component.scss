@@ -266,7 +266,11 @@
   display: none;
 }
 
-@media (max-width: 599px), (max-height: 500px) and (orientation: landscape) {
+.mobile-new-note-starters {
+  display: none;
+}
+
+@mixin mobile-editor-bars {
   .mobile-top-bar {
     display: flex;
     align-items: center;
@@ -418,6 +422,14 @@
       border-top-color: #e0e0e0;
     }
   }
+}
+
+@media (max-width: 599px), (max-height: 500px) and (orientation: landscape) {
+  @include mobile-editor-bars;
+}
+
+:host(.native-phone-layout) {
+  @include mobile-editor-bars;
 }
 
 .attachments-list {
@@ -839,6 +851,102 @@
   }
 }
 
+.completed-items-header {
+  margin-right: 12px;
+  min-height: 36px;
+
+  > div:nth-child(2) {
+    min-width: 0;
+  }
+}
+
+.cbox-restore-suggestions {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+  margin-bottom: 6px;
+  margin-right: 44px;
+  max-height: 184px;
+  overflow-y: auto;
+  position: relative;
+  z-index: 4;
+}
+
+.cbox-restore-suggestion {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  font: 400 16px/1.35 Roboto, Arial, sans-serif;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 12px;
+  text-align: left;
+  width: 100%;
+
+  &:hover,
+  &:focus-visible {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    outline: none;
+  }
+
+  .material-symbols-outlined {
+    flex: 0 0 auto;
+    font-size: 24px;
+    opacity: 0.68;
+  }
+
+  span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.completed-items-menu-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex: 0 0 36px;
+  height: 36px;
+  justify-content: center;
+  margin-left: auto;
+  opacity: 0.7;
+  padding: 0;
+  width: 36px;
+
+  &:hover,
+  &:focus-visible {
+    background: rgb(128 128 128 / 14%);
+    border-radius: 50%;
+    opacity: 1;
+    outline: none;
+  }
+
+  .material-symbols-outlined {
+    font-size: 22px;
+  }
+}
+
+.completed-items-menu {
+  min-width: 190px;
+
+  .destructive {
+    color: #f28b82;
+  }
+}
+
+:host-context(.light-theme) .completed-items-menu .destructive {
+  color: #b3261e;
+}
+
 .drawing-canvas-wrap {
   background-color: #fff;
   flex: 1;
@@ -918,7 +1026,7 @@
   }
 }
 
-@media (max-width:660px), (max-height: 500px) and (orientation: landscape) {
+@mixin mobile-compose-layout {
   .mobile-compose-mode {
     display: block;
   }
@@ -993,8 +1101,16 @@
       flex: 1;
       display: flex;
       flex-direction: column;
-      overflow: auto;
+      overflow-x: hidden;
+      overflow-y: auto;
       height: 100%;
+    }
+
+    .note-main > .note-container {
+      flex: 1 0 auto;
+      max-width: 100%;
+      min-width: 0;
+      width: 100%;
     }
 
     .note-main .note-body {
@@ -1006,6 +1122,71 @@
       // a note doesn't leave the page zoomed-in.
       font-size: 16px;
       line-height: 1.4;
+    }
+
+    .note-container.mobile-new-note-empty {
+      .note-body {
+        min-height: 64px;
+        padding-bottom: 8px;
+      }
+    }
+
+    .mobile-new-note-starters {
+      display: block;
+      padding: 2px 16px 20px;
+
+      .mobile-new-note-starters-label {
+        color: inherit;
+        font-family: "Google Sans", Roboto, Arial, sans-serif;
+        font-size: 15px;
+        font-weight: 500;
+        line-height: 22px;
+        margin-bottom: 12px;
+        opacity: 0.72;
+      }
+
+      .mobile-new-note-starter-actions {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: 0.9fr 1.15fr 0.95fr;
+        max-width: 390px;
+      }
+
+      button {
+        align-items: center;
+        background: transparent;
+        border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+        border-radius: 24px;
+        color: inherit;
+        cursor: pointer;
+        display: flex;
+        font-family: "Google Sans", Roboto, Arial, sans-serif;
+        font-size: 15px;
+        font-weight: 500;
+        gap: 6px;
+        height: 48px;
+        justify-content: center;
+        min-width: 0;
+        padding: 0 8px;
+        white-space: nowrap;
+
+        .material-symbols-outlined {
+          flex: 0 0 auto;
+          font-family: 'Material Symbols Outlined' !important;
+          font-feature-settings: 'liga';
+          font-size: 22px;
+          font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+          line-height: 1;
+        }
+
+        &:active,
+        &:focus-visible {
+          background: color-mix(in srgb, #1a73e8 12%, transparent);
+          border-color: #1a73e8;
+          color: #1a73e8;
+          outline: none;
+        }
+      }
     }
 
     .note-main [contenteditable] {
@@ -1025,6 +1206,32 @@
       display: flex !important;
     }
 
+    .mobile-bottom-bar {
+      flex-shrink: 0;
+    }
+
+  }
+}
+
+@media (max-width:660px), (max-height: 500px) and (orientation: landscape) {
+  @include mobile-compose-layout;
+}
+
+:host(.native-phone-layout) {
+  @include mobile-compose-layout;
+}
+
+@media (min-width: 661px) {
+  :host(.native-phone-layout) .mobile-compose-mode {
+    .note-main > .note-container,
+    .attachments-list,
+    .mobile-bottom-bar {
+      box-sizing: border-box;
+      margin-left: auto;
+      margin-right: auto;
+      max-width: 720px;
+      width: 100%;
+    }
   }
 }
 
@@ -1136,6 +1343,13 @@
     &:hover {
       background-color: rgba(60, 64, 67, 0.08);
     }
+  }
+
+  .reminder-chip.reminder-chip--past {
+    background: rgba(95, 99, 104, 0.1);
+    color: #5f6368;
+
+    &:hover { background: rgba(95, 99, 104, 0.16); }
   }
 }
 

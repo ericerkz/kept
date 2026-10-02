@@ -11,6 +11,42 @@ export function isIosPlatform(): boolean {
   return Capacitor.getPlatform() === 'ios';
 }
 
+function hasMultipleWindowSegments(): boolean {
+  try {
+    const getWindowSegments = (window as typeof window & {
+      getWindowSegments?: () => DOMRect[];
+    }).getWindowSegments;
+    return typeof getWindowSegments === 'function' && getWindowSegments.call(window).length > 1;
+  } catch {
+    return false;
+  }
+}
+
+function isLikelyAndroidBookFoldable(): boolean {
+  const width = window.screen.width || window.innerWidth;
+  const height = window.screen.height || window.innerHeight;
+  const shortestSide = Math.min(width, height);
+  const longestSide = Math.max(width, height);
+  if (!shortestSide || !longestSide) return false;
+
+  // Unfolded book-style phones have a nearly square screen. Keep this
+  // deliberately below 4:3 so ordinary Android tablets retain tablet UI.
+  return longestSide / shortestSide <= 1.28;
+}
+
+export function isExpandedNativeFoldable(): boolean {
+  const platform = Capacitor.getPlatform();
+  if (platform !== 'ios' && platform !== 'android') return false;
+  if (!isNativePhonePlatform()) return false;
+  if (hasMultipleWindowSegments()) return true;
+
+  const width = window.screen.width || window.innerWidth;
+  const height = window.screen.height || window.innerHeight;
+  const shortestSide = Math.min(width, height);
+  const longestSide = Math.max(width, height);
+  return !!shortestSide && longestSide / shortestSide <= 1.28;
+}
+
 export function isNativePhonePlatform(): boolean {
   const platform = Capacitor.getPlatform();
   if (platform !== 'ios' && platform !== 'android') return false;
@@ -29,7 +65,8 @@ export function isNativePhonePlatform(): boolean {
     return shortestScreenSide < 600 || longestViewportSide < 1000;
   }
   if (/Mobile/i.test(ua)) return true;
-  return Math.min(window.screen.width, window.screen.height) < 600;
+  if (Math.min(window.screen.width, window.screen.height) < 600) return true;
+  return hasMultipleWindowSegments() || isLikelyAndroidBookFoldable();
 }
 
 export function shouldUseFullscreenNoteEditor(): boolean {

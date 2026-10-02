@@ -9,6 +9,7 @@ export interface UserI {
     theme: UserTheme
     avatarDataUrl: string
     avatarPreset: string
+    showPastReminders?: boolean
     totpEnabled?: boolean
     hasBackupCodes?: boolean
     email?: string
@@ -26,6 +27,7 @@ export interface AuthSessionI {
     theme: UserTheme
     avatarDataUrl: string
     avatarPreset: string
+    showPastReminders?: boolean
     totpEnabled?: boolean
     hasBackupCodes?: boolean
     demoNotesCreatedAt?: string | null

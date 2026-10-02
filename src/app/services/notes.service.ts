@@ -72,6 +72,7 @@ export class NotesService {
   private suppressNextReorderReloadUntil = 0;
   private optimisticNotes = new Map<number, NoteI>();
   private lastNonEmptyNotes: NoteI[] = [];
+  private iosReminderRefreshTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private http: HttpClient,
@@ -90,6 +91,8 @@ export class NotesService {
         this.connectRealtime(user.token);
         this.publishCachedNotes(this.searchQuery).catch(console.error);
       } else {
+        if (this.iosReminderRefreshTimer) clearTimeout(this.iosReminderRefreshTimer);
+        this.iosReminderRefreshTimer = undefined;
         this.loading = false;
         this.hasLoaded = false;
         this.loadError = false;
@@ -475,6 +478,7 @@ export class NotesService {
     if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, local);
     await this.cacheNoteMedia(local);
     this.mergeNoteIntoList(local);
+    await this.reminders.refreshNoteContent(local);
     if (id < 0 || !navigator.onLine) {
       await this.offlineSync.enqueue('note.upsert', local.syncId!, local);
       return;
@@ -486,6 +490,7 @@ export class NotesService {
         `update note ${id}`
       );
       this.mergeNoteIntoList({ ...object, id });
+      this.scheduleIosReminderRefresh(id);
     } catch (error) {
       this.suppressedRealtimeReloads.delete(id);
       if (this.auth.notifySessionExpired(error)) throw error;
@@ -507,6 +512,7 @@ export class NotesService {
     if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, local);
     await this.cacheNoteMedia(local);
     this.mergeNoteIntoList(local);
+    await this.reminders.refreshNoteContent(local);
     if (id < 0 || !navigator.onLine) {
       await this.offlineSync.enqueue('note.upsert', local.syncId!, local);
       return;
@@ -518,6 +524,7 @@ export class NotesService {
         `update note fields ${id}`
       );
       this.mergeNoteIntoList({ ...object, id } as NoteI);
+      this.scheduleIosReminderRefresh(id);
     } catch (error) {
       this.suppressedRealtimeReloads.delete(id);
       if (this.auth.notifySessionExpired(error)) throw error;
@@ -752,6 +759,7 @@ export class NotesService {
         const note = await firstValueFrom(this.http.get<NoteI>(`${this.apiUrl}/${id}`, { headers: this.auth.authHeaders() }));
         if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, note);
         await this.cacheNoteMedia(note);
+        await this.reminders.refreshNoteContent(note);
         if (options.merge !== false) this.mergeNoteIntoList(note);
         return note;
       } catch (error) {
@@ -829,6 +837,7 @@ export class NotesService {
     const current = this.notesList$.value || [];
     const note = current.find(item => item.id === noteId);
     const noteSyncId = syncId || note?.syncId || '';
+    this.reminders.markNoteInactive(noteId);
     this.optimisticNotes.delete(noteId);
     this.joinedNotes.delete(noteId);
     if (noteSyncId && this.offlineSync.partition) {
@@ -851,6 +860,15 @@ export class NotesService {
     if (!expiresAt) return false;
     this.suppressedRealtimeReloads.delete(id);
     return expiresAt > Date.now();
+  }
+
+  private scheduleIosReminderRefresh(noteId: number) {
+    if (Capacitor.getPlatform() !== 'ios' || !navigator.onLine || !this.reminders.getActiveForNote(noteId)) return;
+    if (this.iosReminderRefreshTimer) clearTimeout(this.iosReminderRefreshTimer);
+    this.iosReminderRefreshTimer = setTimeout(() => {
+      this.iosReminderRefreshTimer = undefined;
+      this.reminders.load().catch(console.error);
+    }, 500);
   }
 
   async getAll() {

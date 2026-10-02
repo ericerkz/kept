@@ -10,6 +10,8 @@ import { ReminderService } from './reminder.service';
 import { createPopper, type Placement } from '@popperjs/core';
 import { environment } from 'src/environments/environment';
 declare var Snackbar: any
+export type WidgetCreateType = 'plain' | 'checklist' | 'drawing'
+export type WidgetCreateRequest = { requestId: string; type: WidgetCreateType }
 @Injectable({
   providedIn: 'root'
 })
@@ -91,6 +93,8 @@ export class SharedService {
   closeSideBarIfOpen = new Subject<boolean>()
   sideBarCollapsed = new BehaviorSubject<boolean>(false)
   openMobileComposer = new Subject<boolean>()
+  widgetCreateRequested = new Subject<WidgetCreateRequest>()
+  widgetComposerOpened = new Subject<WidgetCreateRequest>()
   closeMobileComposer = new Subject<boolean>()
   openSelectedReminder = new Subject<void>()
   saveNote = new Subject<boolean>()

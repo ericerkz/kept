@@ -472,6 +472,7 @@ app-input .text-format-toolbar {
   border-radius: 4px;
   bottom: calc(100% + 4px);
   box-shadow: 0 1px 3px rgb(60 64 67 / 28%);
+  color: #e8eaed;
   display: inline-flex;
   gap: 4px;
   left: 24px;
@@ -488,9 +489,10 @@ app-input .selection-format-toolbar {
   z-index: 20;
 }
 
-app-input .note-main.detail-bg .text-format-toolbar,
 body.light-theme app-input .text-format-toolbar {
   background: #fff;
+  border-color: #dadce0;
+  color: #202124;
 }
 
 app-input .text-format-toolbar button {
@@ -1639,6 +1641,22 @@ body.light-theme .icons-container .icons .material-restore {
   img { opacity: 0.85; }
 
   &:hover { background: rgba(251, 188, 4, 0.2); }
+
+  &.reminder-chip--past {
+    background: rgba(154, 160, 166, 0.12);
+    color: #9aa0a6;
+
+    img { opacity: 0.58; }
+
+    &:hover { background: rgba(154, 160, 166, 0.2); }
+  }
+}
+
+body.light-theme .reminder-chip.reminder-chip--past {
+  background: rgba(95, 99, 104, 0.1);
+  color: #5f6368;
+
+  &:hover { background: rgba(95, 99, 104, 0.16); }
 }
 
 // ── Reminder picker ─────────────────────────────────────────────────────────

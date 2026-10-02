@@ -8,6 +8,8 @@ import { CalDavSettingsI, GoogleCalendarStatusI, IcsFeedI, ReminderFiredPayload,
 import { PushNotificationService } from './push-notification.service';
 import { OfflineStoreService } from './offline-store.service';
 import { OfflineSyncService } from './offline-sync.service';
+import { NoteI } from '../interfaces/notes';
+import { UserPreferencesService } from './user-preferences.service';
 
 type ReminderCreateData = {
   noteId?: number;
@@ -103,6 +105,7 @@ export class ReminderService {
   private androidResumeHandler?: () => void;
   private androidFocusHandler?: () => void;
   private inactiveNoteIds = new Set<number>();
+  private displayedNotifications = new Map<number, Notification>();
   private lifecycleUserId?: number;
 
   constructor(
@@ -110,7 +113,8 @@ export class ReminderService {
     private auth: AuthService,
     private push: PushNotificationService,
     private offlineStore: OfflineStoreService,
-    private offlineSync: OfflineSyncService
+    private offlineSync: OfflineSyncService,
+    private userPreferences: UserPreferencesService
   ) {
     this.offlineSync.cacheChanged$.subscribe(() => {
       this.loadCachedReminders().catch(console.error);
@@ -250,6 +254,10 @@ export class ReminderService {
     return this.reminders$.value.find(r => r.noteId === noteId && r.status === 'pending');
   }
 
+  getFiredForNote(noteId: number): ReminderI | undefined {
+    return this.reminders$.value.find(r => r.noteId === noteId && r.status === 'fired');
+  }
+
   updateNoteLifecycle(notes: Array<{ id?: number; archived?: boolean; trashed?: boolean }>) {
     let changed = false;
     for (const note of notes) {
@@ -258,18 +266,63 @@ export class ReminderService {
       const inactive = !!note.archived || !!note.trashed;
       if (inactive && !this.inactiveNoteIds.has(noteId)) {
         this.inactiveNoteIds.add(noteId);
+        this.cancelReminderTimersForNote(noteId);
+        this.closeDisplayedNotificationsForNote(noteId).catch(console.error);
         changed = true;
       } else if (!inactive && this.inactiveNoteIds.delete(noteId)) {
         changed = true;
       }
     }
-    if (changed) this.syncAndroidGeofences(this.reminders$.value);
+    if (changed) {
+      this.schedulePendingReminders(this.reminders$.value);
+      this.syncAndroidGeofences(this.reminders$.value);
+    }
   }
 
   markNoteInactive(noteId: number) {
-    if (!noteId || this.inactiveNoteIds.has(noteId)) return;
+    if (!noteId) return;
     this.inactiveNoteIds.add(noteId);
+    this.cancelReminderTimersForNote(noteId);
+    this.closeDisplayedNotificationsForNote(noteId).catch(console.error);
     this.syncAndroidGeofences(this.reminders$.value);
+  }
+
+  async refreshNoteContent(note: NoteI) {
+    if (!note.id || note.locked) return;
+    const matching = this.reminders$.value.filter(reminder => reminder.noteId === note.id);
+    if (!matching.length) return;
+    const title = this.plainText(note.noteTitle || '');
+    const bodyText = this.plainText(note.noteBody || '');
+    const checklistText = (note.checkBoxes || [])
+      .map(item => this.plainText(item.data || ''))
+      .filter(Boolean)
+      .join(' ');
+    const body = (bodyText || checklistText).slice(0, 500);
+
+    const changedIds = new Set<number>();
+    const now = new Date().toISOString();
+    const next = this.reminders$.value.map(reminder => {
+      if (reminder.noteId !== note.id || ((reminder.title || '') === title && (reminder.body || '') === body)) return reminder;
+      changedIds.add(reminder.id);
+      return { ...reminder, title: title || null, body: body || null, updatedAt: now };
+    });
+    if (!changedIds.size) return;
+
+    if (this.offlineSync.partition) {
+      for (const reminder of next) {
+        if (changedIds.has(reminder.id)) await this.offlineStore.putReminder(this.offlineSync.partition, reminder);
+      }
+    }
+    this.setReminders(next);
+  }
+
+  trackDisplayedNotification(reminderId: number, notification: Notification) {
+    if (!reminderId) return;
+    this.displayedNotifications.get(reminderId)?.close();
+    this.displayedNotifications.set(reminderId, notification);
+    notification.addEventListener('close', () => {
+      if (this.displayedNotifications.get(reminderId) === notification) this.displayedNotifications.delete(reminderId);
+    }, { once: true });
   }
 
   handleFired(payload: ReminderFiredPayload) {
@@ -291,6 +344,9 @@ export class ReminderService {
     const reminder = this.reminders$.value.find(r => r.id === reminderId);
     if (this.isRepeatingRule(this.parseRepeatRule(reminder?.repeatRule))) {
       if (navigator.onLine) await this.load().catch(console.error);
+      return reminder || null;
+    }
+    if (this.userPreferences.value.showPastReminders) {
       return reminder || null;
     }
     return this.update(reminderId, { status: 'dismissed' });
@@ -387,12 +443,55 @@ export class ReminderService {
     this.reminderTimers.clear();
 
     reminders
-      .filter(reminder => reminder.status === 'pending' && reminder.dueAtUtc)
+      .filter(reminder => reminder.status === 'pending' && reminder.dueAtUtc && !this.inactiveNoteIds.has(Number(reminder.noteId)))
       .forEach(reminder => {
         const dueIn = new Date(reminder.dueAtUtc!).getTime() - Date.now();
         const timer = setTimeout(() => this.fireLocalReminder(reminder.id), Math.max(0, dueIn));
         this.reminderTimers.set(reminder.id, timer);
       });
+  }
+
+  private cancelReminderTimersForNote(noteId: number) {
+    for (const reminder of this.reminders$.value) {
+      if (reminder.noteId !== noteId) continue;
+      const timer = this.reminderTimers.get(reminder.id);
+      if (timer) clearTimeout(timer);
+      this.reminderTimers.delete(reminder.id);
+    }
+  }
+
+  private async closeDisplayedNotificationsForNote(noteId: number) {
+    const reminderIds = new Set(
+      this.reminders$.value
+        .filter(reminder => reminder.noteId === noteId)
+        .map(reminder => reminder.id)
+    );
+    for (const reminderId of reminderIds) {
+      this.displayedNotifications.get(reminderId)?.close();
+      this.displayedNotifications.delete(reminderId);
+    }
+
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    for (const registration of registrations) {
+      const getNotifications = (registration as any).getNotifications;
+      if (typeof getNotifications !== 'function') continue;
+      const notifications: Notification[] = await getNotifications.call(registration);
+      notifications.forEach(notification => {
+        const notificationReminderId = Number(notification.data?.reminderId || 0);
+        const notificationNoteId = Number(notification.data?.noteId || 0);
+        if (notificationNoteId === noteId || reminderIds.has(notificationReminderId)) notification.close();
+      });
+    }
+  }
+
+  private plainText(value: string) {
+    if (typeof document !== 'undefined') {
+      const div = document.createElement('div');
+      div.innerHTML = value;
+      return (div.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+    return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   private async fireLocalReminder(reminderId: number) {

@@ -120,7 +120,9 @@ const KeptModelManager = registerPlugin<KeptModelManagerPlugin>('KeptModelManage
 
 export class MainComponent implements OnInit, OnDestroy {
 
-  readonly nativePhoneLayout = isNativePhonePlatform();
+  get nativePhoneLayout() {
+    return isNativePhonePlatform();
+  }
   installHelpOpen = false;
   smartCaptureOpen = false;
   smartCaptureListening = false;

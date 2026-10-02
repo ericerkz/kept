@@ -15,6 +15,7 @@
   --preview-body-margin: 4px 16px 12px 16px;
   --preview-body-min-height: 30px;
   --preview-cboxes-margin: 8px 12px 12px 18px;
+  --preview-cboxes-right-margin: 12px;
   --preview-cbox-row-padding: 5px 0;
   --preview-cbox-note-padding-left: 10px;
   --preview-cbox-more-margin: 6px 0 4px 34px;
@@ -34,6 +35,7 @@
     --preview-body-margin: 2px 12px 8px 12px;
     --preview-body-min-height: 20px;
     --preview-cboxes-margin: 5px 8px 8px 12px;
+    --preview-cboxes-right-margin: 8px;
     --preview-cbox-row-padding: 2px 0;
     --preview-cbox-note-padding-left: 7px;
     --preview-cbox-more-margin: 4px 0 2px 27px;
@@ -81,6 +83,10 @@
     padding-left: max(12px, env(safe-area-inset-left, 0px));
     padding-right: max(12px, env(safe-area-inset-right, 0px));
   }
+}
+
+.main-container.native-phone-layout .reminder-chip {
+  margin-bottom: 8px;
 }
 
 .overview-image-input {
@@ -251,7 +257,37 @@
     background-position-y: bottom;
     background-size: cover;
 
-    &.note-main--link-only { min-height: unset; }
+    &.note-main--link-only {
+      box-sizing: border-box;
+      max-width: 100%;
+      min-height: unset;
+      overflow: hidden;
+      width: 100%;
+    }
+
+    &.note-main--untitled {
+      min-height: 36px;
+
+      .note-images:empty + .body-segments {
+        padding-top: 8px;
+      }
+
+      .note-images:empty + .cboxes {
+        margin-top: 12px;
+      }
+
+      .body {
+        margin-right: 44px;
+      }
+
+      .cboxes {
+        margin-right: var(--preview-cboxes-right-margin);
+
+        .overview-cbox-row:first-child {
+          padding-right: 32px;
+        }
+      }
+    }
 
     .shared-indicator {
 
@@ -347,8 +383,18 @@
   }
 
   .link-preview-stack {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 8px;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    width: 100%;
+
+    app-link-preview {
+      min-width: 0;
+      max-width: 100%;
+    }
   }
 
   .link-preview-stack--only {
@@ -469,6 +515,9 @@
     padding: var(--preview-cbox-row-padding);
 
     .cbox-icon {
+      // Preserve the stored depth where space allows, but always leave enough
+      // room for a useful text preview on narrow cards.
+      margin-left: min(var(--overview-cbox-indent, 0px), max(0px, calc(100% - 104px)));
       margin-top: 2px;
     }
   }
@@ -754,6 +803,19 @@
     height: 100% !important;
     border-radius: 0;
   }
+
+  &.native-phone-modal {
+    overflow: hidden;
+
+    .modal {
+      border-radius: 0;
+      height: 100dvh;
+      margin: 0;
+      max-height: none;
+      max-width: none;
+      padding: 0;
+    }
+  }
 }
 
 .load-more-notes {
@@ -806,6 +868,13 @@
   .reminder-chip {
     background: rgba(251, 188, 4, 0.15);
     color: #b06000;
+
+    &.reminder-chip--past {
+      background: rgba(95, 99, 104, 0.1);
+      color: #5f6368;
+
+      &:hover { background: rgba(95, 99, 104, 0.16); }
+    }
   }
 
   .reminder-picker {
@@ -914,6 +983,7 @@
       --preview-body-margin: 2px 8px 6px 8px;
       --preview-body-min-height: 16px;
       --preview-cboxes-margin: 4px 6px 6px 10px;
+      --preview-cboxes-right-margin: 6px;
       --preview-cbox-row-padding: 1px 0;
       --preview-cbox-note-padding-left: 6px;
       --preview-cbox-more-margin: 3px 0 1px 25px;
@@ -933,11 +1003,39 @@
   }
 
   .note-container {
+    .reminder-chip {
+      margin-bottom: 8px;
+    }
+
     .title {
       font-size: var(--preview-title-size);
       min-height: var(--preview-title-min-height);
       margin: var(--preview-title-margin);
       -webkit-line-clamp: 2;
+    }
+
+    .note-main--untitled {
+      min-height: 34px;
+
+      .note-images:empty + .body-segments {
+        padding-top: 4px;
+      }
+
+      .note-images:empty + .cboxes {
+        margin-top: 8px;
+      }
+
+      .body {
+        margin-right: 40px;
+      }
+
+      .cboxes {
+        margin-right: var(--preview-cboxes-right-margin);
+
+        .overview-cbox-row:first-child {
+          padding-right: 32px;
+        }
+      }
     }
 
     .body {

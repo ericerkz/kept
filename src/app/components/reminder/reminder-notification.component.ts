@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { ReminderFiredPayload } from 'src/app/interfaces/reminder';
 import { ReminderService } from 'src/app/services/reminder.service';
@@ -12,6 +12,27 @@ import { ReminderService } from 'src/app/services/reminder.service';
 export class ReminderNotificationComponent implements OnInit, OnDestroy {
   notification: ReminderFiredPayload | null = null;
   private sub?: Subscription;
+  private bannerResizeObserver?: ResizeObserver;
+
+  @ViewChild('banner')
+  set banner(element: ElementRef<HTMLElement> | undefined) {
+    this.bannerResizeObserver?.disconnect();
+    this.bannerResizeObserver = undefined;
+
+    if (!element) {
+      this.clearBannerLayoutState();
+      return;
+    }
+
+    const updateHeight = () => {
+      const height = Math.ceil(element.nativeElement.getBoundingClientRect().height);
+      document.documentElement.style.setProperty('--kept-reminder-banner-height', `${height}px`);
+      document.body.classList.add('kept-reminder-active');
+    };
+    updateHeight();
+    this.bannerResizeObserver = new ResizeObserver(updateHeight);
+    this.bannerResizeObserver.observe(element.nativeElement);
+  }
 
   constructor(private reminderService: ReminderService) {}
 
@@ -31,6 +52,8 @@ export class ReminderNotificationComponent implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     this.sub?.unsubscribe();
+    this.bannerResizeObserver?.disconnect();
+    this.clearBannerLayoutState();
   }
 
   dismiss() {
@@ -63,11 +86,16 @@ export class ReminderNotificationComponent implements OnInit, OnDestroy {
     const title = this.cleanText(payload.title) || 'Reminder';
     const body = this.cleanText(payload.body);
     try {
-      new Notification(title, {
+      const notification = new Notification(title, {
         body: body || undefined,
         icon: '/assets/images/keep2x.png',
-        tag: `kept-reminder-${payload.reminderId}`
+        tag: `kept-reminder-${payload.reminderId}`,
+        data: {
+          reminderId: payload.reminderId,
+          noteId: payload.noteId
+        }
       });
+      this.reminderService.trackDisplayedNotification(payload.reminderId, notification);
     } catch {
       // iOS Safari throws if Notification() is constructed in a page context;
       // the SW notification handles iOS anyway.
@@ -110,5 +138,10 @@ export class ReminderNotificationComponent implements OnInit, OnDestroy {
     } catch (error) {
       console.log(error);
     }
+  }
+
+  private clearBannerLayoutState() {
+    document.body.classList.remove('kept-reminder-active');
+    document.documentElement.style.removeProperty('--kept-reminder-banner-height');
   }
 }
