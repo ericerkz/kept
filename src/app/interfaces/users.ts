@@ -12,6 +12,7 @@ export interface UserI {
     showPastReminders?: boolean
     totpEnabled?: boolean
     hasBackupCodes?: boolean
+    localPasswordEnabled?: boolean
     email?: string
     enabled?: boolean
     createdAt: string
@@ -30,6 +31,7 @@ export interface AuthSessionI {
     showPastReminders?: boolean
     totpEnabled?: boolean
     hasBackupCodes?: boolean
+    localPasswordEnabled?: boolean
     demoNotesCreatedAt?: string | null
 }
 

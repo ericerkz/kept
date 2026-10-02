@@ -44,6 +44,15 @@ export interface OidcConfig {
   name: string
 }
 
+export interface OidcLinkStatus {
+  enabled: boolean
+  providerName: string
+  connected: boolean
+  identityEmail: string
+  connectedAt: string | null
+  canDisconnect: boolean
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -233,6 +242,28 @@ export class AuthService {
     this.storeLoginResult(result);
   }
 
+  async getOidcLinkStatus() {
+    return await firstValueFrom(this.http.get<OidcLinkStatus>(
+      `${this.apiUrl}/auth/oidc/link/status`,
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async startOidcLink() {
+    return await firstValueFrom(this.http.post<{ url: string }>(
+      `${this.apiUrl}/auth/oidc/link/start`,
+      {},
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async disconnectOidcLink() {
+    await firstValueFrom(this.http.delete(
+      `${this.apiUrl}/auth/oidc/link`,
+      { headers: this.authHeaders() }
+    ));
+  }
+
   private storeLoginResult(result: LoginResponse) {
     const session: AuthSessionI = {
       token: result.token,
@@ -246,6 +277,7 @@ export class AuthService {
       showPastReminders: result.user.showPastReminders === true,
       totpEnabled: result.user.totpEnabled,
       hasBackupCodes: result.user.hasBackupCodes,
+      localPasswordEnabled: result.user.localPasswordEnabled !== false,
       demoNotesCreatedAt: result.user.demoNotesCreatedAt ?? null
     };
     localStorage.setItem(this.sessionKey, JSON.stringify(session));
@@ -397,11 +429,18 @@ export class AuthService {
   }
 
   async resetOwnPassword(currentPassword: string, newPassword: string) {
-    return await firstValueFrom(this.http.patch<{ success: boolean }>(
+    const result = await firstValueFrom(this.http.patch<{ success: boolean }>(
       `${this.apiUrl}/users/me/password`,
       { currentPassword, newPassword },
       { headers: this.authHeaders() }
     ));
+    const current = this.currentUser;
+    if (current && current.localPasswordEnabled === false) {
+      const session = { ...current, localPasswordEnabled: true };
+      localStorage.setItem(this.sessionKey, JSON.stringify(session));
+      this.currentUser$.next(session);
+    }
+    return result;
   }
 
   async adminResetPassword(userId: number, newPassword: string) {

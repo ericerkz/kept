@@ -216,6 +216,39 @@
         Security
       </h2>
 
+      @if (oidcLinkStatus?.enabled) {
+        <section class="settings-section sso-section">
+          <div class="section-title">Single sign-on</div>
+          <p class="section-desc">
+            Connect this Kept account to {{oidcLinkStatus?.providerName}} so you can use it to sign in. Your local username and password remain available.
+          </p>
+
+          @if (oidcLinkStatus?.connected) {
+            <div class="sso-connection-row">
+              <div class="sso-identity">
+                <span class="status-dot connected"></span>
+                <span>
+                  <strong>{{oidcLinkStatus?.providerName}} connected</strong>
+                  @if (oidcLinkStatus?.identityEmail) {
+                    <small>{{oidcLinkStatus?.identityEmail}}</small>
+                  }
+                </span>
+              </div>
+              <button type="button" class="btn-secondary" [disabled]="isDisconnectingOidc || (!oidcLinkStatus?.canDisconnect && authService.currentUser?.localPasswordEnabled === false)" (click)="disconnectOidc()">
+                {{isDisconnectingOidc ? 'Disconnecting...' : 'Disconnect'}}
+              </button>
+            </div>
+            @if (!oidcLinkStatus?.canDisconnect && authService.currentUser?.localPasswordEnabled === false) {
+              <p class="hint">Set a local password from your profile menu before disconnecting your only sign-in method.</p>
+            }
+          } @else {
+            <button type="button" class="btn-secondary" [disabled]="isStartingOidcLink" (click)="connectOidc()">
+              {{isStartingOidcLink ? 'Connecting...' : 'Connect ' + oidcLinkStatus?.providerName + ' account'}}
+            </button>
+          }
+        </section>
+      }
+
       <section class="settings-section">
         <div class="section-title">
           <span>Two-Factor Authentication (TOTP)</span>

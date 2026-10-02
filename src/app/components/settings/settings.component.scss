@@ -477,6 +477,39 @@ h1 { margin-bottom: 0; }
   &.connected { background: #34a853; }
 }
 
+.sso-connection-row,
+.sso-identity {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.sso-connection-row {
+  justify-content: space-between;
+}
+
+.sso-identity {
+  min-width: 0;
+
+  > span:last-child {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  small {
+    color: #9aa0a6;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 520px) {
+  .sso-connection-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .google-actions { display: flex; gap: 8px; margin-left: auto; }
 
 .danger-section {

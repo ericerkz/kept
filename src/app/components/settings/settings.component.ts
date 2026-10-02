@@ -5,7 +5,7 @@ import { GoogleCalendarStatusI } from 'src/app/interfaces/reminder';
 import { ReminderService } from 'src/app/services/reminder.service';
 import { NotesService, TakeoutImportResult } from 'src/app/services/notes.service';
 
-import { AuthService, McpAccessSettings, OAuthAccessSettings } from 'src/app/services/auth.service';
+import { AuthService, McpAccessSettings, OAuthAccessSettings, OidcLinkStatus } from 'src/app/services/auth.service';
 import { PushNotificationService } from 'src/app/services/push-notification.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import {
@@ -66,6 +66,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
   isSavingOAuthAccess = false;
   revokingOAuthConnectionId: number | null = null;
   mcpTokenCopied = false;
+
+  // ── Single sign-on ─────────────────────────────────────────────────────
+  oidcLinkStatus: OidcLinkStatus | null = null;
+  isStartingOidcLink = false;
+  isDisconnectingOidc = false;
 
   // ── Phase 1: ICS Feed ──────────────────────────────────────────────────
   icsFeedToken = '';
@@ -152,6 +157,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   ) {}
 
   async ngOnInit() {
+    const oidcLinkResult = this.route.snapshot.queryParamMap.get('oidc_link');
     const googleResult = this.route.snapshot.queryParamMap.get('google');
     const googleMessage = this.route.snapshot.queryParamMap.get('message');
     if (googleResult === 'connected') {
@@ -160,6 +166,19 @@ export class SettingsComponent implements OnInit, OnDestroy {
     } else if (googleResult === 'error') {
       this.error = googleMessage || 'Google Calendar connection failed.';
       history.replaceState({}, '', '/settings');
+    }
+    if (oidcLinkResult) {
+      const messages: Record<string, string> = {
+        connected: 'Single sign-on account connected successfully.',
+        already_connected: 'That single sign-on account is already connected to another Kept account.',
+        missing_identity: 'The identity provider did not return a usable account identifier.',
+        account_unavailable: 'This Kept account is no longer available for linking.'
+      };
+      if (oidcLinkResult === 'connected') this.success = messages[oidcLinkResult];
+      else this.error = messages[oidcLinkResult] || 'Could not connect the single sign-on account.';
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('oidc_link');
+      history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
     }
     await this.loadAll();
     this.refreshNotificationPermissionState();
@@ -259,9 +278,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
 
     try {
-      [this.mcpAccess, this.oauthAccess] = await Promise.all([
+      [this.mcpAccess, this.oauthAccess, this.oidcLinkStatus] = await Promise.all([
         this.authService.getMcpAccessSettings(),
-        this.authService.getOAuthAccessSettings()
+        this.authService.getOAuthAccessSettings(),
+        this.authService.getOidcLinkStatus()
       ]);
     } catch {}
 
@@ -293,6 +313,36 @@ export class SettingsComponent implements OnInit, OnDestroy {
       }
     } catch {}
 
+  }
+
+  async connectOidc() {
+    this.isStartingOidcLink = true;
+    this.error = '';
+    try {
+      const result = await this.authService.startOidcLink();
+      window.location.assign(result.url);
+    } catch (e: any) {
+      this.error = e?.error?.error || 'Could not start the single sign-on connection.';
+      this.isStartingOidcLink = false;
+    }
+  }
+
+  async disconnectOidc() {
+    const provider = this.oidcLinkStatus?.providerName || 'single sign-on';
+    if (!confirm(`Disconnect ${provider}? You will no longer be able to use it to sign in to this Kept account.`)) return;
+    this.isDisconnectingOidc = true;
+    this.error = '';
+    try {
+      await this.authService.disconnectOidcLink();
+      if (this.oidcLinkStatus) {
+        this.oidcLinkStatus = { ...this.oidcLinkStatus, connected: false, identityEmail: '', connectedAt: null };
+      }
+      this.success = `${provider} disconnected.`;
+    } catch (e: any) {
+      this.error = e?.error?.error || 'Could not disconnect the single sign-on account.';
+    } finally {
+      this.isDisconnectingOidc = false;
+    }
   }
 
   async toggleMcpAccess(event: Event) {

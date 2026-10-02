@@ -33,9 +33,10 @@ services:
       # - KEPT_OIDC_CLIENT_SECRET=
       # - KEPT_OIDC_NAME=Single sign-on
       # - KEPT_OIDC_SCOPES=openid profile email
-      # Verified-email linking is enabled by default. Automatic account
-      # creation is disabled unless explicitly enabled.
-      # - KEPT_OIDC_AUTO_LINK_EMAIL=1
+      # Existing users can connect their provider account from Kept Settings.
+      # Automatic verified-email linking and account creation are disabled
+      # unless explicitly enabled.
+      # - KEPT_OIDC_AUTO_LINK_EMAIL=0
       # - KEPT_OIDC_AUTO_PROVISION=0
 
       # Allow restoring a SQLite backup via /api/setup/restore. This should really only be enabled when you actually need it
