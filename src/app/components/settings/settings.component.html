@@ -94,12 +94,12 @@
     <div class="settings-group">
       <h2 class="group-title color-green">
         <span class="material-symbols-outlined">hub</span>
-        Agent Access
+        External Access
       </h2>
 
       <section class="settings-section">
         <div class="section-title mcp-section-title">
-          <span>Agent access (MCP)</span>
+          <span>External access (OAuth and MCP)</span>
           <label class="toggle-label">
             <input type="checkbox" [checked]="mcpAccess?.enabled" [disabled]="isSavingMcpAccess"
               (change)="toggleMcpAccess($event)">
@@ -107,13 +107,13 @@
           </label>
         </div>
         <p class="section-desc">
-          Allow MCP-compatible agents to work with your Kept notes using a dedicated, revocable token. Agents receive the same access to notes and collaborators as your account, so only connect clients you trust.
+          Allow approved OAuth apps and MCP-compatible agents to work with your Kept notes. Access is user-scoped and revocable, so only connect clients you trust.
         </p>
 
         @if (newMcpAccessToken) {
           <div class="mcp-token-panel" role="status">
-            <strong>Save this token now</strong>
-            <p>Kept will not show the full token again.</p>
+            <strong>Local MCP token (optional)</strong>
+            <p>Save this only if you use a local stdio MCP client. OAuth apps receive their own short-lived tokens.</p>
             <div class="mcp-token-row">
               <code>{{newMcpAccessToken}}</code>
               <button type="button" class="btn-secondary" (click)="copyMcpToken()">
@@ -128,7 +128,7 @@
             <div class="preference-row">
               <div class="preference-info">
                 <span class="preference-label">Locked-note access</span>
-                <span class="preference-desc">Allow secure passcode unlock requests. The passcode goes directly to Kept and is never sent to the agent.</span>
+                <span class="preference-desc">Allow secure passcode unlock requests. The passcode goes directly to Kept and is never sent to the connected client.</span>
               </div>
               <label class="toggle-label">
                 <input type="checkbox" [checked]="mcpAccess?.allowLockedNotes"
@@ -139,7 +139,7 @@
             <div class="preference-row">
               <div class="preference-info">
                 <span class="preference-label">Permanent note deletion</span>
-                <span class="preference-desc">Allow agents to permanently delete owned notes. This cannot be undone.</span>
+                <span class="preference-desc">Allow connected clients to permanently delete owned notes. This cannot be undone.</span>
               </div>
               <label class="toggle-label">
                 <input type="checkbox" [checked]="mcpAccess?.allowPermanentDelete"

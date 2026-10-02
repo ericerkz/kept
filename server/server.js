@@ -13,7 +13,7 @@ const webPush = require('web-push');
 const { WebSocket, WebSocketServer } = require('ws');
 const { generateSecret, verifySync, generateURI } = require('otplib');
 const qrcode = require('qrcode');
-const { initOAuthTables, mountOAuthAndMcpRoutes, resolveOAuthAccessToken } = require('./oauth-mcp');
+const { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken } = require('./oauth-mcp');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -2524,7 +2524,7 @@ function isAllowedMcpApiRequest(method, requestPath) {
   const pathOnly = String(requestPath || '').split('?')[0];
   const rules = [
     ['GET', /^\/api\/mcp\/(?:status|locked-notes\/\d+\/unlock)$/],
-    ['GET', /^\/api\/(?:labels|users\/search|notes\/search|reminders)$/],
+    ['GET', /^\/api\/(?:oauth\/me|labels|users\/search|notes|notes\/search|reminders)$/],
     ['GET', /^\/api\/(?:notes\/\d+|notes\/\d+\/collaborators|attachments\/\d+|uploads\/images\/[^/]+)$/],
     ['POST', /^\/api\/(?:labels|labels\/find-or-create|notes|reminders|uploads\/images)$/],
     ['POST', /^\/api\/(?:notes\/\d+\/attachments|notes\/\d+\/collaborators\/rejoin|mcp\/locked-notes\/\d+\/unlock)$/],
@@ -2533,6 +2533,16 @@ function isAllowedMcpApiRequest(method, requestPath) {
     ['DELETE', /^\/api\/(?:notes\/\d+|notes\/\d+\/attachments\/\d+|reminders\/\d+|labels\/\d+)$/]
   ];
   return rules.some(([allowedMethod, pattern]) => method === allowedMethod && pattern.test(pathOnly));
+}
+
+function hasOAuthScope(access, scope) {
+  return String(access?.oauthScope || '').split(/\s+/).includes(scope);
+}
+
+function sendAuthenticationRequired(req, res) {
+  const origin = String(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+  res.set('WWW-Authenticate', `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api"`);
+  return res.status(401).json({ error: 'Authentication required.' });
 }
 
 function auditMcpRequest(req, res) {
@@ -2555,14 +2565,24 @@ async function requireAuth(req, res, next) {
     // their own token handling.)
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
 
-    if (!token) return res.status(401).json({ error: 'Authentication required.' });
+    if (!token) return sendAuthenticationRequired(req, res);
 
     let session = await resolveSessionFromToken(token);
     let mcpAccess = null;
     if (!session) mcpAccess = await resolveMcpToken(token);
-    if (!session && !mcpAccess) return res.status(401).json({ error: 'Authentication required.' });
+    if (!session && !mcpAccess) return sendAuthenticationRequired(req, res);
     if (mcpAccess && !isAllowedMcpApiRequest(req.method, req.originalUrl || req.path)) {
-      return res.status(403).json({ error: 'This endpoint is not available to MCP access tokens.' });
+      return res.status(403).json({ error: 'This endpoint is not available to external access tokens.' });
+    }
+    if (mcpAccess?.oauthClientId) {
+      if (!oauthTokenCanCallApi(mcpAccess, req)) {
+        return res.status(403).json({ error: 'This OAuth token was issued for a different protected resource.' });
+      }
+      const requiredScope = ['GET', 'HEAD'].includes(req.method) ? 'kept.read' : 'kept.write';
+      if (!hasOAuthScope(mcpAccess, requiredScope)) {
+        res.set('WWW-Authenticate', `Bearer error="insufficient_scope", scope="${requiredScope}"`);
+        return res.status(403).json({ error: `This OAuth token does not have the ${requiredScope} scope.` });
+      }
     }
 
     session = session || mcpAccess;
@@ -2595,14 +2615,26 @@ async function requireAuthOrQueryToken(req, res, next) {
   try {
     const header = req.header('authorization') || '';
     let token = header.startsWith('Bearer ') ? header.slice(7) : '';
-    if (!token && req.query.token) token = String(req.query.token);
-    if (!token) return res.status(401).json({ error: 'Authentication required.' });
+    const tokenFromQuery = !token && !!req.query.token;
+    if (tokenFromQuery) token = String(req.query.token);
+    if (!token) return sendAuthenticationRequired(req, res);
+    if (tokenFromQuery && token.startsWith('kept_oauth_')) return sendAuthenticationRequired(req, res);
     let session = await resolveSessionFromToken(token);
     let mcpAccess = null;
     if (!session) mcpAccess = await resolveMcpToken(token);
-    if (!session && !mcpAccess) return res.status(401).json({ error: 'Authentication required.' });
+    if (!session && !mcpAccess) return sendAuthenticationRequired(req, res);
     if (mcpAccess && !isAllowedMcpApiRequest(req.method, req.originalUrl || req.path)) {
-      return res.status(403).json({ error: 'This endpoint is not available to MCP access tokens.' });
+      return res.status(403).json({ error: 'This endpoint is not available to external access tokens.' });
+    }
+    if (mcpAccess?.oauthClientId) {
+      if (!oauthTokenCanCallApi(mcpAccess, req)) {
+        return res.status(403).json({ error: 'This OAuth token was issued for a different protected resource.' });
+      }
+      const requiredScope = ['GET', 'HEAD'].includes(req.method) ? 'kept.read' : 'kept.write';
+      if (!hasOAuthScope(mcpAccess, requiredScope)) {
+        res.set('WWW-Authenticate', `Bearer error="insufficient_scope", scope="${requiredScope}"`);
+        return res.status(403).json({ error: `This OAuth token does not have the ${requiredScope} scope.` });
+      }
     }
     session = session || mcpAccess;
     req.user = session;
@@ -3374,7 +3406,7 @@ app.use(express.json({ limit: '25mb' }));
 
 mountOAuthAndMcpRoutes(app, {
   get, all, run, asyncRoute, resolveSessionFromToken, createSession, createUser, normalizeUsername,
-  oauthRegistrationLimiter
+  oauthRegistrationLimiter, internalBaseUrl: `http://127.0.0.1:${port}`
 });
 
 app.get('/api/setup/status', asyncRoute(async (_req, res) => {
@@ -4067,6 +4099,16 @@ function mcpNoteResponse(note, includeLockedContent) {
   return result;
 }
 
+app.get('/api/oauth/me', requireAuth, (req, res) => {
+  res.json({
+    id: req.user.id,
+    username: req.user.username,
+    displayName: req.user.displayName,
+    email: req.user.email || '',
+    role: req.user.role
+  });
+});
+
 app.get('/api/mcp/status', requireAuth, (req, res) => {
   res.json({
     enabled: true,
@@ -4094,9 +4136,10 @@ app.post('/api/mcp/locked-notes/:noteId/unlock', requireAuth, asyncRoute(async (
      VALUES (?, ?, ?, ?, 0, ?, ?)`,
     [challenge, req.mcpToken.id, req.user.id, noteId, createdAt.toISOString(), expiresAt]
   );
+  const publicOrigin = String(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
   res.status(201).json({
     unlocked: false,
-    unlockUrl: `${req.protocol}://${req.get('host')}/api/mcp/unlock/${challenge}`,
+    unlockUrl: `${publicOrigin}/api/mcp/unlock/${challenge}`,
     expiresAt
   });
 }));

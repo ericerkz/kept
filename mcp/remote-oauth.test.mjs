@@ -35,7 +35,7 @@ async function json(url, options = {}) {
   return body;
 }
 
-test('remote MCP OAuth flow issues a usable Streamable HTTP token', async t => {
+test('OAuth grants scoped access to the Kept API and remote MCP', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'kept-oauth-'));
   const port = 32000 + Math.floor(Math.random() * 1000);
   const origin = `http://127.0.0.1:${port}`;
@@ -53,6 +53,8 @@ test('remote MCP OAuth flow issues a usable Streamable HTTP token', async t => {
   const metadata = await json(`${origin}/.well-known/oauth-authorization-server`);
   assert.equal(metadata.token_endpoint, `${origin}/oauth/token`);
   assert.deepEqual(metadata.code_challenge_methods_supported, ['S256']);
+  const apiMetadata = await json(`${origin}/.well-known/oauth-protected-resource/api`);
+  assert.equal(apiMetadata.resource, `${origin}/api`);
 
   await json(`${origin}/api/setup/admin`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -70,34 +72,36 @@ test('remote MCP OAuth flow issues a usable Streamable HTTP token', async t => {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ client_name: 'Test client', redirect_uris: ['http://localhost:9876/callback'], token_endpoint_auth_method: 'none' })
   });
-  const verifier = randomBytes(48).toString('base64url');
-  const challenge = createHash('sha256').update(verifier).digest('base64url');
-  const authorize = new URL(`${origin}/oauth/authorize`);
-  Object.entries({
-    client_id: client.client_id, redirect_uri: 'http://localhost:9876/callback',
-    response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256',
-    scope: 'kept.read kept.write', resource: `${origin}/mcp`, state: 'test-state'
-  }).forEach(([key, value]) => authorize.searchParams.set(key, value));
-  const authorizeResponse = await fetch(authorize);
-  assert.ok(authorizeResponse.ok);
-  const page = await authorizeResponse.text();
-  const request = page.match(/const requestId="([^"]+)"/)?.[1];
-  assert.ok(request);
+  async function authorizeToken({ scope, resource, state }) {
+    const verifier = randomBytes(48).toString('base64url');
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    const authorize = new URL(`${origin}/oauth/authorize`);
+    Object.entries({
+      client_id: client.client_id, redirect_uri: 'http://localhost:9876/callback',
+      response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256',
+      scope, resource, state
+    }).forEach(([key, value]) => authorize.searchParams.set(key, value));
+    const authorizeResponse = await fetch(authorize);
+    assert.ok(authorizeResponse.ok);
+    const page = await authorizeResponse.text();
+    const request = page.match(/const requestId="([^"]+)"/)?.[1];
+    assert.ok(request);
+    const approval = await json(`${origin}/oauth/authorize/approve`, {
+      method: 'POST', headers: { authorization: `Bearer ${login.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ request })
+    });
+    const code = new URL(approval.redirect).searchParams.get('code');
+    assert.ok(code);
+    return json(`${origin}/oauth/token`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code', client_id: client.client_id, code,
+        redirect_uri: 'http://localhost:9876/callback', code_verifier: verifier, resource
+      })
+    });
+  }
 
-  const approval = await json(`${origin}/oauth/authorize/approve`, {
-    method: 'POST', headers: { authorization: `Bearer ${login.token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ request })
-  });
-  const code = new URL(approval.redirect).searchParams.get('code');
-  assert.ok(code);
-
-  const tokenBody = new URLSearchParams({
-    grant_type: 'authorization_code', client_id: client.client_id, code,
-    redirect_uri: 'http://localhost:9876/callback', code_verifier: verifier, resource: `${origin}/mcp`
-  });
-  const tokens = await json(`${origin}/oauth/token`, {
-    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: tokenBody
-  });
+  const tokens = await authorizeToken({ scope: 'kept.read kept.write', resource: `${origin}/mcp`, state: 'mcp-test' });
   assert.match(tokens.access_token, /^kept_oauth_/);
   assert.match(tokens.refresh_token, /^kept_refresh_/);
 
@@ -114,6 +118,36 @@ test('remote MCP OAuth flow issues a usable Streamable HTTP token', async t => {
   });
   assert.equal(tools.result.tools.length, 22);
   assert.deepEqual(tools.result.tools[0]._meta.securitySchemes, [{ type: 'oauth2', scopes: ['kept.read', 'kept.write'] }]);
+  const mcpSearch = await json(`${origin}/mcp`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${tokens.access_token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'kept_search_notes', arguments: { query: 'anything' } } })
+  });
+  assert.equal(mcpSearch.result.isError, undefined);
+  const deniedDirectApi = await fetch(`${origin}/api/notes/search?q=anything`, {
+    headers: { authorization: `Bearer ${tokens.access_token}` }
+  });
+  assert.equal(deniedDirectApi.status, 403);
+
+  const apiTokens = await authorizeToken({ scope: 'kept.read', resource: `${origin}/api`, state: 'api-test' });
+  assert.equal(apiTokens.scope, 'kept.read');
+  const connectedUser = await json(`${origin}/api/oauth/me`, {
+    headers: { authorization: `Bearer ${apiTokens.access_token}` }
+  });
+  assert.equal(connectedUser.username, 'oauth-test');
+  const notes = await json(`${origin}/api/notes/search?q=anything`, {
+    headers: { authorization: `Bearer ${apiTokens.access_token}` }
+  });
+  assert.deepEqual(notes, []);
+  const deniedWrite = await fetch(`${origin}/api/notes`, {
+    method: 'POST', headers: { authorization: `Bearer ${apiTokens.access_token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ noteTitle: 'Not allowed' })
+  });
+  assert.equal(deniedWrite.status, 403);
+  const deniedMcp = await fetch(`${origin}/mcp`, {
+    method: 'POST', headers: { authorization: `Bearer ${apiTokens.access_token}`, 'content-type': 'application/json' }, body: '{}'
+  });
+  assert.equal(deniedMcp.status, 401);
 
   const refreshed = await json(`${origin}/oauth/token`, {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },

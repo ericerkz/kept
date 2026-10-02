@@ -54,6 +54,7 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Built-in database backups and restore flow.
 - Local user accounts, optional 2FA, and user management.
 - Local and remote MCP server options for authenticated agent access without direct database access.
+- OAuth 2.1 access for scoped third-party API integrations.
 - Optional OpenID Connect (OIDC) single sign-on alongside Kept's local accounts.
 
 ## Install With Docker
@@ -75,14 +76,18 @@ Open `http://localhost:6767` and create the first admin account.
 
 Kept stores its database, uploads, attachments, and generated server data in `./data`. Back that folder up if you are not using the built-in backup tools.
 
-## Agent Access With MCP
+## OAuth And MCP Access
 
-Kept includes optional MCP access for trusted agents to work with notes,
-checklists, attachments, reminders, and sharing. Local clients can use stdio
-with a dedicated token; remote clients such as ChatGPT can connect to the
-OAuth-protected Streamable HTTP endpoint at `/mcp`. Agent Access is off by
-default, and locked notes and permanent deletion have separate opt-in controls.
-See [the MCP setup and security guide](docs/mcp.md).
+Kept includes an optional OAuth 2.1 authorization server for third-party apps
+and integrations. OAuth clients can request read-only or read/write access to
+the supported Kept API without receiving a user's password or long-lived MCP
+token. See [the OAuth integration guide](docs/oauth.md).
+
+MCP is one consumer of that OAuth layer. Local MCP clients can use stdio with a
+dedicated token; remote clients such as ChatGPT can connect to the Streamable
+HTTP endpoint at `/mcp`. External Access is off by default, and locked notes and
+permanent deletion have separate opt-in controls. See [the MCP setup and
+security guide](docs/mcp.md).
 
 ## Easy Hosted Setup
 

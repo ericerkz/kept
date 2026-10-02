@@ -297,16 +297,16 @@ export class SettingsComponent implements OnInit, OnDestroy {
       if (enabled) {
         this.mcpAccess = await this.authService.enableMcpAccess();
         this.newMcpAccessToken = this.mcpAccess.accessToken || '';
-        this.success = 'MCP agent access enabled. Save the new token now.';
+        this.success = 'External access enabled.';
       } else {
         await this.authService.disableMcpAccess();
         this.mcpAccess = { enabled: false, allowLockedNotes: false, allowPermanentDelete: false, token: null };
         this.newMcpAccessToken = '';
-        this.success = 'MCP agent access disabled and its token revoked.';
+        this.success = 'External access disabled. OAuth and MCP access has been revoked.';
       }
     } catch (e: any) {
       (event.target as HTMLInputElement).checked = !enabled;
-      this.error = e?.error?.error || 'Could not update MCP agent access.';
+      this.error = e?.error?.error || 'Could not update external access.';
     } finally {
       this.isSavingMcpAccess = false;
     }

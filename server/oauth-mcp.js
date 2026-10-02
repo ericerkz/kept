@@ -5,7 +5,9 @@ const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const AUTHORIZATION_CODE_TTL_SECONDS = 5 * 60;
 const PENDING_TTL_SECONDS = 10 * 60;
-const REQUIRED_SCOPES = ['kept.read', 'kept.write'];
+const SUPPORTED_SCOPES = ['kept.read', 'kept.write'];
+const MCP_INTERNAL_HEADER = 'x-kept-mcp-internal';
+const MCP_INTERNAL_SECRET = crypto.randomBytes(32).toString('base64url');
 
 function sha256(value) {
   return crypto.createHash('sha256').update(String(value || '')).digest('hex');
@@ -41,15 +43,19 @@ function parseScopes(value) {
   return [...new Set(String(value || '').split(/\s+/).filter(Boolean))];
 }
 
-function hasRequiredScopes(value) {
-  const scopes = new Set(parseScopes(value));
-  return REQUIRED_SCOPES.every(scope => scopes.has(scope));
+function validScopes(value) {
+  const scopes = parseScopes(value);
+  return scopes.length > 0 && scopes.every(scope => SUPPORTED_SCOPES.includes(scope));
 }
 
 function validRedirectUri(value) {
   try {
     const url = new URL(value);
-    return !url.hash && (url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(url.hostname)));
+    if (url.hash || url.username || url.password) return false;
+    if (url.protocol === 'https:') return true;
+    if (url.protocol === 'http:') return ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+    return /^[a-z][a-z0-9+.-]*:$/.test(url.protocol)
+      && !['data:', 'file:', 'javascript:'].includes(url.protocol);
   } catch {
     return false;
   }
@@ -128,7 +134,8 @@ async function resolveOAuthAccessToken(token, { get }) {
   if (!String(token || '').startsWith('kept_oauth_')) return null;
   return get(
     `SELECT users.*, mcp_tokens.id AS mcpTokenId, mcp_tokens.tokenPrefix,
-            oauth_access_tokens.scope AS oauthScope, oauth_access_tokens.clientId AS oauthClientId
+            oauth_access_tokens.scope AS oauthScope, oauth_access_tokens.clientId AS oauthClientId,
+            oauth_access_tokens.resource AS oauthResource
      FROM oauth_access_tokens
      JOIN users ON users.id = oauth_access_tokens.userId
      JOIN mcp_tokens ON mcp_tokens.id = oauth_access_tokens.mcpTokenId
@@ -136,6 +143,13 @@ async function resolveOAuthAccessToken(token, { get }) {
        AND oauth_access_tokens.expiresAt > ? AND users.enabled = 1 AND users.mcpEnabled = 1`,
     [sha256(token), new Date().toISOString()]
   );
+}
+
+function oauthTokenCanCallApi(access, req) {
+  if (!access?.oauthClientId) return true;
+  if (String(access.oauthResource || '').endsWith('/api')) return true;
+  return String(access.oauthResource || '').endsWith('/mcp')
+    && req.header(MCP_INTERNAL_HEADER) === MCP_INTERNAL_SECRET;
 }
 
 function oidcSettings() {
@@ -177,7 +191,7 @@ async function resolveClient(clientId, { get }) {
 }
 
 function mountOAuthAndMcpRoutes(app, dependencies) {
-  const { get, all, run, asyncRoute, resolveSessionFromToken, createSession, createUser, normalizeUsername, oauthRegistrationLimiter } = dependencies;
+  const { get, all, run, asyncRoute, resolveSessionFromToken, createSession, createUser, normalizeUsername, oauthRegistrationLimiter, internalBaseUrl } = dependencies;
   const urlencoded = express.urlencoded({ extended: false, limit: '32kb' });
 
   app.use('/oauth/authorize', (_req, res, next) => {
@@ -191,11 +205,15 @@ function mountOAuthAndMcpRoutes(app, dependencies) {
 
   app.get('/.well-known/oauth-protected-resource', (req, res) => {
     const issuer = baseUrlFor(req);
-    res.json({ resource: `${issuer}/mcp`, authorization_servers: [issuer], scopes_supported: REQUIRED_SCOPES, bearer_methods_supported: ['header'] });
+    res.json({ resource: `${issuer}/api`, authorization_servers: [issuer], scopes_supported: SUPPORTED_SCOPES, bearer_methods_supported: ['header'] });
+  });
+  app.get('/.well-known/oauth-protected-resource/api', (req, res) => {
+    const issuer = baseUrlFor(req);
+    res.json({ resource: `${issuer}/api`, authorization_servers: [issuer], scopes_supported: SUPPORTED_SCOPES, bearer_methods_supported: ['header'] });
   });
   app.get('/.well-known/oauth-protected-resource/mcp', (req, res) => {
     const issuer = baseUrlFor(req);
-    res.json({ resource: `${issuer}/mcp`, authorization_servers: [issuer], scopes_supported: REQUIRED_SCOPES, bearer_methods_supported: ['header'] });
+    res.json({ resource: `${issuer}/mcp`, authorization_servers: [issuer], scopes_supported: SUPPORTED_SCOPES, bearer_methods_supported: ['header'] });
   });
   app.get('/.well-known/oauth-authorization-server', (req, res) => {
     const issuer = baseUrlFor(req);
@@ -204,7 +222,7 @@ function mountOAuthAndMcpRoutes(app, dependencies) {
       registration_endpoint: `${issuer}/oauth/register`, revocation_endpoint: `${issuer}/oauth/revoke`,
       response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'],
       token_endpoint_auth_methods_supported: ['none'], code_challenge_methods_supported: ['S256'],
-      scopes_supported: REQUIRED_SCOPES, authorization_response_iss_parameter_supported: true,
+      scopes_supported: SUPPORTED_SCOPES, authorization_response_iss_parameter_supported: true,
       client_id_metadata_document_supported: true
     });
   });
@@ -218,7 +236,7 @@ function mountOAuthAndMcpRoutes(app, dependencies) {
       return oauthError(res, 400, 'invalid_client_metadata', 'Only public clients using token_endpoint_auth_method none are supported.');
     }
     const clientId = randomToken('kept_client_');
-    const clientName = String(req.body?.client_name || 'MCP client').trim().slice(0, 120) || 'MCP client';
+    const clientName = String(req.body?.client_name || 'OAuth client').trim().slice(0, 120) || 'OAuth client';
     await run('INSERT INTO oauth_clients (clientId, clientName, redirectUris, createdAt) VALUES (?, ?, ?, ?)', [clientId, clientName, JSON.stringify(redirectUris), new Date().toISOString()]);
     res.status(201).json({ client_id: clientId, client_id_issued_at: Math.floor(Date.now() / 1000), client_name: clientName, redirect_uris: redirectUris, token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] });
   }));
@@ -229,7 +247,12 @@ function mountOAuthAndMcpRoutes(app, dependencies) {
 
   function consentPage(requestId, pending, clientName) {
     const safeRequest = JSON.stringify(requestId).replace(/</g, '\\u003c');
-    return htmlPage('Connect', `<h1>Connect ${escapeHtml(clientName)}?</h1><p>This client is requesting access to your Kept account.</p><ul class="scopes"><li><strong>Read</strong> your notes, labels, reminders, images, and attachments</li><li><strong>Change</strong> notes, checklists, reminders, collaborators, and attachments</li></ul><p>Locked notes and permanent deletion still follow your Agent Access settings.</p><p id="message"></p><div class="actions"><button id="cancel">Cancel</button><button class="primary" id="approve">Connect</button></div>`, `
+    const scopes = new Set(parseScopes(pending?.scope));
+    const scopeItems = [
+      scopes.has('kept.read') ? '<li><strong>Read</strong> your notes, labels, reminders, images, and attachments</li>' : '',
+      scopes.has('kept.write') ? '<li><strong>Change</strong> notes, checklists, reminders, collaborators, and attachments</li>' : ''
+    ].join('');
+    return htmlPage('Connect', `<h1>Connect ${escapeHtml(clientName)}?</h1><p>This client is requesting access to your Kept account.</p><ul class="scopes">${scopeItems}</ul><p>Locked notes and permanent deletion still follow your External Access settings.</p><p id="message"></p><div class="actions"><button id="cancel">Cancel</button><button class="primary" id="approve">Connect</button></div>`, `
 const requestId=${safeRequest};const message=document.getElementById('message');
 function session(){try{return JSON.parse(localStorage.getItem('gk_session')||'null')}catch{return null}}
 const current=session();if(!current?.token){location.href='/login?oauth_request='+encodeURIComponent(requestId)}
@@ -245,13 +268,14 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     if (!client || !client.redirectUris.includes(redirectUri)) return res.status(400).send(htmlPage('Invalid request', '<h1>Invalid OAuth request</h1><p>The client or redirect address is not registered with this Kept server.</p>'));
     if (req.query.response_type !== 'code') return res.redirect(appendRedirect(redirectUri, { error: 'unsupported_response_type', state: req.query.state }));
     if (req.query.code_challenge_method !== 'S256' || !/^[A-Za-z0-9_-]{43,128}$/.test(String(req.query.code_challenge || ''))) return res.redirect(appendRedirect(redirectUri, { error: 'invalid_request', error_description: 'PKCE S256 is required.', state: req.query.state }));
-    const resource = String(req.query.resource || `${issuer}/mcp`).replace(/\/+$/, '');
-    if (resource !== `${issuer}/mcp`) return res.redirect(appendRedirect(redirectUri, { error: 'invalid_target', state: req.query.state }));
-    const scope = String(req.query.scope || REQUIRED_SCOPES.join(' '));
-    if (!hasRequiredScopes(scope)) return res.redirect(appendRedirect(redirectUri, { error: 'invalid_scope', error_description: `Required scopes: ${REQUIRED_SCOPES.join(' ')}`, state: req.query.state }));
+    const resource = String(req.query.resource || `${issuer}/api`).replace(/\/+$/, '');
+    if (![`${issuer}/api`, `${issuer}/mcp`].includes(resource)) return res.redirect(appendRedirect(redirectUri, { error: 'invalid_target', state: req.query.state }));
+    const scope = parseScopes(String(req.query.scope || 'kept.read')).join(' ');
+    if (!validScopes(scope)) return res.redirect(appendRedirect(redirectUri, { error: 'invalid_scope', error_description: `Supported scopes: ${SUPPORTED_SCOPES.join(' ')}`, state: req.query.state }));
     const requestId = randomToken('kept_oauth_request_');
-    await run(`INSERT INTO oauth_pending_authorizations (requestHash, clientId, redirectUri, state, codeChallenge, resource, scope, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [sha256(requestId), clientId, redirectUri, String(req.query.state || ''), String(req.query.code_challenge), resource, REQUIRED_SCOPES.join(' '), new Date().toISOString(), addSeconds(PENDING_TTL_SECONDS)]);
-    res.type('html').send(consentPage(requestId, null, client.clientName));
+    const pending = { scope };
+    await run(`INSERT INTO oauth_pending_authorizations (requestHash, clientId, redirectUri, state, codeChallenge, resource, scope, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [sha256(requestId), clientId, redirectUri, String(req.query.state || ''), String(req.query.code_challenge), resource, scope, new Date().toISOString(), addSeconds(PENDING_TTL_SECONDS)]);
+    res.type('html').send(consentPage(requestId, pending, client.clientName));
   }));
 
   app.get('/oauth/authorize/resume', asyncRoute(async (req, res) => {
@@ -279,7 +303,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     const pending = await loadPending(requestId);
     if (!pending) return res.status(400).json({ error: 'This connection request expired.' });
     const mcpToken = await get('SELECT id FROM mcp_tokens WHERE userId = ? ORDER BY id DESC LIMIT 1', [user.id]);
-    if (!user.mcpEnabled || !mcpToken) return res.status(403).json({ error: 'Enable Agent Access (MCP) in Kept settings before connecting this client.' });
+    if (!user.mcpEnabled || !mcpToken) return res.status(403).json({ error: 'Enable External Access (OAuth and MCP) in Kept settings before connecting this client.' });
     const code = randomToken('kept_code_');
     await run('BEGIN IMMEDIATE');
     try {
@@ -422,7 +446,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     const header = req.header('authorization') || '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
     const access = await resolveOAuthAccessToken(token, { get });
-    if (!access) {
+    if (!access || access.oauthResource !== `${issuer}/mcp`) {
       res.set('WWW-Authenticate', `Bearer resource_metadata="${issuer}/.well-known/oauth-protected-resource/mcp"`);
       return res.status(401).json({ error: 'invalid_token', error_description: 'A valid Kept OAuth access token is required.' });
     }
@@ -430,7 +454,12 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     const [{ StreamableHTTPServerTransport }, { KeptClient }, { createKeptMcpServer }] = await Promise.all([
       import('@modelcontextprotocol/sdk/server/streamableHttp.js'), import('../mcp/kept-client.mjs'), import('../mcp/server.mjs')
     ]);
-    const client = new KeptClient({ baseUrl: issuer, token, timeoutMs: 120000, customHeaders: {} });
+    const client = new KeptClient({
+      baseUrl: internalBaseUrl,
+      token,
+      timeoutMs: 120000,
+      customHeaders: { [MCP_INTERNAL_HEADER]: MCP_INTERNAL_SECRET }
+    });
     const mcpServer = createKeptMcpServer(client, { oauth: true });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => { transport.close().catch(() => undefined); mcpServer.close().catch(() => undefined); });
@@ -439,4 +468,4 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
   }));
 }
 
-module.exports = { initOAuthTables, mountOAuthAndMcpRoutes, resolveOAuthAccessToken, REQUIRED_SCOPES };
+module.exports = { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken, SUPPORTED_SCOPES };
