@@ -505,6 +505,7 @@ export class InputComponent implements OnInit {
       trashed: this.isTrashed
     }
     const hasContent = !!(noteObj.noteTitle.length || noteObj.noteBody && noteObj.noteBody?.length || checkBoxesForSave.length || this.images.length || this.attachments.length || this.pendingAttachmentFiles.length || this.isDrawingNote)
+    const pendingCollaboratorIds = [...this.selectedCollaboratorIds]
 
     if (this.isEditing) {
       const noteChanged = this.noteChangedForSave(noteObj)
@@ -564,6 +565,7 @@ export class InputComponent implements OnInit {
           if (closeAfterSave) this.showNoteSaveError()
           return false
         }
+        await this.applyPendingCollaborators(id, pendingCollaboratorIds)
         await this.uploadPendingAttachments(id)
         this.flushPendingReminderSaves(id, noteObj)
         if (this.isArchived) {
@@ -997,6 +999,10 @@ export class InputComponent implements OnInit {
     this.drawingTransform = { scale: 1, x: 0, y: 0 }
     this.activePointers.clear()
     this.inputLength.next({ title: 0, body: 0, cb: 0 })
+    this.collaboratorUsers = []
+    this.selectedCollaboratorIds = []
+    this.collaboratorError = ''
+    this.isSavingCollaborators = false
   }
 
 
@@ -3169,16 +3175,20 @@ export class InputComponent implements OnInit {
   }
 
   async openCollaboratorMenu(button: HTMLDivElement, tooltipEl: HTMLDivElement) {
-    if (!this.isEditing || !this.noteToEdit.id) return
-    this.Shared.note.id = this.noteToEdit.id
     this.collaboratorError = ''
-    this.collaboratorUsers = []
-    this.selectedCollaboratorIds = (this.noteToEdit.collaborators || []).map(user => user.id)
+    if (this.isEditing && this.noteToEdit.id) {
+      this.Shared.note.id = this.noteToEdit.id
+      this.collaboratorUsers = []
+      this.selectedCollaboratorIds = (this.noteToEdit.collaborators || []).map(user => user.id)
+    } else if (!navigator.onLine) {
+      this.collaboratorUsers = []
+      this.collaboratorError = 'Connect to the server before choosing collaborators for a new note.'
+    }
     this.Shared.createTooltip(button, tooltipEl)
 
     try {
-      this.collaboratorUsers = await this.Shared.note.db.listShareUsers()
-      if (this.canManageCollaborators()) {
+      if (navigator.onLine) this.collaboratorUsers = await this.Shared.note.db.listShareUsers()
+      if (this.isEditing && this.canManageCollaborators()) {
         const collaborators = await this.notesService.getCollaborators(this.noteToEdit.id!)
         this.selectedCollaboratorIds = collaborators.map(user => user.id)
       }
@@ -3191,6 +3201,15 @@ export class InputComponent implements OnInit {
     return !!this.noteToEdit.id && this.noteToEdit.ownerUserId === this.auth.currentUser?.id
   }
 
+  canSelectDraftCollaborators() {
+    return !this.isEditing
+  }
+
+  canSelectCollaborator(userId: number) {
+    if (this.isNoteOwner(userId)) return false
+    return this.canSelectDraftCollaborators() || this.canManageCollaborators()
+  }
+
   isNoteOwner(userId: number) {
     return !!this.noteToEdit.ownerUserId && this.noteToEdit.ownerUserId === userId
   }
@@ -3200,13 +3219,15 @@ export class InputComponent implements OnInit {
   }
 
   async toggleCollaborator(userId: number) {
-    if (!this.canManageCollaborators()) return
+    if (!this.canSelectCollaborator(userId)) return
     const previousSelectedIds = [...this.selectedCollaboratorIds]
     if (this.isCollaboratorSelected(userId)) {
       this.selectedCollaboratorIds = this.selectedCollaboratorIds.filter(id => id !== userId)
     } else {
       this.selectedCollaboratorIds = [...this.selectedCollaboratorIds, userId]
     }
+
+    if (this.canSelectDraftCollaborators()) return
 
     this.isSavingCollaborators = true
     this.collaboratorError = ''
@@ -3223,6 +3244,10 @@ export class InputComponent implements OnInit {
   }
 
   async saveCollaborators(tooltipEl: HTMLDivElement) {
+    if (this.canSelectDraftCollaborators()) {
+      this.Shared.closeTooltip(tooltipEl)
+      return
+    }
     if (!this.canManageCollaborators()) return
     this.isSavingCollaborators = true
     this.collaboratorError = ''
@@ -3235,6 +3260,42 @@ export class InputComponent implements OnInit {
     } finally {
       this.isSavingCollaborators = false
     }
+  }
+
+  private async applyPendingCollaborators(noteId: number, userIds: number[]) {
+    const ids = [...new Set(userIds.filter(id => Number.isFinite(id) && id > 0))]
+    if (!ids.length) return
+    if (noteId <= 0) {
+      this.collaboratorError = 'Note saved locally, but collaborators will need to be added after it syncs.'
+      this.showCollaboratorSaveWarning()
+      return
+    }
+    if (!navigator.onLine) {
+      this.collaboratorError = 'Note saved, but collaborators could not be added while offline.'
+      this.showCollaboratorSaveWarning()
+      return
+    }
+    this.isSavingCollaborators = true
+    this.collaboratorError = ''
+    try {
+      await this.notesService.updateCollaborators(noteId, ids)
+      this.selectedCollaboratorIds = []
+    } catch (error: any) {
+      this.collaboratorError = error?.error?.error || 'Note saved, but collaborators could not be added.'
+      this.showCollaboratorSaveWarning()
+    } finally {
+      this.isSavingCollaborators = false
+    }
+  }
+
+  private showCollaboratorSaveWarning() {
+    try {
+      Snackbar?.show({
+        pos: 'bottom-left',
+        text: this.collaboratorError || 'Note saved, but collaborators could not be added.',
+        duration: 5000
+      })
+    } catch {}
   }
 
   async addLabelFromMenu(input: HTMLInputElement) {

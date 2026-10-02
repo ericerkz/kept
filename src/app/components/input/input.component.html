@@ -265,7 +265,7 @@
           [class.alarm-active]="!!getActiveReminder()"
           (click)="alarmIconTapped($event)">
         </div>
-        <div #collaboratorMenuTtBtn class="colab H pop" [class.disabled]="!isEditing"
+        <div #collaboratorMenuTtBtn class="colab H pop" [class.has-selection]="selectedCollaboratorIds.length"
           data-pop="Collaborator" (click)="openCollaboratorMenu(collaboratorMenuTtBtn,collaboratorMenuTt)"></div>
         <div #colorMenuTtBtn class="color H pop" data-pop="Background Options"
           (click)="openTooltip(colorMenuTtBtn,colorMenuTt)">
@@ -966,7 +966,9 @@
 <!--? collaborator MENU -->
 <div #collaboratorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="collaboratorMenu">
   <div class="title">Collaborators</div>
-  @if (!canManageCollaborators()) {
+  @if (canSelectDraftCollaborators()) {
+    <div class="hint">Will be shared when the note is created.</div>
+  } @else if (!canManageCollaborators()) {
     <div class="hint">Shared with you. Only the owner can change access.</div>
   }
   @if (collaboratorError) {
@@ -978,14 +980,14 @@
   <div class="user-list">
     @for (user of collaboratorUsers; track user.id) {
       @let userIsOwner = isNoteOwner(user.id);
-      <label class="share-user" [class.readonly]="!canManageCollaborators() || userIsOwner" [class.is-owner]="userIsOwner">
+      <label class="share-user" [class.readonly]="!canSelectCollaborator(user.id)" [class.is-owner]="userIsOwner">
         @if (userIsOwner) {
           <span class="owner-glyph" title="Owner of this note" aria-label="Owner">
             <span class="material-symbols-outlined">workspace_premium</span>
           </span>
         } @else {
           <input type="checkbox" [checked]="isCollaboratorSelected(user.id)"
-            [disabled]="!canManageCollaborators() || isSavingCollaborators" (change)="toggleCollaborator(user.id)">
+            [disabled]="!canSelectCollaborator(user.id) || isSavingCollaborators" (change)="toggleCollaborator(user.id)">
         }
         <div class="collaborator-avatar-wrapper">
           @if (user.avatarDataUrl) {
