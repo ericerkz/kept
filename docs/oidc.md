@@ -26,6 +26,96 @@ KEPT_OIDC_NAME=Your provider name
 
 The default scopes are `openid profile email`. Override them with `KEPT_OIDC_SCOPES` if your provider requires different scopes.
 
+## Google
+
+1. Open the [Google Cloud Console](https://console.cloud.google.com/) and create or select a project.
+2. Configure **Google Auth Platform > Branding**.
+3. Under **Audience**, choose **Internal** for a single Google Workspace organization or **External** for regular Google accounts. If an External app is still in testing, add each account that will test it as a test user.
+4. Open **Clients**, create a client, and choose **Web application**.
+5. Add this exact **Authorized redirect URI**:
+
+   ```text
+   https://your-kept.example/api/auth/oidc/callback
+   ```
+
+6. Copy the generated client ID and client secret into Kept:
+
+   ```text
+   BASE_URL=https://your-kept.example
+   KEPT_OIDC_ISSUER=https://accounts.google.com
+   KEPT_OIDC_CLIENT_ID=123456789.apps.googleusercontent.com
+   KEPT_OIDC_CLIENT_SECRET=your-google-client-secret
+   KEPT_OIDC_NAME=Google
+   ```
+
+Kept uses Google's server-side authorization-code flow, so an Authorized JavaScript origin is not required for this integration. The redirect URI must match exactly, including its scheme, hostname, port, and path. See Google's [OpenID Connect documentation](https://developers.google.com/identity/openid-connect/openid-connect).
+
+## Authentik
+
+1. In the Authentik administration interface, open **Applications > Applications**.
+2. Create an application named `Kept` and an associated **OAuth2/OpenID Provider**. The **Create with provider** flow can create both together.
+3. Select a normal authorization flow and set the client type to **Confidential**.
+4. Add this exact redirect URI using strict matching:
+
+   ```text
+   https://your-kept.example/api/auth/oidc/callback
+   ```
+
+5. Select a signing certificate so Authentik signs tokens asymmetrically, and make the `openid`, `profile`, and `email` scope mappings available.
+6. Copy the provider's client ID and client secret.
+7. Copy the issuer exactly as Authentik publishes it. With the recommended per-provider issuer mode and an application slug of `kept`, it normally looks like this:
+
+   ```text
+   BASE_URL=https://your-kept.example
+   KEPT_OIDC_ISSUER=https://auth.example.com/application/o/kept/
+   KEPT_OIDC_CLIENT_ID=your-authentik-client-id
+   KEPT_OIDC_CLIENT_SECRET=your-authentik-client-secret
+   KEPT_OIDC_NAME=Authentik
+   ```
+
+The trailing slash in Authentik's per-provider issuer is significant. If you use Authentik's global issuer mode, copy the `issuer` value from the application's discovery document rather than assuming the URL. Application policies and group bindings can restrict which Authentik users may connect Kept. See Authentik's [OAuth2/OpenID provider documentation](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/).
+
+## Pocket ID
+
+1. Sign in to Pocket ID as an administrator.
+2. Open **Settings > OIDC Clients** and select **Add OIDC Client**.
+3. Name the client `Kept`.
+4. Add this callback URL:
+
+   ```text
+   https://your-kept.example/api/auth/oidc/callback
+   ```
+
+5. Enable PKCE if that option is shown. Keep **Public Client** disabled when using the generated client secret.
+6. Optionally limit access to selected Pocket ID groups.
+7. Save the client and copy its client ID and client secret into Kept:
+
+   ```text
+   BASE_URL=https://your-kept.example
+   KEPT_OIDC_ISSUER=https://id.example.com
+   KEPT_OIDC_CLIENT_ID=your-pocket-id-client-id
+   KEPT_OIDC_CLIENT_SECRET=your-pocket-id-client-secret
+   KEPT_OIDC_NAME=Pocket ID
+   ```
+
+Pocket ID uses the instance URL as its issuer. Confirm the exact value by opening `https://id.example.com/.well-known/openid-configuration` and copying its `issuer` field. See Pocket ID's [OIDC client authentication documentation](https://pocket-id.org/docs/guides/oidc-client-authentication).
+
+## Apply and verify
+
+Recreate or restart Kept after changing its environment. With Docker Compose:
+
+```bash
+docker compose up -d
+```
+
+You can verify that the issuer publishes usable discovery metadata before connecting an account:
+
+```bash
+curl -s "${KEPT_OIDC_ISSUER%/}/.well-known/openid-configuration" | jq .issuer
+```
+
+Authentik's global issuer mode is an exception: its discovery document can remain under the application's `/application/o/<slug>/` path even when the published issuer is the instance root. Use the discovery URL shown by Authentik in that configuration.
+
 ## Connect a Kept account
 
 Every user must first have a local Kept account. OIDC identities do not automatically create accounts and are not matched to accounts by email.
