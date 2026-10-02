@@ -371,6 +371,15 @@ async function init() {
   if (!userColumns.some(column => column.name === 'showPastReminders')) {
     await run(`ALTER TABLE users ADD COLUMN showPastReminders INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!userColumns.some(column => column.name === 'mcpEnabled')) {
+    await run(`ALTER TABLE users ADD COLUMN mcpEnabled INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!userColumns.some(column => column.name === 'mcpAllowLockedNotes')) {
+    await run(`ALTER TABLE users ADD COLUMN mcpAllowLockedNotes INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!userColumns.some(column => column.name === 'mcpAllowPermanentDelete')) {
+    await run(`ALTER TABLE users ADD COLUMN mcpAllowPermanentDelete INTEGER NOT NULL DEFAULT 0`);
+  }
   await run(`
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
@@ -385,6 +394,30 @@ async function init() {
   }
   // Purge expired sessions on startup
   await run('DELETE FROM sessions WHERE expiresAt IS NOT NULL AND expiresAt <= ?', [new Date().toISOString()]);
+  await run(`
+    CREATE TABLE IF NOT EXISTS mcp_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      tokenHash TEXT NOT NULL UNIQUE,
+      tokenPrefix TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      lastUsedAt TEXT,
+      FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS mcp_audit_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      mcpTokenId INTEGER NOT NULL,
+      method TEXT NOT NULL,
+      path TEXT NOT NULL,
+      status INTEGER NOT NULL,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(mcpTokenId) REFERENCES mcp_tokens(id) ON DELETE CASCADE
+    )
+  `);
   await run(`
     CREATE TABLE IF NOT EXISTS labels (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -508,6 +541,26 @@ async function init() {
     );
   }
   await run(`CREATE UNIQUE INDEX IF NOT EXISTS notes_sync_id_unique ON notes(syncId)`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS mcp_unlock_challenges (
+      token TEXT PRIMARY KEY,
+      mcpTokenId INTEGER NOT NULL,
+      userId INTEGER NOT NULL,
+      noteId INTEGER NOT NULL,
+      approved INTEGER NOT NULL DEFAULT 0,
+      failedAttempts INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT NOT NULL,
+      expiresAt TEXT NOT NULL,
+      FOREIGN KEY(mcpTokenId) REFERENCES mcp_tokens(id) ON DELETE CASCADE,
+      FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE
+    )
+  `);
+  const mcpChallengeColumns = await all('PRAGMA table_info(mcp_unlock_challenges)');
+  if (!mcpChallengeColumns.some(column => column.name === 'failedAttempts')) {
+    await run(`ALTER TABLE mcp_unlock_challenges ADD COLUMN failedAttempts INTEGER NOT NULL DEFAULT 0`);
+  }
+  await run('DELETE FROM mcp_unlock_challenges WHERE expiresAt <= ?', [new Date().toISOString()]);
   const firstUser = await get('SELECT id FROM users ORDER BY role = "admin" DESC, id LIMIT 1');
   if (firstUser) {
     await run('UPDATE notes SET ownerUserId = ? WHERE ownerUserId IS NULL', [firstUser.id]);
@@ -1322,10 +1375,27 @@ function noteOperatorWhere(operators) {
   return { clauses, params };
 }
 
-function noteSearchWhere(tokens) {
+function noteSearchWhere(tokens, options = {}) {
   const params = [];
   const conditions = tokens.map(token => {
     const like = `%${token}%`;
+    if (options.protectLockedContent) {
+      params.push(like, like, like, like, like, like, like, like);
+      return `(
+        (locked = 1 AND (
+          LOWER(COALESCE(noteTitle, '')) LIKE ?
+          OR LOWER(COALESCE(labels, '')) LIKE ?
+          OR LOWER(COALESCE(binder, '')) LIKE ?
+        ))
+        OR (locked = 0 AND (
+          LOWER(COALESCE(noteTitle, '')) LIKE ?
+          OR LOWER(COALESCE(noteBody, '')) LIKE ?
+          OR LOWER(COALESCE(checkBoxes, '')) LIKE ?
+          OR LOWER(COALESCE(labels, '')) LIKE ?
+          OR LOWER(COALESCE(attachmentNames, '')) LIKE ?
+        ))
+      )`;
+    }
     params.push(like, like, like, like, like);
     return `(LOWER(COALESCE(noteTitle, '')) LIKE ?
       OR LOWER(COALESCE(noteBody, '')) LIKE ?
@@ -1456,7 +1526,7 @@ async function accessibleNoteSummaryRows(userId, options = {}) {
   const query = String(options.query || '').trim();
   const noteId = Number(options.noteId || 0);
   const searchTokens = searchTokensFromQuery(query);
-  const searchWhere = noteSearchWhere(searchTokens);
+  const searchWhere = noteSearchWhere(searchTokens, { protectLockedContent: !!options.protectLockedContent });
   const whereClauses = [];
   const params = [userId, userId, userId, userId];
 
@@ -2429,6 +2499,47 @@ async function resolveSessionFromToken(token) {
   );
 }
 
+function mcpTokenHash(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+
+async function resolveMcpToken(token) {
+  if (!String(token || '').startsWith('kept_mcp_')) return null;
+  return await get(
+    `SELECT users.*, mcp_tokens.id AS mcpTokenId, mcp_tokens.tokenPrefix
+     FROM mcp_tokens
+     JOIN users ON users.id = mcp_tokens.userId
+     WHERE mcp_tokens.tokenHash = ? AND users.enabled = 1 AND users.mcpEnabled = 1`,
+    [mcpTokenHash(token)]
+  );
+}
+
+function isAllowedMcpApiRequest(method, requestPath) {
+  const pathOnly = String(requestPath || '').split('?')[0];
+  const rules = [
+    ['GET', /^\/api\/mcp\/(?:status|locked-notes\/\d+\/unlock)$/],
+    ['GET', /^\/api\/(?:labels|users\/search|notes\/search|reminders)$/],
+    ['GET', /^\/api\/(?:notes\/\d+|notes\/\d+\/collaborators|attachments\/\d+|uploads\/images\/[^/]+)$/],
+    ['POST', /^\/api\/(?:labels|labels\/find-or-create|notes|reminders|uploads\/images)$/],
+    ['POST', /^\/api\/(?:notes\/\d+\/attachments|notes\/\d+\/collaborators\/rejoin|mcp\/locked-notes\/\d+\/unlock)$/],
+    ['PUT', /^\/api\/notes\/\d+(?:\/collaborators)?$/],
+    ['PATCH', /^\/api\/(?:notes\/\d+|reminders\/\d+|labels\/\d+)$/],
+    ['DELETE', /^\/api\/(?:notes\/\d+|notes\/\d+\/attachments\/\d+|reminders\/\d+|labels\/\d+)$/]
+  ];
+  return rules.some(([allowedMethod, pattern]) => method === allowedMethod && pattern.test(pathOnly));
+}
+
+function auditMcpRequest(req, res) {
+  if (!req.mcpToken || req.method === 'GET') return;
+  res.on('finish', () => {
+    run(
+      `INSERT INTO mcp_audit_events (userId, mcpTokenId, method, path, status, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [req.user.id, req.mcpToken.id, req.method, req.path, res.statusCode, new Date().toISOString()]
+    ).catch(() => undefined);
+  });
+}
+
 async function requireAuth(req, res, next) {
   const perfAuthStart = process.hrtime.bigint();
   try {
@@ -2440,11 +2551,27 @@ async function requireAuth(req, res, next) {
 
     if (!token) return res.status(401).json({ error: 'Authentication required.' });
 
-    const session = await resolveSessionFromToken(token);
-    if (!session) return res.status(401).json({ error: 'Authentication required.' });
+    let session = await resolveSessionFromToken(token);
+    let mcpAccess = null;
+    if (!session) mcpAccess = await resolveMcpToken(token);
+    if (!session && !mcpAccess) return res.status(401).json({ error: 'Authentication required.' });
+    if (mcpAccess && !isAllowedMcpApiRequest(req.method, req.originalUrl || req.path)) {
+      return res.status(403).json({ error: 'This endpoint is not available to MCP access tokens.' });
+    }
+
+    session = session || mcpAccess;
 
     req.user = session;
     req.token = token;
+    if (mcpAccess) {
+      req.mcpToken = { id: mcpAccess.mcpTokenId, prefix: mcpAccess.tokenPrefix };
+      req.mcpCapabilities = {
+        allowLockedNotes: !!mcpAccess.mcpAllowLockedNotes,
+        allowPermanentDelete: !!mcpAccess.mcpAllowPermanentDelete
+      };
+      auditMcpRequest(req, res);
+      run('UPDATE mcp_tokens SET lastUsedAt = ? WHERE id = ?', [new Date().toISOString(), mcpAccess.mcpTokenId]).catch(() => undefined);
+    }
     if (req.path === '/api/notes' || req.path === '/api/admin/update-status') {
       const authMs = Number(process.hrtime.bigint() - perfAuthStart) / 1e6;
       console.log(`[KeptPerf:server] auth ${req.method} ${req.path} ${authMs.toFixed(1)}ms`);
@@ -2464,10 +2591,23 @@ async function requireAuthOrQueryToken(req, res, next) {
     let token = header.startsWith('Bearer ') ? header.slice(7) : '';
     if (!token && req.query.token) token = String(req.query.token);
     if (!token) return res.status(401).json({ error: 'Authentication required.' });
-    const session = await resolveSessionFromToken(token);
-    if (!session) return res.status(401).json({ error: 'Authentication required.' });
+    let session = await resolveSessionFromToken(token);
+    let mcpAccess = null;
+    if (!session) mcpAccess = await resolveMcpToken(token);
+    if (!session && !mcpAccess) return res.status(401).json({ error: 'Authentication required.' });
+    if (mcpAccess && !isAllowedMcpApiRequest(req.method, req.originalUrl || req.path)) {
+      return res.status(403).json({ error: 'This endpoint is not available to MCP access tokens.' });
+    }
+    session = session || mcpAccess;
     req.user = session;
     req.token = token;
+    if (mcpAccess) {
+      req.mcpToken = { id: mcpAccess.mcpTokenId, prefix: mcpAccess.tokenPrefix };
+      req.mcpCapabilities = {
+        allowLockedNotes: !!mcpAccess.mcpAllowLockedNotes,
+        allowPermanentDelete: !!mcpAccess.mcpAllowPermanentDelete
+      };
+    }
     next();
   } catch (error) {
     next(error);
@@ -3433,6 +3573,80 @@ app.patch('/api/users/me/preferences', requireAuth, asyncRoute(async (req, res) 
   res.json(publicUser(user));
 }));
 
+function mcpAccessResponse(user, tokenRow) {
+  return {
+    enabled: !!user.mcpEnabled,
+    allowLockedNotes: !!user.mcpAllowLockedNotes,
+    allowPermanentDelete: !!user.mcpAllowPermanentDelete,
+    token: tokenRow ? {
+      prefix: tokenRow.tokenPrefix,
+      createdAt: tokenRow.createdAt,
+      lastUsedAt: tokenRow.lastUsedAt || null
+    } : null
+  };
+}
+
+app.get('/api/users/me/mcp-access', requireAuth, asyncRoute(async (req, res) => {
+  const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+  const token = await get('SELECT tokenPrefix, createdAt, lastUsedAt FROM mcp_tokens WHERE userId = ? ORDER BY id DESC LIMIT 1', [req.user.id]);
+  res.json(mcpAccessResponse(user, token));
+}));
+
+app.post('/api/users/me/mcp-access/enable', requireAuth, asyncRoute(async (req, res) => {
+  const rawToken = `kept_mcp_${randomHex(32)}`;
+  const now = new Date().toISOString();
+  await run('BEGIN IMMEDIATE');
+  try {
+    await run('DELETE FROM mcp_tokens WHERE userId = ?', [req.user.id]);
+    await run(
+      'INSERT INTO mcp_tokens (userId, tokenHash, tokenPrefix, createdAt) VALUES (?, ?, ?, ?)',
+      [req.user.id, mcpTokenHash(rawToken), `${rawToken.slice(0, 17)}…`, now]
+    );
+    await run('UPDATE users SET mcpEnabled = 1 WHERE id = ?', [req.user.id]);
+    await run('COMMIT');
+  } catch (error) {
+    await run('ROLLBACK');
+    throw error;
+  }
+  const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+  const token = await get('SELECT tokenPrefix, createdAt, lastUsedAt FROM mcp_tokens WHERE userId = ? ORDER BY id DESC LIMIT 1', [req.user.id]);
+  res.status(201).json({ ...mcpAccessResponse(user, token), accessToken: rawToken });
+}));
+
+app.patch('/api/users/me/mcp-access', requireAuth, asyncRoute(async (req, res) => {
+  const assignments = [];
+  const params = [];
+  for (const [field, column] of [
+    ['allowLockedNotes', 'mcpAllowLockedNotes'],
+    ['allowPermanentDelete', 'mcpAllowPermanentDelete']
+  ]) {
+    if (req.body?.[field] === undefined) continue;
+    if (typeof req.body[field] !== 'boolean') return res.status(400).json({ error: `${field} must be a boolean.` });
+    assignments.push(`${column} = ?`);
+    params.push(req.body[field] ? 1 : 0);
+  }
+  if (assignments.length) {
+    params.push(req.user.id);
+    await run(`UPDATE users SET ${assignments.join(', ')} WHERE id = ?`, params);
+  }
+  const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+  const token = await get('SELECT tokenPrefix, createdAt, lastUsedAt FROM mcp_tokens WHERE userId = ? ORDER BY id DESC LIMIT 1', [req.user.id]);
+  res.json(mcpAccessResponse(user, token));
+}));
+
+app.delete('/api/users/me/mcp-access', requireAuth, asyncRoute(async (req, res) => {
+  await run('BEGIN IMMEDIATE');
+  try {
+    await run('DELETE FROM mcp_tokens WHERE userId = ?', [req.user.id]);
+    await run('UPDATE users SET mcpEnabled = 0, mcpAllowLockedNotes = 0, mcpAllowPermanentDelete = 0 WHERE id = ?', [req.user.id]);
+    await run('COMMIT');
+  } catch (error) {
+    await run('ROLLBACK');
+    throw error;
+  }
+  res.status(204).end();
+}));
+
 // Marks the user as having had their starter/demo notes created. Idempotent —
 // only sets the timestamp the first time. The client uses this server-side
 // flag (instead of localStorage) so demos appear once across all devices and
@@ -3789,6 +4003,130 @@ app.get('/api/sharing/users', requireAuth, asyncRoute(async (req, res) => {
     ...publicCollaborator(u),
     online: realtimeClients.has(u.id)
   })));
+}));
+
+function notePasscodeHash(passcode, salt, algorithm = 'pbkdf2') {
+  if (algorithm === 'sha256') {
+    return crypto.createHash('sha256').update(`${salt}:${passcode}`).digest('base64url');
+  }
+  return crypto.pbkdf2Sync(String(passcode), String(salt), 150000, 32, 'sha256').toString('base64url');
+}
+
+function verifyNotePasscode(note, passcode) {
+  const stored = String(note?.lockHash || '');
+  const [algorithm, expected] = stored.split(':', 2);
+  if (!expected || !['pbkdf2', 'sha256'].includes(algorithm)) return false;
+  const actual = notePasscodeHash(passcode, note.lockSalt || '', algorithm);
+  const expectedBuffer = Buffer.from(expected);
+  const actualBuffer = Buffer.from(actual);
+  return expectedBuffer.length === actualBuffer.length && crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
+async function mcpNoteIsUnlocked(req, noteId) {
+  if (!req.mcpToken) return true;
+  if (!req.mcpCapabilities?.allowLockedNotes) return false;
+  const row = await get(
+    `SELECT token FROM mcp_unlock_challenges
+     WHERE mcpTokenId = ? AND noteId = ? AND approved = 1 AND expiresAt > ?
+     ORDER BY createdAt DESC LIMIT 1`,
+    [req.mcpToken.id, noteId, new Date().toISOString()]
+  );
+  return !!row;
+}
+
+function mcpNoteResponse(note, includeLockedContent) {
+  const result = { ...note };
+  delete result.lockSalt;
+  delete result.lockHash;
+  delete result.ownerAvatarDataUrl;
+  delete result.lwwPhysicalMs;
+  delete result.lwwLogical;
+  delete result.lwwDeviceId;
+  delete result.lwwOperationId;
+  if (result.locked && !includeLockedContent) {
+    result.noteBody = '';
+    result.checkBoxes = [];
+    result.images = [];
+    result.attachments = [];
+    result.hasAttachments = false;
+    result.lockedContentAvailable = false;
+  } else if (result.locked) {
+    result.lockedContentAvailable = true;
+  }
+  return result;
+}
+
+app.get('/api/mcp/status', requireAuth, (req, res) => {
+  res.json({
+    enabled: true,
+    userId: req.user.id,
+    allowLockedNotes: !!req.mcpCapabilities?.allowLockedNotes,
+    allowPermanentDelete: !!req.mcpCapabilities?.allowPermanentDelete
+  });
+});
+
+app.post('/api/mcp/locked-notes/:noteId/unlock', requireAuth, asyncRoute(async (req, res) => {
+  if (!req.mcpCapabilities?.allowLockedNotes) {
+    return res.status(403).json({ error: 'Locked-note access is disabled in Kept settings.' });
+  }
+  const noteId = Number(req.params.noteId);
+  const note = await getAccessibleNote(noteId, req.user.id);
+  if (!note) return res.status(404).json({ error: 'Note not found.' });
+  if (!note.locked) return res.json({ unlocked: true, expiresAt: null });
+  if (await mcpNoteIsUnlocked(req, noteId)) return res.json({ unlocked: true, expiresAt: null });
+
+  const challenge = randomHex(32);
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + 10 * 60 * 1000).toISOString();
+  await run(
+    `INSERT INTO mcp_unlock_challenges (token, mcpTokenId, userId, noteId, approved, createdAt, expiresAt)
+     VALUES (?, ?, ?, ?, 0, ?, ?)`,
+    [challenge, req.mcpToken.id, req.user.id, noteId, createdAt.toISOString(), expiresAt]
+  );
+  res.status(201).json({
+    unlocked: false,
+    unlockUrl: `${req.protocol}://${req.get('host')}/api/mcp/unlock/${challenge}`,
+    expiresAt
+  });
+}));
+
+app.get('/api/mcp/locked-notes/:noteId/unlock', requireAuth, asyncRoute(async (req, res) => {
+  const noteId = Number(req.params.noteId);
+  res.json({ unlocked: await mcpNoteIsUnlocked(req, noteId) });
+}));
+
+app.get('/api/mcp/unlock/:challenge', asyncRoute(async (req, res) => {
+  const challenge = await get(
+    `SELECT c.*, n.noteTitle FROM mcp_unlock_challenges c
+     JOIN notes n ON n.id = c.noteId
+     WHERE c.token = ? AND c.expiresAt > ?`,
+    [String(req.params.challenge || ''), new Date().toISOString()]
+  );
+  if (!challenge) return res.status(404).send('This unlock request is invalid or has expired.');
+  if (challenge.approved) return res.send('This note is already unlocked for MCP access. You can close this page.');
+  const safeTitle = escapeHtml(plainText(challenge.noteTitle || '') || 'Locked note');
+  res.type('html').send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unlock Kept note</title><style>body{background:#202124;color:#e8eaed;font:16px system-ui;margin:0;padding:32px}main{max-width:420px;margin:10vh auto}input,button{box-sizing:border-box;font:inherit;width:100%;padding:12px;margin-top:12px}button{background:#fbbc04;border:0;color:#202124;font-weight:700;cursor:pointer}.hint{color:#9aa0a6;font-size:13px}</style></head><body><main><h1>Unlock ${safeTitle}</h1><p>Enter this note's Kept passcode. It is sent directly to your Kept server and is not shared with the MCP client or model.</p><form method="post"><input type="password" name="passcode" autocomplete="current-password" required autofocus><button type="submit">Unlock for 5 minutes</button></form><p class="hint">This only unlocks this note for the requesting MCP token.</p></main></body></html>`);
+}));
+
+app.post('/api/mcp/unlock/:challenge', express.urlencoded({ extended: false, limit: '8kb' }), asyncRoute(async (req, res) => {
+  const challenge = await get(
+    `SELECT c.*, n.locked, n.lockSalt, n.lockHash FROM mcp_unlock_challenges c
+     JOIN notes n ON n.id = c.noteId
+     JOIN users u ON u.id = c.userId
+     WHERE c.token = ? AND c.expiresAt > ? AND u.mcpEnabled = 1 AND u.mcpAllowLockedNotes = 1`,
+    [String(req.params.challenge || ''), new Date().toISOString()]
+  );
+  if (!challenge) return res.status(404).send('This unlock request is invalid or has expired.');
+  if (Number(challenge.failedAttempts || 0) >= 5) {
+    return res.status(429).send('Too many incorrect attempts. Request a new unlock link from the agent.');
+  }
+  if (!verifyNotePasscode(challenge, String(req.body?.passcode || ''))) {
+    await run('UPDATE mcp_unlock_challenges SET failedAttempts = failedAttempts + 1 WHERE token = ?', [challenge.token]);
+    return res.status(401).send('Incorrect passcode. Go back and try again.');
+  }
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  await run('UPDATE mcp_unlock_challenges SET approved = 1, expiresAt = ? WHERE token = ?', [expiresAt, challenge.token]);
+  res.send('Note unlocked for MCP access for five minutes. You can close this page.');
 }));
 
 app.get('/api/users/search', requireAuth, asyncRoute(async (req, res) => {
@@ -4806,7 +5144,9 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
 app.get('/api/notes/search', requireAuth, asyncRoute(async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (!q) return res.json([]);
-  res.json(await accessibleNoteSummaries(req.user.id, { query: q, limit: 20 }));
+  const notes = await accessibleNoteSummaries(req.user.id, { query: q, limit: 20, protectLockedContent: !!req.mcpToken });
+  if (!req.mcpToken) return res.json(notes);
+  res.json(notes.map(note => mcpNoteResponse(note, false)));
 }));
 
 app.get('/api/ai/context', requireAuth, asyncRoute(async (req, res) => {
@@ -4989,6 +5329,10 @@ app.get('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   note.collaborators = await getCollaboratorsForNote(note.id);
   note.ownerOnline = realtimeClients.has(note.ownerUserId);
 
+  if (req.mcpToken) {
+    const includeLockedContent = !note.locked || await mcpNoteIsUnlocked(req, note.id);
+    return res.json(mcpNoteResponse(note, includeLockedContent));
+  }
   res.json(note);
 }));
 
@@ -5165,6 +5509,9 @@ app.post('/api/notes', requireAuth, asyncRoute(async (req, res) => {
 app.put('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   const note = await getAccessibleNote(Number(req.params.id), req.user.id);
   if (!note) return res.status(404).json({ error: 'Note not found.' });
+  if (req.mcpToken && note.locked && !await mcpNoteIsUnlocked(req, note.id)) {
+    return res.status(423).json({ error: 'Unlock this note before modifying it through MCP.' });
+  }
   const isOwner = note.ownerUserId === req.user.id;
   const next = canonicalizeNotePayload({ ...dbNoteToApi(note), ...req.body });
   const shouldPinForUser = Object.prototype.hasOwnProperty.call(req.body || {}, 'pinned')
@@ -5243,6 +5590,9 @@ app.patch('/api/notes/:id/view-state', requireAuth, asyncRoute(async (req, res) 
 app.patch('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   const existing = await getAccessibleNote(Number(req.params.id), req.user.id);
   if (!existing) return res.status(404).json({ error: 'Note not found.' });
+  if (req.mcpToken && existing.locked && !await mcpNoteIsUnlocked(req, existing.id)) {
+    return res.status(423).json({ error: 'Unlock this note before modifying it through MCP.' });
+  }
 
   const isOwner = existing.ownerUserId === req.user.id;
   const next = canonicalizeNotePayload({ ...dbNoteToApi(existing), ...req.body });
@@ -5549,6 +5899,12 @@ app.delete('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
 
   const isOwner = note.ownerUserId === req.user.id;
   if (isOwner) {
+    if (req.mcpToken && !req.mcpCapabilities?.allowPermanentDelete) {
+      return res.status(403).json({ error: 'Permanent deletion through MCP is disabled in Kept settings.' });
+    }
+    if (req.mcpToken && note.locked && !await mcpNoteIsUnlocked(req, note.id)) {
+      return res.status(423).json({ error: 'Unlock this note before permanently deleting it through MCP.' });
+    }
     const recipients = await getNoteRecipientIds(noteId);
     const deletedSnapshot = {
       syncId: note.syncId || `note-${crypto.randomUUID()}`,

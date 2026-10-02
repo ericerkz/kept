@@ -9,6 +9,14 @@ type LoginResponse = {
   user: UserI
 }
 
+export interface McpAccessSettings {
+  enabled: boolean
+  allowLockedNotes: boolean
+  allowPermanentDelete: boolean
+  token: { prefix: string; createdAt: string; lastUsedAt: string | null } | null
+  accessToken?: string
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -221,6 +229,33 @@ export class AuthService {
     ));
     this.mergeAccountPreferences(user);
     return user;
+  }
+
+  async getMcpAccessSettings() {
+    return await firstValueFrom(this.http.get<McpAccessSettings>(
+      `${this.apiUrl}/users/me/mcp-access`,
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async enableMcpAccess() {
+    return await firstValueFrom(this.http.post<McpAccessSettings>(
+      `${this.apiUrl}/users/me/mcp-access/enable`,
+      {},
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async updateMcpAccessSettings(patch: { allowLockedNotes?: boolean; allowPermanentDelete?: boolean }) {
+    return await firstValueFrom(this.http.patch<McpAccessSettings>(
+      `${this.apiUrl}/users/me/mcp-access`,
+      patch,
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async disableMcpAccess() {
+    await firstValueFrom(this.http.delete(`${this.apiUrl}/users/me/mcp-access`, { headers: this.authHeaders() }));
   }
 
   private mergeAccountPreferences(user: UserI) {

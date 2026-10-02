@@ -139,6 +139,56 @@ h1 { margin-bottom: 0; }
   line-height: 1.35;
 }
 
+.mcp-section-title {
+  justify-content: space-between;
+}
+
+.mcp-token-panel {
+  background: rgb(251 188 4 / 10%);
+  border: 1px solid rgb(251 188 4 / 48%);
+  border-radius: 6px;
+  margin: 14px 0;
+  padding: 14px;
+
+  p {
+    color: #bdc1c6;
+    font-size: 12px;
+    margin: 4px 0 10px;
+  }
+}
+
+.mcp-token-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+
+  code {
+    background: #171717;
+    border-radius: 4px;
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    padding: 10px;
+    user-select: all;
+  }
+}
+
+.mcp-capabilities {
+  border-top: 1px solid #5f6368;
+  margin-top: 16px;
+  padding-top: 14px;
+}
+
+.mcp-token-meta {
+  align-items: center;
+  color: #9aa0a6;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 .segmented-control {
   align-items: center;
   background: rgb(154 160 166 / 12%);
@@ -185,6 +235,17 @@ h1 { margin-bottom: 0; }
     button {
       flex: 1;
     }
+  }
+
+  .mcp-section-title,
+  .mcp-token-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mcp-token-row code,
+  .mcp-token-row button {
+    width: 100%;
   }
 }
 

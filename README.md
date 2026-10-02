@@ -76,9 +76,10 @@ Kept stores its database, uploads, attachments, and generated server data in `./
 
 ## Agent Access With MCP
 
-Kept includes a local stdio MCP server for scoped agent access to notes and
-labels through the authenticated Kept API. See [the MCP setup and security
-guide](docs/mcp.md).
+Kept includes an optional local stdio MCP server for trusted agents to work
+with notes, checklists, attachments, reminders, and sharing through a dedicated,
+revocable token. It is off by default; locked notes and permanent deletion have
+separate opt-in controls. See [the MCP setup and security guide](docs/mcp.md).
 
 ## Easy Hosted Setup
 

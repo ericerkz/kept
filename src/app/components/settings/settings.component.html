@@ -88,6 +88,73 @@
           <p class="hint" style="margin-top: 12px; color: var(--color-blue);">Generating export file...</p>
         }
       </section>
+
+    </div>
+
+    <div class="settings-group">
+      <h2 class="group-title color-green">
+        <span class="material-symbols-outlined">hub</span>
+        Agent Access
+      </h2>
+
+      <section class="settings-section">
+        <div class="section-title mcp-section-title">
+          <span>Agent access (MCP)</span>
+          <label class="toggle-label">
+            <input type="checkbox" [checked]="mcpAccess?.enabled" [disabled]="isSavingMcpAccess"
+              (change)="toggleMcpAccess($event)">
+            <span class="toggle-text">{{mcpAccess?.enabled ? 'Enabled' : 'Disabled'}}</span>
+          </label>
+        </div>
+        <p class="section-desc">
+          Allow MCP-compatible agents to work with your Kept notes using a dedicated, revocable token. Agents receive the same access to notes and collaborators as your account, so only connect clients you trust.
+        </p>
+
+        @if (newMcpAccessToken) {
+          <div class="mcp-token-panel" role="status">
+            <strong>Save this token now</strong>
+            <p>Kept will not show the full token again.</p>
+            <div class="mcp-token-row">
+              <code>{{newMcpAccessToken}}</code>
+              <button type="button" class="btn-secondary" (click)="copyMcpToken()">
+                {{mcpTokenCopied ? 'Copied' : 'Copy'}}
+              </button>
+            </div>
+          </div>
+        }
+
+        @if (mcpAccess?.enabled) {
+          <div class="preferences-list mcp-capabilities">
+            <div class="preference-row">
+              <div class="preference-info">
+                <span class="preference-label">Locked-note access</span>
+                <span class="preference-desc">Allow secure passcode unlock requests. The passcode goes directly to Kept and is never sent to the agent.</span>
+              </div>
+              <label class="toggle-label">
+                <input type="checkbox" [checked]="mcpAccess?.allowLockedNotes"
+                  (change)="updateMcpCapability('allowLockedNotes', $event)">
+                <span class="toggle-text">{{mcpAccess?.allowLockedNotes ? 'Allowed' : 'Blocked'}}</span>
+              </label>
+            </div>
+            <div class="preference-row">
+              <div class="preference-info">
+                <span class="preference-label">Permanent note deletion</span>
+                <span class="preference-desc">Allow agents to permanently delete owned notes. This cannot be undone.</span>
+              </div>
+              <label class="toggle-label">
+                <input type="checkbox" [checked]="mcpAccess?.allowPermanentDelete"
+                  (change)="updateMcpCapability('allowPermanentDelete', $event)">
+                <span class="toggle-text">{{mcpAccess?.allowPermanentDelete ? 'Allowed' : 'Blocked'}}</span>
+              </label>
+            </div>
+          </div>
+          <div class="mcp-token-meta">
+            <span>Token {{mcpAccess?.token?.prefix}}</span>
+            @if (mcpAccess?.token?.lastUsedAt) { <span>Last used {{mcpAccess?.token?.lastUsedAt | date:'medium'}}</span> }
+            <button type="button" class="btn-secondary" [disabled]="isSavingMcpAccess" (click)="regenerateMcpToken()">Generate new token</button>
+          </div>
+        }
+      </section>
     </div>
 
     <!-- ── Group: Security ──────────────────────────────────────────────── -->

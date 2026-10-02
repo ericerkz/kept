@@ -5,7 +5,7 @@ import { GoogleCalendarStatusI } from 'src/app/interfaces/reminder';
 import { ReminderService } from 'src/app/services/reminder.service';
 import { NotesService, TakeoutImportResult } from 'src/app/services/notes.service';
 
-import { AuthService } from 'src/app/services/auth.service';
+import { AuthService, McpAccessSettings } from 'src/app/services/auth.service';
 import { PushNotificationService } from 'src/app/services/push-notification.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import {
@@ -57,6 +57,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
   qrCodeUrl = '';
   totpToken = '';
   backupCodes: string[] | null = null;
+
+  // ── MCP agent access ───────────────────────────────────────────────────
+  mcpAccess: McpAccessSettings | null = null;
+  newMcpAccessToken = '';
+  isSavingMcpAccess = false;
+  mcpTokenCopied = false;
 
   // ── Phase 1: ICS Feed ──────────────────────────────────────────────────
   icsFeedToken = '';
@@ -250,6 +256,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
 
     try {
+      this.mcpAccess = await this.authService.getMcpAccessSettings();
+    } catch {}
+
+    try {
       const feed = await this.reminderService.getIcsFeedToken();
       this.icsFeedToken = feed.token;
       this.icsFeedUrl = `${window.location.origin}/api/reminders/ics/${feed.token}/kept-reminders.ics`;
@@ -277,6 +287,66 @@ export class SettingsComponent implements OnInit, OnDestroy {
       }
     } catch {}
 
+  }
+
+  async toggleMcpAccess(event: Event) {
+    const enabled = (event.target as HTMLInputElement).checked;
+    this.isSavingMcpAccess = true;
+    this.error = '';
+    try {
+      if (enabled) {
+        this.mcpAccess = await this.authService.enableMcpAccess();
+        this.newMcpAccessToken = this.mcpAccess.accessToken || '';
+        this.success = 'MCP agent access enabled. Save the new token now.';
+      } else {
+        await this.authService.disableMcpAccess();
+        this.mcpAccess = { enabled: false, allowLockedNotes: false, allowPermanentDelete: false, token: null };
+        this.newMcpAccessToken = '';
+        this.success = 'MCP agent access disabled and its token revoked.';
+      }
+    } catch (e: any) {
+      (event.target as HTMLInputElement).checked = !enabled;
+      this.error = e?.error?.error || 'Could not update MCP agent access.';
+    } finally {
+      this.isSavingMcpAccess = false;
+    }
+  }
+
+  async regenerateMcpToken() {
+    if (!confirm('Generate a new MCP token? The current token will stop working immediately.')) return;
+    this.isSavingMcpAccess = true;
+    this.error = '';
+    try {
+      this.mcpAccess = await this.authService.enableMcpAccess();
+      this.newMcpAccessToken = this.mcpAccess.accessToken || '';
+      this.success = 'A new MCP token was generated. Save it now.';
+    } catch (e: any) {
+      this.error = e?.error?.error || 'Could not regenerate the MCP token.';
+    } finally {
+      this.isSavingMcpAccess = false;
+    }
+  }
+
+  async updateMcpCapability(field: 'allowLockedNotes' | 'allowPermanentDelete', event: Event) {
+    if (!this.mcpAccess) return;
+    const enabled = (event.target as HTMLInputElement).checked;
+    const previous = this.mcpAccess[field];
+    this.mcpAccess = { ...this.mcpAccess, [field]: enabled };
+    try {
+      this.mcpAccess = await this.authService.updateMcpAccessSettings({ [field]: enabled });
+    } catch (e: any) {
+      this.mcpAccess = { ...this.mcpAccess, [field]: previous };
+      this.error = e?.error?.error || 'Could not update the MCP capability.';
+    }
+  }
+
+  async copyMcpToken() {
+    if (!this.newMcpAccessToken) return;
+    try {
+      await navigator.clipboard.writeText(this.newMcpAccessToken);
+      this.mcpTokenCopied = true;
+      setTimeout(() => this.mcpTokenCopied = false, 2000);
+    } catch {}
   }
 
   // ── iOS Permissions ──────────────────────────────────────────────────────
