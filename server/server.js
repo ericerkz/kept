@@ -13,6 +13,7 @@ const webPush = require('web-push');
 const { WebSocket, WebSocketServer } = require('ws');
 const { generateSecret, verifySync, generateURI } = require('otplib');
 const qrcode = require('qrcode');
+const { initOAuthTables, mountOAuthAndMcpRoutes, resolveOAuthAccessToken } = require('./oauth-mcp');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -849,6 +850,7 @@ async function init() {
       createdAt TEXT NOT NULL
     )
   `);
+  await initOAuthTables({ run });
   const originalAdminUserId = await getAppSetting('originalAdminUserId', '');
   if (!originalAdminUserId) {
     const firstUser = await get('SELECT id FROM users ORDER BY id LIMIT 1');
@@ -2468,6 +2470,7 @@ setInterval(() => {
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, key: 'login' });
 const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, key: 'register' });
 const setupLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, key: 'setup' });
+const oauthRegistrationLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 30, key: 'oauth-register' });
 
 const totpFailures = new Map(); // userId -> { count, lockedUntil }
 function checkTotpLock(userId) {
@@ -2504,6 +2507,9 @@ function mcpTokenHash(token) {
 }
 
 async function resolveMcpToken(token) {
+  if (String(token || '').startsWith('kept_oauth_')) {
+    return await resolveOAuthAccessToken(token, { get });
+  }
   if (!String(token || '').startsWith('kept_mcp_')) return null;
   return await get(
     `SELECT users.*, mcp_tokens.id AS mcpTokenId, mcp_tokens.tokenPrefix
@@ -3365,6 +3371,11 @@ app.use('/api', (_req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '25mb' }));
+
+mountOAuthAndMcpRoutes(app, {
+  get, all, run, asyncRoute, resolveSessionFromToken, createSession, createUser, normalizeUsername,
+  oauthRegistrationLimiter
+});
 
 app.get('/api/setup/status', asyncRoute(async (_req, res) => {
   const row = await get('SELECT COUNT(*) AS count FROM users');

@@ -13,9 +13,32 @@ Agent Access is disabled by default. When enabled, an agent can search and read 
 
 Disabling Agent Access immediately revokes its token. **Generate new token** also revokes the previous token. Each Kept user has their own agent settings and token.
 
-## MCP client configuration
+## Remote clients and ChatGPT
 
-The server uses MCP's `stdio` transport. From a Kept source checkout:
+Kept exposes a Streamable HTTP MCP endpoint at:
+
+```text
+https://your-kept.example/mcp
+```
+
+Remote access uses OAuth 2.1 authorization code flow with PKCE. In ChatGPT,
+create an MCP app/connector with that URL and choose OAuth authentication.
+Kept publishes the required authorization-server and protected-resource
+metadata automatically, and supports both dynamic client registration and
+ChatGPT client metadata documents.
+
+When connecting, sign in to Kept and approve the request. The Kept user must
+already have **Agent Access (MCP)** enabled. ChatGPT receives a short-lived,
+revocable OAuth access token, not the dedicated Agent Access token shown in
+Settings. Disabling Agent Access revokes both forms of access.
+
+`BASE_URL` must be the public HTTPS origin used to reach Kept, and your reverse
+proxy must forward `/mcp`, `/oauth/*`, and `/.well-known/*` to Kept. Do not put
+an Agent Access token in the MCP URL or a query parameter.
+
+## Local MCP client configuration
+
+Local clients can use MCP's `stdio` transport. From a Kept source checkout:
 
 ```json
 {

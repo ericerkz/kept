@@ -17,6 +17,11 @@ export interface McpAccessSettings {
   accessToken?: string
 }
 
+export interface OidcConfig {
+  enabled: boolean
+  name: string
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -188,6 +193,25 @@ export class AuthService {
       return false;
     }
 
+    this.storeLoginResult(result);
+    return true;
+  }
+
+  async getOidcConfig() {
+    return await firstValueFrom(this.http.get<OidcConfig>(`${this.apiUrl}/auth/oidc/config`));
+  }
+
+  startOidcLogin(oauthRequest = '') {
+    const query = oauthRequest ? `?oauth_request=${encodeURIComponent(oauthRequest)}` : '';
+    window.location.assign(`${this.apiUrl}/auth/oidc/start${query}`);
+  }
+
+  async exchangeOidcCode(code: string) {
+    const result = await firstValueFrom(this.http.post<LoginResponse>(`${this.apiUrl}/auth/oidc/exchange`, { code }));
+    this.storeLoginResult(result);
+  }
+
+  private storeLoginResult(result: LoginResponse) {
     const session: AuthSessionI = {
       token: result.token,
       id: result.user.id!,
@@ -205,7 +229,6 @@ export class AuthService {
     localStorage.setItem(this.sessionKey, JSON.stringify(session));
     this.currentUser$.next(session);
     this.applyTheme(session.theme);
-    return true;
   }
 
   async updateTheme(theme: UserTheme) {

@@ -21,12 +21,22 @@ services:
 
       # ── OPTIONAL security/operational options  ────────────────────────────
 
-      # Public base URL the server thinks it's at. Only needed if your reverse
-      # proxy strips/doesn't set X-Forwarded-Proto, or rewrites paths (e.g.
-      # serving at /kept). Used for OAuth redirect URIs.
+      # Public base URL the server thinks it's at. Required for remote MCP/OAuth
+      # and OIDC sign-in; otherwise only needed when proxy forwarding headers
+      # do not describe the public origin correctly. Use the origin only.
       # - BASE_URL=https://kept.example.com
 
-
+      # Optional OpenID Connect single sign-on. Register this callback at the
+      # provider: https://kept.example.com/api/auth/oidc/callback
+      # - KEPT_OIDC_ISSUER=https://id.example.com
+      # - KEPT_OIDC_CLIENT_ID=kept
+      # - KEPT_OIDC_CLIENT_SECRET=
+      # - KEPT_OIDC_NAME=Single sign-on
+      # - KEPT_OIDC_SCOPES=openid profile email
+      # Verified-email linking is enabled by default. Automatic account
+      # creation is disabled unless explicitly enabled.
+      # - KEPT_OIDC_AUTO_LINK_EMAIL=1
+      # - KEPT_OIDC_AUTO_PROVISION=0
 
       # Allow restoring a SQLite backup via /api/setup/restore. This should really only be enabled when you actually need it
       # (lost access to account/forgotten password/failed TOTP, etc.), 

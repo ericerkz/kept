@@ -53,7 +53,8 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Google Keep Takeout data import.
 - Built-in database backups and restore flow.
 - Local user accounts, optional 2FA, and user management.
-- Local MCP server for authenticated agent access without direct database access.
+- Local and remote MCP server options for authenticated agent access without direct database access.
+- Optional OpenID Connect (OIDC) single sign-on alongside Kept's local accounts.
 
 ## Install With Docker
 
@@ -76,10 +77,12 @@ Kept stores its database, uploads, attachments, and generated server data in `./
 
 ## Agent Access With MCP
 
-Kept includes an optional local stdio MCP server for trusted agents to work
-with notes, checklists, attachments, reminders, and sharing through a dedicated,
-revocable token. It is off by default; locked notes and permanent deletion have
-separate opt-in controls. See [the MCP setup and security guide](docs/mcp.md).
+Kept includes optional MCP access for trusted agents to work with notes,
+checklists, attachments, reminders, and sharing. Local clients can use stdio
+with a dedicated token; remote clients such as ChatGPT can connect to the
+OAuth-protected Streamable HTTP endpoint at `/mcp`. Agent Access is off by
+default, and locked notes and permanent deletion have separate opt-in controls.
+See [the MCP setup and security guide](docs/mcp.md).
 
 ## Easy Hosted Setup
 
@@ -210,6 +213,12 @@ Custom headers help the mobile apps pass normal Kept HTTP requests through a hea
 
 Custom headers do not apply to realtime WebSocket connections. Realtime presence and live collaboration use WebSockets at `/api/realtime`, and browser/WebView WebSockets cannot attach arbitrary custom headers. Behind gateways that require header auth on WebSocket upgrade requests, normal reads/writes should still work, but live updates may only appear after refocusing the app or manually refreshing.
 
+#### OpenID Connect single sign-on
+
+Kept can use an OpenID Connect provider for optional single sign-on while keeping normal username/password login available. Set `BASE_URL`, `KEPT_OIDC_ISSUER`, and `KEPT_OIDC_CLIENT_ID`; confidential clients should also set `KEPT_OIDC_CLIENT_SECRET`. By default, Kept links an OIDC identity only when the provider supplies a verified email matching exactly one enabled Kept user. Set `KEPT_OIDC_AUTO_LINK_EMAIL=0` to disable that behavior, or `KEPT_OIDC_AUTO_PROVISION=1` to create enabled user accounts for previously unseen identities.
+
+The callback URL to register with your identity provider is `https://your-kept.example/api/auth/oidc/callback`. OIDC sign-in is an additional authentication path, not a replacement for local accounts or Kept's own authorization rules.
+
 
 
 ## Backups And Restore
@@ -239,7 +248,12 @@ Your `./data` folder is not replaced by updates.
 
 Useful environment variables are documented in `docker-compose.yml`. The common ones are:
 
-- `BASE_URL`: public URL for OAuth/callback generation when proxy headers are not enough.
+- `BASE_URL`: public origin used for OAuth/callback generation. Required for remote MCP/OAuth and OIDC.
+- `KEPT_OIDC_ISSUER` / `KEPT_OIDC_CLIENT_ID` / `KEPT_OIDC_CLIENT_SECRET`: optional upstream OIDC single sign-on provider.
+- `KEPT_OIDC_NAME`: label shown on the sign-in button. Defaults to `Single sign-on`.
+- `KEPT_OIDC_SCOPES`: scopes requested from the provider. Defaults to `openid profile email`.
+- `KEPT_OIDC_AUTO_LINK_EMAIL`: link a verified provider email to one matching enabled Kept user. Defaults to `1`.
+- `KEPT_OIDC_AUTO_PROVISION`: create users for new OIDC identities. Defaults to `0`.
 - `KEPT_SESSION_TTL_DAYS`: login session lifetime. Defaults to 30 days.
 - `KEPT_CORS_ALLOW_ALL` / `KEPT_CORS_ORIGINS`: CORS behavior for remote clients and native shells. Native app WebView origins are allowed automatically when using `KEPT_CORS_ORIGINS`.
 - `KEPT_TAKEOUT_UPLOAD_MAX`: Google Takeout ZIP upload cap. Defaults to `5GB`; only affects Takeout imports.

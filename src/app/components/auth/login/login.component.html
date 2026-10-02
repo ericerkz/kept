@@ -6,6 +6,17 @@
     </div>
     <h1>Sign in</h1>
 
+    @if (oauthRequest) {
+      <p class="helper">Sign in to approve an app connection to your Kept account.</p>
+    }
+
+    @if (oidcEnabled) {
+      <button type="button" class="sso-button" (click)="signInWithOidc()" [disabled]="isSigningIn">
+        Continue with {{oidcName}}
+      </button>
+      <div class="auth-divider"><span>or</span></div>
+    }
+
     <form (ngSubmit)="submit()" #loginForm="ngForm" class="auth-form">
       @if (!requires2FA) {
         <label>

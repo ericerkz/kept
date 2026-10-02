@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { Router, UrlTree } from '@angular/router';
+import { ActivatedRouteSnapshot, Router, UrlTree } from '@angular/router';
 import { AuthService } from './auth.service';
 
 @Injectable({
@@ -41,8 +41,16 @@ export class SetupGuard  {
 export class LoginGuard  {
   constructor(private auth: AuthService, private router: Router) { }
 
-  async canActivate(): Promise<boolean | UrlTree> {
-    if (this.auth.currentUser) return this.router.createUrlTree(['/']);
+  async canActivate(route: ActivatedRouteSnapshot): Promise<boolean | UrlTree> {
+    if (route.queryParamMap.has('oidc_code') || route.queryParamMap.has('oidc_error')) return true;
+    if (this.auth.currentUser) {
+      const oauthRequest = route.queryParamMap.get('oauth_request');
+      if (oauthRequest) {
+        window.location.assign(`/oauth/authorize/resume?request=${encodeURIComponent(oauthRequest)}`);
+        return false;
+      }
+      return this.router.createUrlTree(['/']);
+    }
     try {
       if (!await this.auth.hasUsers()) return this.router.createUrlTree(['/setup']);
     } catch {
