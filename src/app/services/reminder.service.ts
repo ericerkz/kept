@@ -107,6 +107,7 @@ export class ReminderService {
   private inactiveNoteIds = new Set<number>();
   private displayedNotifications = new Map<number, Notification>();
   private lifecycleUserId?: number;
+  private readonly reminderTimerChunkMs = 24 * 60 * 60 * 1000;
 
   constructor(
     private http: HttpClient,
@@ -445,10 +446,37 @@ export class ReminderService {
     reminders
       .filter(reminder => reminder.status === 'pending' && reminder.dueAtUtc && !this.inactiveNoteIds.has(Number(reminder.noteId)))
       .forEach(reminder => {
-        const dueIn = new Date(reminder.dueAtUtc!).getTime() - Date.now();
-        const timer = setTimeout(() => this.fireLocalReminder(reminder.id), Math.max(0, dueIn));
+        const dueAt = new Date(reminder.dueAtUtc!).getTime();
+        if (!Number.isFinite(dueAt)) return;
+        const dueIn = dueAt - Date.now();
+        const delay = Math.max(0, Math.min(dueIn, this.reminderTimerChunkMs));
+        const timer = setTimeout(() => this.handleReminderTimer(reminder.id), delay);
         this.reminderTimers.set(reminder.id, timer);
       });
+  }
+
+  private handleReminderTimer(reminderId: number) {
+    const reminder = this.reminders$.value.find(r => r.id === reminderId);
+    if (!reminder || reminder.status !== 'pending' || !reminder.dueAtUtc) {
+      this.reminderTimers.delete(reminderId);
+      return;
+    }
+
+    const dueAt = new Date(reminder.dueAtUtc).getTime();
+    if (!Number.isFinite(dueAt)) {
+      this.reminderTimers.delete(reminderId);
+      return;
+    }
+
+    const dueIn = dueAt - Date.now();
+    if (dueIn > 0) {
+      const delay = Math.min(dueIn, this.reminderTimerChunkMs);
+      const timer = setTimeout(() => this.handleReminderTimer(reminderId), delay);
+      this.reminderTimers.set(reminderId, timer);
+      return;
+    }
+
+    this.fireLocalReminder(reminderId);
   }
 
   private cancelReminderTimersForNote(noteId: number) {
