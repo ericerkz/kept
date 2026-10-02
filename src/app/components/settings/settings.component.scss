@@ -232,6 +232,47 @@ h1 { margin-bottom: 0; }
   padding-top: 14px;
 }
 
+.external-advanced-permissions {
+  summary {
+    align-items: center;
+    color: #e8eaed;
+    cursor: pointer;
+    display: flex;
+    font-family: 'Google Sans', Roboto, Arial, sans-serif;
+    justify-content: space-between;
+    list-style: none;
+    min-height: 44px;
+    outline: none;
+
+    &::-webkit-details-marker { display: none; }
+
+    > span:first-child {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    strong { font-size: 15px; font-weight: 500; }
+    small { color: #9aa0a6; font-size: 12px; }
+
+    &:focus-visible {
+      border-radius: 4px;
+      outline: 2px solid #8ab4f8;
+      outline-offset: 4px;
+    }
+  }
+
+  .disclosure-icon {
+    color: #9aa0a6;
+    flex: 0 0 auto;
+    transition: transform 0.15s ease;
+  }
+
+  &[open] .disclosure-icon { transform: rotate(180deg); }
+  > .section-desc { margin-top: 12px; }
+}
+
 .mcp-token-meta {
   align-items: center;
   color: #9aa0a6;
@@ -625,6 +666,11 @@ h1 { margin-bottom: 0; }
   .oauth-connection-row,
   .empty-access-state { border-color: #dadce0; }
   .external-subheading { color: #5f6368; }
+  .external-advanced-permissions {
+    summary { color: #202124; }
+    summary small,
+    .disclosure-icon { color: #5f6368; }
+  }
   .oauth-connection-info {
     strong { color: #202124; }
     span { color: #5f6368; }

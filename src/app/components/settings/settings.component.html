@@ -171,32 +171,40 @@
 
       @if (mcpAccess?.enabled || oauthAccess?.enabled) {
         <section class="settings-section">
-          <div class="section-title">Shared OAuth and MCP permissions</div>
-          <p class="section-desc">These optional permissions apply to every connected OAuth app and to the local MCP token. They remain off unless you enable them.</p>
-          <div class="preferences-list mcp-capabilities">
-            <div class="preference-row">
-              <div class="preference-info">
-                <span class="preference-label">Locked-note access</span>
-                <span class="preference-desc">Allow OAuth apps and local MCP clients to request a secure passcode unlock. The passcode goes directly to Kept and is never sent to the connected client.</span>
+          <details class="external-advanced-permissions">
+            <summary>
+              <span>
+                <strong>Advanced permissions</strong>
+                <small>Optional access for OAuth apps and local MCP clients</small>
+              </span>
+              <span class="material-symbols-outlined disclosure-icon" aria-hidden="true">expand_more</span>
+            </summary>
+            <p class="section-desc">These permissions apply to every connected OAuth app and to the local MCP token. They remain off unless you enable them.</p>
+            <div class="preferences-list mcp-capabilities">
+              <div class="preference-row">
+                <div class="preference-info">
+                  <span class="preference-label">Locked-note access</span>
+                  <span class="preference-desc">Allow OAuth apps and local MCP clients to request a secure passcode unlock. The passcode goes directly to Kept and is never sent to the connected client.</span>
+                </div>
+                <label class="toggle-label">
+                  <input type="checkbox" [checked]="mcpAccess?.allowLockedNotes"
+                    (change)="updateExternalCapability('allowLockedNotes', $event)">
+                  <span class="toggle-text">{{mcpAccess?.allowLockedNotes ? 'Allowed' : 'Blocked'}}</span>
+                </label>
               </div>
-              <label class="toggle-label">
-                <input type="checkbox" [checked]="mcpAccess?.allowLockedNotes"
-                  (change)="updateExternalCapability('allowLockedNotes', $event)">
-                <span class="toggle-text">{{mcpAccess?.allowLockedNotes ? 'Allowed' : 'Blocked'}}</span>
-              </label>
-            </div>
-            <div class="preference-row">
-              <div class="preference-info">
-                <span class="preference-label">Permanent note deletion</span>
-                <span class="preference-desc">Allow OAuth apps and local MCP clients to permanently delete owned notes. This cannot be undone.</span>
+              <div class="preference-row">
+                <div class="preference-info">
+                  <span class="preference-label">Permanent note deletion</span>
+                  <span class="preference-desc">Allow OAuth apps and local MCP clients to permanently delete owned notes. This cannot be undone.</span>
+                </div>
+                <label class="toggle-label">
+                  <input type="checkbox" [checked]="mcpAccess?.allowPermanentDelete"
+                    (change)="updateExternalCapability('allowPermanentDelete', $event)">
+                  <span class="toggle-text">{{mcpAccess?.allowPermanentDelete ? 'Allowed' : 'Blocked'}}</span>
+                </label>
               </div>
-              <label class="toggle-label">
-                <input type="checkbox" [checked]="mcpAccess?.allowPermanentDelete"
-                  (change)="updateExternalCapability('allowPermanentDelete', $event)">
-                <span class="toggle-text">{{mcpAccess?.allowPermanentDelete ? 'Allowed' : 'Blocked'}}</span>
-              </label>
             </div>
-          </div>
+          </details>
         </section>
       }
     </div>
