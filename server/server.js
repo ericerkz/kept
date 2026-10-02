@@ -375,6 +375,10 @@ async function init() {
   if (!userColumns.some(column => column.name === 'mcpEnabled')) {
     await run(`ALTER TABLE users ADD COLUMN mcpEnabled INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!userColumns.some(column => column.name === 'oauthEnabled')) {
+    await run(`ALTER TABLE users ADD COLUMN oauthEnabled INTEGER NOT NULL DEFAULT 0`);
+    await run(`UPDATE users SET oauthEnabled = mcpEnabled`);
+  }
   if (!userColumns.some(column => column.name === 'mcpAllowLockedNotes')) {
     await run(`ALTER TABLE users ADD COLUMN mcpAllowLockedNotes INTEGER NOT NULL DEFAULT 0`);
   }
@@ -562,6 +566,28 @@ async function init() {
     await run(`ALTER TABLE mcp_unlock_challenges ADD COLUMN failedAttempts INTEGER NOT NULL DEFAULT 0`);
   }
   await run('DELETE FROM mcp_unlock_challenges WHERE expiresAt <= ?', [new Date().toISOString()]);
+  await run(`
+    CREATE TABLE IF NOT EXISTS external_unlock_challenges (
+      token TEXT PRIMARY KEY,
+      principalType TEXT NOT NULL CHECK(principalType IN ('mcp', 'oauth')),
+      principalId INTEGER NOT NULL,
+      userId INTEGER NOT NULL,
+      noteId INTEGER NOT NULL,
+      approved INTEGER NOT NULL DEFAULT 0,
+      failedAttempts INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT NOT NULL,
+      expiresAt TEXT NOT NULL,
+      FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(noteId) REFERENCES notes(id) ON DELETE CASCADE
+    )
+  `);
+  await run(`
+    INSERT OR IGNORE INTO external_unlock_challenges
+      (token, principalType, principalId, userId, noteId, approved, failedAttempts, createdAt, expiresAt)
+    SELECT token, 'mcp', mcpTokenId, userId, noteId, approved, failedAttempts, createdAt, expiresAt
+    FROM mcp_unlock_challenges
+  `);
+  await run('DELETE FROM external_unlock_challenges WHERE expiresAt <= ?', [new Date().toISOString()]);
   const firstUser = await get('SELECT id FROM users ORDER BY role = "admin" DESC, id LIMIT 1');
   if (firstUser) {
     await run('UPDATE notes SET ownerUserId = ? WHERE ownerUserId IS NULL', [firstUser.id]);
@@ -850,7 +876,7 @@ async function init() {
       createdAt TEXT NOT NULL
     )
   `);
-  await initOAuthTables({ run });
+  await initOAuthTables({ run, all });
   const originalAdminUserId = await getAppSetting('originalAdminUserId', '');
   if (!originalAdminUserId) {
     const firstUser = await get('SELECT id FROM users ORDER BY id LIMIT 1');
@@ -2545,15 +2571,25 @@ function sendAuthenticationRequired(req, res) {
   return res.status(401).json({ error: 'Authentication required.' });
 }
 
-function auditMcpRequest(req, res) {
+function auditExternalRequest(req, res) {
   if (!req.mcpToken || req.method === 'GET') return;
   res.on('finish', () => {
+    const table = req.mcpToken.type === 'oauth' ? 'oauth_audit_events' : 'mcp_audit_events';
+    const idColumn = req.mcpToken.type === 'oauth' ? 'grantId' : 'mcpTokenId';
     run(
-      `INSERT INTO mcp_audit_events (userId, mcpTokenId, method, path, status, createdAt)
+      `INSERT INTO ${table} (userId, ${idColumn}, method, path, status, createdAt)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [req.user.id, req.mcpToken.id, req.method, req.path, res.statusCode, new Date().toISOString()]
     ).catch(() => undefined);
   });
+}
+
+function trackExternalAccessUse(access) {
+  const now = new Date().toISOString();
+  if (access.oauthClientId) {
+    return run('UPDATE oauth_grants SET lastUsedAt = ? WHERE id = ?', [now, access.oauthGrantId]);
+  }
+  return run('UPDATE mcp_tokens SET lastUsedAt = ? WHERE id = ?', [now, access.mcpTokenId]);
 }
 
 async function requireAuth(req, res, next) {
@@ -2590,13 +2626,15 @@ async function requireAuth(req, res, next) {
     req.user = session;
     req.token = token;
     if (mcpAccess) {
-      req.mcpToken = { id: mcpAccess.mcpTokenId, prefix: mcpAccess.tokenPrefix };
+      req.mcpToken = mcpAccess.oauthClientId
+        ? { id: mcpAccess.oauthGrantId, type: 'oauth', prefix: mcpAccess.oauthClientId }
+        : { id: mcpAccess.mcpTokenId, type: 'mcp', prefix: mcpAccess.tokenPrefix };
       req.mcpCapabilities = {
         allowLockedNotes: !!mcpAccess.mcpAllowLockedNotes,
         allowPermanentDelete: !!mcpAccess.mcpAllowPermanentDelete
       };
-      auditMcpRequest(req, res);
-      run('UPDATE mcp_tokens SET lastUsedAt = ? WHERE id = ?', [new Date().toISOString(), mcpAccess.mcpTokenId]).catch(() => undefined);
+      auditExternalRequest(req, res);
+      trackExternalAccessUse(mcpAccess).catch(() => undefined);
     }
     if (req.path === '/api/notes' || req.path === '/api/admin/update-status') {
       const authMs = Number(process.hrtime.bigint() - perfAuthStart) / 1e6;
@@ -2640,11 +2678,14 @@ async function requireAuthOrQueryToken(req, res, next) {
     req.user = session;
     req.token = token;
     if (mcpAccess) {
-      req.mcpToken = { id: mcpAccess.mcpTokenId, prefix: mcpAccess.tokenPrefix };
+      req.mcpToken = mcpAccess.oauthClientId
+        ? { id: mcpAccess.oauthGrantId, type: 'oauth', prefix: mcpAccess.oauthClientId }
+        : { id: mcpAccess.mcpTokenId, type: 'mcp', prefix: mcpAccess.tokenPrefix };
       req.mcpCapabilities = {
         allowLockedNotes: !!mcpAccess.mcpAllowLockedNotes,
         allowPermanentDelete: !!mcpAccess.mcpAllowPermanentDelete
       };
+      trackExternalAccessUse(mcpAccess).catch(() => undefined);
     }
     next();
   } catch (error) {
@@ -3629,6 +3670,37 @@ function mcpAccessResponse(user, tokenRow) {
   };
 }
 
+function externalCapabilitiesResponse(user) {
+  return {
+    allowLockedNotes: !!user.mcpAllowLockedNotes,
+    allowPermanentDelete: !!user.mcpAllowPermanentDelete
+  };
+}
+
+function oauthAccessResponse(user, grants) {
+  return {
+    enabled: !!user.oauthEnabled,
+    ...externalCapabilitiesResponse(user),
+    connections: grants.map(grant => ({
+      id: grant.id,
+      clientId: grant.clientId,
+      clientName: grant.clientName,
+      resource: grant.resource,
+      scopes: String(grant.scope || '').split(/\s+/).filter(Boolean),
+      authorizedAt: grant.authorizedAt,
+      lastUsedAt: grant.lastUsedAt || null
+    }))
+  };
+}
+
+async function oauthGrantsForUser(userId) {
+  return await all(
+    `SELECT id, clientId, clientName, resource, scope, authorizedAt, lastUsedAt
+     FROM oauth_grants WHERE userId = ? ORDER BY authorizedAt DESC`,
+    [userId]
+  );
+}
+
 app.get('/api/users/me/mcp-access', requireAuth, asyncRoute(async (req, res) => {
   const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
   const token = await get('SELECT tokenPrefix, createdAt, lastUsedAt FROM mcp_tokens WHERE userId = ? ORDER BY id DESC LIMIT 1', [req.user.id]);
@@ -3640,6 +3712,11 @@ app.post('/api/users/me/mcp-access/enable', requireAuth, asyncRoute(async (req, 
   const now = new Date().toISOString();
   await run('BEGIN IMMEDIATE');
   try {
+    await run(
+      `DELETE FROM external_unlock_challenges
+       WHERE principalType = 'mcp' AND principalId IN (SELECT id FROM mcp_tokens WHERE userId = ?)`,
+      [req.user.id]
+    );
     await run('DELETE FROM mcp_tokens WHERE userId = ?', [req.user.id]);
     await run(
       'INSERT INTO mcp_tokens (userId, tokenHash, tokenPrefix, createdAt) VALUES (?, ?, ?, ?)',
@@ -3677,11 +3754,82 @@ app.patch('/api/users/me/mcp-access', requireAuth, asyncRoute(async (req, res) =
   res.json(mcpAccessResponse(user, token));
 }));
 
+app.patch('/api/users/me/external-access/capabilities', requireAuth, asyncRoute(async (req, res) => {
+  const assignments = [];
+  const params = [];
+  for (const [field, column] of [
+    ['allowLockedNotes', 'mcpAllowLockedNotes'],
+    ['allowPermanentDelete', 'mcpAllowPermanentDelete']
+  ]) {
+    if (req.body?.[field] === undefined) continue;
+    if (typeof req.body[field] !== 'boolean') return res.status(400).json({ error: `${field} must be a boolean.` });
+    assignments.push(`${column} = ?`);
+    params.push(req.body[field] ? 1 : 0);
+  }
+  if (assignments.length) {
+    params.push(req.user.id);
+    await run(`UPDATE users SET ${assignments.join(', ')} WHERE id = ?`, params);
+  }
+  const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+  res.json(externalCapabilitiesResponse(user));
+}));
+
 app.delete('/api/users/me/mcp-access', requireAuth, asyncRoute(async (req, res) => {
   await run('BEGIN IMMEDIATE');
   try {
+    await run(
+      `DELETE FROM external_unlock_challenges
+       WHERE principalType = 'mcp' AND principalId IN (SELECT id FROM mcp_tokens WHERE userId = ?)`,
+      [req.user.id]
+    );
     await run('DELETE FROM mcp_tokens WHERE userId = ?', [req.user.id]);
-    await run('UPDATE users SET mcpEnabled = 0, mcpAllowLockedNotes = 0, mcpAllowPermanentDelete = 0 WHERE id = ?', [req.user.id]);
+    await run('UPDATE users SET mcpEnabled = 0 WHERE id = ?', [req.user.id]);
+    await run('COMMIT');
+  } catch (error) {
+    await run('ROLLBACK');
+    throw error;
+  }
+  res.status(204).end();
+}));
+
+app.get('/api/users/me/oauth-access', requireAuth, asyncRoute(async (req, res) => {
+  const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+  res.json(oauthAccessResponse(user, await oauthGrantsForUser(req.user.id)));
+}));
+
+app.post('/api/users/me/oauth-access/enable', requireAuth, asyncRoute(async (req, res) => {
+  await run('UPDATE users SET oauthEnabled = 1 WHERE id = ?', [req.user.id]);
+  const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+  res.json(oauthAccessResponse(user, await oauthGrantsForUser(req.user.id)));
+}));
+
+app.delete('/api/users/me/oauth-access/connections/:grantId', requireAuth, asyncRoute(async (req, res) => {
+  const grantId = Number(req.params.grantId);
+  if (!Number.isInteger(grantId) || grantId <= 0) return res.status(400).json({ error: 'Invalid OAuth connection.' });
+  const grant = await get('SELECT id FROM oauth_grants WHERE id = ? AND userId = ?', [grantId, req.user.id]);
+  if (!grant) return res.status(404).json({ error: 'OAuth connection not found.' });
+  await run('BEGIN IMMEDIATE');
+  try {
+    await run("DELETE FROM external_unlock_challenges WHERE principalType = 'oauth' AND principalId = ?", [grantId]);
+    await run('DELETE FROM oauth_grants WHERE id = ? AND userId = ?', [grantId, req.user.id]);
+    await run('COMMIT');
+  } catch (error) {
+    await run('ROLLBACK');
+    throw error;
+  }
+  res.status(204).end();
+}));
+
+app.delete('/api/users/me/oauth-access', requireAuth, asyncRoute(async (req, res) => {
+  await run('BEGIN IMMEDIATE');
+  try {
+    await run(
+      `DELETE FROM external_unlock_challenges
+       WHERE principalType = 'oauth' AND principalId IN (SELECT id FROM oauth_grants WHERE userId = ?)`,
+      [req.user.id]
+    );
+    await run('DELETE FROM oauth_grants WHERE userId = ?', [req.user.id]);
+    await run('UPDATE users SET oauthEnabled = 0 WHERE id = ?', [req.user.id]);
     await run('COMMIT');
   } catch (error) {
     await run('ROLLBACK');
@@ -4069,10 +4217,10 @@ async function mcpNoteIsUnlocked(req, noteId) {
   if (!req.mcpToken) return true;
   if (!req.mcpCapabilities?.allowLockedNotes) return false;
   const row = await get(
-    `SELECT token FROM mcp_unlock_challenges
-     WHERE mcpTokenId = ? AND noteId = ? AND approved = 1 AND expiresAt > ?
+    `SELECT token FROM external_unlock_challenges
+     WHERE principalType = ? AND principalId = ? AND noteId = ? AND approved = 1 AND expiresAt > ?
      ORDER BY createdAt DESC LIMIT 1`,
-    [req.mcpToken.id, noteId, new Date().toISOString()]
+    [req.mcpToken.type, req.mcpToken.id, noteId, new Date().toISOString()]
   );
   return !!row;
 }
@@ -4132,9 +4280,10 @@ app.post('/api/mcp/locked-notes/:noteId/unlock', requireAuth, asyncRoute(async (
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + 10 * 60 * 1000).toISOString();
   await run(
-    `INSERT INTO mcp_unlock_challenges (token, mcpTokenId, userId, noteId, approved, createdAt, expiresAt)
-     VALUES (?, ?, ?, ?, 0, ?, ?)`,
-    [challenge, req.mcpToken.id, req.user.id, noteId, createdAt.toISOString(), expiresAt]
+    `INSERT INTO external_unlock_challenges
+     (token, principalType, principalId, userId, noteId, approved, createdAt, expiresAt)
+     VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+    [challenge, req.mcpToken.type, req.mcpToken.id, req.user.id, noteId, createdAt.toISOString(), expiresAt]
   );
   const publicOrigin = String(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
   res.status(201).json({
@@ -4151,23 +4300,25 @@ app.get('/api/mcp/locked-notes/:noteId/unlock', requireAuth, asyncRoute(async (r
 
 app.get('/api/mcp/unlock/:challenge', asyncRoute(async (req, res) => {
   const challenge = await get(
-    `SELECT c.*, n.noteTitle FROM mcp_unlock_challenges c
+    `SELECT c.*, n.noteTitle FROM external_unlock_challenges c
      JOIN notes n ON n.id = c.noteId
      WHERE c.token = ? AND c.expiresAt > ?`,
     [String(req.params.challenge || ''), new Date().toISOString()]
   );
   if (!challenge) return res.status(404).send('This unlock request is invalid or has expired.');
-  if (challenge.approved) return res.send('This note is already unlocked for MCP access. You can close this page.');
+  if (challenge.approved) return res.send('This note is already unlocked for external access. You can close this page.');
   const safeTitle = escapeHtml(plainText(challenge.noteTitle || '') || 'Locked note');
-  res.type('html').send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unlock Kept note</title><style>body{background:#202124;color:#e8eaed;font:16px system-ui;margin:0;padding:32px}main{max-width:420px;margin:10vh auto}input,button{box-sizing:border-box;font:inherit;width:100%;padding:12px;margin-top:12px}button{background:#fbbc04;border:0;color:#202124;font-weight:700;cursor:pointer}.hint{color:#9aa0a6;font-size:13px}</style></head><body><main><h1>Unlock ${safeTitle}</h1><p>Enter this note's Kept passcode. It is sent directly to your Kept server and is not shared with the MCP client or model.</p><form method="post"><input type="password" name="passcode" autocomplete="current-password" required autofocus><button type="submit">Unlock for 5 minutes</button></form><p class="hint">This only unlocks this note for the requesting MCP token.</p></main></body></html>`);
+  res.type('html').send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unlock Kept note</title><style>body{background:#202124;color:#e8eaed;font:16px system-ui;margin:0;padding:32px}main{max-width:420px;margin:10vh auto}input,button{box-sizing:border-box;font:inherit;width:100%;padding:12px;margin-top:12px}button{background:#fbbc04;border:0;color:#202124;font-weight:700;cursor:pointer}.hint{color:#9aa0a6;font-size:13px}</style></head><body><main><h1>Unlock ${safeTitle}</h1><p>Enter this note's Kept passcode. It is sent directly to your Kept server and is not shared with the connected client or model.</p><form method="post"><input type="password" name="passcode" autocomplete="current-password" required autofocus><button type="submit">Unlock for 5 minutes</button></form><p class="hint">This only unlocks this note for the requesting connection.</p></main></body></html>`);
 }));
 
 app.post('/api/mcp/unlock/:challenge', express.urlencoded({ extended: false, limit: '8kb' }), asyncRoute(async (req, res) => {
   const challenge = await get(
-    `SELECT c.*, n.locked, n.lockSalt, n.lockHash FROM mcp_unlock_challenges c
+    `SELECT c.*, n.locked, n.lockSalt, n.lockHash FROM external_unlock_challenges c
      JOIN notes n ON n.id = c.noteId
      JOIN users u ON u.id = c.userId
-     WHERE c.token = ? AND c.expiresAt > ? AND u.mcpEnabled = 1 AND u.mcpAllowLockedNotes = 1`,
+     WHERE c.token = ? AND c.expiresAt > ? AND u.mcpAllowLockedNotes = 1
+       AND ((c.principalType = 'mcp' AND u.mcpEnabled = 1)
+         OR (c.principalType = 'oauth' AND u.oauthEnabled = 1))`,
     [String(req.params.challenge || ''), new Date().toISOString()]
   );
   if (!challenge) return res.status(404).send('This unlock request is invalid or has expired.');
@@ -4175,12 +4326,12 @@ app.post('/api/mcp/unlock/:challenge', express.urlencoded({ extended: false, lim
     return res.status(429).send('Too many incorrect attempts. Request a new unlock link from the agent.');
   }
   if (!verifyNotePasscode(challenge, String(req.body?.passcode || ''))) {
-    await run('UPDATE mcp_unlock_challenges SET failedAttempts = failedAttempts + 1 WHERE token = ?', [challenge.token]);
+    await run('UPDATE external_unlock_challenges SET failedAttempts = failedAttempts + 1 WHERE token = ?', [challenge.token]);
     return res.status(401).send('Incorrect passcode. Go back and try again.');
   }
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-  await run('UPDATE mcp_unlock_challenges SET approved = 1, expiresAt = ? WHERE token = ?', [expiresAt, challenge.token]);
-  res.send('Note unlocked for MCP access for five minutes. You can close this page.');
+  await run('UPDATE external_unlock_challenges SET approved = 1, expiresAt = ? WHERE token = ?', [expiresAt, challenge.token]);
+  res.send('Note unlocked for external access for five minutes. You can close this page.');
 }));
 
 app.get('/api/users/search', requireAuth, asyncRoute(async (req, res) => {

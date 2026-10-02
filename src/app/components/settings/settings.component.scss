@@ -187,7 +187,48 @@ h1 { margin-bottom: 0; }
 
 .mcp-capabilities {
   border-top: 1px solid #5f6368;
-  margin-top: 16px;
+  padding-top: 14px;
+}
+
+.external-subheading {
+  color: #bdc1c6;
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+
+.oauth-connections {
+  margin-top: 18px;
+}
+
+.oauth-connection-row {
+  align-items: center;
+  border-top: 1px solid #5f6368;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 14px 0;
+
+  button { flex: 0 0 auto; }
+}
+
+.oauth-connection-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+
+  strong { color: #e8eaed; font-size: 14px; }
+  span { color: #9aa0a6; font-size: 12px; overflow-wrap: anywhere; }
+}
+
+.empty-access-state {
+  border-top: 1px solid #5f6368;
+  color: #9aa0a6;
+  font-size: 12px;
+  margin: 8px 0 0;
   padding-top: 14px;
 }
 
@@ -250,13 +291,18 @@ h1 { margin-bottom: 0; }
   }
 
   .mcp-section-title,
-  .mcp-token-row {
+  .mcp-token-row,
+  .oauth-connection-row {
     align-items: flex-start;
     flex-direction: column;
   }
 
   .mcp-token-row code,
   .mcp-token-row button {
+    width: 100%;
+  }
+
+  .oauth-connection-row button {
     width: 100%;
   }
 }
@@ -575,6 +621,16 @@ h1 { margin-bottom: 0; }
   .preference-row { border-top-color: #dadce0; }
   .preference-label { color: #202124; }
   .preference-desc { color: #5f6368; }
+  .mcp-capabilities,
+  .oauth-connection-row,
+  .empty-access-state { border-color: #dadce0; }
+  .external-subheading { color: #5f6368; }
+  .oauth-connection-info {
+    strong { color: #202124; }
+    span { color: #5f6368; }
+  }
+  .empty-access-state,
+  .mcp-token-meta { color: #5f6368; }
   .mcp-token-panel {
     background: #fff8e1;
     border-color: #f9ab00;

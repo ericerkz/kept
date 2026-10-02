@@ -83,11 +83,12 @@ and integrations. OAuth clients can request read-only or read/write access to
 the supported Kept API without receiving a user's password or long-lived MCP
 token. See [the OAuth integration guide](docs/oauth.md).
 
-MCP is one consumer of that OAuth layer. Local MCP clients can use stdio with a
-dedicated token; remote clients such as ChatGPT can connect to the Streamable
-HTTP endpoint at `/mcp`. External Access is off by default, and locked notes and
-permanent deletion have separate opt-in controls. See [the MCP setup and
-security guide](docs/mcp.md).
+Remote MCP is one consumer of that OAuth layer. Local MCP clients can use stdio
+with a dedicated token; remote clients such as ChatGPT can connect to the Streamable
+HTTP endpoint at `/mcp`. OAuth app access and local MCP access are independent,
+off-by-default settings, so either can be enabled or revoked without affecting
+the other. Locked notes and permanent deletion have separate shared opt-in
+controls. See [the MCP setup and security guide](docs/mcp.md).
 
 ## Easy Hosted Setup
 

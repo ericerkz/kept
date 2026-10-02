@@ -2,7 +2,7 @@
 
 Kept includes an OAuth 2.1 authorization server for third-party applications and integrations. It uses authorization code flow with PKCE S256, short-lived access tokens, rotating refresh tokens, dynamic client registration, protected-resource metadata, and token revocation.
 
-OAuth access is disabled per user until they enable **External access (OAuth and MCP)** in Kept settings. A user signs in to Kept and explicitly approves each authorization request. Applications never receive the user's Kept password or dedicated local MCP token.
+OAuth access is disabled per user until they enable **OAuth app access** in Kept settings. A user signs in to Kept and explicitly approves each authorization request. Applications never receive the user's Kept password or dedicated local MCP token. Local MCP access is a separate setting and does not need to be enabled for OAuth.
 
 After authorization, an application can call `GET /api/oauth/me` to identify the connected Kept user and use the standard supported note routes such as `GET /api/notes`, `GET /api/notes/search`, and the corresponding note, label, reminder, collaborator, image, and attachment routes allowed by its scopes.
 
@@ -57,6 +57,6 @@ Use the returned `client_id` in the authorization-code flow. Web redirect URIs m
 
 ## Revocation
 
-Applications should send access or refresh tokens to `/oauth/revoke` when disconnected. A user can revoke every OAuth and MCP grant immediately by disabling External Access or generating a new local MCP token in Kept settings.
+Applications should send access or refresh tokens to `/oauth/revoke` when disconnected. Kept also lists authorized apps in **Settings > External Access**, where the user can revoke one connection or disable OAuth app access to revoke all OAuth grants. These actions do not change the separate local MCP token.
 
 OAuth here authorizes access to Kept data. Kept's optional upstream OIDC configuration is separate: it lets users sign in to Kept through an identity provider.

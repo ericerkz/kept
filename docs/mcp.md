@@ -2,16 +2,16 @@
 
 Kept includes a local [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for connecting trusted AI clients and agents to your Kept account. It works through Kept's authenticated HTTP API and never opens the SQLite database directly.
 
-External Access is disabled by default. When enabled, an agent can search and read notes, create and edit all supported note types, manage checklists, images, attachments, reminders, labels, binders, collaborators, pinning, archive, and trash. Locked-note access and permanent note deletion remain disabled unless you turn on their separate settings.
+External access is disabled by default. When enabled through either OAuth app access or a local MCP token, an agent can search and read notes, create and edit all supported note types, manage checklists, images, attachments, reminders, labels, binders, collaborators, pinning, archive, and trash. Locked-note access and permanent note deletion remain disabled unless you turn on their separate shared settings.
 
-## Enable External Access
+## Enable local MCP access
 
 1. Sign in to Kept and open **Settings**.
-2. Find **External Access** and enable **External access (OAuth and MCP)**.
+2. Find **External Access** and enable **Local MCP access**.
 3. Copy the generated token immediately. Kept stores only its hash and cannot show the full token again.
 4. Add the token and your Kept URL to your MCP client configuration.
 
-Disabling External Access immediately revokes its OAuth grants and local MCP token. **Generate new token** also revokes the previous token and grants. Each Kept user has their own settings and token.
+Disabling local MCP access immediately revokes only that local token. **Generate new token** also revokes the previous local token. OAuth app connections are managed separately, and each Kept user has their own settings and token.
 
 ## Remote clients and ChatGPT
 
@@ -28,10 +28,10 @@ metadata automatically, and supports both dynamic client registration and
 ChatGPT client metadata documents.
 
 When connecting, sign in to Kept and approve the request. The Kept user must
-already have **External access (OAuth and MCP)** enabled. ChatGPT receives a short-lived,
+already have **OAuth app access** enabled. ChatGPT receives a short-lived,
 revocable OAuth access token, not the dedicated local MCP token shown in
-Settings. Disabling External Access revokes both forms of access. The same OAuth
-server can also authorize non-MCP API integrations; see the
+Settings. The connection is listed separately in Settings and can be revoked
+without changing local MCP access. The same OAuth server can also authorize non-MCP API integrations; see the
 [OAuth integration guide](oauth.md).
 
 `BASE_URL` must be the public HTTPS origin used to reach Kept, and your reverse
@@ -73,7 +73,7 @@ docker run --rm -i \
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `KEPT_BASE_URL` | Yes | Kept origin, such as `https://kept.example.com` |
-| `KEPT_MCP_TOKEN` | Yes | Dedicated token generated in **Settings > External Access** |
+| `KEPT_MCP_TOKEN` | Yes | Dedicated token generated under **Settings > External Access > Local MCP access** |
 | `KEPT_REQUEST_TIMEOUT_MS` | No | HTTP timeout from 100 through 120000 ms; default 10000 |
 | `KEPT_CUSTOM_HEADERS_JSON` | No | JSON object of additional reverse-proxy headers, such as Cloudflare Access service-token headers |
 
@@ -119,7 +119,7 @@ Collaborators can edit shared note content and manage their own pin state. Owner
 
 ## Security considerations
 
-Enabling External Access grants broad access to the connected user's unlocked Kept data. Only connect MCP clients and models you trust, protect local tokens like passwords, and revoke access when it is no longer needed.
+Enabling OAuth app access or local MCP access grants broad access to the connected user's unlocked Kept data. Only connect MCP clients and models you trust, protect local tokens like passwords, and revoke access when it is no longer needed.
 
 Notes and attachments can contain untrusted instructions. An AI client may treat text inside a note as directions even when it should be treated only as data; this is commonly called prompt injection. Review sensitive or destructive actions and avoid connecting autonomous agents whose behavior you cannot inspect.
 

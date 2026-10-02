@@ -64,7 +64,11 @@ test('OAuth grants scoped access to the Kept API and remote MCP', async t => {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ username: 'oauth-test', password: 'testing123' })
   });
-  await json(`${origin}/api/users/me/mcp-access/enable`, {
+  const localDefaults = await json(`${origin}/api/users/me/mcp-access`, {
+    headers: { authorization: `Bearer ${login.token}` }
+  });
+  assert.equal(localDefaults.enabled, false);
+  await json(`${origin}/api/users/me/oauth-access/enable`, {
     method: 'POST', headers: { authorization: `Bearer ${login.token}`, 'content-type': 'application/json' }, body: '{}'
   });
 
@@ -149,6 +153,33 @@ test('OAuth grants scoped access to the Kept API and remote MCP', async t => {
   });
   assert.equal(deniedMcp.status, 401);
 
+  const oauthSettings = await json(`${origin}/api/users/me/oauth-access`, {
+    headers: { authorization: `Bearer ${login.token}` }
+  });
+  assert.equal(oauthSettings.enabled, true);
+  assert.equal(oauthSettings.connections.length, 2);
+
+  const localAccess = await json(`${origin}/api/users/me/mcp-access/enable`, {
+    method: 'POST', headers: { authorization: `Bearer ${login.token}`, 'content-type': 'application/json' }, body: '{}'
+  });
+  await fetch(`${origin}/api/users/me/mcp-access`, {
+    method: 'DELETE', headers: { authorization: `Bearer ${login.token}` }
+  });
+  const oauthAfterLocalDisable = await json(`${origin}/api/oauth/me`, {
+    headers: { authorization: `Bearer ${apiTokens.access_token}` }
+  });
+  assert.equal(oauthAfterLocalDisable.username, 'oauth-test');
+  const apiConnection = oauthSettings.connections.find(connection => connection.resource.endsWith('/api'));
+  assert.ok(apiConnection);
+  const revokeConnection = await fetch(`${origin}/api/users/me/oauth-access/connections/${apiConnection.id}`, {
+    method: 'DELETE', headers: { authorization: `Bearer ${login.token}` }
+  });
+  assert.equal(revokeConnection.status, 204);
+  const apiAfterConnectionRevoke = await fetch(`${origin}/api/oauth/me`, {
+    headers: { authorization: `Bearer ${apiTokens.access_token}` }
+  });
+  assert.equal(apiAfterConnectionRevoke.status, 401);
+
   const refreshed = await json(`${origin}/oauth/token`, {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'refresh_token', client_id: client.client_id, refresh_token: tokens.refresh_token })
@@ -164,6 +195,25 @@ test('OAuth grants scoped access to the Kept API and remote MCP', async t => {
     method: 'POST', headers: { authorization: `Bearer ${refreshed.access_token}`, 'content-type': 'application/json' }, body: '{}'
   });
   assert.equal(revoked.status, 401);
+
+  const replacementLocalAccess = await json(`${origin}/api/users/me/mcp-access/enable`, {
+    method: 'POST', headers: { authorization: `Bearer ${login.token}`, 'content-type': 'application/json' }, body: '{}'
+  });
+  assert.notEqual(replacementLocalAccess.accessToken, localAccess.accessToken);
+  const oauthBeforeDisable = await authorizeToken({ scope: 'kept.read kept.write', resource: `${origin}/mcp`, state: 'disable-test' });
+  await fetch(`${origin}/api/users/me/oauth-access`, {
+    method: 'DELETE', headers: { authorization: `Bearer ${login.token}` }
+  });
+  const oauthAfterDisable = await fetch(`${origin}/mcp`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${oauthBeforeDisable.access_token}`, 'content-type': 'application/json' },
+    body: '{}'
+  });
+  assert.equal(oauthAfterDisable.status, 401);
+  const localAfterOauthDisable = await json(`${origin}/api/mcp/status`, {
+    headers: { authorization: `Bearer ${replacementLocalAccess.accessToken}` }
+  });
+  assert.equal(localAfterOauthDisable.enabled, true);
 
   const unauthorized = await fetch(`${origin}/mcp`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}'

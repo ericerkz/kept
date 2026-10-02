@@ -5,7 +5,7 @@ import { GoogleCalendarStatusI } from 'src/app/interfaces/reminder';
 import { ReminderService } from 'src/app/services/reminder.service';
 import { NotesService, TakeoutImportResult } from 'src/app/services/notes.service';
 
-import { AuthService, McpAccessSettings } from 'src/app/services/auth.service';
+import { AuthService, McpAccessSettings, OAuthAccessSettings } from 'src/app/services/auth.service';
 import { PushNotificationService } from 'src/app/services/push-notification.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import {
@@ -58,10 +58,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
   totpToken = '';
   backupCodes: string[] | null = null;
 
-  // ── MCP agent access ───────────────────────────────────────────────────
+  // ── External access ────────────────────────────────────────────────────
   mcpAccess: McpAccessSettings | null = null;
+  oauthAccess: OAuthAccessSettings | null = null;
   newMcpAccessToken = '';
   isSavingMcpAccess = false;
+  isSavingOAuthAccess = false;
+  revokingOAuthConnectionId: number | null = null;
   mcpTokenCopied = false;
 
   // ── Phase 1: ICS Feed ──────────────────────────────────────────────────
@@ -256,7 +259,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
 
     try {
-      this.mcpAccess = await this.authService.getMcpAccessSettings();
+      [this.mcpAccess, this.oauthAccess] = await Promise.all([
+        this.authService.getMcpAccessSettings(),
+        this.authService.getOAuthAccessSettings()
+      ]);
     } catch {}
 
     try {
@@ -297,16 +303,21 @@ export class SettingsComponent implements OnInit, OnDestroy {
       if (enabled) {
         this.mcpAccess = await this.authService.enableMcpAccess();
         this.newMcpAccessToken = this.mcpAccess.accessToken || '';
-        this.success = 'External access enabled.';
+        this.success = 'Local MCP access enabled. Save the token now.';
       } else {
         await this.authService.disableMcpAccess();
-        this.mcpAccess = { enabled: false, allowLockedNotes: false, allowPermanentDelete: false, token: null };
+        this.mcpAccess = {
+          enabled: false,
+          allowLockedNotes: !!this.mcpAccess?.allowLockedNotes,
+          allowPermanentDelete: !!this.mcpAccess?.allowPermanentDelete,
+          token: null
+        };
         this.newMcpAccessToken = '';
-        this.success = 'External access disabled. OAuth and MCP access has been revoked.';
+        this.success = 'Local MCP access disabled. OAuth app connections were not changed.';
       }
     } catch (e: any) {
       (event.target as HTMLInputElement).checked = !enabled;
-      this.error = e?.error?.error || 'Could not update external access.';
+      this.error = e?.error?.error || 'Could not update local MCP access.';
     } finally {
       this.isSavingMcpAccess = false;
     }
@@ -327,16 +338,72 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
   }
 
-  async updateMcpCapability(field: 'allowLockedNotes' | 'allowPermanentDelete', event: Event) {
-    if (!this.mcpAccess) return;
+  async toggleOAuthAccess(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const enabled = input.checked;
+    if (!enabled && this.oauthAccess?.connections.length
+      && !confirm('Disable OAuth app access? All connected OAuth apps will be signed out. Local MCP access will not be changed.')) {
+      input.checked = true;
+      return;
+    }
+    this.isSavingOAuthAccess = true;
+    this.error = '';
+    try {
+      if (enabled) {
+        this.oauthAccess = await this.authService.enableOAuthAccess();
+        this.success = 'OAuth app access enabled.';
+      } else {
+        await this.authService.disableOAuthAccess();
+        this.oauthAccess = {
+          enabled: false,
+          allowLockedNotes: !!this.oauthAccess?.allowLockedNotes,
+          allowPermanentDelete: !!this.oauthAccess?.allowPermanentDelete,
+          connections: []
+        };
+        this.success = 'OAuth app access disabled. Connected OAuth apps have been signed out.';
+      }
+    } catch (e: any) {
+      input.checked = !enabled;
+      this.error = e?.error?.error || 'Could not update OAuth app access.';
+    } finally {
+      this.isSavingOAuthAccess = false;
+    }
+  }
+
+  async revokeOAuthConnection(connectionId: number, clientName: string) {
+    if (!confirm(`Revoke ${clientName}'s access to Kept?`)) return;
+    this.revokingOAuthConnectionId = connectionId;
+    this.error = '';
+    try {
+      await this.authService.revokeOAuthConnection(connectionId);
+      if (this.oauthAccess) {
+        this.oauthAccess = {
+          ...this.oauthAccess,
+          connections: this.oauthAccess.connections.filter(connection => connection.id !== connectionId)
+        };
+      }
+      this.success = `${clientName} was disconnected.`;
+    } catch (e: any) {
+      this.error = e?.error?.error || 'Could not revoke the OAuth connection.';
+    } finally {
+      this.revokingOAuthConnectionId = null;
+    }
+  }
+
+  async updateExternalCapability(field: 'allowLockedNotes' | 'allowPermanentDelete', event: Event) {
+    if (!this.mcpAccess || !this.oauthAccess) return;
     const enabled = (event.target as HTMLInputElement).checked;
     const previous = this.mcpAccess[field];
     this.mcpAccess = { ...this.mcpAccess, [field]: enabled };
+    this.oauthAccess = { ...this.oauthAccess, [field]: enabled };
     try {
-      this.mcpAccess = await this.authService.updateMcpAccessSettings({ [field]: enabled });
+      const capabilities = await this.authService.updateExternalAccessCapabilities({ [field]: enabled });
+      this.mcpAccess = { ...this.mcpAccess, ...capabilities };
+      this.oauthAccess = { ...this.oauthAccess, ...capabilities };
     } catch (e: any) {
       this.mcpAccess = { ...this.mcpAccess, [field]: previous };
-      this.error = e?.error?.error || 'Could not update the MCP capability.';
+      this.oauthAccess = { ...this.oauthAccess, [field]: previous };
+      this.error = e?.error?.error || 'Could not update the external access permission.';
     }
   }
 

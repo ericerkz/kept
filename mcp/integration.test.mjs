@@ -94,7 +94,7 @@ test('dedicated MCP access is opt-in, scoped, revocable, and capability gated', 
     assert.equal((await api(baseUrl, '/notes/search?q=Locked', { token: mcpToken })).some(note => note.id === locked.id), true);
     await api(baseUrl, `/mcp/locked-notes/${locked.id}/unlock`, { token: mcpToken, method: 'POST', body: {}, expected: 403 });
 
-    await api(baseUrl, '/users/me/mcp-access', {
+    await api(baseUrl, '/users/me/external-access/capabilities', {
       token: sessionToken, method: 'PATCH',
       body: { allowLockedNotes: true, allowPermanentDelete: true }
     });
@@ -105,7 +105,7 @@ test('dedicated MCP access is opt-in, scoped, revocable, and capability gated', 
     assert.equal(revealed.noteBody, 'Private body');
     assert.equal(revealed.lockedContentAvailable, true);
 
-    await api(baseUrl, '/users/me/mcp-access', { token: sessionToken, method: 'PATCH', body: { allowLockedNotes: false } });
+    await api(baseUrl, '/users/me/external-access/capabilities', { token: sessionToken, method: 'PATCH', body: { allowLockedNotes: false } });
     assert.equal((await api(baseUrl, `/notes/${locked.id}`, { token: mcpToken })).lockedContentAvailable, false);
 
     await api(baseUrl, `/notes/${ordinary.id}`, { token: mcpToken, method: 'DELETE', expected: 204 });

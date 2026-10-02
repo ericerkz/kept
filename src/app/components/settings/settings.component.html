@@ -99,7 +99,44 @@
 
       <section class="settings-section">
         <div class="section-title mcp-section-title">
-          <span>External access (OAuth and MCP)</span>
+          <span>OAuth app access</span>
+          <label class="toggle-label">
+            <input type="checkbox" [checked]="oauthAccess?.enabled" [disabled]="isSavingOAuthAccess"
+              (change)="toggleOAuthAccess($event)">
+            <span class="toggle-text">{{oauthAccess?.enabled ? 'Enabled' : 'Disabled'}}</span>
+          </label>
+        </div>
+        <p class="section-desc">
+          Allow apps you explicitly approve to access Kept with short-lived OAuth tokens. Each app receives its own revocable connection and never sees your password.
+        </p>
+
+        @if (oauthAccess?.enabled) {
+          <div class="oauth-connections">
+            <div class="external-subheading">Connected apps</div>
+            @if (oauthAccess?.connections?.length) {
+              @for (connection of oauthAccess!.connections; track connection.id) {
+                <div class="oauth-connection-row">
+                  <div class="oauth-connection-info">
+                    <strong>{{connection.clientName}}</strong>
+                    <span>{{connection.resource.endsWith('/mcp') ? 'Remote MCP' : 'Kept API'}} · {{connection.scopes.join(', ')}}</span>
+                    <span>Connected {{connection.authorizedAt | date:'medium'}}@if (connection.lastUsedAt) { · Last used {{connection.lastUsedAt | date:'medium'}} }</span>
+                  </div>
+                  <button type="button" class="btn-secondary" [disabled]="revokingOAuthConnectionId === connection.id"
+                    (click)="revokeOAuthConnection(connection.id, connection.clientName)">
+                    {{revokingOAuthConnectionId === connection.id ? 'Revoking…' : 'Revoke'}}
+                  </button>
+                </div>
+              }
+            } @else {
+              <p class="empty-access-state">No apps are connected yet. Approved apps will appear here.</p>
+            }
+          </div>
+        }
+      </section>
+
+      <section class="settings-section">
+        <div class="section-title mcp-section-title">
+          <span>Local MCP access</span>
           <label class="toggle-label">
             <input type="checkbox" [checked]="mcpAccess?.enabled" [disabled]="isSavingMcpAccess"
               (change)="toggleMcpAccess($event)">
@@ -107,13 +144,13 @@
           </label>
         </div>
         <p class="section-desc">
-          Allow approved OAuth apps and MCP-compatible agents to work with your Kept notes. Access is user-scoped and revocable, so only connect clients you trust.
+          Create a dedicated token for a local stdio MCP client. This is separate from OAuth app access and can be revoked independently.
         </p>
 
         @if (newMcpAccessToken) {
           <div class="mcp-token-panel" role="status">
-            <strong>Local MCP token (optional)</strong>
-            <p>Save this only if you use a local stdio MCP client. OAuth apps receive their own short-lived tokens.</p>
+            <strong>Save this token now</strong>
+            <p>Kept will not show the full local MCP token again.</p>
             <div class="mcp-token-row">
               <code>{{newMcpAccessToken}}</code>
               <button type="button" class="btn-secondary" (click)="copyMcpToken()">
@@ -124,6 +161,18 @@
         }
 
         @if (mcpAccess?.enabled) {
+          <div class="mcp-token-meta">
+            <span>Token {{mcpAccess?.token?.prefix}}</span>
+            @if (mcpAccess?.token?.lastUsedAt) { <span>Last used {{mcpAccess?.token?.lastUsedAt | date:'medium'}}</span> }
+            <button type="button" class="btn-secondary" [disabled]="isSavingMcpAccess" (click)="regenerateMcpToken()">Generate new token</button>
+          </div>
+        }
+      </section>
+
+      @if (mcpAccess?.enabled || oauthAccess?.enabled) {
+        <section class="settings-section">
+          <div class="section-title">Additional permissions</div>
+          <p class="section-desc">These permissions apply to both local MCP and OAuth app connections. They remain off unless you enable them.</p>
           <div class="preferences-list mcp-capabilities">
             <div class="preference-row">
               <div class="preference-info">
@@ -132,7 +181,7 @@
               </div>
               <label class="toggle-label">
                 <input type="checkbox" [checked]="mcpAccess?.allowLockedNotes"
-                  (change)="updateMcpCapability('allowLockedNotes', $event)">
+                  (change)="updateExternalCapability('allowLockedNotes', $event)">
                 <span class="toggle-text">{{mcpAccess?.allowLockedNotes ? 'Allowed' : 'Blocked'}}</span>
               </label>
             </div>
@@ -143,18 +192,13 @@
               </div>
               <label class="toggle-label">
                 <input type="checkbox" [checked]="mcpAccess?.allowPermanentDelete"
-                  (change)="updateMcpCapability('allowPermanentDelete', $event)">
+                  (change)="updateExternalCapability('allowPermanentDelete', $event)">
                 <span class="toggle-text">{{mcpAccess?.allowPermanentDelete ? 'Allowed' : 'Blocked'}}</span>
               </label>
             </div>
           </div>
-          <div class="mcp-token-meta">
-            <span>Token {{mcpAccess?.token?.prefix}}</span>
-            @if (mcpAccess?.token?.lastUsedAt) { <span>Last used {{mcpAccess?.token?.lastUsedAt | date:'medium'}}</span> }
-            <button type="button" class="btn-secondary" [disabled]="isSavingMcpAccess" (click)="regenerateMcpToken()">Generate new token</button>
-          </div>
-        }
-      </section>
+        </section>
+      }
     </div>
 
     <!-- ── Group: Security ──────────────────────────────────────────────── -->

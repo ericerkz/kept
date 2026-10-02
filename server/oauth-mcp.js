@@ -75,7 +75,7 @@ function htmlPage(title, body, script = '') {
   </style></head><body><main class="panel"><div class="brand">Kept</div>${body}</main>${script ? `<script>${script}</script>` : ''}</body></html>`;
 }
 
-async function initOAuthTables({ run }) {
+async function initOAuthTables({ run, all }) {
   await run(`CREATE TABLE IF NOT EXISTS oauth_clients (
     clientId TEXT PRIMARY KEY, clientName TEXT NOT NULL, redirectUris TEXT NOT NULL,
     createdAt TEXT NOT NULL
@@ -85,27 +85,49 @@ async function initOAuthTables({ run }) {
     state TEXT, codeChallenge TEXT NOT NULL, resource TEXT NOT NULL, scope TEXT NOT NULL,
     createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL
   )`);
+  await run(`CREATE TABLE IF NOT EXISTS oauth_grants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, userId INTEGER NOT NULL,
+    clientId TEXT NOT NULL, clientName TEXT NOT NULL, resource TEXT NOT NULL,
+    scope TEXT NOT NULL, authorizedAt TEXT NOT NULL, lastUsedAt TEXT,
+    FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE(userId, clientId, resource)
+  )`);
+  const authorizationCodeColumns = await all('PRAGMA table_info(oauth_authorization_codes)');
+  if (authorizationCodeColumns.some(column => column.name === 'mcpTokenId')) {
+    // OAuth grants were briefly tied to the local MCP token. Access tokens are
+    // deliberately invalidated while moving to independent per-app grants.
+    await run('DROP TABLE IF EXISTS oauth_authorization_codes');
+    await run('DROP TABLE IF EXISTS oauth_access_tokens');
+    await run('DROP TABLE IF EXISTS oauth_refresh_tokens');
+  }
   await run(`CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
     codeHash TEXT PRIMARY KEY, clientId TEXT NOT NULL, userId INTEGER NOT NULL,
-    mcpTokenId INTEGER NOT NULL, redirectUri TEXT NOT NULL, codeChallenge TEXT NOT NULL,
+    grantId INTEGER NOT NULL, redirectUri TEXT NOT NULL, codeChallenge TEXT NOT NULL,
     resource TEXT NOT NULL, scope TEXT NOT NULL, createdAt TEXT NOT NULL,
     expiresAt TEXT NOT NULL, usedAt TEXT,
     FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY(mcpTokenId) REFERENCES mcp_tokens(id) ON DELETE CASCADE
+    FOREIGN KEY(grantId) REFERENCES oauth_grants(id) ON DELETE CASCADE
   )`);
   await run(`CREATE TABLE IF NOT EXISTS oauth_access_tokens (
-    tokenHash TEXT PRIMARY KEY, userId INTEGER NOT NULL, mcpTokenId INTEGER NOT NULL,
+    tokenHash TEXT PRIMARY KEY, userId INTEGER NOT NULL, grantId INTEGER NOT NULL,
     clientId TEXT NOT NULL, resource TEXT NOT NULL, scope TEXT NOT NULL,
     createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL, revokedAt TEXT,
     FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY(mcpTokenId) REFERENCES mcp_tokens(id) ON DELETE CASCADE
+    FOREIGN KEY(grantId) REFERENCES oauth_grants(id) ON DELETE CASCADE
   )`);
   await run(`CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
-    tokenHash TEXT PRIMARY KEY, userId INTEGER NOT NULL, mcpTokenId INTEGER NOT NULL,
+    tokenHash TEXT PRIMARY KEY, userId INTEGER NOT NULL, grantId INTEGER NOT NULL,
     clientId TEXT NOT NULL, resource TEXT NOT NULL, scope TEXT NOT NULL,
     createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL, revokedAt TEXT,
     FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY(mcpTokenId) REFERENCES mcp_tokens(id) ON DELETE CASCADE
+    FOREIGN KEY(grantId) REFERENCES oauth_grants(id) ON DELETE CASCADE
+  )`);
+  await run(`CREATE TABLE IF NOT EXISTS oauth_audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, userId INTEGER NOT NULL,
+    grantId INTEGER NOT NULL, method TEXT NOT NULL, path TEXT NOT NULL,
+    status INTEGER NOT NULL, createdAt TEXT NOT NULL,
+    FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(grantId) REFERENCES oauth_grants(id) ON DELETE CASCADE
   )`);
   await run(`CREATE TABLE IF NOT EXISTS oidc_flows (
     stateHash TEXT PRIMARY KEY, codeVerifier TEXT NOT NULL, nonce TEXT NOT NULL,
@@ -133,14 +155,14 @@ async function initOAuthTables({ run }) {
 async function resolveOAuthAccessToken(token, { get }) {
   if (!String(token || '').startsWith('kept_oauth_')) return null;
   return get(
-    `SELECT users.*, mcp_tokens.id AS mcpTokenId, mcp_tokens.tokenPrefix,
+    `SELECT users.*, oauth_grants.id AS oauthGrantId,
             oauth_access_tokens.scope AS oauthScope, oauth_access_tokens.clientId AS oauthClientId,
             oauth_access_tokens.resource AS oauthResource
      FROM oauth_access_tokens
      JOIN users ON users.id = oauth_access_tokens.userId
-     JOIN mcp_tokens ON mcp_tokens.id = oauth_access_tokens.mcpTokenId
+     JOIN oauth_grants ON oauth_grants.id = oauth_access_tokens.grantId
      WHERE oauth_access_tokens.tokenHash = ? AND oauth_access_tokens.revokedAt IS NULL
-       AND oauth_access_tokens.expiresAt > ? AND users.enabled = 1 AND users.mcpEnabled = 1`,
+       AND oauth_access_tokens.expiresAt > ? AND users.enabled = 1 AND users.oauthEnabled = 1`,
     [sha256(token), new Date().toISOString()]
   );
 }
@@ -302,12 +324,34 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     const requestId = String(req.body?.request || '');
     const pending = await loadPending(requestId);
     if (!pending) return res.status(400).json({ error: 'This connection request expired.' });
-    const mcpToken = await get('SELECT id FROM mcp_tokens WHERE userId = ? ORDER BY id DESC LIMIT 1', [user.id]);
-    if (!user.mcpEnabled || !mcpToken) return res.status(403).json({ error: 'Enable External Access (OAuth and MCP) in Kept settings before connecting this client.' });
+    if (!user.oauthEnabled) return res.status(403).json({ error: 'Enable OAuth app access in Kept settings before connecting this client.' });
+    const client = await resolveClient(pending.clientId, { get });
+    if (!client) return res.status(400).json({ error: 'This OAuth client is no longer available.' });
     const code = randomToken('kept_code_');
+    const now = new Date().toISOString();
     await run('BEGIN IMMEDIATE');
     try {
-      await run(`INSERT INTO oauth_authorization_codes (codeHash, clientId, userId, mcpTokenId, redirectUri, codeChallenge, resource, scope, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [sha256(code), pending.clientId, user.id, mcpToken.id, pending.redirectUri, pending.codeChallenge, pending.resource, pending.scope, new Date().toISOString(), addSeconds(AUTHORIZATION_CODE_TTL_SECONDS)]);
+      await run(
+        `INSERT INTO oauth_grants (userId, clientId, clientName, resource, scope, authorizedAt)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(userId, clientId, resource) DO UPDATE SET
+           clientName = excluded.clientName, scope = excluded.scope, authorizedAt = excluded.authorizedAt`,
+        [user.id, pending.clientId, client.clientName, pending.resource, pending.scope, now]
+      );
+      const grant = await get(
+        'SELECT id FROM oauth_grants WHERE userId = ? AND clientId = ? AND resource = ?',
+        [user.id, pending.clientId, pending.resource]
+      );
+      await run('DELETE FROM external_unlock_challenges WHERE principalType = ? AND principalId = ?', ['oauth', grant.id]);
+      await run('DELETE FROM oauth_authorization_codes WHERE grantId = ?', [grant.id]);
+      await run('DELETE FROM oauth_access_tokens WHERE grantId = ?', [grant.id]);
+      await run('DELETE FROM oauth_refresh_tokens WHERE grantId = ?', [grant.id]);
+      await run(
+        `INSERT INTO oauth_authorization_codes
+         (codeHash, clientId, userId, grantId, redirectUri, codeChallenge, resource, scope, createdAt, expiresAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [sha256(code), pending.clientId, user.id, grant.id, pending.redirectUri, pending.codeChallenge, pending.resource, pending.scope, now, addSeconds(AUTHORIZATION_CODE_TTL_SECONDS)]
+      );
       await run('DELETE FROM oauth_pending_authorizations WHERE requestHash = ?', [sha256(requestId)]);
       await run('COMMIT');
     } catch (error) { await run('ROLLBACK'); throw error; }
@@ -322,8 +366,8 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     const accessToken = randomToken('kept_oauth_');
     const refreshToken = randomToken('kept_refresh_');
     const now = new Date().toISOString();
-    await run(`INSERT INTO oauth_access_tokens (tokenHash, userId, mcpTokenId, clientId, resource, scope, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [sha256(accessToken), record.userId, record.mcpTokenId, record.clientId, record.resource, record.scope, now, addSeconds(ACCESS_TOKEN_TTL_SECONDS)]);
-    await run(`INSERT INTO oauth_refresh_tokens (tokenHash, userId, mcpTokenId, clientId, resource, scope, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [sha256(refreshToken), record.userId, record.mcpTokenId, record.clientId, record.resource, record.scope, now, addSeconds(REFRESH_TOKEN_TTL_SECONDS)]);
+    await run(`INSERT INTO oauth_access_tokens (tokenHash, userId, grantId, clientId, resource, scope, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [sha256(accessToken), record.userId, record.grantId, record.clientId, record.resource, record.scope, now, addSeconds(ACCESS_TOKEN_TTL_SECONDS)]);
+    await run(`INSERT INTO oauth_refresh_tokens (tokenHash, userId, grantId, clientId, resource, scope, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [sha256(refreshToken), record.userId, record.grantId, record.clientId, record.resource, record.scope, now, addSeconds(REFRESH_TOKEN_TTL_SECONDS)]);
     return tokenPayload(accessToken, refreshToken, record.scope);
   }
 

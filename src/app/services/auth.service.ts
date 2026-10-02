@@ -17,6 +17,28 @@ export interface McpAccessSettings {
   accessToken?: string
 }
 
+export interface OAuthConnection {
+  id: number
+  clientId: string
+  clientName: string
+  resource: string
+  scopes: string[]
+  authorizedAt: string
+  lastUsedAt: string | null
+}
+
+export interface OAuthAccessSettings {
+  enabled: boolean
+  allowLockedNotes: boolean
+  allowPermanentDelete: boolean
+  connections: OAuthConnection[]
+}
+
+export interface ExternalAccessCapabilities {
+  allowLockedNotes: boolean
+  allowPermanentDelete: boolean
+}
+
 export interface OidcConfig {
   enabled: boolean
   name: string
@@ -279,6 +301,40 @@ export class AuthService {
 
   async disableMcpAccess() {
     await firstValueFrom(this.http.delete(`${this.apiUrl}/users/me/mcp-access`, { headers: this.authHeaders() }));
+  }
+
+  async getOAuthAccessSettings() {
+    return await firstValueFrom(this.http.get<OAuthAccessSettings>(
+      `${this.apiUrl}/users/me/oauth-access`,
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async enableOAuthAccess() {
+    return await firstValueFrom(this.http.post<OAuthAccessSettings>(
+      `${this.apiUrl}/users/me/oauth-access/enable`,
+      {},
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async disableOAuthAccess() {
+    await firstValueFrom(this.http.delete(`${this.apiUrl}/users/me/oauth-access`, { headers: this.authHeaders() }));
+  }
+
+  async revokeOAuthConnection(grantId: number) {
+    await firstValueFrom(this.http.delete(
+      `${this.apiUrl}/users/me/oauth-access/connections/${grantId}`,
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async updateExternalAccessCapabilities(patch: Partial<ExternalAccessCapabilities>) {
+    return await firstValueFrom(this.http.patch<ExternalAccessCapabilities>(
+      `${this.apiUrl}/users/me/external-access/capabilities`,
+      patch,
+      { headers: this.authHeaders() }
+    ));
   }
 
   private mergeAccountPreferences(user: UserI) {
