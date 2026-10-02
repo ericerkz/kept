@@ -186,8 +186,6 @@ function oidcSettings() {
     enabled: !!(issuer && clientId), issuer, clientId,
     clientSecret: String(process.env.KEPT_OIDC_CLIENT_SECRET || ''),
     name: String(process.env.KEPT_OIDC_NAME || 'Single sign-on').trim() || 'Single sign-on',
-    autoLinkEmail: process.env.KEPT_OIDC_AUTO_LINK_EMAIL === '1',
-    autoProvision: process.env.KEPT_OIDC_AUTO_PROVISION === '1',
     scopes: String(process.env.KEPT_OIDC_SCOPES || 'openid profile email').trim()
   };
 }
@@ -222,7 +220,7 @@ async function resolveClient(clientId, { get }) {
 }
 
 function mountOAuthAndMcpRoutes(app, dependencies) {
-  const { get, all, run, asyncRoute, requireAuth, resolveSessionFromToken, createSession, createUser, normalizeUsername, oauthRegistrationLimiter, internalBaseUrl } = dependencies;
+  const { get, all, run, asyncRoute, requireAuth, resolveSessionFromToken, createSession, oauthRegistrationLimiter, internalBaseUrl } = dependencies;
   const urlencoded = express.urlencoded({ extended: false, limit: '32kb' });
 
   app.use('/oauth/authorize', (_req, res, next) => {
@@ -465,7 +463,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
   app.get('/api/auth/oidc/link/status', requireAuth, asyncRoute(async (req, res) => {
     const settings = oidcSettings();
     if (!settings.enabled) {
-      return res.json({ enabled: false, providerName: settings.name, connected: false, identityEmail: '', connectedAt: null, canDisconnect: false });
+      return res.json({ enabled: false, providerName: settings.name, connected: false, identityEmail: '', connectedAt: null });
     }
     const identity = await get(
       'SELECT email, createdAt, updatedAt FROM oidc_identities WHERE issuer = ? AND userId = ?',
@@ -476,8 +474,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
       providerName: settings.name,
       connected: !!identity,
       identityEmail: identity?.email || '',
-      connectedAt: identity?.createdAt || null,
-      canDisconnect: !!req.user.localPasswordEnabled
+      connectedAt: identity?.createdAt || null
     });
   }));
 
@@ -493,9 +490,6 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
   app.delete('/api/auth/oidc/link', requireAuth, asyncRoute(async (req, res) => {
     const settings = oidcSettings();
     if (!settings.enabled) return res.status(404).json({ error: 'OIDC sign-in is not configured.' });
-    if (!req.user.localPasswordEnabled) {
-      return res.status(409).json({ error: 'Set a local password before disconnecting your only sign-in method.' });
-    }
     await run('DELETE FROM oidc_identities WHERE issuer = ? AND userId = ?', [settings.issuer, req.user.id]);
     res.status(204).end();
   }));
@@ -531,22 +525,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
       }
       return res.redirect('/settings?oidc_link=connected');
     }
-    let identity = await get('SELECT users.* FROM oidc_identities JOIN users ON users.id = oidc_identities.userId WHERE issuer = ? AND subject = ? AND users.enabled = 1', [settings.issuer, claims.sub]);
-    if (!identity && settings.autoLinkEmail && claims.email_verified === true && email) {
-      const matches = await all('SELECT * FROM users WHERE lower(email) = ? AND enabled = 1', [email]);
-      if (matches.length === 1) {
-        identity = matches[0];
-        await run('INSERT INTO oidc_identities (issuer, subject, userId, email, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)', [settings.issuer, claims.sub, identity.id, email, new Date().toISOString(), new Date().toISOString()]);
-      }
-    }
-    if (!identity && settings.autoProvision) {
-      const candidate = normalizeUsername(String(claims.preferred_username || email.split('@')[0] || `oidc-${String(claims.sub).slice(0, 12)}`).replace(/[^a-zA-Z0-9._-]/g, '-'));
-      let username = candidate.length >= 3 ? candidate : `user-${crypto.randomBytes(4).toString('hex')}`;
-      let suffix = 1;
-      while (await get('SELECT id FROM users WHERE username = ?', [username])) username = `${candidate}-${suffix++}`;
-      identity = await createUser({ username, displayName: String(claims.name || claims.preferred_username || username), password: randomToken('oidc_'), role: 'user', email: email || null, enabled: true, localPasswordEnabled: false });
-      await run('INSERT INTO oidc_identities (issuer, subject, userId, email, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)', [settings.issuer, claims.sub, identity.id, email || null, new Date().toISOString(), new Date().toISOString()]);
-    }
+    const identity = await get('SELECT users.* FROM oidc_identities JOIN users ON users.id = oidc_identities.userId WHERE issuer = ? AND subject = ? AND users.enabled = 1', [settings.issuer, claims.sub]);
     if (!identity) return res.redirect(`/login?oidc_error=no_account${flow.oauthRequest ? `&oauth_request=${encodeURIComponent(flow.oauthRequest)}` : ''}`);
     const loginCode = randomToken('kept_login_');
     await run('INSERT INTO oidc_login_codes (codeHash, userId, createdAt, expiresAt) VALUES (?, ?, ?, ?)', [sha256(loginCode), identity.id, new Date().toISOString(), addSeconds(60)]);

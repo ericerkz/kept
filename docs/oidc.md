@@ -26,34 +26,16 @@ KEPT_OIDC_NAME=Your provider name
 
 The default scopes are `openid profile email`. Override them with `KEPT_OIDC_SCOPES` if your provider requires different scopes.
 
-## Connect an existing Kept account
+## Connect a Kept account
+
+Every user must first have a local Kept account. OIDC identities do not automatically create accounts and are not matched to accounts by email.
 
 1. Sign in to Kept with your existing local account.
 2. Open **Settings**, then **Security**.
 3. Select **Connect SSO account** for the configured provider.
 4. Complete the provider sign-in and consent flow.
 
-Kept links the provider's stable issuer and subject identifiers to the signed-in Kept account. A provider identity cannot be linked to two Kept accounts. Disconnecting SSO requires a usable local password so an account cannot accidentally lose its only sign-in method.
-
-## New-user provisioning
-
-Automatic user creation is off by default. Set this only when everyone allowed through the provider should receive a new enabled Kept account:
-
-```text
-KEPT_OIDC_AUTO_PROVISION=1
-```
-
-An automatically provisioned user initially signs in through SSO only. They can set a local password from their profile menu if they want a fallback login or need to disconnect SSO.
-
-## Optional email auto-linking
-
-Explicit linking from Settings is the recommended path. If your provider has authoritative, verified email addresses and you want first-time SSO login to link automatically to exactly one enabled Kept user with the same email, set:
-
-```text
-KEPT_OIDC_AUTO_LINK_EMAIL=1
-```
-
-This is disabled by default because matching by email is less deliberate than linking while already authenticated. Kept only auto-links an email the provider marks as verified and only when exactly one enabled Kept account matches it.
+Kept links the provider's stable issuer and subject identifiers to the signed-in Kept account. A provider identity cannot be linked to two Kept accounts. The user's local password remains available as a fallback and is required for account-management actions such as changing the password or deleting the account.
 
 ## Notes
 

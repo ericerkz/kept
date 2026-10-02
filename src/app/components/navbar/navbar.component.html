@@ -194,16 +194,14 @@
               <div class="password-reset-section">
                 <button class="pw-reset-toggle" type="button" (click)="togglePasswordReset()">
                   <span class="material-symbols-outlined">lock_reset</span>
-                  {{showPasswordReset ? 'Cancel' : (auth.currentUser?.localPasswordEnabled === false ? 'Set local password' : 'Reset password')}}
+                  {{showPasswordReset ? 'Cancel password reset' : 'Reset password'}}
                 </button>
                 @if (showPasswordReset) {
                   <div class="pw-reset-form">
-                    @if (auth.currentUser?.localPasswordEnabled !== false) {
-                      <label class="profile-field">
-                        <span>Current password</span>
-                        <input type="password" [(ngModel)]="currentPassword" autocomplete="current-password" placeholder="Enter current password">
-                      </label>
-                    }
+                    <label class="profile-field">
+                      <span>Current password</span>
+                      <input type="password" [(ngModel)]="currentPassword" autocomplete="current-password" placeholder="Enter current password">
+                    </label>
                     <label class="profile-field">
                       <span>New password</span>
                       <input type="password" [(ngModel)]="newPassword" autocomplete="new-password" placeholder="Min. 8 characters">
@@ -218,8 +216,8 @@
                     @if (passwordResetSuccess) {
                       <div class="pw-feedback success">{{passwordResetSuccess}}</div>
                     }
-                    <button class="pw-save" type="button" [disabled]="isResettingPassword || (auth.currentUser?.localPasswordEnabled !== false && !currentPassword) || !newPassword || !confirmNewPassword" (click)="resetMyPassword()">
-                      {{isResettingPassword ? 'Saving...' : (auth.currentUser?.localPasswordEnabled === false ? 'Set password' : 'Update password')}}
+                    <button class="pw-save" type="button" [disabled]="isResettingPassword || !currentPassword || !newPassword || !confirmNewPassword" (click)="resetMyPassword()">
+                      {{isResettingPassword ? 'Updating...' : 'Update password'}}
                     </button>
                   </div>
                 }

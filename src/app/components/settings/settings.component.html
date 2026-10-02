@@ -234,13 +234,10 @@
                   }
                 </span>
               </div>
-              <button type="button" class="btn-secondary" [disabled]="isDisconnectingOidc || (!oidcLinkStatus?.canDisconnect && authService.currentUser?.localPasswordEnabled === false)" (click)="disconnectOidc()">
+              <button type="button" class="btn-secondary" [disabled]="isDisconnectingOidc" (click)="disconnectOidc()">
                 {{isDisconnectingOidc ? 'Disconnecting...' : 'Disconnect'}}
               </button>
             </div>
-            @if (!oidcLinkStatus?.canDisconnect && authService.currentUser?.localPasswordEnabled === false) {
-              <p class="hint">Set a local password from your profile menu before disconnecting your only sign-in method.</p>
-            }
           } @else {
             <button type="button" class="btn-secondary" [disabled]="isStartingOidcLink" (click)="connectOidc()">
               {{isStartingOidcLink ? 'Connecting...' : 'Connect ' + oidcLinkStatus?.providerName + ' account'}}

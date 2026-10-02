@@ -221,7 +221,7 @@ Custom headers do not apply to realtime WebSocket connections. Realtime presence
 
 #### OpenID Connect single sign-on
 
-Kept can use an OpenID Connect provider for optional single sign-on while keeping normal username/password login available. Set `BASE_URL`, `KEPT_OIDC_ISSUER`, and `KEPT_OIDC_CLIENT_ID`; confidential clients should also set `KEPT_OIDC_CLIENT_SECRET`. Existing users can then choose **Connect SSO account** in Settings. Automatic verified-email linking is disabled by default; set `KEPT_OIDC_AUTO_LINK_EMAIL=1` only if you deliberately want that behavior. Set `KEPT_OIDC_AUTO_PROVISION=1` to create enabled user accounts for previously unseen identities.
+Kept can use an OpenID Connect provider for optional single sign-on while keeping normal username/password login available. Set `BASE_URL`, `KEPT_OIDC_ISSUER`, and `KEPT_OIDC_CLIENT_ID`; confidential clients should also set `KEPT_OIDC_CLIENT_SECRET`. Every user first needs a local Kept account and must sign in locally once, then choose **Connect SSO account** in Settings. Kept does not automatically create or email-match accounts from OIDC identities.
 
 The callback URL to register with your identity provider is `https://your-kept.example/api/auth/oidc/callback`. OIDC sign-in is an additional authentication path, not a replacement for Kept's own authorization rules. See the [OIDC setup guide](docs/oidc.md) for configuration and account-linking details.
 
@@ -258,8 +258,6 @@ Useful environment variables are documented in `docker-compose.yml`. The common 
 - `KEPT_OIDC_ISSUER` / `KEPT_OIDC_CLIENT_ID` / `KEPT_OIDC_CLIENT_SECRET`: optional upstream OIDC single sign-on provider.
 - `KEPT_OIDC_NAME`: label shown on the sign-in button. Defaults to `Single sign-on`.
 - `KEPT_OIDC_SCOPES`: scopes requested from the provider. Defaults to `openid profile email`.
-- `KEPT_OIDC_AUTO_LINK_EMAIL`: automatically link a verified provider email to one matching enabled Kept user. Defaults to `0`; explicit linking from Settings is recommended.
-- `KEPT_OIDC_AUTO_PROVISION`: create users for new OIDC identities. Defaults to `0`.
 - `KEPT_SESSION_TTL_DAYS`: login session lifetime. Defaults to 30 days.
 - `KEPT_CORS_ALLOW_ALL` / `KEPT_CORS_ORIGINS`: CORS behavior for remote clients and native shells. Native app WebView origins are allowed automatically when using `KEPT_CORS_ORIGINS`.
 - `KEPT_TAKEOUT_UPLOAD_MAX`: Google Takeout ZIP upload cap. Defaults to `5GB`; only affects Takeout imports.

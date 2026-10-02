@@ -138,8 +138,7 @@ test('OIDC accounts can be explicitly linked, signed in, and safely disconnected
       ...process.env,
       PORT: String(port), SQLITE_PATH: join(directory, 'kept.sqlite'), BASE_URL: origin,
       KEPT_OIDC_ISSUER: provider.issuer, KEPT_OIDC_CLIENT_ID: 'kept-test',
-      KEPT_OIDC_CLIENT_SECRET: 'test-secret', KEPT_OIDC_NAME: 'Test Identity',
-      KEPT_OIDC_AUTO_PROVISION: '1', KEPT_OIDC_AUTO_LINK_EMAIL: '0'
+      KEPT_OIDC_CLIENT_SECRET: 'test-secret', KEPT_OIDC_NAME: 'Test Identity'
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -160,7 +159,7 @@ test('OIDC accounts can be explicitly linked, signed in, and safely disconnected
   });
 
   let status = await json(`${origin}/api/auth/oidc/link/status`, { headers: bearer(admin.token) });
-  assert.deepEqual({ enabled: status.enabled, connected: status.connected, canDisconnect: status.canDisconnect }, { enabled: true, connected: false, canDisconnect: true });
+  assert.deepEqual({ enabled: status.enabled, connected: status.connected }, { enabled: true, connected: false });
 
   const linkStart = await json(`${origin}/api/auth/oidc/link/start`, { method: 'POST', headers: bearer(admin.token), body: '{}' });
   const linkCallback = await completeProviderRedirect(linkStart.url);
@@ -181,7 +180,6 @@ test('OIDC accounts can be explicitly linked, signed in, and safely disconnected
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: loginCode })
   });
   assert.equal(ssoLogin.user.id, admin.user.id);
-  assert.equal(ssoLogin.user.localPasswordEnabled, true);
 
   const second = await json(`${origin}/api/users`, {
     method: 'POST', headers: bearer(admin.token),
@@ -198,27 +196,31 @@ test('OIDC accounts can be explicitly linked, signed in, and safely disconnected
   assert.equal(new URL(collisionResult.headers.get('location'), origin).searchParams.get('oidc_link'), 'already_connected');
 
   provider.setIdentity({ sub: 'new-subject', email: 'new@example.test', name: 'New User' });
-  const provisionStart = await fetch(`${origin}/api/auth/oidc/start`, { redirect: 'manual' });
-  const provisionCallback = await completeProviderRedirect(provisionStart.headers.get('location'));
-  const provisionResult = await fetch(provisionCallback, { redirect: 'manual' });
-  const provisionCode = new URL(provisionResult.headers.get('location'), origin).searchParams.get('oidc_code');
-  const provisioned = await json(`${origin}/api/auth/oidc/exchange`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: provisionCode })
-  });
-  assert.notEqual(provisioned.user.id, second.id, 'email auto-linking must remain off by default/config');
-  assert.equal(provisioned.user.localPasswordEnabled, false);
+  const unlinkedStart = await fetch(`${origin}/api/auth/oidc/start`, { redirect: 'manual' });
+  const unlinkedCallback = await completeProviderRedirect(unlinkedStart.headers.get('location'));
+  const unlinkedResult = await fetch(unlinkedCallback, { redirect: 'manual' });
+  const unlinkedRedirect = new URL(unlinkedResult.headers.get('location'), origin);
+  assert.equal(unlinkedRedirect.searchParams.get('oidc_error'), 'no_account', 'matching email must not link or create an account');
 
-  const blockedDisconnect = await fetch(`${origin}/api/auth/oidc/link`, { method: 'DELETE', headers: bearer(provisioned.token) });
-  assert.equal(blockedDisconnect.status, 409);
-  const passwordResult = await json(`${origin}/api/users/me/password`, {
-    method: 'PATCH', headers: bearer(provisioned.token), body: JSON.stringify({ currentPassword: '', newPassword: 'local-fallback-123' })
+  const secondLinkStart = await json(`${origin}/api/auth/oidc/link/start`, { method: 'POST', headers: bearer(secondLogin.token), body: '{}' });
+  const secondLinkCallback = await completeProviderRedirect(secondLinkStart.url);
+  const secondLinkResult = await fetch(secondLinkCallback, { redirect: 'manual' });
+  assert.equal(new URL(secondLinkResult.headers.get('location'), origin).searchParams.get('oidc_link'), 'connected');
+
+  const secondSsoStart = await fetch(`${origin}/api/auth/oidc/start`, { redirect: 'manual' });
+  const secondSsoCallback = await completeProviderRedirect(secondSsoStart.headers.get('location'));
+  const secondSsoResult = await fetch(secondSsoCallback, { redirect: 'manual' });
+  const secondLoginCode = new URL(secondSsoResult.headers.get('location'), origin).searchParams.get('oidc_code');
+  const secondSsoLogin = await json(`${origin}/api/auth/oidc/exchange`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: secondLoginCode })
   });
-  assert.equal(passwordResult.success, true);
-  const disconnected = await fetch(`${origin}/api/auth/oidc/link`, { method: 'DELETE', headers: bearer(provisioned.token) });
+  assert.equal(secondSsoLogin.user.id, second.id);
+
+  const disconnected = await fetch(`${origin}/api/auth/oidc/link`, { method: 'DELETE', headers: bearer(secondLogin.token) });
   assert.equal(disconnected.status, 204);
   const localLogin = await json(`${origin}/api/auth/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: provisioned.user.username, password: 'local-fallback-123' })
+    body: JSON.stringify({ username: 'email-match', password: 'testing123' })
   });
-  assert.equal(localLogin.user.id, provisioned.user.id);
+  assert.equal(localLogin.user.id, second.id);
 });

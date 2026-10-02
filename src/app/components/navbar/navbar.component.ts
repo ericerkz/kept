@@ -483,9 +483,8 @@ export class NavbarComponent implements OnInit {
     }
     this.isResettingPassword = true
     try {
-      const wasSsoOnly = this.auth.currentUser?.localPasswordEnabled === false
       await this.auth.resetOwnPassword(this.currentPassword, this.newPassword)
-      this.passwordResetSuccess = wasSsoOnly ? 'Local password set successfully.' : 'Password updated successfully.'
+      this.passwordResetSuccess = 'Password updated successfully.'
       this.currentPassword = ''
       this.newPassword = ''
       this.confirmNewPassword = ''

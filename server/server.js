@@ -363,9 +363,6 @@ async function init() {
   if (!userColumns.some(column => column.name === 'email')) {
     await run(`ALTER TABLE users ADD COLUMN email TEXT`);
   }
-  if (!userColumns.some(column => column.name === 'localPasswordEnabled')) {
-    await run(`ALTER TABLE users ADD COLUMN localPasswordEnabled INTEGER NOT NULL DEFAULT 1`);
-  }
   if (!userColumns.some(column => column.name === 'enabled')) {
     await run(`ALTER TABLE users ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`);
   }
@@ -904,7 +901,6 @@ function publicUser(user) {
     totpEnabled: !!user.totpEnabled,
     hasBackupCodes: !!user.totpBackupCodes,
     email: user.email || '',
-    localPasswordEnabled: user.localPasswordEnabled !== undefined ? !!user.localPasswordEnabled : true,
     enabled: user.enabled !== undefined ? !!user.enabled : true,
     createdAt: user.createdAt,
     demoNotesCreatedAt: user.demoNotesCreatedAt || null
@@ -1029,7 +1025,7 @@ async function deleteUserAndOwnedData(userId) {
   await run('DELETE FROM users WHERE id = ?', [userId]);
 }
 
-async function createUser({ username, displayName, password, role, email, enabled, localPasswordEnabled, totpSecret, totpBackupCodes }) {
+async function createUser({ username, displayName, password, role, email, enabled, totpSecret, totpBackupCodes }) {
   const cleanUsername = normalizeUsername(username);
   const cleanDisplayName = String(displayName || '').trim() || cleanUsername;
   const cleanPassword = String(password || '');
@@ -1055,13 +1051,12 @@ async function createUser({ username, displayName, password, role, email, enable
   const passwordHash = hashPassword(cleanPassword, passwordSalt);
   const createdAt = new Date().toISOString();
   const isEnabled = enabled !== undefined ? (enabled ? 1 : 0) : 1;
-  const hasLocalPassword = localPasswordEnabled !== undefined ? (localPasswordEnabled ? 1 : 0) : 1;
 
   const hasTotp = !!totpSecret;
   const result = await run(
-    `INSERT INTO users (username, displayName, role, passwordHash, passwordSalt, theme, avatarPreset, email, enabled, localPasswordEnabled, totpSecret, totpEnabled, totpBackupCodes, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [cleanUsername, cleanDisplayName, role, passwordHash, passwordSalt, 'light', randomAvatarPreset(), cleanEmail, isEnabled, hasLocalPassword, totpSecret || null, hasTotp ? 1 : 0, totpBackupCodes || null, createdAt]
+    `INSERT INTO users (username, displayName, role, passwordHash, passwordSalt, theme, avatarPreset, email, enabled, totpSecret, totpEnabled, totpBackupCodes, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [cleanUsername, cleanDisplayName, role, passwordHash, passwordSalt, 'light', randomAvatarPreset(), cleanEmail, isEnabled, totpSecret || null, hasTotp ? 1 : 0, totpBackupCodes || null, createdAt]
   );
   return await get('SELECT * FROM users WHERE id = ?', [result.id]);
 }
@@ -3451,7 +3446,7 @@ app.use('/api', (_req, res, next) => {
 app.use(express.json({ limit: '25mb' }));
 
 mountOAuthAndMcpRoutes(app, {
-  get, all, run, asyncRoute, requireAuth, resolveSessionFromToken, createSession, createUser, normalizeUsername,
+  get, all, run, asyncRoute, requireAuth, resolveSessionFromToken, createSession,
   oauthRegistrationLimiter, internalBaseUrl: `http://127.0.0.1:${port}`
 });
 
@@ -3539,7 +3534,7 @@ app.post('/api/auth/login', loginLimiter, asyncRoute(async (req, res) => {
   const password = String(req.body.password || '');
   const user = await get('SELECT * FROM users WHERE username = ?', [username]);
 
-  if (!user || !user.localPasswordEnabled || hashPassword(password, user.passwordSalt) !== user.passwordHash) {
+  if (!user || hashPassword(password, user.passwordSalt) !== user.passwordHash) {
     return res.status(401).json({ error: 'Username or password is incorrect.' });
   }
 
@@ -3927,7 +3922,7 @@ app.patch('/api/users/me/password', requireAuth, asyncRoute(async (req, res) => 
   const currentPassword = String(req.body.currentPassword || '');
   const newPassword = String(req.body.newPassword || '');
 
-  if (req.user.localPasswordEnabled && hashPassword(currentPassword, req.user.passwordSalt) !== req.user.passwordHash) {
+  if (hashPassword(currentPassword, req.user.passwordSalt) !== req.user.passwordHash) {
     return res.status(400).json({ error: 'Current password is incorrect.' });
   }
   if (newPassword.length < 8) {
@@ -3936,7 +3931,7 @@ app.patch('/api/users/me/password', requireAuth, asyncRoute(async (req, res) => 
 
   const newSalt = randomHex(16);
   const newHash = hashPassword(newPassword, newSalt);
-  await run('UPDATE users SET passwordHash = ?, passwordSalt = ?, localPasswordEnabled = 1 WHERE id = ?', [newHash, newSalt, req.user.id]);
+  await run('UPDATE users SET passwordHash = ?, passwordSalt = ? WHERE id = ?', [newHash, newSalt, req.user.id]);
   // Invalidate all other sessions for this user
   await run('DELETE FROM sessions WHERE userId = ? AND token != ?', [req.user.id, req.token]);
   res.json({ success: true });
@@ -3954,7 +3949,7 @@ app.patch('/api/users/:id/reset-password', requireAuth, requireAdmin, asyncRoute
 
   const newSalt = randomHex(16);
   const newHash = hashPassword(newPassword, newSalt);
-  await run('UPDATE users SET passwordHash = ?, passwordSalt = ?, localPasswordEnabled = 1 WHERE id = ?', [newHash, newSalt, userId]);
+  await run('UPDATE users SET passwordHash = ?, passwordSalt = ? WHERE id = ?', [newHash, newSalt, userId]);
   // Force the target user to re-authenticate everywhere
   await run('DELETE FROM sessions WHERE userId = ?', [userId]);
   closeRealtimeClientsForUser(userId, 'Password was reset.');
