@@ -228,17 +228,30 @@ async function oidcClient(settings) {
   return { client, config: await oidcConfigPromise };
 }
 
+// Hosted clients whose client ID metadata documents Kept will fetch.
+const TRUSTED_CLIENT_METADATA_DOCUMENTS = [
+  { hostname: 'chatgpt.com', pathname: /^\/oauth\/(?:client|[^/]+\/client)\.json$/, clientName: 'ChatGPT' },
+  { hostname: 'claude.ai', pathname: /^\/oauth\/mcp-oauth-client-metadata$/, clientName: 'Claude' }
+];
+
+function trustedClientMetadataDocument(clientId) {
+  let metadataUrl;
+  try { metadataUrl = new URL(clientId); } catch { return null; }
+  if (metadataUrl.protocol !== 'https:') return null;
+  const trusted = TRUSTED_CLIENT_METADATA_DOCUMENTS.find(document => document.hostname === metadataUrl.hostname && document.pathname.test(metadataUrl.pathname));
+  return trusted ? { metadataUrl, clientName: trusted.clientName } : null;
+}
+
 async function resolveClient(clientId, { get }) {
   const stored = await get('SELECT * FROM oauth_clients WHERE clientId = ?', [clientId]);
   if (stored) return { clientId, clientName: stored.clientName, redirectUris: safeJson(stored.redirectUris, []) };
-  let metadataUrl;
-  try { metadataUrl = new URL(clientId); } catch { return null; }
-  if (metadataUrl.protocol !== 'https:' || metadataUrl.hostname !== 'chatgpt.com' || !/^\/oauth\/(?:client|[^/]+\/client)\.json$/.test(metadataUrl.pathname)) return null;
-  const response = await fetch(metadataUrl, { signal: AbortSignal.timeout(5000), redirect: 'error' });
+  const trusted = trustedClientMetadataDocument(clientId);
+  if (!trusted) return null;
+  const response = await fetch(trusted.metadataUrl, { signal: AbortSignal.timeout(5000), redirect: 'error' });
   if (!response.ok) return null;
   const metadata = await response.json();
   if (metadata.client_id !== clientId || !Array.isArray(metadata.redirect_uris)) return null;
-  return { clientId, clientName: metadata.client_name || 'ChatGPT', redirectUris: metadata.redirect_uris.filter(validRedirectUri) };
+  return { clientId, clientName: metadata.client_name || trusted.clientName, redirectUris: metadata.redirect_uris.filter(validRedirectUri) };
 }
 
 function mountOAuthAndMcpRoutes(app, dependencies) {
@@ -610,4 +623,4 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
   }));
 }
 
-module.exports = { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken, SUPPORTED_SCOPES };
+module.exports = { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken, trustedClientMetadataDocument, SUPPORTED_SCOPES };
