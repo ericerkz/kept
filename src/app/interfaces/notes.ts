@@ -4,6 +4,7 @@ import { ShareUserI } from './users';
 export interface NoteI {
     id?: number
     syncId?: string
+    revision?: number
     ownerUserId?: number
     ownerDisplayName?: string
     ownerUsername?: string

@@ -5,6 +5,7 @@ const https = require('https');
 const dns = require('dns');
 const net = require('net');
 const path = require('path');
+const { AsyncLocalStorage } = require('async_hooks');
 const cors = require('cors');
 const express = require('express');
 const multer = require('multer');
@@ -13,6 +14,9 @@ const webPush = require('web-push');
 const { WebSocket, WebSocketServer } = require('ws');
 const { generateSecret, verifySync, generateURI } = require('otplib');
 const qrcode = require('qrcode');
+const { initNativeClientSchema, occurrenceId } = require('./native-client');
+const { nextRepeatDueAt, isRepeatOccurrence } = require('./reminder-recurrence');
+const { armTestFault, hitTestFault } = require('./test-faults');
 const { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken } = require('./oauth-mcp');
 
 const app = express();
@@ -20,10 +24,10 @@ app.set('trust proxy', 1);
 app.disable('etag');
 const server = http.createServer(app);
 const port = Number(process.env.PORT || 3000);
-const dataDir = path.join(__dirname, '..', 'data');
-const uploadDir = path.join(dataDir, 'uploads');
-const attachmentDir = path.join(dataDir, 'attachments');
-const takeoutTmpDir = path.join(dataDir, 'imports', 'tmp');
+const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const uploadDir = process.env.UPLOAD_DIR || path.join(dataDir, 'uploads');
+const attachmentDir = process.env.ATTACHMENT_DIR || path.join(dataDir, 'attachments');
+const takeoutTmpDir = process.env.TAKEOUT_TMP_DIR || path.join(dataDir, 'imports', 'tmp');
 const dbPath = process.env.SQLITE_PATH || path.join(dataDir, 'kept.sqlite');
 const vapidPath = path.join(dataDir, 'vapid.json');
 const staticDir = path.join(__dirname, '..', 'dist', 'keep');
@@ -48,6 +52,8 @@ function configureDatabase(database) {
 }
 
 let db = configureDatabase(new sqlite3.Database(dbPath));
+const databaseTransactionContext = new AsyncLocalStorage();
+let databaseQueue = Promise.resolve();
 const SAFE_IMAGE_TYPES = new Map([
   ['image/png', '.png'],
   ['image/jpeg', '.jpg'],
@@ -180,23 +186,19 @@ async function performBackup(isManual = false) {
   const filename = `backup-${timestamp}${isManual ? '-manual' : ''}.sqlite`;
   const destPath = path.join(backupDir, filename);
 
-  return new Promise((resolve, reject) => {
-    // Using VACUUM INTO for a safe, consistent backup
-    db.run(`VACUUM INTO ?`, [destPath], async (err) => {
-      if (err) {
-        // Fallback to simple copy if VACUUM INTO is not supported or fails
-        try {
-          fs.copyFileSync(dbPath, destPath);
-        } catch (copyErr) {
-          return reject(copyErr);
-        }
-      }
-
-      const setting = isManual ? 'lastManualBackupAt' : 'lastAutomatedBackupAt';
-      await setAppSetting(setting, now);
-      resolve(filename);
+  await withDatabaseLock(() => new Promise((resolve, reject) => {
+    // Using VACUUM INTO for a safe, consistent backup while excluding active transactions.
+    db.run(`VACUUM INTO ?`, [destPath], err => {
+      if (!err) return resolve();
+      try {
+        fs.copyFileSync(dbPath, destPath);
+        resolve();
+      } catch (copyError) { reject(copyError); }
     });
-  });
+  }));
+  const setting = isManual ? 'lastManualBackupAt' : 'lastAutomatedBackupAt';
+  await setAppSetting(setting, now);
+  return filename;
 }
 
 
@@ -251,25 +253,84 @@ function startBackupScheduler() {
 
 
 
-function run(sql, params = []) {
+function withDatabaseLock(operation) {
+  const previous = databaseQueue;
+  let release;
+  databaseQueue = new Promise(resolve => { release = resolve; });
+  return previous.then(operation).finally(release);
+}
+
+function queryDatabase(operation) {
+  const transaction = databaseTransactionContext.getStore();
+  if (transaction?.active) return operation(transaction.connection);
+  return withDatabaseLock(() => operation(db));
+}
+
+function rawRun(connection, sql, params = []) {
   return new Promise((resolve, reject) => {
-    db.run(sql, params, function onRun(error) {
+    connection.run(sql, params, function onRun(error) {
       if (error) reject(error);
       else resolve({ id: this.lastID, changes: this.changes });
     });
   });
 }
 
-function get(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (error, row) => error ? reject(error) : resolve(row));
+async function withDatabaseTransaction(operation) {
+  let committedEffects = [];
+  const result = await withDatabaseLock(async () => {
+    await rawRun(db, 'BEGIN IMMEDIATE');
+    const transaction = { connection: db, afterCommit: [], active: true };
+    try {
+      const result = await databaseTransactionContext.run(transaction, operation);
+      await rawRun(db, 'COMMIT');
+      transaction.active = false;
+      committedEffects = transaction.afterCommit;
+      return result;
+    } catch (error) {
+      transaction.active = false;
+      try { await rawRun(db, 'ROLLBACK'); }
+      catch (rollbackError) { console.error('SQLite rollback failed:', rollbackError.message); }
+      throw error;
+    }
+  });
+  for (const effect of committedEffects) {
+    try { await effect(); }
+    catch (error) { console.error('Post-commit effect failed:', error.message); }
+  }
+  return result;
+}
+
+async function withDatabaseExclusive(operation) {
+  return withDatabaseLock(async () => {
+    const context = { connection: db, afterCommit: [], active: true, exclusive: true };
+    try {
+      return await databaseTransactionContext.run(context, () => operation(connection => { context.connection = connection; }));
+    } finally {
+      context.active = false;
+    }
   });
 }
 
+function afterDatabaseCommit(effect) {
+  const transaction = databaseTransactionContext.getStore();
+  if (transaction?.active) transaction.afterCommit.push(effect);
+  else effect();
+}
+
+function run(sql, params = []) {
+  return queryDatabase(connection => rawRun(connection, sql, params));
+}
+
+function get(sql, params = []) {
+  return queryDatabase(connection => new Promise((resolve, reject) => {
+    connection.get(sql, params, (error, row) => error ? reject(error) : resolve(row));
+  }));
+}
+
 function all(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (error, rows) => error ? reject(error) : resolve(rows));
-  });
+  return queryDatabase(connection => new Promise((resolve, reject) => {
+    connection.all(sql, params, (error, rows) => error ? reject(error) : resolve(rows));
+  }));
 }
 
 let perfRequestSeq = 0;
@@ -476,6 +537,7 @@ async function init() {
       isCbox INTEGER NOT NULL DEFAULT 0,
       labels TEXT NOT NULL DEFAULT '[]',
       binder TEXT NOT NULL DEFAULT '',
+      extraFields TEXT NOT NULL DEFAULT '{}',
       locked INTEGER NOT NULL DEFAULT 0,
       lockSalt TEXT NOT NULL DEFAULT '',
       lockHash TEXT NOT NULL DEFAULT '',
@@ -524,6 +586,9 @@ async function init() {
   }
   if (!noteColumns.some(column => column.name === 'binder')) {
     await run(`ALTER TABLE notes ADD COLUMN binder TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!noteColumns.some(column => column.name === 'extraFields')) {
+    await run(`ALTER TABLE notes ADD COLUMN extraFields TEXT NOT NULL DEFAULT '{}'`);
   }
   if (!noteColumns.some(column => column.name === 'locked')) {
     await run(`ALTER TABLE notes ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`);
@@ -610,6 +675,11 @@ async function init() {
   `);
   await run(`CREATE INDEX IF NOT EXISTS note_images_note_idx ON note_images(noteId)`);
   await run(`CREATE INDEX IF NOT EXISTS note_images_filename_idx ON note_images(storedFilename)`);
+  const noteImageColumns = await all('PRAGMA table_info(note_images)');
+  if (!noteImageColumns.some(column => column.name === 'uploadOperationId')) {
+    await run('ALTER TABLE note_images ADD COLUMN uploadOperationId TEXT');
+  }
+  await run('CREATE UNIQUE INDEX IF NOT EXISTS note_images_upload_operation_unique ON note_images(ownerUserId, uploadOperationId)');
   await run(`
     CREATE TABLE IF NOT EXISTS note_collaborators (
       noteId INTEGER NOT NULL,
@@ -876,6 +946,7 @@ async function init() {
       createdAt TEXT NOT NULL
     )
   `);
+  await initNativeClientSchema({ run, get, all });
   await initOAuthTables({ run, all });
   const originalAdminUserId = await getAppSetting('originalAdminUserId', '');
   if (!originalAdminUserId) {
@@ -945,14 +1016,24 @@ function attachmentPath(storedFilename) {
   return path.join(uploadDir, filename);
 }
 
+function sha256File(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
 async function deleteAttachmentFilesForNote(noteId) {
-  const attachments = await all('SELECT storedFilename FROM note_attachments WHERE noteId = ?', [noteId]);
+  const attachments = await all('SELECT syncId, storedFilename FROM note_attachments WHERE noteId = ?', [noteId]);
   for (const attachment of attachments) {
-    const filePath = attachmentPath(attachment.storedFilename);
-    if (fs.existsSync(filePath)) {
-      try { fs.unlinkSync(filePath); } catch {}
-    }
+    if (attachment.syncId) await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
+      WHERE resourceType = 'attachment' AND resourceSyncId = ? AND state = 'active'`, [new Date().toISOString(), attachment.syncId]);
   }
+  afterDatabaseCommit(() => {
+    for (const attachment of attachments) {
+      const filePath = attachmentPath(attachment.storedFilename);
+      if (fs.existsSync(filePath)) {
+        try { fs.unlinkSync(filePath); } catch {}
+      }
+    }
+  });
 }
 
 function generateBackupCodes() {
@@ -1016,7 +1097,9 @@ async function deleteOwnedFilesForUser(userId) {
     if (!filename) continue;
     const stillUsed = await get('SELECT id FROM note_images WHERE storedFilename = ? LIMIT 1', [filename]);
     if (stillUsed) continue;
-    try { fs.unlinkSync(path.join(uploadDir, filename)); } catch {}
+    await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
+      WHERE userId = ? AND resourceType = 'image' AND resourceSyncId = ? AND state = 'active'`, [new Date().toISOString(), userId, filename]);
+    afterDatabaseCommit(() => { try { fs.unlinkSync(path.join(uploadDir, filename)); } catch {} });
   }
 }
 
@@ -1125,10 +1208,24 @@ function appliedNoteLabels(labels) {
   return normalized;
 }
 
+const KNOWN_NOTE_FIELDS = new Set([
+  'id', 'syncId', 'revision', 'ownerUserId', 'noteTitle', 'noteBody', 'pinned', 'bgColor', 'bgImage',
+  'checkBoxes', 'images', 'attachments', 'isCbox', 'labels', 'binder', 'locked', 'lockSalt', 'lockHash',
+  'completedChecklistCollapsed', 'archived', 'trashed', 'trashedAt', 'sortOrder', 'createdAt', 'updatedAt',
+  'lwwPhysicalMs', 'lwwLogical', 'lwwDeviceId', 'lwwOperationId', 'collaborators', 'ownerDisplayName',
+  'ownerUsername', 'ownerAvatarDataUrl', 'ownerAvatarPreset', 'lastEditorUserId', 'lastEditorDisplayName',
+  'isDemo', 'extraFields'
+]);
+
+function noteExtraFields(payload) {
+  return Object.fromEntries(Object.entries(payload || {}).filter(([key]) => !KNOWN_NOTE_FIELDS.has(key)));
+}
+
 function canonicalizeNotePayload(payload) {
   const locked = !!payload.locked && !!payload.lockSalt && !!payload.lockHash;
   return {
     ...payload,
+    extraFields: noteExtraFields(payload),
     noteBody: canonicalizeNoteHtmlImages(payload.noteBody || ''),
     images: canonicalizeNoteImages(payload.images || []),
     labels: appliedNoteLabels(payload.labels || []),
@@ -1165,8 +1262,10 @@ function extractNoteImageFilenames(note) {
 function dbNoteToApi(row) {
   const pinned = row.userPinned !== undefined ? row.userPinned : row.pinned;
   return {
+    ...parseJson(row.extraFields || '{}', {}),
     id: row.id,
     syncId: row.syncId,
+    revision: Number(row.revision || 1),
     ownerUserId: row.ownerUserId,
     noteTitle: row.noteTitle,
     noteBody: row.noteBody || '',
@@ -2076,12 +2175,18 @@ async function smartSetReminder(userId, action, fallbackNoteId) {
   const longitude = action.longitude != null ? Number(action.longitude) : null;
   const radiusMeters = action.radiusMeters != null ? Number(action.radiusMeters) : (locationName ? 120 : null);
   const locationTrigger = action.locationTrigger === 'leave' ? 'leave' : 'arrive';
-  const existing = noteId ? await get('SELECT id FROM reminders WHERE noteId = ?', [noteId]) : null;
+  const existing = noteId ? await get('SELECT * FROM reminders WHERE noteId = ? AND userId = ?', [noteId, userId]) : null;
+  const timezone = action.timezone || 'UTC';
+  const repeatRule = normalizeRepeatRule(action.repeatRule);
+  const nextSchedule = { dueAtUtc, timezone, repeatRule };
+  const scheduleChanged = existing ? reminderScheduleDefinitionChanged(existing, nextSchedule) : false;
+  const scheduleVersion = existing ? Number(existing.scheduleVersion || 1) + (scheduleChanged ? 1 : 0) : 1;
+  const scheduleAnchorAtUtc = scheduleChanged ? dueAtUtc : (existing?.scheduleAnchorAtUtc || existing?.dueAtUtc || dueAtUtc);
   const reminder = await get(
     `INSERT INTO reminders
-       (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(noteId) DO UPDATE SET
+       (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, scheduleVersion, scheduleAnchorAtUtc, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(userId, noteId) DO UPDATE SET
        userId = excluded.userId,
        dueAtUtc = excluded.dueAtUtc,
        timezone = excluded.timezone,
@@ -2095,14 +2200,20 @@ async function smartSetReminder(userId, action, fallbackNoteId) {
        longitude = excluded.longitude,
        radiusMeters = excluded.radiusMeters,
        locationTrigger = excluded.locationTrigger,
+       scheduleAnchorAtUtc = CASE
+         WHEN reminders.dueAtUtc IS NOT excluded.dueAtUtc OR reminders.timezone IS NOT excluded.timezone OR reminders.repeatRule IS NOT excluded.repeatRule
+         THEN excluded.scheduleAnchorAtUtc ELSE COALESCE(reminders.scheduleAnchorAtUtc, reminders.dueAtUtc) END,
+       scheduleVersion = reminders.scheduleVersion + CASE
+         WHEN reminders.dueAtUtc IS NOT excluded.dueAtUtc OR reminders.timezone IS NOT excluded.timezone OR reminders.repeatRule IS NOT excluded.repeatRule
+         THEN 1 ELSE 0 END,
        updatedAt = excluded.updatedAt
      RETURNING *`,
     [
       noteId || null,
       userId,
       dueAtUtc,
-      action.timezone || 'UTC',
-      action.repeatRule || null,
+      timezone,
+      repeatRule,
       plainText(action.title) || null,
       plainText(action.text) || null,
       String(action.imageUrl || '') || null,
@@ -2111,6 +2222,8 @@ async function smartSetReminder(userId, action, fallbackNoteId) {
       longitude,
       radiusMeters,
       locationTrigger,
+      scheduleVersion,
+      scheduleAnchorAtUtc,
       now,
       now
     ]
@@ -2383,13 +2496,30 @@ function scheduleTrashPurgeIfStale() {
 async function syncNoteImagesForNote(noteId, ownerUserId, note) {
   if (!noteId || !ownerUserId) return;
   const filenames = extractNoteImageFilenames(note);
-  await run('DELETE FROM note_images WHERE noteId = ?', [noteId]);
+  const wanted = new Set(filenames);
+  const linked = await all('SELECT * FROM note_images WHERE noteId = ?', [noteId]);
+  const linkedByFilename = new Map(linked.map(row => [row.storedFilename, row]));
+  for (const row of linked) {
+    if (wanted.has(row.storedFilename)) continue;
+    await run('DELETE FROM note_images WHERE id = ?', [row.id]);
+    const stillUsed = await get('SELECT id FROM note_images WHERE storedFilename = ? LIMIT 1', [row.storedFilename]);
+    if (stillUsed) continue;
+    await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
+      WHERE resourceType = 'image' AND resourceSyncId = ? AND state = 'active'`, [new Date().toISOString(), row.storedFilename]);
+    const filename = safeStoredImageFilename(row.storedFilename);
+    if (filename) afterDatabaseCommit(() => { try { fs.unlinkSync(path.join(uploadDir, filename)); } catch {} });
+  }
   for (const filename of filenames) {
     const filePath = path.join(uploadDir, filename);
     let stats = null;
     try {
       stats = fs.statSync(filePath);
     } catch {
+      continue;
+    }
+    const existingLinked = linkedByFilename.get(filename);
+    if (existingLinked) {
+      await run('UPDATE note_images SET fileSize = ?, mimeType = ? WHERE id = ?', [stats.size, imageMimeType(filename), existingLinked.id]);
       continue;
     }
     const existingUnlinked = await get(
@@ -2402,25 +2532,29 @@ async function syncNoteImagesForNote(noteId, ownerUserId, note) {
         [noteId, stats.size, imageMimeType(filename), existingUnlinked.id]
       );
     } else {
+      const receipt = await get(`SELECT operationId FROM native_upload_receipts
+        WHERE userId = ? AND resourceType = 'image' AND resourceSyncId = ? AND state = 'active'`, [ownerUserId, filename]);
       await run(
         `INSERT OR IGNORE INTO note_images
-         (noteId, ownerUserId, storedFilename, originalName, fileSize, mimeType, uploadedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [noteId, ownerUserId, filename, filename, stats.size, imageMimeType(filename), new Date().toISOString()]
+         (noteId, ownerUserId, storedFilename, originalName, fileSize, mimeType, uploadedAt, uploadOperationId)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [noteId, ownerUserId, filename, filename, stats.size, imageMimeType(filename), new Date().toISOString(), receipt?.operationId || null]
       );
     }
   }
 }
 
 async function deleteImageFilesForNote(noteId) {
-  const rows = await all('SELECT storedFilename FROM note_images WHERE noteId = ?', [noteId]);
+  const rows = await all('SELECT storedFilename, ownerUserId FROM note_images WHERE noteId = ?', [noteId]);
   await run('DELETE FROM note_images WHERE noteId = ?', [noteId]);
   for (const row of rows) {
     const filename = safeStoredImageFilename(row.storedFilename);
     if (!filename) continue;
     const stillUsed = await get('SELECT id FROM note_images WHERE storedFilename = ? LIMIT 1', [filename]);
     if (stillUsed) continue;
-    try { fs.unlinkSync(path.join(uploadDir, filename)); } catch {}
+    await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
+      WHERE userId = ? AND resourceType = 'image' AND resourceSyncId = ? AND state = 'active'`, [new Date().toISOString(), row.ownerUserId, filename]);
+    afterDatabaseCommit(() => { try { fs.unlinkSync(path.join(uploadDir, filename)); } catch {} });
   }
 }
 
@@ -2817,6 +2951,13 @@ function closeRealtimeClientsForUser(userId, reason = 'Account disabled.') {
 }
 
 function broadcastRealtime(userIds, payload) {
+  const transaction = databaseTransactionContext.getStore();
+  if (transaction?.active) {
+    const recipients = [...(userIds || [])];
+    const message = { ...payload };
+    transaction.afterCommit.push(() => broadcastRealtime(recipients, message));
+    return;
+  }
   const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
   const message = JSON.stringify({ ...payload, at: new Date().toISOString() });
 
@@ -2938,7 +3079,8 @@ function setupRealtime() {
   wss.on('connection', async (socket, req) => {
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
-      const token = url.searchParams.get('token') || '';
+      const bearer = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization || ''))?.[1] || '';
+      const token = bearer || url.searchParams.get('token') || '';
       const session = await get(
         `SELECT users.* FROM sessions
          JOIN users ON users.id = sessions.userId
@@ -3336,10 +3478,9 @@ async function gcalDeleteReminder(userId, reminder) {
 
 // ─── Reminder scheduler ────────────────────────────────────────────────────
 
-function startReminderScheduler() {
-  setInterval(async () => {
+async function processDueReminders(nowDate = new Date()) {
     try {
-      const now = new Date().toISOString();
+      const now = nowDate.toISOString();
       const due = await all(
         `SELECT reminders.* FROM reminders
          ${visibleReminderJoin}
@@ -3349,34 +3490,32 @@ function startReminderScheduler() {
         [now]
       );
       const enrichedDue = await enrichReminderResponses(due);
+      let processed = 0;
       for (const reminder of enrichedDue) {
+        if (!(await reminderIsVisibleToUser(reminder, reminder.userId))) continue;
         const repeat = parseRepeatRule(reminder.repeatRule);
-        const nextDueAtUtc = repeat ? nextRepeatDueAt(reminder.dueAtUtc, repeat) : null;
+        const nextDueAtUtc = repeat ? nextRepeatDueAt(reminder.dueAtUtc, repeat, reminder.timezone, nowDate.getTime(), reminder.scheduleAnchorAtUtc || reminder.dueAtUtc) : null;
         const stamp = serverLwwStamp();
-        let updatedReminder = reminder;
-        if (repeat && nextDueAtUtc) {
-          await run(
+        const updatedReminder = await withDatabaseTransaction(async () => {
+          const updated = await get(
             `UPDATE reminders SET
-               status = 'pending', dueAtUtc = ?, updatedAt = ?,
+               status = ?, dueAtUtc = ?, updatedAt = ?,
                lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?, lwwOperationId = ?
-             WHERE id = ?`,
-            [nextDueAtUtc, now, stamp.physicalMs, stamp.logical, stamp.deviceId, stamp.operationId, reminder.id]
+             WHERE id = ? AND userId = ? AND status = 'pending' AND dueAtUtc = ? AND scheduleVersion = ?
+             RETURNING *`,
+            [repeat && nextDueAtUtc ? 'pending' : 'fired', repeat && nextDueAtUtc ? nextDueAtUtc : reminder.dueAtUtc,
+              now, stamp.physicalMs, stamp.logical, stamp.deviceId, stamp.operationId, reminder.id, reminder.userId,
+              reminder.dueAtUtc, Number(reminder.scheduleVersion || 1)]
           );
-          if (repeat.moveToTopOnTrigger) await floatReminderNoteToTop(reminder.userId, reminder.noteId);
-          updatedReminder = await get('SELECT * FROM reminders WHERE id = ?', [reminder.id]);
-          await recordReminderSyncChange(updatedReminder, 'upsert');
-        } else {
-          await run(
-            `UPDATE reminders SET
-               status = 'fired', updatedAt = ?,
-               lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?, lwwOperationId = ?
-             WHERE id = ?`,
-            [now, stamp.physicalMs, stamp.logical, stamp.deviceId, stamp.operationId, reminder.id]
-          );
+          if (!updated) return null;
+          await persistReminderOccurrence(reminder);
           if (repeat?.moveToTopOnTrigger) await floatReminderNoteToTop(reminder.userId, reminder.noteId);
-          updatedReminder = await get('SELECT * FROM reminders WHERE id = ?', [reminder.id]);
-          await recordReminderSyncChange(updatedReminder, 'upsert');
-        }
+          await recordReminderSyncChange(updated, 'upsert');
+          return updated;
+        });
+        if (!updatedReminder) continue;
+        processed += 1;
+        if (!(await reminderIsVisibleToUser(updatedReminder, reminder.userId))) continue;
         broadcastRealtime([reminder.userId], {
           type: 'reminder-fired',
           reminderId: reminder.id,
@@ -3387,10 +3526,15 @@ function startReminderScheduler() {
         });
         sendReminderPush(reminder).catch(err => console.error('Reminder push failed:', err.message));
       }
+      return { dueCount: processed };
     } catch (err) {
       console.error('Reminder scheduler error:', err.message);
+      throw err;
     }
-  }, 15_000);
+}
+
+function startReminderScheduler() {
+  setInterval(() => { processDueReminders().catch(() => {}); }, 15_000);
 }
 
 // CORS configuration.
@@ -3507,19 +3651,15 @@ app.post('/api/setup/restore', setupLimiter, multer({ dest: path.join(dataDir, '
     return res.status(400).json({ error: 'Could not read backup file.' });
   }
 
-  // Close the current DB connection
-  await new Promise((resolve, reject) => {
-    db.close((err) => err ? reject(err) : resolve());
-  });
-
   try {
-    // Replace the file
-    fs.copyFileSync(tempPath, dbPath);
-    fs.unlinkSync(tempPath);
-
-    // Re-open and re-init
-    db = configureDatabase(new sqlite3.Database(dbPath));
-    await init();
+    await withDatabaseExclusive(async setConnection => {
+      await new Promise((resolve, reject) => db.close(error => error ? reject(error) : resolve()));
+      fs.copyFileSync(tempPath, dbPath);
+      fs.unlinkSync(tempPath);
+      db = configureDatabase(new sqlite3.Database(dbPath));
+      setConnection(db);
+      await init();
+    });
 
     res.json({ success: true });
   } catch (e) {
@@ -4395,24 +4535,74 @@ app.delete('/api/labels/:id', requireAuth, asyncRoute(async (req, res) => {
 
 app.post('/api/uploads/images', requireAuth, upload.single('image'), asyncRoute(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Image file is required.' });
-  await run(
-    `INSERT INTO note_images (noteId, ownerUserId, storedFilename, originalName, fileSize, mimeType, uploadedAt)
-     VALUES (NULL, ?, ?, ?, ?, ?, ?)`,
-    [
-      req.user.id,
-      req.file.filename,
-      req.file.originalname || req.file.filename,
-      req.file.size,
-      req.file.mimetype,
-      new Date().toISOString()
-    ]
-  );
-  res.status(201).json({
+  const uploadOperationId = String(req.body?.operationId || '').trim();
+  if (uploadOperationId && (uploadOperationId.length > 160 || !/^[a-zA-Z0-9._:-]+$/.test(uploadOperationId))) {
+    fs.unlink(req.file.path, () => undefined);
+    return res.status(400).json({ error: 'Invalid image upload operation ID.' });
+  }
+  const now = new Date().toISOString();
+  const contentHash = sha256File(req.file.path);
+  const response = {
     url: `${PRIVATE_IMAGE_PREFIX}${req.file.filename}`,
     name: req.file.originalname || req.file.filename,
     size: req.file.size,
     type: req.file.mimetype
-  });
+  };
+  try {
+    const result = uploadOperationId ? await withDatabaseTransaction(async () => {
+      const receipt = await get(`SELECT * FROM native_upload_receipts
+        WHERE userId = ? AND operationId = ? AND resourceType = 'image'`, [req.user.id, uploadOperationId]);
+      if (receipt) {
+        if (receipt.contentHash !== contentHash) return { status: 409, error: 'Image operation ID was reused with different content.' };
+        const filename = safeStoredImageFilename(receipt.resourceSyncId);
+        if (receipt.state !== 'active' || !filename || !fs.existsSync(path.join(uploadDir, filename))) {
+          return { status: 410, error: 'This image upload was already deleted.' };
+        }
+        return { status: 200, payload: JSON.parse(receipt.payload) };
+      }
+
+      // Backfill receipts created by the earlier operationId-on-note_images implementation.
+      const legacy = await get('SELECT * FROM note_images WHERE ownerUserId = ? AND uploadOperationId = ?', [req.user.id, uploadOperationId]);
+      if (legacy) {
+        const legacyPath = path.join(uploadDir, safeStoredImageFilename(legacy.storedFilename));
+        if (!fs.existsSync(legacyPath)) return { status: 410, error: 'This image upload was already deleted.' };
+        const legacyHash = sha256File(legacyPath);
+        if (legacyHash !== contentHash) return { status: 409, error: 'Image operation ID was reused with different content.' };
+        const legacyPayload = { url: `${PRIVATE_IMAGE_PREFIX}${legacy.storedFilename}`, name: legacy.originalName,
+          size: legacy.fileSize, type: legacy.mimeType };
+        await run(`INSERT INTO native_upload_receipts
+          (userId, operationId, resourceType, resourceSyncId, noteId, contentHash, payload, state, createdAt, updatedAt)
+          VALUES (?, ?, 'image', ?, ?, ?, ?, 'active', ?, ?)`,
+        [req.user.id, uploadOperationId, legacy.storedFilename, legacy.noteId, legacyHash, JSON.stringify(legacyPayload), now, now]);
+        return { status: 200, payload: legacyPayload };
+      }
+
+      await run(`INSERT INTO note_images (noteId, ownerUserId, storedFilename, originalName, fileSize, mimeType, uploadedAt, uploadOperationId)
+        VALUES (NULL, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.user.id, req.file.filename, response.name, req.file.size, req.file.mimetype, now, uploadOperationId]);
+      await run(`INSERT INTO native_upload_receipts
+        (userId, operationId, resourceType, resourceSyncId, noteId, contentHash, payload, state, createdAt, updatedAt)
+        VALUES (?, ?, 'image', ?, NULL, ?, ?, 'active', ?, ?)`,
+      [req.user.id, uploadOperationId, req.file.filename, contentHash, JSON.stringify(response), now, now]);
+      return { status: 201, payload: response };
+    }) : null;
+
+    if (!uploadOperationId) {
+      await run(`INSERT INTO note_images (noteId, ownerUserId, storedFilename, originalName, fileSize, mimeType, uploadedAt, uploadOperationId)
+        VALUES (NULL, ?, ?, ?, ?, ?, ?, NULL)`,
+      [req.user.id, req.file.filename, response.name, req.file.size, req.file.mimetype, now]);
+      return res.status(201).json(response);
+    }
+    if (result.error) {
+      fs.unlink(req.file.path, () => undefined);
+      return res.status(result.status).json({ error: result.error });
+    }
+    if (result.status !== 201) fs.unlink(req.file.path, () => undefined);
+    res.status(result.status).json(result.payload);
+  } catch (error) {
+    fs.unlink(req.file.path, () => undefined);
+    throw error;
+  }
 }));
 
 app.get('/api/uploads/images/:filename', requireAuthOrQueryToken, asyncRoute(async (req, res) => {
@@ -4450,50 +4640,82 @@ app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single(
   if (!req.file) return res.status(400).json({ error: 'File is required.' });
 
   const noteId = Number(req.params.noteId);
-  const note = await getAccessibleNote(noteId, req.user.id);
-  if (!note) {
+  const syncId = String(req.body?.syncId || req.query?.syncId || `attachment-${crypto.randomUUID()}`).trim();
+  const operationId = String(req.body?.operationId || req.query?.operationId || syncId).trim();
+  if (!syncId || syncId.length > 160 || !/^[a-zA-Z0-9._:-]+$/.test(syncId) || !operationId || operationId.length > 160 || !/^[a-zA-Z0-9._:-]+$/.test(operationId)) {
     fs.unlink(req.file.path, () => undefined);
-    return res.status(404).json({ error: 'Note not found.' });
+    return res.status(400).json({ error: 'Invalid attachment operation or sync ID.' });
   }
-
   const now = new Date().toISOString();
-  const stamp = serverLwwStamp();
-  const syncId = String(req.body?.syncId || req.query?.syncId || `attachment-${crypto.randomUUID()}`);
-  const existing = await get(
-    `SELECT na.*
-     FROM note_attachments na
-     JOIN notes n ON n.id = na.noteId
-     LEFT JOIN note_collaborators nc ON nc.noteId = n.id AND nc.userId = ?
-     WHERE na.syncId = ?
-       AND (n.ownerUserId = ? OR nc.userId IS NOT NULL)`,
-    [req.user.id, syncId, req.user.id]
-  );
-  if (existing) {
+  const contentHash = sha256File(req.file.path);
+  let result;
+  try {
+    result = await withDatabaseTransaction(async () => {
+      const note = await getAccessibleNote(noteId, req.user.id);
+      if (!note) return { status: 404, error: 'Note not found.' };
+      const receipt = await get(`SELECT * FROM native_upload_receipts
+        WHERE userId = ? AND operationId = ? AND resourceType = 'attachment'`, [req.user.id, operationId]);
+      if (receipt) {
+        if (receipt.contentHash !== contentHash || receipt.resourceSyncId !== syncId || Number(receipt.noteId) !== noteId) {
+          return { status: 409, error: 'Attachment operation ID was reused with different content or destination.' };
+        }
+        if (receipt.state !== 'active') return { status: 410, error: 'This attachment upload was already deleted.' };
+        const existingAttachment = await get('SELECT * FROM note_attachments WHERE syncId = ? AND noteId = ?', [syncId, noteId]);
+        if (!existingAttachment || !fs.existsSync(attachmentPath(existingAttachment.storedFilename))) {
+          return { status: 410, error: 'This attachment upload is no longer available.' };
+        }
+        return { status: 200, payload: attachmentResponse(existingAttachment), fileRetained: true };
+      }
+
+      const existing = await get(
+        `SELECT na.* FROM note_attachments na
+         JOIN notes n ON n.id = na.noteId
+         LEFT JOIN note_collaborators nc ON nc.noteId = n.id AND nc.userId = ?
+         WHERE na.syncId = ? AND (n.ownerUserId = ? OR nc.userId IS NOT NULL)`,
+        [req.user.id, syncId, req.user.id]
+      );
+      if (existing) {
+        if (existing.noteId !== noteId) return { status: 409, error: 'Attachment sync ID belongs to a different note.' };
+        const existingPath = attachmentPath(existing.storedFilename);
+        if (!fs.existsSync(existingPath) || sha256File(existingPath) !== contentHash) {
+          return { status: 409, error: 'Attachment sync ID was reused with different content.' };
+        }
+        const existingNote = await get('SELECT revision FROM notes WHERE id = ?', [noteId]);
+        const existingPayload = { ...attachmentResponse(existing), noteRevision: Number(existingNote?.revision || 1) };
+        await run(`INSERT INTO native_upload_receipts
+          (userId, operationId, resourceType, resourceSyncId, noteId, contentHash, payload, state, createdAt, updatedAt)
+          VALUES (?, ?, 'attachment', ?, ?, ?, ?, 'active', ?, ?)`,
+        [req.user.id, operationId, syncId, noteId, contentHash, JSON.stringify(existingPayload), now, now]);
+        return { status: 200, payload: existingPayload, fileRetained: true };
+      }
+
+      const stamp = serverLwwStamp();
+      const inserted = await run(
+        `INSERT INTO note_attachments
+           (noteId, syncId, originalName, storedFilename, fileSize, mimeType, uploadedAt, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [noteId, syncId, safeDownloadName(req.file.originalname || req.file.filename), req.file.filename, req.file.size,
+          req.file.mimetype, now, stamp.physicalMs, stamp.logical, stamp.deviceId, stamp.operationId]
+      );
+      const attachment = await get('SELECT * FROM note_attachments WHERE id = ?', [inserted.id]);
+      const payload = attachmentResponse(attachment);
+      await recordAttachmentSyncChange(attachment, 'upsert');
+      await broadcastNoteChange(noteId, 'updated');
+      const noteAfterUpload = await get('SELECT revision FROM notes WHERE id = ?', [noteId]);
+      const receiptPayload = { ...payload, noteRevision: Number(noteAfterUpload?.revision || 1) };
+      await run(`INSERT INTO native_upload_receipts
+        (userId, operationId, resourceType, resourceSyncId, noteId, contentHash, payload, state, createdAt, updatedAt)
+        VALUES (?, ?, 'attachment', ?, ?, ?, ?, 'active', ?, ?)`,
+      [req.user.id, operationId, syncId, noteId, contentHash, JSON.stringify(receiptPayload), now, now]);
+      return { status: 201, payload: receiptPayload, fileRetained: true };
+    });
+  } catch (error) {
     fs.unlink(req.file.path, () => undefined);
-    return res.status(200).json(attachmentResponse(existing));
+    throw error;
   }
-  const result = await run(
-    `INSERT INTO note_attachments
-       (noteId, syncId, originalName, storedFilename, fileSize, mimeType, uploadedAt, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      noteId,
-      syncId,
-      safeDownloadName(req.file.originalname || req.file.filename),
-      req.file.filename,
-      req.file.size,
-      req.file.mimetype,
-      now,
-      stamp.physicalMs,
-      stamp.logical,
-      stamp.deviceId,
-      stamp.operationId
-    ]
-  );
-  const attachment = await get('SELECT * FROM note_attachments WHERE id = ?', [result.id]);
-  await recordAttachmentSyncChange(attachment, 'upsert');
-  res.status(201).json(attachmentResponse(attachment));
-  await broadcastNoteChange(noteId, 'updated');
+  if (!result.fileRetained) fs.unlink(req.file.path, () => undefined);
+  if (result.error) return res.status(result.status).json({ error: result.error });
+  res.status(result.status).json(result.payload);
 }));
 
 app.get('/api/attachments/:attachmentId', requireAuth, asyncRoute(async (req, res) => {
@@ -4538,13 +4760,7 @@ app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, asyncRou
     return res.status(403).json({ error: 'Only the note owner can delete attachments.' });
   }
 
-  // Delete file from disk
   const filePath = attachmentPath(attachment.storedFilename);
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
-
-  // Delete from database
   const recipients = await getNoteRecipientIds(noteId);
   const stamp = serverLwwStamp();
   attachment.syncId = attachment.syncId || `attachment-${crypto.randomUUID()}`;
@@ -4552,9 +4768,19 @@ app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, asyncRou
   attachment.lwwLogical = stamp.logical;
   attachment.lwwDeviceId = stamp.deviceId;
   attachment.lwwOperationId = stamp.operationId;
-  await run('DELETE FROM note_attachments WHERE id = ?', [attachmentId]);
-  await recordAttachmentSyncChange(attachment, 'delete', recipients);
-  await broadcastNoteChange(noteId, 'updated');
+  const deleted = await withDatabaseTransaction(async () => {
+    const current = await get('SELECT * FROM note_attachments WHERE id = ? AND noteId = ?', [attachmentId, noteId]);
+    if (!current) return false;
+    await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
+      WHERE userId = ? AND resourceType = 'attachment' AND resourceSyncId = ? AND state = 'active'`,
+    [new Date().toISOString(), req.user.id, current.syncId || attachment.syncId]);
+    await run('DELETE FROM note_attachments WHERE id = ?', [attachmentId]);
+    await recordAttachmentSyncChange({ ...current, ...attachment }, 'delete', recipients);
+    await broadcastNoteChange(noteId, 'updated');
+    return true;
+  });
+  if (!deleted) return res.status(404).json({ error: 'Attachment not found.' });
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
   res.status(204).end();
 }));
@@ -4596,7 +4822,8 @@ async function syncSnapshotForUser(userId) {
       attachmentsByNoteId.get(attachment.noteId).push(attachmentResponse(attachment));
     }
   }
-  const reminders = await all(`SELECT * FROM reminders WHERE userId = ?`, [userId]);
+  const reminders = await all(`SELECT reminders.* FROM reminders
+    WHERE reminders.userId = ? AND ${visibleReminderWhere}`, [userId]);
   const cursorRow = await get('SELECT COALESCE(MAX(sequence), 0) AS cursor FROM sync_changes WHERE userId = ?', [userId]);
   return {
     notes: notes.map(row => {
@@ -4605,6 +4832,7 @@ async function syncSnapshotForUser(userId) {
       return note;
     }),
     reminders: await enrichReminderResponses(reminders),
+    occurrences: await nativeOccurrencesForUser(userId),
     attachments: Array.from(attachmentsByNoteId.values()).flat(),
     cursor: Number(cursorRow?.cursor || 0),
     serverTime: Date.now()
@@ -4626,8 +4854,9 @@ app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
     [req.user.id, since, limit]
   );
   const cursorRow = await get('SELECT COALESCE(MAX(sequence), 0) AS cursor FROM sync_changes WHERE userId = ?', [req.user.id]);
-  res.json({
-    changes: rows.map(row => ({
+  const changes = [];
+  for (const row of rows) {
+    const change = {
       sequence: row.sequence,
       resourceType: row.resourceType,
       resourceSyncId: row.resourceSyncId,
@@ -4640,7 +4869,18 @@ app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
         operationId: row.lwwOperationId || ''
       },
       changedAt: row.changedAt
-    })),
+    };
+    if (change.resourceType === 'reminder' && change.operation !== 'delete') {
+      const reminder = await get('SELECT * FROM reminders WHERE syncId = ? AND userId = ?', [change.resourceSyncId, req.user.id]);
+      if (!reminder || !(await reminderIsVisibleToUser(reminder, req.user.id))) {
+        change.operation = 'delete';
+        change.payload = null;
+      }
+    }
+    changes.push(change);
+  }
+  res.json({
+    changes,
     cursor: rows.length ? Number(rows[rows.length - 1].sequence) : since,
     hasMore: rows.length === limit && Number(rows[rows.length - 1].sequence) < Number(cursorRow?.cursor || 0),
     serverCursor: Number(cursorRow?.cursor || 0),
@@ -4651,6 +4891,24 @@ app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
 async function applySyncNoteMutation(userId, mutation) {
   const type = String(mutation.type || '');
   const payload = mutation.payload || {};
+  if (type === 'note.view-state') {
+    const syncId = String(mutation.syncId || payload.syncId || '');
+    const row = await get('SELECT id FROM notes WHERE syncId = ? OR id = ?', [syncId, Number(payload.noteId || mutation.id || 0)]);
+    if (!row) return { ok: false, status: 404, error: 'Note not found.', syncId };
+    const note = await getAccessibleNote(row.id, userId);
+    if (!note) return { ok: false, status: 404, error: 'Note not accessible.', syncId };
+    const collapsed = payload.completedChecklistCollapsed === true ? 1 : 0;
+    const now = new Date().toISOString();
+    await run(`INSERT INTO user_note_view_states (userId, noteId, completedChecklistCollapsed, updatedAt)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(userId, noteId) DO UPDATE SET
+        completedChecklistCollapsed = excluded.completedChecklistCollapsed, updatedAt = excluded.updatedAt`,
+    [userId, row.id, collapsed, now]);
+    await recordNoteSyncChange(row.id, 'upsert', [userId]);
+    broadcastRealtime([userId], { type: 'notes-changed', action: 'updated', noteId: row.id });
+    return { ok: true, resourceType: 'note-view-state', syncId, id: row.id,
+      payload: { syncId, completedChecklistCollapsed: Boolean(collapsed), updatedAt: now } };
+  }
   if (type === 'note.reorder') {
     const syncIds = Array.isArray(payload.syncIds) ? payload.syncIds.map(String).filter(Boolean) : [];
     if (!syncIds.length) return { ok: true, skipped: true, resourceType: 'note-order' };
@@ -4678,14 +4936,24 @@ async function applySyncNoteMutation(userId, mutation) {
     return { ok: true, resourceType: 'note-order' };
   }
   const syncId = String(mutation.syncId || payload.syncId || payload.clientId || `note-${crypto.randomUUID()}`);
-  const incomingStamp = normalizeLwwStamp(mutation.lww || payload);
+  const guarded = Object.prototype.hasOwnProperty.call(mutation, 'baseRevision');
+  const incomingStamp = guarded ? serverLwwStamp() : normalizeLwwStamp(mutation.lww || payload);
   const existing = await get('SELECT * FROM notes WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);
-  if (existing && compareLwwStamp(incomingStamp, rowLwwStamp(existing)) < 0) {
+  if (guarded && (!Number.isSafeInteger(mutation.baseRevision) || mutation.baseRevision < 0)) {
+    return { ok: false, status: 400, error: 'A non-negative integer baseRevision is required.', syncId };
+  }
+  if (existing && !(await getAccessibleNote(existing.id, userId))) return { ok: false, status: 403, error: 'Note not accessible.', syncId };
+  if (guarded && (existing ? existing.revision !== mutation.baseRevision : mutation.baseRevision !== 0)) {
+    return noteRevisionConflict(userId, existing?.id, syncId);
+  }
+  if (!guarded && existing && compareLwwStamp(incomingStamp, rowLwwStamp(existing)) < 0) {
     return { ok: true, skipped: true, resourceType: 'note', syncId, id: existing.id };
   }
   if (type === 'note.delete') {
     const note = existing ? await getAccessibleNote(existing.id, userId) : null;
     if (!note) return { ok: true, skipped: true, resourceType: 'note', syncId };
+    if (note.ownerUserId !== userId) return { ok: false, status: 403, error: 'Only the owner can delete a note.', syncId };
+    if (guarded) return { ok: false, status: 400, error: 'Use an archived or trashed note update before permanent deletion.', syncId };
     const recipients = await getNoteRecipientIds(note.id);
     await recordDependentSyncDeletesForNote(note.id, recipients);
     await deleteAttachmentFilesForNote(note.id);
@@ -4707,9 +4975,9 @@ async function applySyncNoteMutation(userId, mutation) {
   if (!existing) {
     const result = await run(
       `INSERT INTO notes
-       (ownerUserId, syncId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo,
+       (ownerUserId, syncId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo,
         lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         syncId,
@@ -4719,10 +4987,11 @@ async function applySyncNoteMutation(userId, mutation) {
         noteData.bgImage || '',
         JSON.stringify(noteData.checkBoxes || []),
         JSON.stringify(noteData.images || []),
-        noteData.isCbox ? 1 : 0,
-        JSON.stringify(noteData.labels || []),
-        noteData.binder || '',
-        noteData.locked ? 1 : 0,
+         noteData.isCbox ? 1 : 0,
+         JSON.stringify(noteData.labels || []),
+         noteData.binder || '',
+         JSON.stringify(noteData.extraFields || {}),
+         noteData.locked ? 1 : 0,
         noteData.lockSalt || '',
         noteData.lockHash || '',
         noteData.archived ? 1 : 0,
@@ -4743,7 +5012,7 @@ async function applySyncNoteMutation(userId, mutation) {
     await syncNoteImagesForNote(result.id, userId, noteData);
     await recordNoteSyncChange(result.id, 'upsert', [userId]);
     broadcastRealtime([userId], { type: 'notes-changed', action: 'created', noteId: result.id, syncId });
-    return { ok: true, resourceType: 'note', syncId, id: result.id };
+    return { ok: true, resourceType: 'note', syncId, id: result.id, payload: dbNoteToApi(await getAccessibleNote(result.id, userId)) };
   }
 
   const note = await getAccessibleNote(existing.id, userId);
@@ -4778,13 +5047,17 @@ async function applySyncNoteMutation(userId, mutation) {
     noteData.lockSalt = note.lockSalt || '';
     noteData.lockHash = note.lockHash || '';
   }
+  const storedExtraFields = parseJson(note.extraFields || '{}', {});
+  noteData.extraFields = isOwner
+    ? { ...storedExtraFields, ...noteData.extraFields }
+    : storedExtraFields;
   const trashedAt = nextTrashedAt(note, noteData);
-  await run(
+  const updated = await run(
     `UPDATE notes SET
       noteTitle = ?, noteBody = ?, bgColor = ?, bgImage = ?,
-      checkBoxes = ?, images = ?, isCbox = ?, labels = ?, binder = ?, locked = ?, lockSalt = ?, lockHash = ?, archived = ?, trashed = ?, trashedAt = ?, updatedAt = ?, lastEditorUserId = ?, isDemo = ?,
+      checkBoxes = ?, images = ?, isCbox = ?, labels = ?, binder = ?, extraFields = ?, locked = ?, lockSalt = ?, lockHash = ?, archived = ?, trashed = ?, trashedAt = ?, updatedAt = ?, lastEditorUserId = ?, isDemo = ?,
       lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?, lwwOperationId = ?
-     WHERE id = ?`,
+     WHERE id = ?${guarded ? ' AND revision = ?' : ''}`,
     [
       String(noteData.noteTitle || ''),
       noteData.noteBody || '',
@@ -4795,6 +5068,7 @@ async function applySyncNoteMutation(userId, mutation) {
       noteData.isCbox ? 1 : 0,
       JSON.stringify(noteData.labels || []),
       noteData.binder || '',
+      JSON.stringify(noteData.extraFields || {}),
       noteData.locked ? 1 : 0,
       noteData.lockSalt || '',
       noteData.lockHash || '',
@@ -4808,15 +5082,17 @@ async function applySyncNoteMutation(userId, mutation) {
       incomingStamp.logical,
       incomingStamp.deviceId,
       incomingStamp.operationId,
-      note.id
+      note.id,
+      ...(guarded ? [mutation.baseRevision] : [])
     ]
   );
+  if (!updated.changes) return noteRevisionConflict(userId, note.id, syncId);
   if (shouldPinForUser) await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [userId, note.id]);
   else await run('DELETE FROM user_pins WHERE userId = ? AND noteId = ?', [userId, note.id]);
   await syncNoteImagesForNote(note.id, note.ownerUserId, noteData);
   await cleanupUnusedLabels(userId);
   await broadcastNoteChange(note.id, 'updated', undefined, { preserveStamp: true });
-  return { ok: true, resourceType: 'note', syncId, id: note.id };
+  return { ok: true, resourceType: 'note', syncId, id: note.id, payload: dbNoteToApi(await getAccessibleNote(note.id, userId)) };
 }
 
 async function applySyncReminderMutation(userId, mutation) {
@@ -4824,7 +5100,14 @@ async function applySyncReminderMutation(userId, mutation) {
   const payload = mutation.payload || {};
   const syncId = String(mutation.syncId || payload.syncId || `reminder-${crypto.randomUUID()}`);
   const incomingStamp = normalizeLwwStamp(mutation.lww || payload);
-  const existing = await get('SELECT * FROM reminders WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);
+  let existing = await get('SELECT * FROM reminders WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);
+  if (existing && existing.userId !== userId) return { ok: false, status: 403, error: 'Reminder not accessible.', syncId };
+  if (existing && type !== 'reminder.delete' && !(await reminderIsVisibleToUser(existing, userId))) {
+    return { ok: false, status: 404, error: 'The linked note is no longer accessible.', syncId };
+  }
+  if (existing && mutation.baseScheduleVersion !== undefined && Number(existing.scheduleVersion || 1) !== Number(mutation.baseScheduleVersion)) {
+    return { ok: false, status: 409, error: 'Reminder schedule changed.', syncId, latest: await enrichReminderResponse(existing) };
+  }
   if (existing && compareLwwStamp(incomingStamp, rowLwwStamp(existing)) < 0) {
     return { ok: true, skipped: true, resourceType: 'reminder', syncId, id: existing.id };
   }
@@ -4861,21 +5144,51 @@ async function applySyncReminderMutation(userId, mutation) {
     }
   }
   if (!normalized.dueAtUtc && !normalized.locationName) return { ok: false, status: 400, error: 'Either dueAtUtc or locationName is required.', syncId };
+  if (normalized.dueAtUtc && !Number.isFinite(Date.parse(normalized.dueAtUtc))) return { ok: false, status: 400, error: 'dueAtUtc must be a valid date.', syncId };
   if (normalized.locationName && (normalized.latitude == null || normalized.longitude == null)) return { ok: false, status: 400, error: 'Location reminders require latitude and longitude.', syncId };
   if (normalized.noteId) {
     const note = await getAccessibleNote(normalized.noteId, userId);
     if (!note) return { ok: false, status: 404, error: 'Note not found.', syncId };
   }
+  if (!existing && normalized.noteId) {
+    existing = await get('SELECT * FROM reminders WHERE userId = ? AND noteId = ?', [userId, normalized.noteId]);
+    if (existing && mutation.baseScheduleVersion !== undefined && Number(existing.scheduleVersion || 1) !== Number(mutation.baseScheduleVersion)) {
+      return { ok: false, status: 409, error: 'Reminder schedule changed.', syncId, latest: await enrichReminderResponse(existing) };
+    }
+    if (existing && compareLwwStamp(incomingStamp, rowLwwStamp(existing)) < 0) {
+      return { ok: true, skipped: true, resourceType: 'reminder', syncId: existing.syncId, id: existing.id };
+    }
+  }
   const now = new Date().toISOString();
+  let scheduleChanged = existing ? reminderScheduleDefinitionChanged(existing, normalized) : false;
+  if (existing && mutation.baseScheduleVersion !== undefined) {
+    const currentVersion = Number(existing.scheduleVersion || 1);
+    const requestedVersion = payload.scheduleVersion === undefined ? currentVersion : Number(payload.scheduleVersion);
+    if (!Number.isSafeInteger(requestedVersion) || requestedVersion < currentVersion || requestedVersion > currentVersion + 1) {
+      return { ok: false, status: 409, error: 'Reminder schedule version is invalid.', syncId, latest: await enrichReminderResponse(existing) };
+    }
+    scheduleChanged = requestedVersion === currentVersion + 1;
+    if (!scheduleChanged) {
+      normalized.dueAtUtc = existing.dueAtUtc;
+      normalized.timezone = existing.timezone;
+      normalized.repeatRule = existing.repeatRule;
+    }
+  }
+  const scheduleVersion = existing
+    ? Number(existing.scheduleVersion || 1) + (scheduleChanged ? 1 : 0)
+    : 1;
+  const scheduleAnchorAtUtc = scheduleChanged
+    ? normalized.dueAtUtc
+    : (existing?.scheduleAnchorAtUtc || existing?.dueAtUtc || normalized.dueAtUtc);
   let reminder;
   if (existing) {
     reminder = await get(
       `UPDATE reminders SET
          noteId = ?, userId = ?, dueAtUtc = ?, timezone = ?, repeatRule = ?, status = ?,
          title = ?, body = ?, imageUrl = ?, locationName = ?, latitude = ?, longitude = ?,
-         radiusMeters = ?, locationTrigger = ?, updatedAt = ?,
+         radiusMeters = ?, locationTrigger = ?, scheduleVersion = ?, scheduleAnchorAtUtc = ?, updatedAt = ?,
          lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?, lwwOperationId = ?
-       WHERE id = ?
+       WHERE id = ? AND scheduleVersion = ?
        RETURNING *`,
       [
         normalized.noteId,
@@ -4892,19 +5205,24 @@ async function applySyncReminderMutation(userId, mutation) {
         normalized.longitude,
         normalized.radiusMeters,
         normalized.locationTrigger,
+        scheduleVersion,
+        scheduleAnchorAtUtc,
         now,
         incomingStamp.physicalMs,
         incomingStamp.logical,
         incomingStamp.deviceId,
         incomingStamp.operationId,
-        existing.id
+        existing.id,
+        Number(existing.scheduleVersion || 1)
       ]
     );
+    if (!reminder) return { ok: false, status: 409, error: 'Reminder schedule changed.', syncId,
+      latest: await enrichReminderResponse(await get('SELECT * FROM reminders WHERE id = ?', [existing.id])) };
   } else {
     reminder = await get(
-    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, createdAt, updatedAt, syncId, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(noteId) DO UPDATE SET
+    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, scheduleVersion, scheduleAnchorAtUtc, createdAt, updatedAt, syncId, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(userId, noteId) DO UPDATE SET
        userId = excluded.userId,
        dueAtUtc = excluded.dueAtUtc,
        timezone = excluded.timezone,
@@ -4916,9 +5234,15 @@ async function applySyncReminderMutation(userId, mutation) {
        locationName = excluded.locationName,
        latitude = excluded.latitude,
        longitude = excluded.longitude,
-       radiusMeters = excluded.radiusMeters,
-       locationTrigger = excluded.locationTrigger,
-       updatedAt = excluded.updatedAt,
+        radiusMeters = excluded.radiusMeters,
+        locationTrigger = excluded.locationTrigger,
+        scheduleAnchorAtUtc = CASE
+          WHEN reminders.dueAtUtc IS NOT excluded.dueAtUtc OR reminders.timezone IS NOT excluded.timezone OR reminders.repeatRule IS NOT excluded.repeatRule
+          THEN excluded.scheduleAnchorAtUtc ELSE COALESCE(reminders.scheduleAnchorAtUtc, reminders.dueAtUtc) END,
+        scheduleVersion = reminders.scheduleVersion + CASE
+          WHEN reminders.dueAtUtc IS NOT excluded.dueAtUtc OR reminders.timezone IS NOT excluded.timezone OR reminders.repeatRule IS NOT excluded.repeatRule
+          THEN 1 ELSE 0 END,
+        updatedAt = excluded.updatedAt,
        syncId = COALESCE(reminders.syncId, excluded.syncId),
        lwwPhysicalMs = excluded.lwwPhysicalMs,
        lwwLogical = excluded.lwwLogical,
@@ -4937,10 +5261,12 @@ async function applySyncReminderMutation(userId, mutation) {
       normalized.imageUrl,
       normalized.locationName,
       normalized.latitude,
-      normalized.longitude,
-      normalized.radiusMeters,
-      normalized.locationTrigger,
-      payload.createdAt || now,
+       normalized.longitude,
+       normalized.radiusMeters,
+       normalized.locationTrigger,
+       scheduleVersion,
+       scheduleAnchorAtUtc,
+       payload.createdAt || now,
       now,
       syncId,
       incomingStamp.physicalMs,
@@ -4972,7 +5298,10 @@ async function applySyncAttachmentMutation(userId, mutation) {
   }
   const recipients = await getNoteRecipientIds(attachment.noteId);
   const filePath = attachmentPath(attachment.storedFilename);
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
+    WHERE userId = ? AND resourceType = 'attachment' AND resourceSyncId = ? AND state = 'active'`,
+  [new Date().toISOString(), userId, syncId]);
+  afterDatabaseCommit(() => { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); });
   await run('DELETE FROM note_attachments WHERE id = ?', [attachment.id]);
   await recordAttachmentSyncChange({
     ...attachment,
@@ -4985,16 +5314,167 @@ async function applySyncAttachmentMutation(userId, mutation) {
   return { ok: true, resourceType: 'attachment', syncId, id: attachment.id, deleted: true };
 }
 
+async function noteRevisionConflict(userId, noteId, syncId) {
+  const latest = noteId ? await getAccessibleNote(noteId, userId) : null;
+  return { ok: false, status: 409, error: 'The note changed since this draft was opened.',
+    resourceType: 'note', syncId, latest: latest ? dbNoteToApi(latest) : null };
+}
+
+// Serialize retries of the same operation, not independent note edits. Note edits
+// themselves are guarded by an atomic SQL revision predicate.
+const nativeOperationsInFlight = new Map();
+async function executeSyncMutation(userId, mutation) {
+  const operationId = mutation.operationId;
+  if (operationId !== undefined && (typeof operationId !== 'string' || !operationId || operationId.length > 160)) {
+    return { ok: false, status: 400, error: 'Invalid operationId.' };
+  }
+  const key = operationId ? `${userId}:${operationId}` : null;
+  if (key && nativeOperationsInFlight.has(key)) {
+    await nativeOperationsInFlight.get(key);
+    return executeSyncMutation(userId, mutation);
+  }
+  let release;
+  if (key) nativeOperationsInFlight.set(key, new Promise(resolve => { release = resolve; }));
+  try {
+    const result = await withDatabaseTransaction(async () => {
+      await hitTestFault('before-mutation');
+      const fingerprint = crypto.createHash('sha256').update(JSON.stringify(mutation)).digest('hex');
+      if (key) {
+        const stored = await get('SELECT * FROM native_mutation_results WHERE userId = ? AND operationId = ?', [userId, operationId]);
+        if (stored) {
+          if (stored.fingerprint !== fingerprint) return { ok: false, status: 409, error: 'operationId was already used for a different change.' };
+          return replaySafeMutationResult(userId, JSON.parse(stored.result));
+        }
+      }
+      const type = String(mutation.type || '');
+      let result;
+      if (type === 'reminder.action') result = await applyReminderOccurrenceAction(userId, mutation.payload || {});
+      else if (type.startsWith('note.')) result = await applySyncNoteMutation(userId, mutation);
+      else if (type.startsWith('reminder.')) result = await applySyncReminderMutation(userId, mutation);
+      else if (type.startsWith('attachment.')) result = await applySyncAttachmentMutation(userId, mutation);
+      else result = { ok: false, status: 400, error: 'Unsupported mutation type.', type };
+      await hitTestFault('after-mutation-before-receipt');
+      if (key && result.ok) {
+        await run('INSERT INTO native_mutation_results (userId, operationId, fingerprint, result, createdAt) VALUES (?, ?, ?, ?, ?)',
+          [userId, operationId, fingerprint, JSON.stringify(result), new Date().toISOString()]);
+      }
+      return result;
+    });
+    await hitTestFault('after-receipt-before-response');
+    return result;
+  } finally {
+    if (key) { nativeOperationsInFlight.delete(key); release(); }
+  }
+}
+
+async function replaySafeMutationResult(userId, result) {
+  if (result?.resourceType !== 'reminder' || !result.syncId) return result;
+  const reminder = await get('SELECT * FROM reminders WHERE syncId = ? AND userId = ?', [result.syncId, userId]);
+  if (!reminder || !(await reminderIsVisibleToUser(reminder, userId))) {
+    const { payload, ...acknowledgement } = result;
+    return { ...acknowledgement, ok: true, replayed: true };
+  }
+  return { ...result, payload: await enrichReminderResponse(reminder) };
+}
+
+async function persistReminderOccurrence(reminder) {
+  if (!reminder.syncId || !reminder.dueAtUtc) return;
+  const id = occurrenceId(reminder);
+  const payload = { ...reminder, occurrenceId: id, scheduleVersion: Number(reminder.scheduleVersion || 1) };
+  await run(`INSERT OR IGNORE INTO reminder_occurrences
+    (occurrenceId, userId, reminderSyncId, dueAtUtc, payload, createdAt) VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, reminder.userId, reminder.syncId, reminder.dueAtUtc, JSON.stringify(payload), new Date().toISOString()]);
+  await run("DELETE FROM reminder_occurrences WHERE createdAt < datetime('now', '-30 days')");
+}
+
+async function nativeOccurrencesForUser(userId) {
+  const rows = await all(`SELECT o.* FROM reminder_occurrences o
+    JOIN reminders r ON r.syncId = o.reminderSyncId AND r.userId = o.userId
+    LEFT JOIN notes n ON n.id = r.noteId
+    WHERE o.userId = ? AND (r.noteId IS NULL OR (n.id IS NOT NULL AND n.archived = 0 AND n.trashed = 0
+      AND (n.ownerUserId = ? OR EXISTS (SELECT 1 FROM note_collaborators c WHERE c.noteId = n.id AND c.userId = ?))))
+      AND r.status != 'dismissed'
+    ORDER BY o.dueAtUtc DESC LIMIT 2000`, [userId, userId, userId]);
+  return rows.map(row => ({ ...JSON.parse(row.payload), occurrenceId: row.occurrenceId,
+    state: row.state, snoozeUntil: row.snoozeUntil }));
+}
+
+async function applyReminderOccurrenceAction(userId, payload) {
+  if (!['dismissed', 'snoozed'].includes(payload.state)) return { ok: false, status: 400, error: 'Invalid reminder action.' };
+  const occurrenceKey = String(payload.occurrenceId || '');
+  const existingOccurrence = await get('SELECT * FROM reminder_occurrences WHERE occurrenceId = ? AND userId = ?', [occurrenceKey, userId]);
+  const reminderSyncId = String(payload.reminderSyncId || existingOccurrence?.reminderSyncId || '');
+  const reminder = await get('SELECT * FROM reminders WHERE syncId = ? AND userId = ?', [reminderSyncId, userId]);
+  if (!reminder || reminder.status === 'dismissed') return { ok: false, status: 409, error: 'Reminder occurrence is no longer available.' };
+  const scheduleVersion = Number(reminder.scheduleVersion || 1);
+  if (payload.scheduleVersion !== undefined && Number(payload.scheduleVersion) !== scheduleVersion) {
+    return { ok: false, status: 409, error: 'Reminder occurrence belongs to an older schedule.' };
+  }
+  const prefix = `${reminderSyncId}@`;
+  const suffix = `#v${scheduleVersion}`;
+  if (!occurrenceKey.startsWith(prefix) || !occurrenceKey.endsWith(suffix)) {
+    return { ok: false, status: 409, error: 'Reminder occurrence identity is invalid.' };
+  }
+  const occurrenceDueAtUtc = normalizeReminderDueAt(occurrenceKey.slice(prefix.length, -suffix.length));
+  if (!occurrenceDueAtUtc || !Number.isFinite(Date.parse(occurrenceDueAtUtc)) ||
+      occurrenceId({ syncId: reminderSyncId, dueAtUtc: occurrenceDueAtUtc, scheduleVersion }) !== occurrenceKey ||
+      Date.parse(occurrenceDueAtUtc) > Date.now() ||
+      !isRepeatOccurrence(reminder.scheduleAnchorAtUtc || reminder.dueAtUtc, occurrenceDueAtUtc,
+        parseRepeatRule(reminder.repeatRule), reminder.timezone || 'UTC')) {
+    return { ok: false, status: 409, error: 'Reminder occurrence is no longer available.' };
+  }
+  if (reminder.noteId && !(await reminderIsVisibleToUser(reminder, userId))) return { ok: false, status: 403, error: 'Note not accessible.' };
+  let row = existingOccurrence;
+  if (!row) {
+    const enriched = await enrichReminderResponse(reminder);
+    await persistReminderOccurrence({ ...enriched, dueAtUtc: occurrenceDueAtUtc, occurrenceId: occurrenceKey, scheduleVersion });
+    row = await get('SELECT * FROM reminder_occurrences WHERE occurrenceId = ? AND userId = ?', [occurrenceKey, userId]);
+  }
+  const storedOccurrence = parseJson(row.payload, {});
+  if (Number(storedOccurrence.scheduleVersion || 1) !== scheduleVersion || storedOccurrence.dueAtUtc !== occurrenceDueAtUtc) {
+    return { ok: false, status: 409, error: 'Reminder occurrence belongs to an older schedule.' };
+  }
+  const snoozeTime = Date.parse(payload.snoozeUntil);
+  if (payload.state === 'snoozed' && !Number.isFinite(snoozeTime)) {
+    return { ok: false, status: 400, error: 'Snooze time must be a valid date.' };
+  }
+  await run('UPDATE reminder_occurrences SET state = ?, snoozeUntil = ? WHERE occurrenceId = ? AND userId = ?',
+    [payload.state, payload.state === 'snoozed' ? new Date(snoozeTime).toISOString() : null, row.occurrenceId, userId]);
+  return { ok: true, resourceType: 'reminder-occurrence', syncId: row.occurrenceId };
+}
+
+app.get('/api/client/capabilities', requireAuth, (_req, res) => res.json({
+  serverVersion: KEPT_VERSION, nativeProtocolVersion: 3, noteRevisions: true,
+  personalReminders: true, reminderOccurrences: true, reminderScheduleDefinitions: true, idempotentMutations: true
+}));
+app.get('/api/native/reminders/occurrences', requireAuth, asyncRoute(async (req, res) => {
+  res.json(await nativeOccurrencesForUser(req.user.id));
+}));
+if (process.env.KEPT_TEST_MODE === '1') {
+  app.post('/api/test/failpoint', requireAuth, asyncRoute(async (req, res) => {
+    try { armTestFault(String(req.body?.name || ''), String(req.body?.mode || 'throw'), req.body?.pauseMs); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
+    res.json({ ok: true });
+  }));
+  app.post('/api/test/reminders/tick', requireAuth, asyncRoute(async (req, res) => {
+    const timestamp = Date.parse(String(req.body?.now || ''));
+    if (!Number.isFinite(timestamp)) return res.status(400).json({ error: 'A valid deterministic tick time is required.' });
+    const result = await processDueReminders(new Date(timestamp));
+    res.json({ ok: true, now: timestamp, ...result });
+  }));
+}
+
 app.post('/api/sync/mutations', requireAuth, asyncRoute(async (req, res) => {
   const mutations = Array.isArray(req.body?.mutations) ? req.body.mutations : [];
   if (!mutations.length) return res.json({ results: [], serverTime: Date.now() });
   const priority = {
     'note.upsert': 0,
-    'note.delete': 1,
-    'note.reorder': 2,
-    'reminder.upsert': 3,
-    'reminder.delete': 4,
-    'attachment.delete': 5
+    'note.view-state': 1,
+    'note.delete': 2,
+    'note.reorder': 3,
+    'reminder.upsert': 4,
+    'reminder.delete': 5,
+    'attachment.delete': 6
   };
   const ordered = mutations
     .map((mutation, index) => ({ mutation, index }))
@@ -5005,21 +5485,18 @@ app.post('/api/sync/mutations', requireAuth, asyncRoute(async (req, res) => {
   const results = new Array(mutations.length);
   for (const { mutation, index } of ordered) {
     try {
-      if (String(mutation.type || '').startsWith('note.')) {
-        results[index] = await applySyncNoteMutation(req.user.id, mutation);
-      } else if (String(mutation.type || '').startsWith('reminder.')) {
-        results[index] = await applySyncReminderMutation(req.user.id, mutation);
-      } else if (String(mutation.type || '').startsWith('attachment.')) {
-        results[index] = await applySyncAttachmentMutation(req.user.id, mutation);
-      } else {
-        results[index] = { ok: false, status: 400, error: 'Unsupported mutation type.', type: mutation.type };
-      }
+      results[index] = await executeSyncMutation(req.user.id, mutation);
     } catch (error) {
       console.error('Sync mutation failed:', error);
       results[index] = { ok: false, status: 500, error: error.message || 'Sync mutation failed.', type: mutation.type };
     }
   }
-  res.json({ results, serverTime: Date.now(), snapshot: await syncSnapshotForUser(req.user.id) });
+  const snapshot = await syncSnapshotForUser(req.user.id);
+  if (process.env.KEPT_TEST_MODE === '1' && req.get('x-kept-test-drop-response') === '1') {
+    req.socket.destroy();
+    return;
+  }
+  res.json({ results, serverTime: Date.now(), snapshot });
 }));
 
 
@@ -5688,8 +6165,8 @@ app.post('/api/notes', requireAuth, asyncRoute(async (req, res) => {
   const syncId = String(noteData.syncId || noteData.clientId || `note-${crypto.randomUUID()}`);
   const result = await run(
     `INSERT INTO notes
-     (ownerUserId, syncId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (ownerUserId, syncId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       req.user.id,
       syncId,
@@ -5702,6 +6179,7 @@ app.post('/api/notes', requireAuth, asyncRoute(async (req, res) => {
       noteData.isCbox ? 1 : 0,
       JSON.stringify(noteData.labels || []),
       noteData.binder || '',
+      JSON.stringify(noteData.extraFields || {}),
       noteData.locked ? 1 : 0,
       noteData.lockSalt || '',
       noteData.lockHash || '',
@@ -5753,7 +6231,7 @@ app.put('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   await run(
     `UPDATE notes SET
       noteTitle = ?, noteBody = ?, bgColor = ?, bgImage = ?,
-      checkBoxes = ?, images = ?, isCbox = ?, labels = ?, binder = ?, locked = ?, lockSalt = ?, lockHash = ?, archived = ?, trashed = ?, trashedAt = ?, updatedAt = ?, lastEditorUserId = ?, isDemo = ?
+      checkBoxes = ?, images = ?, isCbox = ?, labels = ?, binder = ?, extraFields = ?, locked = ?, lockSalt = ?, lockHash = ?, archived = ?, trashed = ?, trashedAt = ?, updatedAt = ?, lastEditorUserId = ?, isDemo = ?
      WHERE id = ?`,
     [
       String(next.noteTitle || ''),
@@ -5765,6 +6243,7 @@ app.put('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
       next.isCbox ? 1 : 0,
       JSON.stringify(next.labels || []),
       next.binder || '',
+      JSON.stringify(next.extraFields || {}),
       next.locked ? 1 : 0,
       next.lockSalt || '',
       next.lockHash || '',
@@ -5801,6 +6280,8 @@ app.patch('/api/notes/:id/view-state', requireAuth, asyncRoute(async (req, res) 
        updatedAt = excluded.updatedAt`,
     [req.user.id, noteId, req.body?.completedChecklistCollapsed ? 1 : 0, new Date().toISOString()]
   );
+  await recordNoteSyncChange(noteId, 'upsert', [req.user.id]);
+  broadcastRealtime([req.user.id], { type: 'notes-changed', action: 'view-state-updated', noteId });
 
   res.status(204).end();
 }));
@@ -5835,7 +6316,7 @@ app.patch('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   await run(
     `UPDATE notes SET
       noteTitle = ?, noteBody = ?, bgColor = ?, bgImage = ?,
-      checkBoxes = ?, images = ?, isCbox = ?, labels = ?, binder = ?, locked = ?, lockSalt = ?, lockHash = ?, archived = ?, trashed = ?, trashedAt = ?, updatedAt = ?, lastEditorUserId = ?, isDemo = ?
+      checkBoxes = ?, images = ?, isCbox = ?, labels = ?, binder = ?, extraFields = ?, locked = ?, lockSalt = ?, lockHash = ?, archived = ?, trashed = ?, trashedAt = ?, updatedAt = ?, lastEditorUserId = ?, isDemo = ?
      WHERE id = ?`,
     [
       String(next.noteTitle || ''),
@@ -5847,6 +6328,7 @@ app.patch('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
       next.isCbox ? 1 : 0,
       JSON.stringify(next.labels || []),
       next.binder || '',
+      JSON.stringify(next.extraFields || {}),
       next.locked ? 1 : 0,
       next.lockSalt || '',
       next.lockHash || '',
@@ -5878,8 +6360,8 @@ app.post('/api/notes/:id/clone', requireAuth, asyncRoute(async (req, res) => {
   const note = dbNoteToApi(row);
   const result = await run(
     `INSERT INTO notes
-     (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, isDemo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, isDemo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       req.user.id,
       String(note.noteTitle || ''),
@@ -5891,6 +6373,7 @@ app.post('/api/notes/:id/clone', requireAuth, asyncRoute(async (req, res) => {
       note.isCbox ? 1 : 0,
       JSON.stringify(note.labels || []),
       note.binder || '',
+      JSON.stringify(noteExtraFields(note)),
       note.locked ? 1 : 0,
       note.lockSalt || '',
       note.lockHash || '',
@@ -5971,6 +6454,8 @@ app.post('/api/notes/merge', requireAuth, asyncRoute(async (req, res) => {
   const mergedLabels = Array.from(labelMap.values());
   const mergedBinder = apiNotes.find(n => n.binder)?.binder || '';
   const mergedLock = apiNotes.find(n => n.locked && n.lockSalt && n.lockHash);
+  // Merge distinct opaque fields, keeping the first selected source's value on conflict.
+  const mergedExtraFields = Object.assign({}, ...apiNotes.slice().reverse().map(noteExtraFields));
   // isCbox=true so the editor's checklist surface activates; the new editor
   // logic will additionally render the body when both are present.
   const isCbox = mergedCheckBoxes.length > 0 ? 1 : 0;
@@ -5980,8 +6465,8 @@ app.post('/api/notes/merge', requireAuth, asyncRoute(async (req, res) => {
   try {
     const result = await run(
       `INSERT INTO notes
-       (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, ?, ?, ?, ?, 0)`,
+       (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, ?, ?, ?, ?, 0)`,
       [
         req.user.id,
         String(mergedTitle || ''),
@@ -5991,9 +6476,10 @@ app.post('/api/notes/merge', requireAuth, asyncRoute(async (req, res) => {
         JSON.stringify(mergedCheckBoxes),
         JSON.stringify(mergedImages),
         isCbox,
-        JSON.stringify(mergedLabels),
-        mergedBinder,
-        mergedLock ? 1 : 0,
+         JSON.stringify(mergedLabels),
+         mergedBinder,
+         JSON.stringify(mergedExtraFields),
+         mergedLock ? 1 : 0,
         mergedLock?.lockSalt || '',
         mergedLock?.lockHash || '',
         Date.now(),
@@ -6172,10 +6658,24 @@ async function reminderNoteMap(reminders) {
   if (!noteIds.length) return new Map();
   const placeholders = noteIds.map(() => '?').join(',');
   const notes = await all(
-    `SELECT id, noteTitle, noteBody, checkBoxes, isCbox, locked FROM notes WHERE id IN (${placeholders})`,
+    `SELECT n.id, n.ownerUserId, n.noteTitle, n.noteBody, n.checkBoxes, n.isCbox, n.locked, n.archived, n.trashed,
+            GROUP_CONCAT(c.userId) AS collaboratorIds
+     FROM notes n LEFT JOIN note_collaborators c ON c.noteId = n.id
+     WHERE n.id IN (${placeholders}) GROUP BY n.id`,
     noteIds
   );
-  return new Map(notes.map(note => [Number(note.id), note]));
+  const notesById = new Map(notes.map(note => [Number(note.id), note]));
+  const visible = new Map();
+  for (const reminder of reminders || []) {
+    const noteId = Number(reminder.noteId || 0);
+    const userId = Number(reminder.userId || 0);
+    const note = notesById.get(noteId);
+    if (!note || !userId || note.archived || note.trashed) continue;
+    const collaborators = String(note.collaboratorIds || '').split(',').map(Number);
+    if (Number(note.ownerUserId) !== userId && !collaborators.includes(userId)) continue;
+    visible.set(`${userId}:${noteId}`, note);
+  }
+  return visible;
 }
 
 function firstDefined(...values) {
@@ -6204,6 +6704,26 @@ function normalizeRepeatRule(value) {
   });
 }
 
+function normalizeReminderDueAt(value) {
+  if (!value) return null;
+  const timestamp = Date.parse(String(value));
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : String(value);
+}
+
+function reminderScheduleDefinition(existing = {}) {
+  return {
+    dueAtUtc: normalizeReminderDueAt(existing.dueAtUtc),
+    timezone: String(existing.timezone || 'UTC'),
+    repeatRule: normalizeRepeatRule(existing.repeatRule)
+  };
+}
+
+function reminderScheduleDefinitionChanged(existing, next) {
+  const before = reminderScheduleDefinition(existing);
+  const after = reminderScheduleDefinition(next);
+  return before.dueAtUtc !== after.dueAtUtc || before.timezone !== after.timezone || before.repeatRule !== after.repeatRule;
+}
+
 function parseRepeatRule(value) {
   if (!value) return null;
   try {
@@ -6213,23 +6733,6 @@ function parseRepeatRule(value) {
   } catch {
     return null;
   }
-}
-
-function nextRepeatDueAt(dueAtUtc, repeatRule) {
-  if (!dueAtUtc || !repeatRule) return null;
-  if (repeatRule.type === 'none') return null;
-  const next = new Date(dueAtUtc);
-  if (Number.isNaN(next.getTime())) return null;
-  const now = Date.now();
-  let guard = 0;
-  while (next.getTime() <= now && guard < 730) {
-    guard += 1;
-    if (repeatRule.type === 'daily') next.setUTCDate(next.getUTCDate() + 1);
-    else if (repeatRule.type === 'weekly') next.setUTCDate(next.getUTCDate() + 7);
-    else if (repeatRule.type === 'monthly') next.setUTCMonth(next.getUTCMonth() + 1);
-    else next.setUTCDate(next.getUTCDate() + Math.max(1, Number(repeatRule.intervalDays || 1)));
-  }
-  return next.toISOString();
 }
 
 async function floatReminderNoteToTop(userId, noteId) {
@@ -6272,7 +6775,7 @@ function normalizeReminderPayload(body = {}, existing = {}) {
 
   return {
     noteId: Number(noteIdRaw || 0) || null,
-    dueAtUtc: dueRaw ? String(dueRaw) : null,
+    dueAtUtc: normalizeReminderDueAt(dueRaw),
     timezone: String(firstDefined(body.timezone, body.timeZone, existing.timezone, 'UTC') || 'UTC'),
     repeatRule: normalizeRepeatRule(repeatRuleRaw),
     status: firstDefined(body.status, existing.status, 'pending'),
@@ -6289,7 +6792,8 @@ function normalizeReminderPayload(body = {}, existing = {}) {
 
 function reminderResponse(reminder, notesById = new Map()) {
   const noteId = Number(reminder.noteId || 0) || null;
-  const note = noteId ? notesById.get(noteId) : null;
+  const note = noteId ? notesById.get(`${Number(reminder.userId)}:${noteId}`) : null;
+  const inaccessibleNote = !!noteId && !note;
   const explicitTitle = plainText(reminder.title || '');
   const explicitBody = plainText(reminder.body || '');
   const noteTitle = plainText(note?.noteTitle || '');
@@ -6306,8 +6810,9 @@ function reminderResponse(reminder, notesById = new Map()) {
     syncId: reminder.syncId || '',
     noteId,
     dueAtUtc: reminder.dueAtUtc || null,
-    title: useCurrentNoteContent ? (noteTitle || null) : (explicitTitle || noteTitle || null),
-    body: useCurrentNoteContent ? (noteBody || null) : (explicitBody || noteBody || null),
+    title: inaccessibleNote ? null : useCurrentNoteContent ? (noteTitle || null) : (explicitTitle || noteTitle || null),
+    body: inaccessibleNote ? null : useCurrentNoteContent ? (noteBody || null) : (explicitBody || noteBody || null),
+    imageUrl: inaccessibleNote ? null : (reminder.imageUrl || null),
     locationName,
     latitude,
     longitude,
@@ -6323,7 +6828,7 @@ function reminderResponse(reminder, notesById = new Map()) {
       locationTrigger
     } : null,
     status: reminder.status || 'pending',
-    deepLink: noteId ? `kept://note/${noteId}` : null,
+    deepLink: noteId && !inaccessibleNote ? `kept://note/${noteId}` : null,
     lwwPhysicalMs: Number(reminder.lwwPhysicalMs || 0),
     lwwLogical: Number(reminder.lwwLogical || 0),
     lwwDeviceId: reminder.lwwDeviceId || 'server',
@@ -6399,12 +6904,27 @@ async function enrichReminderResponses(reminders) {
   return reminders.map(reminder => reminderResponse(reminder, notesById));
 }
 
+async function reminderIsVisibleToUser(reminder, userId = reminder?.userId) {
+  if (!reminder || !userId) return false;
+  if (!reminder.noteId) return true;
+  const note = await getAccessibleNote(reminder.noteId, Number(userId));
+  return !!note && !note.archived && !note.trashed;
+}
+
 async function enrichReminderResponse(reminder) {
   return (await enrichReminderResponses([reminder]))[0];
 }
 
 const visibleReminderJoin = 'LEFT JOIN notes reminder_notes ON reminder_notes.id = reminders.noteId';
-const visibleReminderWhere = '(reminders.noteId IS NULL OR (COALESCE(reminder_notes.archived, 0) = 0 AND COALESCE(reminder_notes.trashed, 0) = 0))';
+const visibleReminderWhere = `(reminders.noteId IS NULL OR EXISTS (
+  SELECT 1 FROM notes reminder_access_note
+  WHERE reminder_access_note.id = reminders.noteId
+    AND reminder_access_note.archived = 0 AND reminder_access_note.trashed = 0
+    AND (reminder_access_note.ownerUserId = reminders.userId OR EXISTS (
+      SELECT 1 FROM note_collaborators reminder_access
+      WHERE reminder_access.noteId = reminders.noteId AND reminder_access.userId = reminders.userId
+    ))
+))`;
 
 app.get('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
   const reminders = await all(
@@ -6471,11 +6991,15 @@ app.post('/api/reminders/import', requireAuth, asyncRoute(async (req, res) => {
     try {
       const dueAt = parseIcalDate(event.dtstart);
       if (isNaN(dueAt.getTime())) continue;
-      await run(
-        `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, status, title, body, createdAt, updatedAt)
-         VALUES (NULL, ?, ?, 'UTC', 'pending', ?, ?, ?, ?)`,
-        [req.user.id, dueAt.toISOString(), plainText(event.summary) || null, plainText(event.description) || null, now, now]
+      const dueAtUtc = dueAt.toISOString();
+      const result = await run(
+        `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body,
+           scheduleVersion, scheduleAnchorAtUtc, createdAt, updatedAt, syncId)
+         VALUES (NULL, ?, ?, 'UTC', NULL, 'pending', ?, ?, 1, ?, ?, ?, ?)`,
+        [req.user.id, dueAtUtc, plainText(event.summary) || null, plainText(event.description) || null,
+          dueAtUtc, now, now, `reminder-${crypto.randomUUID()}`]
       );
+      await recordReminderSyncChange(await get('SELECT * FROM reminders WHERE id = ?', [result.id]), 'upsert');
       imported++;
     } catch {}
   }
@@ -6592,6 +7116,7 @@ app.delete('/api/location-saved-places/:id', requireAuth, asyncRoute(async (req,
 app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
   const payload = normalizeReminderPayload(req.body || {});
   if (!payload.dueAtUtc && !payload.locationName) return res.status(400).json({ error: 'Either dueAtUtc or locationName is required.' });
+  if (payload.dueAtUtc && !Number.isFinite(Date.parse(payload.dueAtUtc))) return res.status(400).json({ error: 'dueAtUtc must be a valid date.' });
   if (payload.locationName && (payload.latitude == null || payload.longitude == null)) {
     return res.status(400).json({ error: 'Location reminders require locationName, latitude, and longitude.' });
   }
@@ -6607,11 +7132,14 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
   const stamp = serverLwwStamp();
   const syncId = String(req.body.syncId || req.body.clientId || `reminder-${crypto.randomUUID()}`);
 
-  const existing = noteIdVal ? await get('SELECT id FROM reminders WHERE noteId = ?', [noteIdVal]) : null;
+  const existing = noteIdVal ? await get('SELECT * FROM reminders WHERE noteId = ? AND userId = ?', [noteIdVal, req.user.id]) : null;
+  const scheduleChanged = existing ? reminderScheduleDefinitionChanged(existing, payload) : false;
+  const scheduleVersion = existing ? Number(existing.scheduleVersion || 1) + (scheduleChanged ? 1 : 0) : 1;
+  const scheduleAnchorAtUtc = scheduleChanged ? payload.dueAtUtc : (existing?.scheduleAnchorAtUtc || existing?.dueAtUtc || payload.dueAtUtc);
   const reminder = await get(
-    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, createdAt, updatedAt, syncId, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(noteId) DO UPDATE SET
+    `INSERT INTO reminders (noteId, userId, dueAtUtc, timezone, repeatRule, status, title, body, imageUrl, locationName, latitude, longitude, radiusMeters, locationTrigger, scheduleVersion, scheduleAnchorAtUtc, createdAt, updatedAt, syncId, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(userId, noteId) DO UPDATE SET
        userId = excluded.userId,
        syncId = COALESCE(reminders.syncId, excluded.syncId),
        dueAtUtc = excluded.dueAtUtc,
@@ -6626,6 +7154,12 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
        longitude = excluded.longitude,
        radiusMeters = excluded.radiusMeters,
        locationTrigger = excluded.locationTrigger,
+       scheduleAnchorAtUtc = CASE
+         WHEN reminders.dueAtUtc IS NOT excluded.dueAtUtc OR reminders.timezone IS NOT excluded.timezone OR reminders.repeatRule IS NOT excluded.repeatRule
+         THEN excluded.scheduleAnchorAtUtc ELSE COALESCE(reminders.scheduleAnchorAtUtc, reminders.dueAtUtc) END,
+       scheduleVersion = reminders.scheduleVersion + CASE
+         WHEN reminders.dueAtUtc IS NOT excluded.dueAtUtc OR reminders.timezone IS NOT excluded.timezone OR reminders.repeatRule IS NOT excluded.repeatRule
+         THEN 1 ELSE 0 END,
        updatedAt = excluded.updatedAt,
        lwwPhysicalMs = excluded.lwwPhysicalMs,
        lwwLogical = excluded.lwwLogical,
@@ -6646,6 +7180,8 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
       payload.longitude,
       payload.radiusMeters,
       payload.locationTrigger,
+      scheduleVersion,
+      scheduleAnchorAtUtc,
       now,
       now,
       syncId,
@@ -6666,20 +7202,26 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
 app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
   const reminder = await get('SELECT * FROM reminders WHERE id = ? AND userId = ?', [Number(req.params.id), req.user.id]);
   if (!reminder) return res.status(404).json({ error: 'Reminder not found.' });
+  if (!(await reminderIsVisibleToUser(reminder, req.user.id))) return res.status(404).json({ error: 'Reminder not found.' });
   const now = new Date().toISOString();
   const stamp = serverLwwStamp();
   const validStatuses = ['pending','fired','dismissed','snoozed'];
   const payload = normalizeReminderPayload(req.body || {}, reminder);
   const status = validStatuses.includes(payload.status) ? payload.status : reminder.status;
   const dueAtUtc = payload.dueAtUtc;
+  const timezone = payload.timezone || reminder.timezone || 'UTC';
   const locationName = payload.locationName;
   const latitude = payload.latitude;
   const longitude = payload.longitude;
   const radiusMeters = payload.radiusMeters;
   const locationTrigger = payload.locationTrigger;
   const repeatRule = payload.repeatRule;
+  if (dueAtUtc && !Number.isFinite(Date.parse(dueAtUtc))) return res.status(400).json({ error: 'dueAtUtc must be a valid date.' });
+  const scheduleChanged = reminderScheduleDefinitionChanged(reminder, { dueAtUtc, timezone, repeatRule });
+  const scheduleVersion = Number(reminder.scheduleVersion || 1) + (scheduleChanged ? 1 : 0);
+  const scheduleAnchorAtUtc = scheduleChanged ? dueAtUtc : (reminder.scheduleAnchorAtUtc || reminder.dueAtUtc || dueAtUtc);
   const repeat = status === 'fired' ? parseRepeatRule(repeatRule) : null;
-  const rolledDueAtUtc = repeat ? nextRepeatDueAt(dueAtUtc, repeat) : null;
+  const rolledDueAtUtc = repeat ? nextRepeatDueAt(dueAtUtc, repeat, timezone, Date.now(), reminder.scheduleAnchorAtUtc || dueAtUtc) : null;
   const finalStatus = rolledDueAtUtc ? 'pending' : status;
   const finalDueAtUtc = rolledDueAtUtc || dueAtUtc;
 
@@ -6691,14 +7233,18 @@ app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
     return res.status(400).json({ error: 'radiusMeters must be positive.' });
   }
 
-  await run(
+  const update = await run(
     `UPDATE reminders SET
-       status = ?, dueAtUtc = ?, repeatRule = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, locationTrigger = ?, updatedAt = ?,
+       status = ?, dueAtUtc = ?, timezone = ?, repeatRule = ?, locationName = ?, latitude = ?, longitude = ?, radiusMeters = ?, locationTrigger = ?, updatedAt = ?,
+       scheduleVersion = ?, scheduleAnchorAtUtc = ?,
        lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?, lwwOperationId = ?,
        syncId = CASE WHEN syncId IS NULL OR syncId = '' THEN ? ELSE syncId END
-     WHERE id = ?`,
-    [finalStatus, finalDueAtUtc, repeatRule, locationName, latitude, longitude, radiusMeters, locationTrigger, now, stamp.physicalMs, stamp.logical, stamp.deviceId, stamp.operationId, `reminder-${crypto.randomUUID()}`, reminder.id]
+      WHERE id = ? AND scheduleVersion = ?`,
+    [finalStatus, finalDueAtUtc, timezone, repeatRule, locationName, latitude, longitude, radiusMeters, locationTrigger, now,
+      scheduleVersion, scheduleAnchorAtUtc, stamp.physicalMs, stamp.logical, stamp.deviceId, stamp.operationId,
+      `reminder-${crypto.randomUUID()}`, reminder.id, Number(reminder.scheduleVersion || 1)]
   );
+  if (!update.changes) return res.status(409).json({ error: 'Reminder schedule changed. Reload before editing.' });
   const updated = await get('SELECT * FROM reminders WHERE id = ?', [reminder.id]);
   await recordReminderSyncChange(updated, 'upsert');
   const enrichedUpdated = await enrichReminderResponse(updated);
@@ -7830,11 +8376,11 @@ app.post('/api/import/google-takeout', requireAuth, googleTakeoutUpload, asyncRo
           const importSortOrder = new Date(updatedAt || createdAt || now).getTime() || Date.now();
           const lww = serverLwwStamp();
           const insertResult = await run(
-            `INSERT INTO notes (ownerUserId, syncId, noteTitle, noteBody, pinned, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, archived, trashed, sortOrder, createdAt, updatedAt, lastEditorUserId, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
-             VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, '', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO notes (ownerUserId, syncId, noteTitle, noteBody, pinned, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, archived, trashed, sortOrder, createdAt, updatedAt, lastEditorUserId, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
+             VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, '', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [req.user.id, `note-${crypto.randomUUID()}`, noteTitle, noteBody, pinnedFlag, bgColor,
-             JSON.stringify(checkBoxes), JSON.stringify(images), isCbox, JSON.stringify(labels),
-             archivedFlag, importSortOrder, createdAt, updatedAt, req.user.id,
+              JSON.stringify(checkBoxes), JSON.stringify(images), isCbox, JSON.stringify(labels),
+              JSON.stringify(noteExtraFields(note)), archivedFlag, importSortOrder, createdAt, updatedAt, req.user.id,
              lww.physicalMs, lww.logical, lww.deviceId, lww.operationId]
           );
           // The /api/notes endpoint resolves `pinned` from the per-user
@@ -7903,7 +8449,7 @@ app.use((error, _req, res, _next) => {
 
 init().then(() => {
   setupRealtime();
-  startReminderScheduler();
+  if (process.env.KEPT_TEST_MODE !== '1') startReminderScheduler();
   startBackupScheduler();
   cleanupStaleTakeoutUploads();
   server.listen(port, () => {

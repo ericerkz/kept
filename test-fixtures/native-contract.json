@@ -1,0 +1,26 @@
+{
+  "protocolVersion": 3,
+  "overlapPolicy": "Choose the earlier instant for repeated wall times; move forward through DST gaps.",
+  "recurrence": [
+    { "id": "daily-across-spring-dst", "dueAtUtc": "2026-03-28T08:00:00Z", "timezone": "Europe/Rome", "rule": { "type": "daily" }, "now": "2026-03-28T09:00:00Z", "nextDueAtUtc": "2026-03-29T07:00:00.000Z" },
+    { "id": "daily-into-dst-gap", "dueAtUtc": "2026-03-28T01:30:00Z", "timezone": "Europe/Rome", "rule": { "type": "daily" }, "now": "2026-03-28T02:00:00Z", "nextDueAtUtc": "2026-03-29T01:30:00.000Z" },
+    { "id": "daily-ambiguous-fall-time", "dueAtUtc": "2026-10-24T00:30:00Z", "timezone": "Europe/Rome", "rule": { "type": "daily" }, "now": "2026-10-24T01:00:00Z", "nextDueAtUtc": "2026-10-25T00:30:00.000Z" },
+    { "id": "monthly-clamps-at-month-end", "dueAtUtc": "2030-01-31T09:00:00Z", "anchorAtUtc": "2030-01-31T09:00:00Z", "timezone": "UTC", "rule": { "type": "monthly" }, "now": "2030-02-01T00:00:00Z", "nextDueAtUtc": "2030-02-28T09:00:00.000Z" },
+    { "id": "monthly-restores-anchor-day-after-clamp", "dueAtUtc": "2030-02-28T09:00:00Z", "anchorAtUtc": "2030-01-31T09:00:00Z", "timezone": "UTC", "rule": { "type": "monthly" }, "now": "2030-02-28T09:01:00Z", "nextDueAtUtc": "2030-03-31T09:00:00.000Z" },
+    { "id": "monthly-leap-year", "dueAtUtc": "2028-01-31T09:00:00Z", "anchorAtUtc": "2028-01-31T09:00:00Z", "timezone": "UTC", "rule": { "type": "monthly" }, "now": "2028-02-01T00:00:00Z", "nextDueAtUtc": "2028-02-29T09:00:00.000Z" },
+    { "id": "daily-non-hour-offset", "dueAtUtc": "2030-01-01T03:15:00Z", "timezone": "Asia/Kathmandu", "rule": { "type": "daily" }, "now": "2030-01-01T03:16:00Z", "nextDueAtUtc": "2030-01-02T03:15:00.000Z" },
+    { "id": "invalid-timezone-falls-back-to-utc", "dueAtUtc": "2030-01-01T09:00:00Z", "timezone": "Not/AZone", "rule": { "type": "daily" }, "now": "2030-01-01T09:01:00Z", "nextDueAtUtc": "2030-01-02T09:00:00.000Z" },
+    { "id": "custom-day-interval", "dueAtUtc": "2030-01-01T09:00:00Z", "timezone": "UTC", "rule": { "type": "custom_days", "intervalDays": 3 }, "now": "2030-01-01T09:01:00Z", "nextDueAtUtc": "2030-01-04T09:00:00.000Z" }
+  ],
+  "content": {
+    "supportedHtml": [ "<p><b>Bold</b><br>Text</p>", "<p><a href=\"https://example.test/path\">Linked text</a></p>", "<p dir=\"ltr\">Direction metadata</p>" ],
+    "unsupportedHtml": [ "<table><tr><td>Keep intact</td></tr></table>", "<img src=\"drawing.png\">", "<span style=\"color:#ff0000\">Styled</span>", "<span data-future=\"keep\">Unknown attribute</span>" ],
+    "richChecklistItem": "<a href=\"https://example.test/item\"><b>Rich item</b></a>",
+    "structuredChecklistItem": { "type": "kept-future-item", "text": "preserve me", "metadata": { "revision": 4 } },
+    "nestedChecklistItem": { "id": 17, "done": false, "data": "<b>Nested</b>", "indentLevel": 2, "children": [{ "id": 18, "data": "Child", "done": true }], "futureFlag": true },
+    "drawingDataUrl": "data:image/svg+xml;base64,PHN2Zy8+",
+    "attachmentMetadata": { "syncId": "attachment-future", "originalName": "future.txt", "mimeType": "text/plain", "futureFlag": { "retain": true } },
+    "lockedNoteMetadata": { "locked": true, "lockSalt": "fixture-salt", "lockHash": "fixture-hash", "futureLockVersion": 2 },
+    "unknownNoteField": { "future": true, "nested": [1, "two", null] }
+  }
+}
