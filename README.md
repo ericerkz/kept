@@ -1,4 +1,6 @@
 <div align="center">
+
+[![Deploy to Railyard](https://app.railyard.run/deploy/badge)](https://app.railyard.run/deploy?repo=https://github.com/ericerkz/kept)
   <img src="src/assets/images/keep2x.png" alt="Kept logo" width="96">
   <br>
   <img src="src/assets/images/keep2x_Text.png" alt="Kept" width="180">
