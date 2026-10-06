@@ -73,6 +73,14 @@ type AndroidTriggeredGeofenceEvent = {
   triggeredAt: number;
 };
 
+type AndroidNativeTimeReminder = {
+  id: string;
+  fireAtMs: number;
+  title: string;
+  body?: string;
+  deepLink?: string;
+};
+
 interface KeptGeofencePlugin {
   getPermissionStatus(): Promise<AndroidLocationPermissionStatus>;
   requestForegroundLocationPermission(): Promise<AndroidLocationPermissionStatus>;
@@ -89,8 +97,20 @@ interface KeptGeofencePlugin {
   acknowledgeTriggeredEvents(input: { eventIds: string[] }): Promise<void>;
 }
 
+interface KeptTimeRemindersPlugin {
+  syncTimeReminders(input: { reminders: AndroidNativeTimeReminder[] }): Promise<{
+    scheduled: string[];
+    skipped: { id: string; reason: string }[];
+    exact: boolean;
+  }>;
+  cancelTimeReminder(input: { id: string }): Promise<void>;
+  getExactAlarmStatus(): Promise<{ canScheduleExact: boolean }>;
+  openExactAlarmSettings(): Promise<void>;
+}
+
 const isAndroid = Capacitor.getPlatform() === 'android';
 const KeptGeofence = isAndroid ? registerPlugin<KeptGeofencePlugin>('KeptGeofence') : null;
+const KeptTimeReminders = isAndroid ? registerPlugin<KeptTimeRemindersPlugin>('KeptTimeReminders') : null;
 
 @Injectable({ providedIn: 'root' })
 export class ReminderService {
@@ -101,6 +121,9 @@ export class ReminderService {
   private reminderTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private androidGeofenceSyncQueued = false;
   private androidGeofenceSyncRunning = false;
+  private androidTimeReminderSyncQueued = false;
+  private androidTimeReminderSyncRunning = false;
+  private androidExactAlarmPromptShown = false;
   private androidTriggeredEventsRunning = false;
   private androidResumeHandler?: () => void;
   private androidFocusHandler?: () => void;
@@ -217,6 +240,7 @@ export class ReminderService {
       const local: ReminderI = { ...existing, ...payload, repeatRule: payload.repeatRule === undefined ? existing.repeatRule : payload.repeatRule as string | null, updatedAt: new Date().toISOString() };
       if (this.offlineSync.partition) await this.offlineStore.putReminder(this.offlineSync.partition, local);
       this.setReminders(this.reminders$.value.map(reminder => reminder.id === id ? local : reminder));
+      if (payload.status && payload.status !== 'pending') this.cancelAndroidTimeReminder(id);
       if (id < 0 || !navigator.onLine) {
         await this.offlineSync.enqueue('reminder.upsert', local.syncId!, local);
         return local;
@@ -231,6 +255,7 @@ export class ReminderService {
 
   async delete(id: number) {
     const existing = this.reminders$.value.find(reminder => reminder.id === id);
+    this.cancelAndroidTimeReminder(id);
     if (existing?.syncId && this.offlineSync.partition) {
       await this.offlineStore.deleteReminder(this.offlineSync.partition, existing.syncId);
       this.setReminders(this.reminders$.value.filter(reminder => reminder.id !== id));
@@ -268,6 +293,7 @@ export class ReminderService {
       if (inactive && !this.inactiveNoteIds.has(noteId)) {
         this.inactiveNoteIds.add(noteId);
         this.cancelReminderTimersForNote(noteId);
+        this.cancelAndroidTimeRemindersForNote(noteId);
         this.closeDisplayedNotificationsForNote(noteId).catch(console.error);
         changed = true;
       } else if (!inactive && this.inactiveNoteIds.delete(noteId)) {
@@ -284,8 +310,10 @@ export class ReminderService {
     if (!noteId) return;
     this.inactiveNoteIds.add(noteId);
     this.cancelReminderTimersForNote(noteId);
+    this.cancelAndroidTimeRemindersForNote(noteId);
     this.closeDisplayedNotificationsForNote(noteId).catch(console.error);
     this.syncAndroidGeofences(this.reminders$.value);
+    this.syncAndroidTimeReminders(this.reminders$.value);
   }
 
   async refreshNoteContent(note: NoteI) {
@@ -436,6 +464,7 @@ export class ReminderService {
     this.reminders$.next(reminders);
     this.schedulePendingReminders(reminders);
     this.syncAndroidGeofences(reminders);
+    this.syncAndroidTimeReminders(reminders);
     this.processAndroidTriggeredEvents();
   }
 
@@ -485,6 +514,12 @@ export class ReminderService {
       const timer = this.reminderTimers.get(reminder.id);
       if (timer) clearTimeout(timer);
       this.reminderTimers.delete(reminder.id);
+    }
+  }
+
+  private cancelAndroidTimeRemindersForNote(noteId: number) {
+    for (const reminder of this.reminders$.value) {
+      if (reminder.noteId === noteId) this.cancelAndroidTimeReminder(reminder.id);
     }
   }
 
@@ -632,7 +667,7 @@ export class ReminderService {
   }
 
   private listenForAndroidResume() {
-    if (!this.isAndroidGeofenceAvailable() || typeof document === 'undefined') return;
+    if (!isAndroid || (!this.isAndroidGeofenceAvailable() && !this.isAndroidTimeRemindersAvailable()) || typeof document === 'undefined') return;
     this.androidResumeHandler = () => {
       if (document.visibilityState === 'visible') {
         this.load().catch(console.error);
@@ -647,6 +682,10 @@ export class ReminderService {
 
   private isAndroidGeofenceAvailable() {
     return isAndroid && !!KeptGeofence;
+  }
+
+  private isAndroidTimeRemindersAvailable() {
+    return isAndroid && !!KeptTimeReminders;
   }
 
   private nativeLocationReminders(reminders: ReminderI[]): AndroidNativeGeofenceReminder[] {
@@ -698,6 +737,80 @@ export class ReminderService {
           this.syncAndroidGeofences(this.reminders$.value);
         }
       });
+  }
+
+  private nativeTimeReminders(reminders: ReminderI[]): AndroidNativeTimeReminder[] {
+    const now = Date.now();
+    const nativeReminders: AndroidNativeTimeReminder[] = [];
+    for (const reminder of reminders) {
+      if (
+        reminder.status !== 'pending' ||
+        !reminder.dueAtUtc ||
+        !reminder.noteId ||
+        this.inactiveNoteIds.has(Number(reminder.noteId)) ||
+        reminder.locationName ||
+        reminder.latitude != null ||
+        reminder.longitude != null
+      ) continue;
+      const fireAtMs = new Date(reminder.dueAtUtc).getTime();
+      if (!Number.isFinite(fireAtMs) || fireAtMs <= now) continue;
+      nativeReminders.push({
+        id: String(reminder.id),
+        fireAtMs,
+        title: reminder.title || 'Kept reminder',
+        body: reminder.body || undefined,
+        deepLink: `kept://note/${reminder.noteId}`
+      });
+    }
+    return nativeReminders;
+  }
+
+  private syncAndroidTimeReminders(reminders: ReminderI[]) {
+    if (!this.isAndroidTimeRemindersAvailable()) return;
+    if (this.androidTimeReminderSyncRunning) {
+      this.androidTimeReminderSyncQueued = true;
+      return;
+    }
+    this.androidTimeReminderSyncRunning = true;
+    const nativeReminders = this.nativeTimeReminders(reminders);
+    KeptTimeReminders!.syncTimeReminders({ reminders: nativeReminders })
+      .then(result => {
+        const invalid = (result.skipped || []).filter(item => item.reason === 'invalid');
+        if (invalid.length) console.warn('Some Android time reminders were invalid and skipped', invalid);
+        if (result.exact === false) this.promptAndroidExactAlarmPermission();
+      })
+      .catch(error => console.warn('Android time reminder sync failed', error))
+      .finally(() => {
+        this.androidTimeReminderSyncRunning = false;
+        if (this.androidTimeReminderSyncQueued) {
+          this.androidTimeReminderSyncQueued = false;
+          this.syncAndroidTimeReminders(this.reminders$.value);
+        }
+      });
+  }
+
+  private cancelAndroidTimeReminder(reminderId: number | string | undefined | null) {
+    if (!this.isAndroidTimeRemindersAvailable() || reminderId === undefined || reminderId === null) return;
+    const id = String(reminderId);
+    if (!id) return;
+    KeptTimeReminders!.cancelTimeReminder({ id })
+      .catch(error => console.warn('Android time reminder cancellation failed', error));
+  }
+
+  private promptAndroidExactAlarmPermission() {
+    if (this.androidExactAlarmPromptShown || !this.isAndroidTimeRemindersAvailable()) return;
+    this.androidExactAlarmPromptShown = true;
+    try {
+      (window as any).Snackbar?.show({
+        pos: 'bottom-left',
+        text: 'Android may delay reminders unless exact alarms are allowed.',
+        actionText: 'Settings',
+        duration: 8000,
+        onActionClick: () => {
+          KeptTimeReminders!.openExactAlarmSettings().catch(console.error);
+        }
+      });
+    } catch {}
   }
 
   private async processAndroidTriggeredEvents() {
