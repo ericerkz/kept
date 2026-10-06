@@ -238,6 +238,7 @@ function trustedClientMetadataDocument(clientId) {
   let metadataUrl;
   try { metadataUrl = new URL(clientId); } catch { return null; }
   if (metadataUrl.protocol !== 'https:') return null;
+  if (metadataUrl.username || metadataUrl.password || metadataUrl.search || metadataUrl.hash) return null;
   const trusted = TRUSTED_CLIENT_METADATA_DOCUMENTS.find(document => document.hostname === metadataUrl.hostname && document.pathname.test(metadataUrl.pathname));
   return trusted ? { metadataUrl, clientName: trusted.clientName } : null;
 }
@@ -247,11 +248,15 @@ async function resolveClient(clientId, { get }) {
   if (stored) return { clientId, clientName: stored.clientName, redirectUris: safeJson(stored.redirectUris, []) };
   const trusted = trustedClientMetadataDocument(clientId);
   if (!trusted) return null;
-  const response = await fetch(trusted.metadataUrl, { signal: AbortSignal.timeout(5000), redirect: 'error' });
-  if (!response.ok) return null;
-  const metadata = await response.json();
-  if (metadata.client_id !== clientId || !Array.isArray(metadata.redirect_uris)) return null;
-  return { clientId, clientName: metadata.client_name || trusted.clientName, redirectUris: metadata.redirect_uris.filter(validRedirectUri) };
+  try {
+    const response = await fetch(trusted.metadataUrl, { signal: AbortSignal.timeout(5000), redirect: 'error' });
+    if (!response.ok) return null;
+    const metadata = await response.json();
+    if (metadata.client_id !== clientId || !Array.isArray(metadata.redirect_uris)) return null;
+    return { clientId, clientName: metadata.client_name || trusted.clientName, redirectUris: metadata.redirect_uris.filter(validRedirectUri) };
+  } catch {
+    return null;
+  }
 }
 
 function mountOAuthAndMcpRoutes(app, dependencies) {

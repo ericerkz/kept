@@ -19,6 +19,9 @@ test('client ID metadata documents from other URLs are not fetched', () => {
     'not a url',
     'http://claude.ai/oauth/mcp-oauth-client-metadata',
     'https://claude.ai/oauth/other-client',
+    'https://claude.ai/oauth/mcp-oauth-client-metadata?x=1',
+    'https://claude.ai/oauth/mcp-oauth-client-metadata#fragment',
+    'https://user@claude.ai/oauth/mcp-oauth-client-metadata',
     'https://claude.ai.example.com/oauth/mcp-oauth-client-metadata',
     'https://chatgpt.com/oauth/client.json.example',
     'https://example.com/oauth/client.json'
