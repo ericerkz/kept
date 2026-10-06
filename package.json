@@ -8,6 +8,8 @@
     "api": "nodemon --no-deprecation server/server.js",
     "build": "ng build && npm run purgecss",
     "test:sync": "node server/sync-smoke.test.js",
+    "test:native": "node server/native-client.test.js",
+    "test:reminders": "node --test server/reminder-recurrence.test.js",
     "mcp": "node mcp/index.mjs",
     "test:mcp": "node --test mcp/*.test.mjs",
     "purgecss": "purgecss -c purgecss.config.js",
