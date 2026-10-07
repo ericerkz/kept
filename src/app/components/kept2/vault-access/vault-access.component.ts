@@ -263,7 +263,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
         ...(migration.warnings || []).map(warning => warning.code),
         ...(migration.limitations || [])
       ];
-      this.migrationStatus = `Imported ${imported.notes} note${imported.notes === 1 ? '' : 's'}, ${imported.reminders} reminder${imported.reminders === 1 ? '' : 's'}, and ${imported.attachments} attachment record${imported.attachments === 1 ? '' : 's'} into the local vault.`;
+      this.migrationStatus = `Imported ${imported.notes} note${imported.notes === 1 ? '' : 's'}, ${imported.reminders} reminder${imported.reminders === 1 ? '' : 's'}, ${imported.attachments} attachment record${imported.attachments === 1 ? '' : 's'}, and ${imported.attachmentBlobs} attachment file${imported.attachmentBlobs === 1 ? '' : 's'} into the local vault.`;
       await this.refreshLocalState();
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not import legacy notes.';
@@ -346,6 +346,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     let notes = 0;
     let reminders = 0;
     let attachments = 0;
+    let attachmentBlobs = 0;
     for (const resource of resources) {
       if (resource.resourceType === 'note.content') {
         const plain = resource.plaintext || {};
@@ -413,12 +414,30 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
           mimeType: plain.mimeType || 'application/octet-stream',
           uploadedAt: plain.uploadedAt || new Date().toISOString()
         };
-        await this.localVault.upsertAttachment(attachment);
+        const blob = await this.fetchLegacyAttachmentBlob(resource.resourceId);
+        await this.localVault.upsertAttachment(attachment, blob);
+        if (blob) attachmentBlobs += 1;
         attachments += 1;
       }
     }
 
-    return { notes, reminders, attachments };
+    return { notes, reminders, attachments, attachmentBlobs };
+  }
+
+  private async fetchLegacyAttachmentBlob(syncId: string) {
+    try {
+      const blob = await firstValueFrom(this.http.get(
+        `${environment.apiUrl}/v2/migration/attachments/${encodeURIComponent(syncId)}/blob`,
+        {
+          headers: this.auth.authHeaders(),
+          responseType: 'blob'
+        }
+      ));
+      return blob.size ? blob : undefined;
+    } catch {
+      this.migrationWarnings.push(`Attachment file ${syncId} could not be imported; metadata was kept.`);
+      return undefined;
+    }
   }
 
   private transport() {

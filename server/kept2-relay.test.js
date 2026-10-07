@@ -98,6 +98,15 @@ async function main() {
       })
     });
     assert.ok(legacyNote.id);
+    const legacyAttachmentForm = new FormData();
+    legacyAttachmentForm.append('file', new Blob([Buffer.from('legacy attachment bytes')], { type: 'text/plain' }), 'legacy.txt');
+    legacyAttachmentForm.append('syncId', 'attachment-legacy-test');
+    const legacyAttachmentUpload = await fetch(`${base}/notes/${legacyNote.id}/attachments`, {
+      method: 'POST',
+      headers,
+      body: legacyAttachmentForm
+    });
+    assert.equal(legacyAttachmentUpload.status, 201);
     const migrationPreview = await request('/v2/migration/preview?vaultId=vault-preview', { headers });
     assert.equal(migrationPreview.destructive, false);
     assert.equal(migrationPreview.cutoverReady, false);
@@ -112,7 +121,11 @@ async function main() {
     assert.equal(migrationExport.destructive, false);
     assert.equal(migrationExport.vaultId, 'vault-preview');
     assert.ok(migrationExport.resources.some(resource => resource.resourceType === 'note.content'));
+    assert.ok(migrationExport.resources.some(resource => resource.resourceType === 'attachment'));
     assert.equal(JSON.stringify(migrationExport).includes('This is still plaintext legacy data.'), true);
+    const legacyAttachmentBlob = await fetch(`${base}/v2/migration/attachments/attachment-legacy-test/blob`, { headers });
+    assert.equal(legacyAttachmentBlob.status, 200);
+    assert.equal(await legacyAttachmentBlob.text(), 'legacy attachment bytes');
 
     const vaultId = 'vault-test';
     const blobForm = new FormData();

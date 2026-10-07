@@ -2,6 +2,8 @@ const { createLegacySnapshot, createMigrationPlan } = require('./migration');
 
 function mountKept2MigrationRoutes(app, {
   all,
+  get,
+  attachmentPath,
   asyncRoute,
   requireAuth,
   sourceVersion
@@ -56,9 +58,27 @@ function mountKept2MigrationRoutes(app, {
       warnings: plan.warnings,
       limitations: [
         'This Kept 2.0 migration export contains legacy plaintext over the authenticated connection so the unlocked local vault can encrypt it client-side.',
-        'Attachment metadata is exported in this pass; blob-byte migration is handled separately.'
+        'Attachment bytes are fetched separately by syncId during import so they can be stored and re-synced as encrypted blobs.'
       ]
     });
+  }));
+
+  app.get('/api/v2/migration/attachments/:syncId/blob', requireAuth, asyncRoute(async (req, res) => {
+    const syncId = sanitizeResourceId(req.params.syncId);
+    if (!syncId) return res.status(400).json({ error: 'Invalid attachment syncId.' });
+    const attachment = await get(
+      `SELECT na.*
+         FROM note_attachments na
+         JOIN notes n ON n.id = na.noteId
+        WHERE na.syncId = ? AND n.ownerUserId = ?`,
+      [syncId, req.user.id]
+    );
+    if (!attachment) return res.status(404).json({ error: 'Attachment not found.' });
+
+    const filePath = attachmentPath(attachment.storedFilename);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.sendFile(filePath);
   }));
 }
 
@@ -143,6 +163,12 @@ function sanitizeVaultId(value) {
   const vaultId = String(value || '').trim();
   if (!vaultId) return '';
   return /^[A-Za-z0-9._:-]{1,180}$/.test(vaultId) ? vaultId : '';
+}
+
+function sanitizeResourceId(value) {
+  const resourceId = String(value || '').trim();
+  if (!resourceId) return '';
+  return /^[A-Za-z0-9._:-]{1,180}$/.test(resourceId) ? resourceId : '';
 }
 
 function sqlIn(column, values) {

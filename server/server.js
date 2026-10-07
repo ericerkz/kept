@@ -3616,6 +3616,8 @@ mountKept2Relay(app, {
 
 mountKept2MigrationRoutes(app, {
   all,
+  get,
+  attachmentPath,
   asyncRoute,
   requireAuth,
   sourceVersion: KEPT_VERSION
