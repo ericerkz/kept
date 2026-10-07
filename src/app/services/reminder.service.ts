@@ -133,6 +133,8 @@ export class ReminderService {
   private displayedNotifications = new Map<number, Notification>();
   private lifecycleUserId?: number;
   private readonly reminderTimerChunkMs = 24 * 60 * 60 * 1000;
+  private kept2SyntheticNoteIds = new Map<string, number>();
+  private kept2NoteSyncIdsBySyntheticId = new Map<number, string>();
 
   constructor(
     private http: HttpClient,
@@ -164,7 +166,7 @@ export class ReminderService {
 
   async load() {
     if (this.useKept2LocalFirst()) {
-      const reminders = await this.localFirstVault.reminders();
+      const reminders = await this.hydrateKept2ReminderNoteIds(await this.localFirstVault.reminders());
       this.setReminders(reminders);
       return;
     }
@@ -186,13 +188,15 @@ export class ReminderService {
   async create(data: ReminderCreateData) {
     if (this.useKept2LocalFirst()) {
       const now = new Date().toISOString();
+      const noteSyncId = data.noteSyncId || await this.kept2NoteSyncIdForId(data.noteId);
+      const noteId = data.noteId ?? (noteSyncId ? this.kept2SyntheticNoteId(noteSyncId) : null);
       const local: ReminderI & { noteSyncId?: string } = {
         ...data,
         id: this.nextLocalReminderId(),
         syncId: `reminder-${crypto.randomUUID()}`,
         userId: this.auth.currentUser?.id || 0,
-        noteId: data.noteId ?? null,
-        noteSyncId: data.noteSyncId,
+        noteId,
+        noteSyncId,
         dueAtUtc: data.dueAtUtc || null,
         timezone: data.timezone || 'UTC',
         repeatRule: this.serializeRepeatRule(data.repeatRule),
@@ -341,6 +345,54 @@ export class ReminderService {
     }
   }
 
+  private async hydrateKept2ReminderNoteIds(reminders: ReminderI[]) {
+    const notes = await this.localFirstVault.notes();
+    for (const note of notes) {
+      if (!note.syncId) continue;
+      const syntheticId = this.kept2SyntheticNoteId(note.syncId);
+      this.kept2NoteSyncIdsBySyntheticId.set(syntheticId, note.syncId);
+    }
+    return reminders.map(reminder => {
+      const noteSyncId = (reminder as ReminderI & { noteSyncId?: string }).noteSyncId || '';
+      if (!noteSyncId) return reminder;
+      return {
+        ...reminder,
+        noteId: reminder.noteId || this.kept2SyntheticNoteId(noteSyncId),
+        noteSyncId
+      };
+    });
+  }
+
+  private async kept2NoteSyncIdForId(noteId: number | undefined | null) {
+    if (!noteId) return '';
+    const cached = this.kept2NoteSyncIdsBySyntheticId.get(noteId);
+    if (cached) return cached;
+    const notes = await this.localFirstVault.notes();
+    for (const note of notes) {
+      if (!note.syncId) continue;
+      const syntheticId = this.kept2SyntheticNoteId(note.syncId);
+      this.kept2NoteSyncIdsBySyntheticId.set(syntheticId, note.syncId);
+      if (syntheticId === noteId || note.id === noteId) return note.syncId;
+    }
+    return '';
+  }
+
+  private kept2SyntheticNoteId(syncId: string) {
+    const existing = this.kept2SyntheticNoteIds.get(syncId);
+    if (existing) return existing;
+    let hash = 0;
+    for (let index = 0; index < syncId.length; index += 1) {
+      hash = ((hash << 5) - hash + syncId.charCodeAt(index)) | 0;
+    }
+    let id = -Math.max(1, Math.abs(hash));
+    while (this.kept2NoteSyncIdsBySyntheticId.has(id) && this.kept2NoteSyncIdsBySyntheticId.get(id) !== syncId) {
+      id -= 1;
+    }
+    this.kept2SyntheticNoteIds.set(syncId, id);
+    this.kept2NoteSyncIdsBySyntheticId.set(id, syncId);
+    return id;
+  }
+
   private nextLocalReminderId() {
     const usedIds = new Set(this.reminders$.value.map(reminder => reminder.id));
     let id = -Date.now();
@@ -391,7 +443,10 @@ export class ReminderService {
 
   async refreshNoteContent(note: NoteI) {
     if (!note.id || note.locked) return;
-    const matching = this.reminders$.value.filter(reminder => reminder.noteId === note.id);
+    const noteId = note.id;
+    const matching = this.reminders$.value.filter(reminder =>
+      reminder.noteId === noteId || (!!note.syncId && (reminder as ReminderI & { noteSyncId?: string }).noteSyncId === note.syncId)
+    );
     if (!matching.length) return;
     const title = this.plainText(note.noteTitle || '');
     const bodyText = this.plainText(note.noteBody || '');
@@ -404,9 +459,10 @@ export class ReminderService {
     const changedIds = new Set<number>();
     const now = new Date().toISOString();
     const next = this.reminders$.value.map(reminder => {
-      if (reminder.noteId !== note.id || ((reminder.title || '') === title && (reminder.body || '') === body)) return reminder;
+      const noteMatches = reminder.noteId === noteId || (!!note.syncId && (reminder as ReminderI & { noteSyncId?: string }).noteSyncId === note.syncId);
+      if (!noteMatches || ((reminder.title || '') === title && (reminder.body || '') === body)) return reminder;
       changedIds.add(reminder.id);
-      return { ...reminder, title: title || null, body: body || null, updatedAt: now };
+      return { ...reminder, noteId, noteSyncId: note.syncId || (reminder as ReminderI & { noteSyncId?: string }).noteSyncId, title: title || null, body: body || null, updatedAt: now };
     });
     if (!changedIds.size) return;
 
