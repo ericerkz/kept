@@ -1,9 +1,10 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { NoteAttachmentI, NoteI } from 'src/app/interfaces/notes';
 import { ReminderI } from 'src/app/interfaces/reminder';
 import { LocalFirstVaultService } from 'src/app/kept2/local-first-vault.service';
+import { Kept2SyncCoordinatorService } from 'src/app/kept2/kept2-sync-coordinator.service';
 import { SyncEngineService } from 'src/app/kept2/sync-engine.service';
 import { EncryptedSelfHostedTransport } from 'src/app/kept2/sync-transport';
 import { VaultResourceKeyService } from 'src/app/kept2/vault-resource-key.service';
@@ -42,7 +43,7 @@ interface MigrationExport {
   styleUrls: ['../../auth/auth-shared.scss', './vault-access.component.scss'],
   standalone: false
 })
-export class VaultAccessComponent implements OnInit {
+export class VaultAccessComponent implements OnInit, OnDestroy {
   mode: VaultMode = 'unlock';
   password = '';
   confirmPassword = '';
@@ -69,6 +70,7 @@ export class VaultAccessComponent implements OnInit {
     private vaultSession: VaultSessionService,
     private localVault: LocalFirstVaultService,
     private resourceKeys: VaultResourceKeyService,
+    private syncCoordinator: Kept2SyncCoordinatorService,
     private syncEngine: SyncEngineService
   ) {}
 
@@ -76,7 +78,14 @@ export class VaultAccessComponent implements OnInit {
     this.hasVault = await this.vaultSession.hasLocalVault();
     this.identity = this.vaultSession.currentSession()?.identity || null;
     this.mode = this.hasVault ? 'unlock' : 'create';
-    if (this.identity) await this.refreshLocalState();
+    if (this.identity) {
+      this.syncCoordinator.start(this.identity);
+      await this.refreshLocalState();
+    }
+  }
+
+  ngOnDestroy() {
+    this.syncCoordinator.stop();
   }
 
   setMode(mode: VaultMode) {
@@ -101,6 +110,7 @@ export class VaultAccessComponent implements OnInit {
       this.password = '';
       this.confirmPassword = '';
       this.success = 'Vault created and unlocked.';
+      this.syncCoordinator.start(result.identity);
       await this.refreshLocalState();
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not create vault.';
@@ -118,6 +128,7 @@ export class VaultAccessComponent implements OnInit {
       this.identity = session.identity;
       this.password = '';
       this.success = 'Vault unlocked.';
+      this.syncCoordinator.start(session.identity);
       await this.refreshLocalState();
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not unlock vault.';
@@ -136,6 +147,7 @@ export class VaultAccessComponent implements OnInit {
       this.recoveryCode = '';
       this.recoveryPassword = '';
       this.success = 'Vault recovered and unlocked.';
+      if (this.identity) this.syncCoordinator.start(this.identity);
       await this.refreshLocalState();
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not recover vault.';
@@ -146,6 +158,7 @@ export class VaultAccessComponent implements OnInit {
 
   lockVault() {
     this.vaultSession.lock();
+    this.syncCoordinator.stop();
     this.resourceKeys.clearCache();
     this.identity = null;
     this.notes = [];
