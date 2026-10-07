@@ -441,6 +441,15 @@ export class NotesService {
   }
 
   async add(noteObj: NoteI) {
+    if (this.useKept2LocalFirst()) {
+      const note = await this.localFirstVault.createNote({
+        ...noteObj,
+        sortOrder: noteObj.sortOrder ?? Date.now()
+      });
+      const hydrated = this.withKept2SyntheticId(note);
+      this.prependNotesIntoList([hydrated]);
+      return hydrated.id || -1;
+    }
     const pendingNote: NoteI = {
       ...noteObj,
       sortOrder: noteObj.sortOrder ?? Date.now()
@@ -501,6 +510,15 @@ export class NotesService {
 
   async update(object: NoteI, id: number) {
     if (id === -1) return;
+    if (this.useKept2LocalFirst()) {
+      const syncId = this.kept2SyncIdFor(id);
+      if (!syncId) return;
+      const updated = await this.localFirstVault.updateNote(syncId, object);
+      const hydrated = this.withKept2SyntheticId(updated);
+      this.mergeNoteIntoList(hydrated);
+      await this.reminders.refreshNoteContent(hydrated);
+      return;
+    }
     const existing = await this.cachedOrLoadedNote(id);
     const local = { ...existing, ...object, id, isCardPreview: false, updatedAt: new Date().toISOString(), lastEditorUserId: this.auth.currentUser?.id } as NoteI;
     this.offlineStore.ensureNoteIdentity(local);
@@ -540,6 +558,15 @@ export class NotesService {
 
   async updateKey(object: UpdateKeyI, id: number) {
     if (id === -1) return;
+    if (this.useKept2LocalFirst()) {
+      const syncId = this.kept2SyncIdFor(id);
+      if (!syncId) return;
+      const updated = await this.localFirstVault.updateNote(syncId, object);
+      const hydrated = this.withKept2SyntheticId(updated);
+      this.mergeNoteIntoList(hydrated);
+      await this.reminders.refreshNoteContent(hydrated);
+      return;
+    }
     const existing = await this.cachedOrLoadedNote(id);
     const local = { ...existing, ...object, id, isCardPreview: false, updatedAt: new Date().toISOString(), lastEditorUserId: this.auth.currentUser?.id } as NoteI;
     this.offlineStore.ensureNoteIdentity(local);
@@ -600,6 +627,17 @@ export class NotesService {
 
   async reorder(ids: number[]) {
     if (!ids.length) return;
+    if (this.useKept2LocalFirst()) {
+      this.reorderLoadedNotes(ids);
+      const current = this.notesList$.value || [];
+      const byId = new Map(current.map(note => [note.id, note]));
+      for (let index = 0; index < ids.length; index += 1) {
+        const note = byId.get(ids[index]);
+        const syncId = note?.id ? this.kept2SyncIdFor(note.id) : '';
+        if (syncId) await this.localFirstVault.updateNote(syncId, { sortOrder: ids.length - index });
+      }
+      return;
+    }
     try {
       this.suppressNextReorderReloadUntil = Date.now() + 5000;
       this.reorderLoadedNotes(ids);
@@ -635,6 +673,9 @@ export class NotesService {
   }
 
   async uploadImage(file: File) {
+    if (this.useKept2LocalFirst()) {
+      return { url: await this.fileToDataUrl(file), name: file.name };
+    }
     const formData = new FormData();
     formData.append('image', file);
     if (!navigator.onLine || this.offlineSync.isConnectionDegraded()) {
@@ -659,6 +700,9 @@ export class NotesService {
   }
 
   async uploadAttachment(noteId: number, file: File | Blob, filename?: string) {
+    if (this.useKept2LocalFirst()) {
+      return this.uploadKept2LocalAttachment(noteId, file, filename);
+    }
     const syncId = `attachment-${crypto.randomUUID()}`;
     const note = await this.cachedOrLoadedNote(noteId);
     const resolvedName = filename || (file instanceof File ? file.name : 'attachment');
@@ -716,6 +760,10 @@ export class NotesService {
   }
 
   async deleteAttachment(noteId: number, attachmentId: number) {
+    if (this.useKept2LocalFirst()) {
+      await this.deleteKept2LocalAttachment(noteId, attachmentId);
+      return;
+    }
     const note = await this.cachedOrLoadedNote(noteId);
     const attachment = note?.attachments?.find(item => item.id === attachmentId);
     if (attachment?.syncId && note && this.offlineSync.partition) {
@@ -737,6 +785,14 @@ export class NotesService {
   }
 
   async downloadAttachment(attachment: NoteAttachmentI) {
+    if (this.useKept2LocalFirst() && attachment.syncId) {
+      const blob = await this.localFirstVault.attachmentBlob(attachment.syncId);
+      if (!blob) throw new Error('Attachment blob is not available in the local vault.');
+      const filename = attachment.originalName || 'attachment';
+      if (await this.tryNativeDownload(blob, filename, attachment.mimeType)) return;
+      this.browserDownloadBlob(blob, filename);
+      return;
+    }
     const blob = await firstValueFrom(this.http.get(`${environment.apiUrl}/attachments/${attachment.id}`, {
       headers: this.auth.authHeaders(),
       responseType: 'blob'
@@ -922,6 +978,42 @@ export class NotesService {
     return note ? this.withKept2SyntheticId(note) : undefined;
   }
 
+  private kept2SyncIdFor(id: number) {
+    return this.kept2SyncIdsBySyntheticId.get(id) || (this.notesList$.value || []).find(note => note.id === id)?.syncId || '';
+  }
+
+  private async uploadKept2LocalAttachment(noteId: number, file: File | Blob, filename?: string) {
+    const note = await this.getKept2LocalNote(noteId);
+    if (!note?.syncId) throw new Error('No local vault note available for attachment upload.');
+    const attachment: NoteAttachmentI & { noteSyncId?: string } = {
+      id: -Date.now(),
+      syncId: `attachment-${crypto.randomUUID()}`,
+      noteId,
+      noteSyncId: note.syncId,
+      originalName: filename || (file instanceof File ? file.name : 'attachment'),
+      fileSize: file.size,
+      mimeType: file.type || 'application/octet-stream',
+      uploadedAt: new Date().toISOString()
+    };
+    await this.localFirstVault.upsertAttachment(attachment, file);
+    const updated = await this.localFirstVault.updateNote(note.syncId, {
+      attachments: [attachment, ...(note.attachments || [])]
+    });
+    this.mergeNoteIntoList(this.withKept2SyntheticId(updated));
+    return attachment;
+  }
+
+  private async deleteKept2LocalAttachment(noteId: number, attachmentId: number) {
+    const note = await this.getKept2LocalNote(noteId);
+    const attachment = note?.attachments?.find(item => item.id === attachmentId);
+    if (!note?.syncId || !attachment?.syncId) return;
+    await this.localFirstVault.deleteAttachment(attachment.syncId);
+    const updated = await this.localFirstVault.updateNote(note.syncId, {
+      attachments: (note.attachments || []).filter(item => item.id !== attachmentId)
+    });
+    this.mergeNoteIntoList(this.withKept2SyntheticId(updated));
+  }
+
   private useKept2LocalFirst() {
     try {
       return localStorage.getItem('kept2LocalFirst') === '1' && this.vaultSession.isUnlocked();
@@ -1029,6 +1121,9 @@ export class NotesService {
   }
 
   async getAll() {
+    if (this.useKept2LocalFirst()) {
+      return (await this.localFirstVault.notes()).map(note => this.withKept2SyntheticId(note));
+    }
     try {
       const notes = await firstValueFrom(this.http.get<NoteI[]>(this.apiUrl, { headers: this.auth.authHeaders() }));
       if (this.offlineSync.partition) {
@@ -1092,6 +1187,18 @@ export class NotesService {
   }
 
   async clone(id: number) {
+    if (this.useKept2LocalFirst()) {
+      const note = await this.getKept2LocalNote(id);
+      if (!note) return;
+      const { id: _id, syncId: _syncId, createdAt: _createdAt, updatedAt: _updatedAt, ...copy } = note;
+      const cloned = await this.localFirstVault.createNote({
+        ...copy,
+        noteTitle: copy.noteTitle ? `${copy.noteTitle} copy` : '',
+        sortOrder: Date.now()
+      });
+      this.prependNotesIntoList([this.withKept2SyntheticId(cloned)]);
+      return;
+    }
     if (id !== -1) {
       try {
         await firstValueFrom(this.http.post(`${this.apiUrl}/${id}/clone`, {}, { headers: this.auth.authHeaders() }));
@@ -1213,6 +1320,13 @@ export class NotesService {
 
   async delete(id: number) {
     if (id !== -1) {
+      if (this.useKept2LocalFirst()) {
+        const syncId = this.kept2SyncIdFor(id);
+        if (!syncId) return;
+        await this.localFirstVault.deleteNote(syncId);
+        this.publishNotes((this.notesList$.value || []).filter(item => item.id !== id));
+        return;
+      }
       const note = await this.cachedOrLoadedNote(id);
       this.reminders.markNoteInactive(id);
       if (note?.syncId && this.offlineSync.partition) {
