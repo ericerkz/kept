@@ -88,7 +88,7 @@ export class SyncEngineService {
         if (change.operation === 'delete') {
           await this.applyRemoteDelete(change.resourceId, change.resourceType);
         } else if (change.envelope) {
-          await this.applyRemoteEnvelope(change.envelope, keyFor);
+          await this.applyRemoteEnvelope(vaultId, transport, change.envelope, keyFor);
         }
         applied += 1;
       } catch {
@@ -120,7 +120,7 @@ export class SyncEngineService {
     let failed = 0;
     for (const envelope of snapshot.envelopes) {
       try {
-        await this.applyRemoteEnvelope(envelope, keyFor);
+        await this.applyRemoteEnvelope(vaultId, transport, envelope, keyFor);
         applied += 1;
       } catch {
         failed += 1;
@@ -199,7 +199,12 @@ export class SyncEngineService {
     await transport.uploadBlob(vaultId, entry.resourceId, sealed.ciphertext, sealed.ciphertextHash);
   }
 
-  private async applyRemoteEnvelope(envelope: EncryptedEnvelope, keyFor: Kept2KeyResolver) {
+  private async applyRemoteEnvelope(
+    vaultId: string,
+    transport: SyncTransport,
+    envelope: EncryptedEnvelope,
+    keyFor: Kept2KeyResolver
+  ) {
     const key = await keyFor(envelope.resourceId, envelope.resourceType);
     const value = await this.crypto.decryptJson<unknown>(envelope, key);
     if (envelope.resourceType === 'note.content') {
@@ -207,7 +212,9 @@ export class SyncEngineService {
     } else if (envelope.resourceType === 'reminder') {
       await this.vault.putReminder(value as ReminderI, envelope.lww);
     } else if (envelope.resourceType === 'attachment') {
-      await this.vault.putAttachment(value as NoteAttachmentI, undefined, envelope.lww);
+      const attachment = value as NoteAttachmentI;
+      await this.vault.putAttachment(attachment, undefined, envelope.lww);
+      await this.pullAttachmentBlob(vaultId, transport, envelope.resourceId, attachment, keyFor, envelope.lww);
     } else if (envelope.resourceType === 'label') {
       await this.vault.putLabel(value as LabelI & { syncId?: string }, envelope.lww);
     } else if (envelope.resourceType === 'binder') {
@@ -215,10 +222,30 @@ export class SyncEngineService {
     }
   }
 
+  private async pullAttachmentBlob(
+    vaultId: string,
+    transport: SyncTransport,
+    resourceId: string,
+    attachment: NoteAttachmentI,
+    keyFor: Kept2KeyResolver,
+    lww: EncryptedEnvelope['lww']
+  ) {
+    try {
+      const encryptedBlob = await transport.downloadBlob(vaultId, resourceId);
+      const key = await keyFor(resourceId, 'blob');
+      const blob = await this.crypto.decryptBlob(resourceId, encryptedBlob, key, attachment.mimeType || 'application/octet-stream');
+      await this.vault.putAttachment(attachment, blob, lww);
+    } catch {
+      // Attachment metadata is still useful if the blob has not arrived yet or
+      // this device does not have the blob grant. A later sync/bootstrap can retry.
+    }
+  }
+
   private async applyRemoteDelete(resourceId: string, resourceType: Kept2ResourceType) {
     if (resourceType === 'note.content') await this.vault.deleteNote(resourceId);
     if (resourceType === 'reminder') await this.vault.deleteReminder(resourceId);
     if (resourceType === 'attachment') await this.vault.deleteAttachment(resourceId);
+    if (resourceType === 'blob') await this.vault.deleteBlob(`attachment:${resourceId}`);
     if (resourceType === 'label') await this.vault.deleteLabel(resourceId);
     if (resourceType === 'binder') await this.vault.deleteBinder(resourceId);
   }
