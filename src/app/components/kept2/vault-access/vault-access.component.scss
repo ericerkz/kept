@@ -137,6 +137,13 @@
   }
 }
 
+.device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .migration-warnings {
   color: #fdd663;
   display: grid;

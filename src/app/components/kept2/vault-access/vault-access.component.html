@@ -58,9 +58,14 @@
                   <code>{{device.deviceId}}</code>
                 </div>
                 @if (device.deviceId !== identity.deviceId) {
-                  <button type="button" class="secondary" (click)="grantLocalResourcesToDevice(device)" [disabled]="isBusy">
-                    Grant keys
-                  </button>
+                  <div class="device-actions">
+                    <button type="button" class="secondary" (click)="grantLocalResourcesToDevice(device)" [disabled]="isBusy">
+                      Grant keys
+                    </button>
+                    <button type="button" class="danger" (click)="revokeDevice(device)" [disabled]="isBusy">
+                      Revoke
+                    </button>
+                  </div>
                 } @else {
                   <span>This device</span>
                 }

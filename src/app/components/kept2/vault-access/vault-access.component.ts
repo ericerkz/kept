@@ -434,6 +434,24 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     }
   }
 
+  async revokeDevice(device: VaultDevicePublicKey) {
+    if (!this.identity) return;
+    const label = device.deviceLabel || device.deviceId;
+    if (!window.confirm(`Revoke ${label}? This stops future sync/grant access for that device, but does not rotate existing resource keys.`)) return;
+    this.error = '';
+    this.devicePairingStatus = '';
+    this.isBusy = true;
+    try {
+      await this.transport().revokeDevice?.(this.identity.vaultId, device.deviceId);
+      this.devicePairingStatus = `Revoked ${label}.`;
+      await this.refreshRemoteDevices(false);
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not revoke that device.';
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
   async saveDraft() {
     this.error = '';
     this.success = '';
