@@ -102,6 +102,22 @@ export class VaultSessionService {
     return this.session;
   }
 
+  async saveOpaqueExportKeyWrap(exportKey: string) {
+    const wrap = await this.keyMaterial.wrapWithOpaqueExportKey(this.currentVmk(), exportKey);
+    await this.writeMetadata('opaqueExportWrap', wrap);
+    return wrap;
+  }
+
+  async unlockWithOpaqueExportKey(exportKey: string) {
+    const wrap = await this.requireMetadata<WrappedVaultKey>('opaqueExportWrap');
+    this.vmk = await this.keyMaterial.unwrapWithOpaqueExportKey(exportKey, wrap);
+    this.session = {
+      identity: await this.identities.markUnlocked(),
+      unlockedAt: new Date().toISOString()
+    };
+    return this.session;
+  }
+
   lock() {
     this.vmk = null;
     this.session = null;

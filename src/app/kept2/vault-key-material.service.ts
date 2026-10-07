@@ -34,13 +34,26 @@ export class VaultKeyMaterialService {
   }
 
   async unwrapWithRecoveryCode(recoveryCode: string, wrap: WrappedVaultKey) {
-    if (wrap.algorithm !== 'raw-secretbox') throw new Error('This key wrap is not recovery based.');
+    if (wrap.algorithm !== 'raw-secretbox' || wrap.purpose !== 'recovery') {
+      throw new Error('This key wrap is not recovery based.');
+    }
     const key = this.decodeRecoveryCode(recoveryCode);
     return this.cryptoService.unwrapKeyWithSymmetricKey(wrap.wrappedKey, key);
   }
 
+  async unwrapWithOpaqueExportKey(exportKey: string, wrap: WrappedVaultKey) {
+    if (wrap.algorithm !== 'raw-secretbox' || wrap.purpose !== 'opaqueExport') {
+      throw new Error('This key wrap is not OPAQUE export-key based.');
+    }
+    return this.cryptoService.unwrapKeyWithSymmetricKey(wrap.wrappedKey, this.decodeOpaqueExportKey(exportKey));
+  }
+
   async rewrapPassword(vmk: Uint8Array, newPassword: string) {
     return this.wrapWithPassword(vmk, newPassword);
+  }
+
+  async wrapWithOpaqueExportKey(vmk: Uint8Array, exportKey: string) {
+    return this.wrapWithRawKey(vmk, this.decodeOpaqueExportKey(exportKey), 'opaqueExport');
   }
 
   private async wrapWithPassword(vmk: Uint8Array, password: string): Promise<WrappedVaultKey> {
@@ -97,6 +110,10 @@ export class VaultKeyMaterialService {
   private decodeRecoveryCode(recoveryCode: string) {
     const encoded = String(recoveryCode || '').trim().replace(/^kept2-recovery-/, '');
     return sodium.from_base64(encoded, sodium.base64_variants.URLSAFE_NO_PADDING);
+  }
+
+  private decodeOpaqueExportKey(exportKey: string) {
+    return sodium.from_base64(String(exportKey || '').trim(), sodium.base64_variants.URLSAFE_NO_PADDING);
   }
 
   private bytesToArrayBuffer(bytes: Uint8Array) {

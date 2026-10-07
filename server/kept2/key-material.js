@@ -28,8 +28,15 @@ async function unwrapWithPassword(password, wrap) {
 }
 
 async function unwrapWithRecoveryCode(recoveryCode, wrap) {
-  if (wrap.algorithm !== 'raw-secretbox') throw new Error('This key wrap is not recovery based.');
+  if (wrap.algorithm !== 'raw-secretbox' || wrap.purpose !== 'recovery') throw new Error('This key wrap is not recovery based.');
   return unwrapKey(wrap.wrappedKey, decodeRecoveryCode(recoveryCode));
+}
+
+async function unwrapWithOpaqueExportKey(exportKey, wrap) {
+  if (wrap.algorithm !== 'raw-secretbox' || wrap.purpose !== 'opaqueExport') {
+    throw new Error('This key wrap is not OPAQUE export-key based.');
+  }
+  return unwrapKey(wrap.wrappedKey, decodeOpaqueExportKey(exportKey));
 }
 
 async function wrapWithPassword(vmk, password) {
@@ -44,6 +51,10 @@ async function wrapWithPassword(vmk, password) {
     wrappedKey: wrapKey(vmk, key),
     createdAt: new Date().toISOString()
   };
+}
+
+async function wrapWithOpaqueExportKey(vmk, exportKey) {
+  return wrapWithRawKey(vmk, decodeOpaqueExportKey(exportKey), 'opaqueExport');
 }
 
 async function wrapWithRawKey(vmk, rawKey, purpose) {
@@ -106,6 +117,10 @@ function decodeRecoveryCode(recoveryCode) {
   );
 }
 
+function decodeOpaqueExportKey(exportKey) {
+  return sodium.from_base64(String(exportKey || '').trim(), sodium.base64_variants.URLSAFE_NO_PADDING);
+}
+
 function base64Url(bytes) {
   return sodium.to_base64(bytes, sodium.base64_variants.URLSAFE_NO_PADDING);
 }
@@ -114,7 +129,9 @@ module.exports = {
   createVaultKeyMaterial,
   decodeRecoveryCode,
   encodeRecoveryCode,
+  unwrapWithOpaqueExportKey,
   unwrapWithPassword,
   unwrapWithRecoveryCode,
+  wrapWithOpaqueExportKey,
   wrapWithPassword
 };

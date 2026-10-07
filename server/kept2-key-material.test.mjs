@@ -5,8 +5,10 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {
   createVaultKeyMaterial,
+  unwrapWithOpaqueExportKey,
   unwrapWithPassword,
   unwrapWithRecoveryCode,
+  wrapWithOpaqueExportKey,
   wrapWithPassword
 } = require('./kept2/key-material.js');
 
@@ -35,4 +37,15 @@ test('kept2 key material rejects wrong password and supports password change rew
   await assert.rejects(() => unwrapWithPassword('old password', newWrap));
   const unwrapped = await unwrapWithPassword('new password', newWrap);
   assert.deepEqual(Array.from(unwrapped), Array.from(material.vmk));
+});
+
+test('kept2 key material can wrap VMK with an OPAQUE export key', async () => {
+  const material = await createVaultKeyMaterial('vault password');
+  const exportKey = material.recoveryCode.replace(/^kept2-recovery-/, '');
+  const wrap = await wrapWithOpaqueExportKey(material.vmk, exportKey);
+  assert.equal(wrap.purpose, 'opaqueExport');
+  assert.equal(wrap.algorithm, 'raw-secretbox');
+  const unwrapped = await unwrapWithOpaqueExportKey(exportKey, wrap);
+  assert.deepEqual(Array.from(unwrapped), Array.from(material.vmk));
+  await assert.rejects(() => unwrapWithRecoveryCode(material.recoveryCode, wrap), /recovery/);
 });
