@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import sodium from 'libsodium-wrappers';
-import { EncryptedEnvelope, Kept2ResourceType, KeyGrant, LwwStamp } from './vault-types';
+import { EncryptedEnvelope, Kept2DeviceKeyPair, Kept2ResourceType, KeyGrant, LwwStamp } from './vault-types';
 
 @Injectable({ providedIn: 'root' })
 export class VaultCryptoService {
@@ -113,6 +113,32 @@ export class VaultCryptoService {
     const nonce = sodium.from_base64(nonceValue, sodium.base64_variants.URLSAFE_NO_PADDING);
     const ciphertext = sodium.from_base64(ciphertextValue, sodium.base64_variants.URLSAFE_NO_PADDING);
     return sodium.crypto_secretbox_open_easy(ciphertext, nonce, wrappingKey);
+  }
+
+  async createDeviceKeyPair(deviceId: string): Promise<Kept2DeviceKeyPair> {
+    await this.ensureReady();
+    const pair = sodium.crypto_box_keypair();
+    return {
+      deviceId,
+      publicKey: sodium.to_base64(pair.publicKey, sodium.base64_variants.URLSAFE_NO_PADDING),
+      privateKey: sodium.to_base64(pair.privateKey, sodium.base64_variants.URLSAFE_NO_PADDING),
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  async wrapKeyForDevicePublicKey(keyToWrap: Uint8Array, recipientPublicKey: string) {
+    await this.ensureReady();
+    const publicKey = sodium.from_base64(recipientPublicKey, sodium.base64_variants.URLSAFE_NO_PADDING);
+    const sealed = sodium.crypto_box_seal(keyToWrap, publicKey);
+    return sodium.to_base64(sealed, sodium.base64_variants.URLSAFE_NO_PADDING);
+  }
+
+  async unwrapKeyFromDeviceGrant(wrapped: string, recipientPublicKey: string, recipientPrivateKey: string) {
+    await this.ensureReady();
+    const sealed = sodium.from_base64(wrapped, sodium.base64_variants.URLSAFE_NO_PADDING);
+    const publicKey = sodium.from_base64(recipientPublicKey, sodium.base64_variants.URLSAFE_NO_PADDING);
+    const privateKey = sodium.from_base64(recipientPrivateKey, sodium.base64_variants.URLSAFE_NO_PADDING);
+    return sodium.crypto_box_seal_open(sealed, publicKey, privateKey);
   }
 
   newGrant(input: Omit<KeyGrant, 'grantId' | 'createdAt' | 'revokedAt'>): KeyGrant {

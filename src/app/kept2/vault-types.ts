@@ -57,6 +57,13 @@ export interface VaultKeyMaterial {
   recoveryCode: string;
 }
 
+export interface Kept2DeviceKeyPair {
+  deviceId: string;
+  publicKey: string;
+  privateKey: string;
+  createdAt: string;
+}
+
 export interface VaultSqliteDriver {
   open(): Promise<void>;
   transaction<T>(work: () => Promise<T>): Promise<T>;

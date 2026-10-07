@@ -69,3 +69,14 @@ test('kept2 key wrapping round trips and rejects the wrong wrapping key', async 
   assert.deepEqual(Array.from(unwrapped), Array.from(keyToWrap));
   assert.throws(() => sodium.crypto_secretbox_open_easy(wrapped, nonce, wrongKey));
 });
+
+test('kept2 device grants wrap keys to a recipient public key', async () => {
+  await sodium.ready;
+  const resourceKey = sodium.randombytes_buf(sodium.crypto_secretbox_KEYBYTES);
+  const recipient = sodium.crypto_box_keypair();
+  const other = sodium.crypto_box_keypair();
+  const sealed = sodium.crypto_box_seal(resourceKey, recipient.publicKey);
+  const opened = sodium.crypto_box_seal_open(sealed, recipient.publicKey, recipient.privateKey);
+  assert.deepEqual(Array.from(opened), Array.from(resourceKey));
+  assert.throws(() => sodium.crypto_box_seal_open(sealed, other.publicKey, other.privateKey));
+});
