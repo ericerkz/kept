@@ -199,6 +199,11 @@ export class Kept2SyncCoordinatorService {
       if (!binder.syncId) continue;
       await addGrantMutation(binder.syncId, 'binder');
     }
+    for (const attachment of await this.localVault.attachments()) {
+      if (!attachment.syncId) continue;
+      await addGrantMutation(attachment.syncId, 'attachment');
+      await addGrantMutation(attachment.syncId, 'blob');
+    }
     for (let index = 0; index < mutations.length; index += 100) {
       const chunk = mutations.slice(index, index + 100);
       const results = await transport.mutate(identity.vaultId, chunk);
