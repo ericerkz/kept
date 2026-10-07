@@ -107,6 +107,12 @@ async function main() {
     assert.ok(migrationPreview.resourcesByType['note.content'] >= 1);
     assert.ok(migrationPreview.resourcesByType['note.ownerState'] >= 1);
     assert.equal(typeof migrationPreview.snapshotHash, 'string');
+    assert.equal(JSON.stringify(migrationPreview).includes('This is still plaintext legacy data.'), false);
+    const migrationExport = await request('/v2/migration/export?vaultId=vault-preview', { headers });
+    assert.equal(migrationExport.destructive, false);
+    assert.equal(migrationExport.vaultId, 'vault-preview');
+    assert.ok(migrationExport.resources.some(resource => resource.resourceType === 'note.content'));
+    assert.equal(JSON.stringify(migrationExport).includes('This is still plaintext legacy data.'), true);
 
     const vaultId = 'vault-test';
     const blobForm = new FormData();

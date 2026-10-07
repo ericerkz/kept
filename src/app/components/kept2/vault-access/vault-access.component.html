@@ -17,8 +17,17 @@
           <button type="button" (click)="pushOutbox()" [disabled]="isBusy || !outboxCount">Push local changes</button>
           <button type="button" class="secondary" (click)="pullRemote()" [disabled]="isBusy">Pull remote changes</button>
           <button type="button" class="secondary" (click)="bootstrapRemote()" [disabled]="isBusy">Bootstrap remote</button>
+          <button type="button" class="secondary" (click)="importLegacySnapshot()" [disabled]="isBusy">Import legacy notes</button>
         </div>
         @if (syncStatus) { <span>{{syncStatus}}</span> }
+        @if (migrationStatus) { <span>{{migrationStatus}}</span> }
+        @if (migrationWarnings.length) {
+          <ul class="migration-warnings">
+            @for (warning of migrationWarnings; track warning) {
+              <li>{{warning}}</li>
+            }
+          </ul>
+        }
       </div>
     }
 

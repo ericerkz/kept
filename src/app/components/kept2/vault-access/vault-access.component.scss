@@ -29,6 +29,7 @@
 .button-row {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .auth-form button.secondary {
@@ -64,6 +65,15 @@
 .vault-status span {
   color: #bdc1c6;
   font-size: 12px;
+}
+
+.migration-warnings {
+  color: #fdd663;
+  display: grid;
+  font-size: 12px;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
 }
 
 .vault-status button {
@@ -214,6 +224,10 @@
   .empty-state,
   .note-body-button span {
     color: #5f6368;
+  }
+
+  .migration-warnings {
+    color: #b06000;
   }
 
   .vault-status button {

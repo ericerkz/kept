@@ -1,6 +1,8 @@
 import { Component, OnInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { NoteI } from 'src/app/interfaces/notes';
+import { firstValueFrom } from 'rxjs';
+import { NoteAttachmentI, NoteI } from 'src/app/interfaces/notes';
+import { ReminderI } from 'src/app/interfaces/reminder';
 import { LocalFirstVaultService } from 'src/app/kept2/local-first-vault.service';
 import { SyncEngineService } from 'src/app/kept2/sync-engine.service';
 import { EncryptedSelfHostedTransport } from 'src/app/kept2/sync-transport';
@@ -11,6 +13,28 @@ import { AuthService } from 'src/app/services/auth.service';
 import { environment } from 'src/environments/environment';
 
 type VaultMode = 'create' | 'unlock' | 'recover';
+
+interface MigrationResource {
+  resourceId: string;
+  resourceType: string;
+  lww?: {
+    physicalMs: number;
+    logical: number;
+    deviceId: string;
+    operationId: string;
+  };
+  plaintext: any;
+}
+
+interface MigrationExport {
+  vaultId: string;
+  snapshotId: string;
+  snapshotHash: string;
+  counts: Record<string, number>;
+  resources: MigrationResource[];
+  warnings: Array<{ code: string; legacyId?: number; syncId?: string }>;
+  limitations?: string[];
+}
 
 @Component({
   selector: 'app-kept2-vault-access',
@@ -36,6 +60,8 @@ export class VaultAccessComponent implements OnInit {
   draftBody = '';
   selectedSyncId = '';
   syncStatus = '';
+  migrationStatus = '';
+  migrationWarnings: string[] = [];
 
   constructor(
     private auth: AuthService,
@@ -203,6 +229,36 @@ export class VaultAccessComponent implements OnInit {
     }
   }
 
+  async importLegacySnapshot() {
+    if (!this.identity) return;
+    this.error = '';
+    this.success = '';
+    this.migrationStatus = '';
+    this.migrationWarnings = [];
+    if (!this.auth.currentUser) {
+      this.error = 'Sign in to the Kept server before importing legacy notes.';
+      return;
+    }
+    this.isBusy = true;
+    try {
+      const migration = await firstValueFrom(this.http.get<MigrationExport>(`${environment.apiUrl}/v2/migration/export`, {
+        headers: this.auth.authHeaders(),
+        params: { vaultId: this.identity.vaultId }
+      }));
+      const imported = await this.importMigrationResources(migration.resources || []);
+      this.migrationWarnings = [
+        ...(migration.warnings || []).map(warning => warning.code),
+        ...(migration.limitations || [])
+      ];
+      this.migrationStatus = `Imported ${imported.notes} note${imported.notes === 1 ? '' : 's'}, ${imported.reminders} reminder${imported.reminders === 1 ? '' : 's'}, and ${imported.attachments} attachment record${imported.attachments === 1 ? '' : 's'} into the local vault.`;
+      await this.refreshLocalState();
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not import legacy notes.';
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
   async saveDraft() {
     this.error = '';
     this.success = '';
@@ -264,6 +320,92 @@ export class VaultAccessComponent implements OnInit {
   private async refreshLocalState() {
     this.notes = await this.localVault.notes();
     this.outboxCount = (await this.localVault.outbox()).length;
+  }
+
+  private async importMigrationResources(resources: MigrationResource[]) {
+    const ownerState = new Map<string, any>();
+    for (const resource of resources) {
+      if (resource.resourceType === 'note.ownerState') {
+        ownerState.set(resource.resourceId.replace(/:owner$/, ''), resource.plaintext || {});
+      }
+    }
+
+    let notes = 0;
+    let reminders = 0;
+    let attachments = 0;
+    for (const resource of resources) {
+      if (resource.resourceType === 'note.content') {
+        const plain = resource.plaintext || {};
+        const owner = ownerState.get(resource.resourceId) || {};
+        await this.localVault.createNote({
+          syncId: resource.resourceId,
+          id: plain.legacyId,
+          ownerUserId: owner.ownerUserId || undefined,
+          noteTitle: plain.title || '',
+          noteBody: plain.body || '',
+          checkBoxes: plain.checkBoxes || [],
+          images: plain.images || [],
+          isCbox: !!plain.isChecklist,
+          labels: plain.labels || [],
+          binder: plain.binder || '',
+          locked: !!plain.locked,
+          lockSalt: plain.lockSalt || '',
+          lockHash: plain.lockHash || '',
+          pinned: !!owner.pinned,
+          archived: !!owner.archived,
+          trashed: !!owner.trashed,
+          trashedAt: owner.trashedAt || undefined,
+          sortOrder: owner.sortOrder,
+          bgColor: owner.bgColor || '',
+          bgImage: owner.bgImage || '',
+          completedChecklistCollapsed: !!owner.completedChecklistCollapsed,
+          createdAt: plain.createdAt,
+          updatedAt: plain.updatedAt
+        });
+        notes += 1;
+      } else if (resource.resourceType === 'reminder') {
+        const plain = resource.plaintext || {};
+        const reminder: ReminderI & { noteSyncId?: string } = {
+          id: Number(plain.legacyId || 0),
+          syncId: resource.resourceId,
+          noteId: null,
+          noteSyncId: plain.noteSyncId || '',
+          userId: 0,
+          dueAtUtc: plain.dueAt || null,
+          timezone: plain.timezone || 'UTC',
+          repeatRule: plain.repeatRule || null,
+          status: plain.status || 'pending',
+          title: plain.title || null,
+          body: plain.body || null,
+          imageUrl: plain.imageUrl || null,
+          locationName: plain.locationName || null,
+          latitude: plain.latitude ?? null,
+          longitude: plain.longitude ?? null,
+          radiusMeters: plain.radiusMeters ?? null,
+          locationTrigger: plain.locationTrigger || 'arrive',
+          createdAt: plain.createdAt || new Date().toISOString(),
+          updatedAt: plain.updatedAt || new Date().toISOString()
+        };
+        await this.localVault.upsertReminder(reminder);
+        reminders += 1;
+      } else if (resource.resourceType === 'attachment') {
+        const plain = resource.plaintext || {};
+        const attachment: NoteAttachmentI & { noteSyncId?: string } = {
+          id: Number(plain.legacyId || 0),
+          syncId: resource.resourceId,
+          noteId: undefined,
+          noteSyncId: plain.noteSyncId || '',
+          originalName: plain.originalName || '',
+          fileSize: Number(plain.fileSize || 0),
+          mimeType: plain.mimeType || 'application/octet-stream',
+          uploadedAt: plain.uploadedAt || new Date().toISOString()
+        };
+        await this.localVault.upsertAttachment(attachment);
+        attachments += 1;
+      }
+    }
+
+    return { notes, reminders, attachments };
   }
 
   private transport() {

@@ -32,6 +32,34 @@ function mountKept2MigrationRoutes(app, {
       nextStep: 'Create and unlock a Kept 2 vault before encrypted cutover.'
     });
   }));
+
+  app.get('/api/v2/migration/export', requireAuth, asyncRoute(async (req, res) => {
+    const snapshot = await buildLegacySnapshotForUser({
+      all,
+      userId: req.user.id,
+      sourceVersion
+    });
+    const vaultId = sanitizeVaultId(req.query.vaultId) || undefined;
+    const plan = createMigrationPlan(snapshot, {
+      vaultId,
+      deviceId: `migration-user-${req.user.id}`
+    });
+
+    res.json({
+      destructive: false,
+      sourceVersion: snapshot.sourceVersion,
+      snapshotId: snapshot.snapshotId,
+      snapshotHash: snapshot.snapshotHash,
+      counts: snapshot.counts,
+      vaultId: plan.vaultId,
+      resources: plan.resources,
+      warnings: plan.warnings,
+      limitations: [
+        'This Kept 2.0 migration export contains legacy plaintext over the authenticated connection so the unlocked local vault can encrypt it client-side.',
+        'Attachment metadata is exported in this pass; blob-byte migration is handled separately.'
+      ]
+    });
+  }));
 }
 
 async function buildLegacySnapshotForUser({ all, userId, sourceVersion }) {
