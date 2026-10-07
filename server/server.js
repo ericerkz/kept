@@ -18,6 +18,7 @@ const { initNativeClientSchema, occurrenceId } = require('./native-client');
 const { nextRepeatDueAt, isRepeatOccurrence } = require('./reminder-recurrence');
 const { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken } = require('./oauth-mcp');
 const { initKept2RelaySchema, mountKept2Relay } = require('./kept2/relay');
+const { initKept2OpaqueSchema, mountKept2OpaqueRoutes } = require('./kept2/opaque-auth');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -949,6 +950,7 @@ async function init() {
   await initNativeClientSchema({ run, get, all });
   await initOAuthTables({ run, all });
   await initKept2RelaySchema({ run, get, all });
+  await initKept2OpaqueSchema({ run });
   const originalAdminUserId = await getAppSetting('originalAdminUserId', '');
   if (!originalAdminUserId) {
     const firstUser = await get('SELECT id FROM users ORDER BY id LIMIT 1');
@@ -3591,6 +3593,12 @@ app.use(express.json({ limit: '25mb' }));
 mountOAuthAndMcpRoutes(app, {
   get, all, run, asyncRoute, requireAuth, resolveSessionFromToken, createSession,
   oauthRegistrationLimiter, internalBaseUrl: `http://127.0.0.1:${port}`
+});
+
+mountKept2OpaqueRoutes(app, {
+  get,
+  run,
+  asyncRoute
 });
 
 mountKept2Relay(app, {
