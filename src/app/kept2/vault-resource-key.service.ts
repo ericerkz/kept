@@ -32,7 +32,7 @@ export class VaultResourceKeyService {
 
     const stored = await this.read(resourceId, resourceType);
     if (stored) {
-      const key = await this.cryptoService.unwrapKeyWithSymmetricKey(stored.wrappedKey, this.session.currentVmk());
+      const key = await this.unwrapStoredKey(stored);
       this.cache.set(cacheKey, key);
       return key;
     }
@@ -57,8 +57,23 @@ export class VaultResourceKeyService {
     return key;
   }
 
+  async existingKeyFor(resourceId: string, resourceType: Kept2ResourceType) {
+    const cacheKey = this.cacheKey(resourceId, resourceType);
+    const cached = this.cache.get(cacheKey);
+    if (cached) return cached;
+    const stored = await this.read(resourceId, resourceType);
+    if (!stored) throw new Error(`Missing local key for ${resourceType} ${resourceId}.`);
+    const key = await this.unwrapStoredKey(stored);
+    this.cache.set(cacheKey, key);
+    return key;
+  }
+
   clearCache() {
     this.cache.clear();
+  }
+
+  private unwrapStoredKey(stored: StoredResourceKey) {
+    return this.cryptoService.unwrapKeyWithSymmetricKey(stored.wrappedKey, this.session.currentVmk());
   }
 
   private async read(resourceId: string, resourceType: Kept2ResourceType): Promise<StoredResourceKey | null> {

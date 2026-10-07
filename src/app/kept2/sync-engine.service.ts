@@ -13,6 +13,13 @@ import {
 
 export type Kept2KeyResolver = (resourceId: string, resourceType: Kept2ResourceType) => Promise<Uint8Array>;
 
+export interface Kept2PullResult {
+  applied: number;
+  failed: number;
+  cursor: number;
+  hasMore: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SyncEngineService {
   constructor(
@@ -54,19 +61,48 @@ export class SyncEngineService {
     const cursorName = `remote:${vaultId}`;
     const cursor = await this.vault.getCursor(cursorName);
     const changes = await transport.changes(vaultId, cursor);
+    let applied = 0;
+    let failed = 0;
     for (const change of changes.changes) {
-      if (change.operation === 'delete') {
-        await this.applyRemoteDelete(change.resourceId, change.resourceType);
-      } else if (change.envelope) {
-        await this.applyRemoteEnvelope(change.envelope, keyFor);
+      try {
+        if (change.operation === 'delete') {
+          await this.applyRemoteDelete(change.resourceId, change.resourceType);
+        } else if (change.envelope) {
+          await this.applyRemoteEnvelope(change.envelope, keyFor);
+        }
+        applied += 1;
+      } catch {
+        failed += 1;
       }
     }
     await this.vault.setCursor(cursorName, changes.cursor);
     return {
-      applied: changes.changes.length,
+      applied,
+      failed,
       cursor: changes.cursor,
       hasMore: changes.hasMore
-    };
+    } satisfies Kept2PullResult;
+  }
+
+  async bootstrapRemote(vaultId: string, transport: SyncTransport, keyFor: Kept2KeyResolver) {
+    const snapshot = await transport.bootstrap(vaultId);
+    let applied = 0;
+    let failed = 0;
+    for (const envelope of snapshot.envelopes) {
+      try {
+        await this.applyRemoteEnvelope(envelope, keyFor);
+        applied += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    await this.vault.setCursor(`remote:${vaultId}`, snapshot.cursor);
+    return {
+      applied,
+      failed,
+      cursor: snapshot.cursor,
+      hasMore: false
+    } satisfies Kept2PullResult;
   }
 
   private async encodeOutboxEntry(entry: Kept2OutboxEntry, keyFor: Kept2KeyResolver): Promise<Kept2OutboxEntry> {

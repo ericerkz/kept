@@ -139,20 +139,65 @@ export class VaultAccessComponent implements OnInit {
     }
     this.isBusy = true;
     try {
-      const transport = new EncryptedSelfHostedTransport(
-        this.http,
-        environment.apiUrl,
-        () => this.auth.authHeaders()
-      );
       const result = await this.syncEngine.pushOutbox(
         this.identity.vaultId,
-        transport,
+        this.transport(),
         (resourceId, resourceType) => this.resourceKeys.keyFor(resourceId, resourceType)
       );
       this.syncStatus = `Pushed ${result.removed} of ${result.pushed} pending operation${result.pushed === 1 ? '' : 's'}.`;
       await this.refreshLocalState();
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not push local changes.';
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  async pullRemote() {
+    if (!this.identity) return;
+    this.error = '';
+    this.success = '';
+    this.syncStatus = '';
+    if (!this.auth.currentUser) {
+      this.error = 'Sign in to the Kept server before syncing this local vault.';
+      return;
+    }
+    this.isBusy = true;
+    try {
+      const result = await this.syncEngine.pullChanges(
+        this.identity.vaultId,
+        this.transport(),
+        (resourceId, resourceType) => this.resourceKeys.existingKeyFor(resourceId, resourceType)
+      );
+      this.syncStatus = `Pulled ${result.applied} remote change${result.applied === 1 ? '' : 's'}${result.failed ? `; ${result.failed} could not be decrypted on this device yet` : ''}.`;
+      await this.refreshLocalState();
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not pull remote changes.';
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  async bootstrapRemote() {
+    if (!this.identity) return;
+    this.error = '';
+    this.success = '';
+    this.syncStatus = '';
+    if (!this.auth.currentUser) {
+      this.error = 'Sign in to the Kept server before syncing this local vault.';
+      return;
+    }
+    this.isBusy = true;
+    try {
+      const result = await this.syncEngine.bootstrapRemote(
+        this.identity.vaultId,
+        this.transport(),
+        (resourceId, resourceType) => this.resourceKeys.existingKeyFor(resourceId, resourceType)
+      );
+      this.syncStatus = `Bootstrapped ${result.applied} encrypted resource${result.applied === 1 ? '' : 's'}${result.failed ? `; ${result.failed} could not be decrypted on this device yet` : ''}.`;
+      await this.refreshLocalState();
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not bootstrap remote vault.';
     } finally {
       this.isBusy = false;
     }
@@ -219,5 +264,13 @@ export class VaultAccessComponent implements OnInit {
   private async refreshLocalState() {
     this.notes = await this.localVault.notes();
     this.outboxCount = (await this.localVault.outbox()).length;
+  }
+
+  private transport() {
+    return new EncryptedSelfHostedTransport(
+      this.http,
+      environment.apiUrl,
+      () => this.auth.authHeaders()
+    );
   }
 }
