@@ -36,6 +36,25 @@ function mountKept2Relay(app, deps) {
     });
   });
 
+  app.get('/api/v2/integrations/remote-mcp', requireAuth, asyncRoute(async (req, res) => {
+    res.json(await remoteMcpSettings(req.user.id));
+  }));
+
+  app.put('/api/v2/integrations/remote-mcp', requireAuth, asyncRoute(async (req, res) => {
+    const enabled = req.body?.enabled === true;
+    const now = new Date().toISOString();
+    await run(
+      `INSERT INTO kept2_integration_settings (userId, integration, enabled, updatedAt)
+       VALUES (?, 'remote-mcp', ?, ?)
+       ON CONFLICT(userId, integration) DO UPDATE SET
+         enabled = excluded.enabled,
+         updatedAt = excluded.updatedAt`,
+      [req.user.id, enabled ? 1 : 0, now]
+    );
+    if (!enabled) await revokeRemoteMcpGrants(req.user.id);
+    res.json(await remoteMcpSettings(req.user.id));
+  }));
+
   app.get('/api/v2/vaults/:vaultId/bootstrap', requireAuth, asyncRoute(async (req, res) => {
     const vault = await requireVaultAccess(req, res, { create: true });
     if (!vault) return;
@@ -274,6 +293,9 @@ function mountKept2Relay(app, deps) {
       const grant = mutation.payload?.grant || mutation.payload;
       const grantId = safeOpaqueId(grant?.grantId);
       if (!grantId) return { ok: false, operationId, error: 'Invalid grantId.' };
+      if (String(grant.grantPurpose || '') === 'mcp' && !await remoteMcpEnabledForVault(vaultId)) {
+        return { ok: false, operationId, error: 'Remote MCP grants are disabled for this account.' };
+      }
       await run(
         `INSERT INTO kept2_key_grants
          (grantId, vaultId, resourceId, resourceType, granteeId, grantPurpose, keyEpoch, wrappedKey, createdAt, revokedAt)
@@ -312,6 +334,52 @@ function mountKept2Relay(app, deps) {
     }
     await recordMutationReceipt(vaultId, operationId, mutationHash, sequence);
     return { ok: true, operationId, sequence };
+  }
+
+  async function remoteMcpSettings(userId) {
+    const row = await get(
+      `SELECT enabled, updatedAt FROM kept2_integration_settings
+       WHERE userId = ? AND integration = 'remote-mcp'`,
+      [userId]
+    );
+    return {
+      enabled: !!row?.enabled,
+      updatedAt: row?.updatedAt || null
+    };
+  }
+
+  async function remoteMcpEnabledForVault(vaultId) {
+    const row = await get(
+      `SELECT s.enabled
+       FROM kept2_vaults v
+       LEFT JOIN kept2_integration_settings s
+         ON s.userId = v.ownerUserId AND s.integration = 'remote-mcp'
+       WHERE v.vaultId = ?`,
+      [vaultId]
+    );
+    return !!row?.enabled;
+  }
+
+  async function revokeRemoteMcpGrants(userId) {
+    const active = await all(
+      `SELECT g.grantId, g.vaultId
+       FROM kept2_key_grants g
+       JOIN kept2_vaults v ON v.vaultId = g.vaultId
+       WHERE v.ownerUserId = ? AND g.grantPurpose = 'mcp' AND g.revokedAt IS NULL`,
+      [userId]
+    );
+    const now = new Date().toISOString();
+    await run(
+      `UPDATE kept2_key_grants
+       SET revokedAt = ?
+       WHERE grantPurpose = 'mcp'
+         AND revokedAt IS NULL
+         AND vaultId IN (SELECT vaultId FROM kept2_vaults WHERE ownerUserId = ?)`,
+      [now, userId]
+    );
+    for (const grant of active) {
+      await recordChange(grant.vaultId, grant.grantId, 'keyGrant', 'delete');
+    }
   }
 
   async function latestResourceSequence(vaultId, resourceId) {
@@ -411,6 +479,13 @@ async function initKept2RelaySchema({ run }) {
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
     PRIMARY KEY(vaultId, blobId)
+  )`);
+  await run(`CREATE TABLE IF NOT EXISTS kept2_integration_settings (
+    userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    integration TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    updatedAt TEXT NOT NULL,
+    PRIMARY KEY(userId, integration)
   )`);
   await run('CREATE INDEX IF NOT EXISTS kept2_changes_vault_sequence_idx ON kept2_sync_changes(vaultId, sequence)');
   await run('CREATE INDEX IF NOT EXISTS kept2_grants_vault_resource_idx ON kept2_key_grants(vaultId, resourceId)');

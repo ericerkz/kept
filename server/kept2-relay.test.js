@@ -83,6 +83,8 @@ async function main() {
     const capabilities = await request('/v2/capabilities', { headers });
     assert.equal(capabilities.protocolVersion, 'encrypted-v1');
     assert.equal(capabilities.contentBlindRealtime, true);
+    const remoteMcpDefault = await request('/v2/integrations/remote-mcp', { headers });
+    assert.equal(remoteMcpDefault.enabled, false);
 
     const vaultId = 'vault-test';
     const blobForm = new FormData();
@@ -120,15 +122,78 @@ async function main() {
     assert.equal(first[0].ok, true);
     assert.ok(first[0].sequence > 0);
 
+    const mcpGrant = {
+      grantId: 'grant-mcp-1',
+      vaultId,
+      resourceId: 'note-test',
+      resourceType: 'note.content',
+      granteeId: 'remote-mcp',
+      grantPurpose: 'mcp',
+      keyEpoch: 1,
+      wrappedKey: 'wrapped-note-key',
+      createdAt: new Date().toISOString(),
+      revokedAt: null
+    };
+    const blockedGrant = await request(`/v2/vaults/${vaultId}/mutations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mutations: [{
+          operationId: 'op-mcp-grant-blocked',
+          mutationType: 'keyGrant.upsert',
+          resourceId: mcpGrant.grantId,
+          payload: { grant: mcpGrant },
+          lww: { physicalMs: 1000, logical: 0, deviceId: 'device-a', operationId: 'op-mcp-grant-blocked' },
+          createdAt: new Date().toISOString(),
+          attempts: 0
+        }]
+      })
+    });
+    assert.equal(blockedGrant[0].ok, false, 'remote MCP key grants are off by default');
+
+    const enabledMcp = await request('/v2/integrations/remote-mcp', {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ enabled: true })
+    });
+    assert.equal(enabledMcp.enabled, true);
+    const acceptedGrant = await request(`/v2/vaults/${vaultId}/mutations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mutations: [{
+          operationId: 'op-mcp-grant-allowed',
+          mutationType: 'keyGrant.upsert',
+          resourceId: mcpGrant.grantId,
+          payload: { grant: mcpGrant },
+          lww: { physicalMs: 1001, logical: 0, deviceId: 'device-a', operationId: 'op-mcp-grant-allowed' },
+          createdAt: new Date().toISOString(),
+          attempts: 0
+        }]
+      })
+    });
+    assert.equal(acceptedGrant[0].ok, true);
+    let grantSnapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
+    assert.equal(grantSnapshot.keyGrants.some(grant => grant.grantId === mcpGrant.grantId), true);
+
+    const disabledMcp = await request('/v2/integrations/remote-mcp', {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ enabled: false })
+    });
+    assert.equal(disabledMcp.enabled, false);
+    grantSnapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
+    assert.equal(grantSnapshot.keyGrants.some(grant => grant.grantId === mcpGrant.grantId), false);
+
     const snapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
     assert.equal(snapshot.envelopes.length, 1);
     assert.equal(snapshot.envelopes[0].ciphertext, 'opaque-ciphertext');
     assert.equal(snapshot.envelopes[0].resourceId, 'note-test');
 
     const changes = await request(`/v2/vaults/${vaultId}/changes?cursor=0`, { headers });
-    assert.equal(changes.changes.length, 1);
-    assert.equal(changes.changes[0].operation, 'upsert');
-    assert.equal(changes.changes[0].envelope.ciphertext, 'opaque-ciphertext');
+    const noteChange = changes.changes.find(change => change.resourceId === 'note-test');
+    assert.equal(noteChange.operation, 'upsert');
+    assert.equal(noteChange.envelope.ciphertext, 'opaque-ciphertext');
 
     const replay = await request(`/v2/vaults/${vaultId}/mutations`, {
       method: 'POST',
