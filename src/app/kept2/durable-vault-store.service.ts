@@ -8,65 +8,233 @@ import {
   VaultIdentity
 } from './vault-types';
 import { VaultIdentityService } from './vault-identity.service';
+import { BrowserVaultSqliteDriverService } from './browser-vault-sqlite-driver.service';
+
+type StoredJson<T> = {
+  syncId: string;
+  value: string;
+};
 
 @Injectable({ providedIn: 'root' })
 export class DurableVaultStoreService implements DurableVaultStore {
-  constructor(private identities: VaultIdentityService) {}
+  constructor(
+    private identities: VaultIdentityService,
+    private driver: BrowserVaultSqliteDriverService
+  ) {}
 
   identity(): Promise<VaultIdentity> {
     return this.identities.loadOrCreate();
   }
 
-  listNotes(): Promise<NoteI[]> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async listNotes(): Promise<NoteI[]> {
+    const rows = await this.driver.all<StoredJson<NoteI>>(
+      'SELECT syncId, value FROM notes WHERE deleted = 0 ORDER BY updatedAt DESC'
+    );
+    return rows.map(row => this.parseJson<NoteI>(row.value));
   }
 
-  putNote(_note: NoteI, _stamp?: LwwStamp): Promise<void> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async putNote(note: NoteI, stamp?: LwwStamp): Promise<void> {
+    const syncId = this.ensureSyncId(note, 'note');
+    const now = new Date().toISOString();
+    const lww = this.stamp(stamp);
+    const value = { ...note, syncId, updatedAt: note.updatedAt || now };
+    await this.driver.run(
+      `INSERT INTO notes
+       (syncId, value, searchText, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId, deleted, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+       ON CONFLICT(syncId) DO UPDATE SET
+         value = excluded.value,
+         searchText = excluded.searchText,
+         lwwPhysicalMs = excluded.lwwPhysicalMs,
+         lwwLogical = excluded.lwwLogical,
+         lwwDeviceId = excluded.lwwDeviceId,
+         lwwOperationId = excluded.lwwOperationId,
+         deleted = 0,
+         updatedAt = excluded.updatedAt`,
+      [
+        syncId,
+        JSON.stringify(value),
+        this.noteSearchText(value),
+        lww.physicalMs,
+        lww.logical,
+        lww.deviceId,
+        lww.operationId,
+        now
+      ]
+    );
   }
 
-  getNote(_syncId: string): Promise<NoteI | undefined> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async getNote(syncId: string): Promise<NoteI | undefined> {
+    const row = await this.driver.get<StoredJson<NoteI>>(
+      'SELECT syncId, value FROM notes WHERE syncId = ? AND deleted = 0',
+      [syncId]
+    );
+    return row ? this.parseJson<NoteI>(row.value) : undefined;
   }
 
-  deleteNote(_syncId: string, _stamp?: LwwStamp): Promise<void> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async deleteNote(syncId: string, stamp?: LwwStamp): Promise<void> {
+    const lww = this.stamp(stamp);
+    await this.driver.run(
+      `UPDATE notes SET deleted = 1, lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?,
+        lwwOperationId = ?, updatedAt = ? WHERE syncId = ?`,
+      [lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString(), syncId]
+    );
   }
 
-  listReminders(): Promise<ReminderI[]> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async listReminders(): Promise<ReminderI[]> {
+    const rows = await this.driver.all<StoredJson<ReminderI>>(
+      'SELECT syncId, value FROM reminders WHERE deleted = 0 ORDER BY updatedAt DESC'
+    );
+    return rows.map(row => this.parseJson<ReminderI>(row.value));
   }
 
-  putReminder(_reminder: ReminderI, _stamp?: LwwStamp): Promise<void> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async putReminder(reminder: ReminderI, stamp?: LwwStamp): Promise<void> {
+    const syncId = this.ensureSyncId(reminder, 'reminder');
+    const now = new Date().toISOString();
+    const lww = this.stamp(stamp);
+    const value = { ...reminder, syncId, updatedAt: reminder.updatedAt || now };
+    await this.driver.run(
+      `INSERT INTO reminders
+       (syncId, noteSyncId, value, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId, deleted, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+       ON CONFLICT(syncId) DO UPDATE SET
+         noteSyncId = excluded.noteSyncId,
+         value = excluded.value,
+         lwwPhysicalMs = excluded.lwwPhysicalMs,
+         lwwLogical = excluded.lwwLogical,
+         lwwDeviceId = excluded.lwwDeviceId,
+         lwwOperationId = excluded.lwwOperationId,
+         deleted = 0,
+         updatedAt = excluded.updatedAt`,
+      [
+        syncId,
+        (value as ReminderI & { noteSyncId?: string }).noteSyncId || '',
+        JSON.stringify(value),
+        lww.physicalMs,
+        lww.logical,
+        lww.deviceId,
+        lww.operationId,
+        now
+      ]
+    );
   }
 
-  deleteReminder(_syncId: string, _stamp?: LwwStamp): Promise<void> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async deleteReminder(syncId: string, stamp?: LwwStamp): Promise<void> {
+    const lww = this.stamp(stamp);
+    await this.driver.run(
+      `UPDATE reminders SET deleted = 1, lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?,
+        lwwOperationId = ?, updatedAt = ? WHERE syncId = ?`,
+      [lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString(), syncId]
+    );
   }
 
-  listAttachments(_noteSyncId?: string): Promise<NoteAttachmentI[]> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async listAttachments(noteSyncId?: string): Promise<NoteAttachmentI[]> {
+    const rows = noteSyncId
+      ? await this.driver.all<StoredJson<NoteAttachmentI>>(
+        'SELECT syncId, value FROM attachments WHERE noteSyncId = ? AND deleted = 0 ORDER BY updatedAt DESC',
+        [noteSyncId]
+      )
+      : await this.driver.all<StoredJson<NoteAttachmentI>>(
+        'SELECT syncId, value FROM attachments WHERE deleted = 0 ORDER BY updatedAt DESC'
+      );
+    return rows.map(row => this.parseJson<NoteAttachmentI>(row.value));
   }
 
-  putAttachment(_attachment: NoteAttachmentI, _blob?: Blob, _stamp?: LwwStamp): Promise<void> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async putAttachment(attachment: NoteAttachmentI, blob?: Blob, stamp?: LwwStamp): Promise<void> {
+    const syncId = this.ensureSyncId(attachment, 'attachment');
+    const now = new Date().toISOString();
+    const blobKey = blob ? `attachment:${syncId}` : '';
+    const lww = this.stamp(stamp);
+    const value = { ...attachment, syncId };
+    await this.driver.transaction(async () => {
+      if (blob) await this.driver.putBlob(blobKey, blob);
+      await this.driver.run(
+        `INSERT INTO attachments
+         (syncId, noteSyncId, blobKey, value, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId, deleted, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+         ON CONFLICT(syncId) DO UPDATE SET
+           noteSyncId = excluded.noteSyncId,
+           blobKey = CASE WHEN excluded.blobKey = '' THEN attachments.blobKey ELSE excluded.blobKey END,
+           value = excluded.value,
+           lwwPhysicalMs = excluded.lwwPhysicalMs,
+           lwwLogical = excluded.lwwLogical,
+           lwwDeviceId = excluded.lwwDeviceId,
+           lwwOperationId = excluded.lwwOperationId,
+           deleted = 0,
+           updatedAt = excluded.updatedAt`,
+        [
+          syncId,
+          (value as NoteAttachmentI & { noteSyncId?: string }).noteSyncId || '',
+          blobKey,
+          JSON.stringify(value),
+          lww.physicalMs,
+          lww.logical,
+          lww.deviceId,
+          lww.operationId,
+          now
+        ]
+      );
+    });
   }
 
-  deleteAttachment(_syncId: string, _stamp?: LwwStamp): Promise<void> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async deleteAttachment(syncId: string, stamp?: LwwStamp): Promise<void> {
+    const lww = this.stamp(stamp);
+    await this.driver.run(
+      `UPDATE attachments SET deleted = 1, lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?,
+        lwwOperationId = ?, updatedAt = ? WHERE syncId = ?`,
+      [lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString(), syncId]
+    );
   }
 
-  enqueue(_entry: Kept2OutboxEntry): Promise<void> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async enqueue(entry: Kept2OutboxEntry): Promise<void> {
+    await this.driver.run(
+      `INSERT INTO outbox (operationId, value, createdAt, attempts)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(operationId) DO UPDATE SET value = excluded.value, attempts = excluded.attempts`,
+      [entry.operationId, JSON.stringify(entry), entry.createdAt, entry.attempts]
+    );
   }
 
-  listOutbox(): Promise<Kept2OutboxEntry[]> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async listOutbox(): Promise<Kept2OutboxEntry[]> {
+    const rows = await this.driver.all<{ value: string }>('SELECT value FROM outbox ORDER BY createdAt ASC');
+    return rows.map(row => this.parseJson<Kept2OutboxEntry>(row.value));
   }
 
-  removeOutbox(_operationIds: string[]): Promise<void> {
-    throw new Error('DurableVaultStore SQLite implementation is not wired yet.');
+  async removeOutbox(operationIds: string[]): Promise<void> {
+    await this.driver.transaction(async () => {
+      for (const operationId of operationIds) {
+        await this.driver.run('DELETE FROM outbox WHERE operationId = ?', [operationId]);
+      }
+    });
+  }
+
+  private ensureSyncId(value: { syncId?: string }, prefix: 'note' | 'reminder' | 'attachment') {
+    value.syncId ||= `${prefix}-${crypto.randomUUID()}`;
+    return value.syncId;
+  }
+
+  private stamp(stamp?: LwwStamp): LwwStamp {
+    return stamp || {
+      physicalMs: Date.now(),
+      logical: 0,
+      deviceId: 'local',
+      operationId: crypto.randomUUID()
+    };
+  }
+
+  private parseJson<T>(value: string): T {
+    return JSON.parse(value) as T;
+  }
+
+  private noteSearchText(note: NoteI) {
+    const checks = (note.checkBoxes || []).map(item => String(item.data || '')).join(' ');
+    const labels = (note.labels || []).map(label => label.name).join(' ');
+    return [
+      note.noteTitle,
+      note.noteBody || '',
+      checks,
+      labels,
+      note.binder || ''
+    ].join(' ').replace(/\s+/g, ' ').trim().toLowerCase();
   }
 }
-
