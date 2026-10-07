@@ -303,6 +303,7 @@ export class ReminderService {
     if (changed) {
       this.schedulePendingReminders(this.reminders$.value);
       this.syncAndroidGeofences(this.reminders$.value);
+      this.syncAndroidTimeReminders(this.reminders$.value);
     }
   }
 
