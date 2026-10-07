@@ -49,6 +49,12 @@ interface MigrationCutoverReceipt {
   completedAt: string;
 }
 
+declare const BarcodeDetector: {
+  new(options: { formats: string[] }): {
+    detect(source: ImageBitmapSource): Promise<Array<{ rawValue?: string }>>;
+  };
+} | undefined;
+
 @Component({
   selector: 'app-kept2-vault-access',
   templateUrl: './vault-access.component.html',
@@ -454,6 +460,34 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.error = error instanceof Error ? error.message : 'Could not approve that pairing code.';
     } finally {
       this.isBusy = false;
+    }
+  }
+
+  async scanPairingQr(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    this.error = '';
+    this.devicePairingStatus = '';
+    try {
+      if (typeof BarcodeDetector === 'undefined' || typeof createImageBitmap !== 'function') {
+        this.devicePairingStatus = 'QR scanning is not available in this browser. Paste the pairing code instead.';
+        return;
+      }
+      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      const bitmap = await createImageBitmap(file);
+      try {
+        const codes = await detector.detect(bitmap);
+        const value = codes.find(code => !!code.rawValue)?.rawValue || '';
+        if (!value) throw new Error('No QR code was found in that image.');
+        this.incomingPairingCode = value;
+        this.devicePairingStatus = 'Pairing code scanned. Review and approve it when ready.';
+      } finally {
+        bitmap.close?.();
+      }
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not scan that QR code.';
     }
   }
 

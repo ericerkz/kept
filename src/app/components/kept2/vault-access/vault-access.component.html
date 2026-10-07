@@ -63,6 +63,10 @@
           <textarea name="incomingPairingCode" [(ngModel)]="incomingPairingCode" rows="3" placeholder="Paste pairing code"></textarea>
         </label>
         <div class="button-row">
+          <label class="file-button">
+            <input type="file" accept="image/*" capture="environment" (change)="scanPairingQr($event)">
+            <span>Scan QR</span>
+          </label>
           <button type="button" class="secondary" (click)="approvePairingCode()" [disabled]="isBusy || !auth.currentUser || !incomingPairingCode.trim()">Approve and grant keys</button>
         </div>
         @if (devicePairingStatus) { <span>{{devicePairingStatus}}</span> }
