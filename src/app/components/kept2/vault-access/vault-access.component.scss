@@ -116,6 +116,14 @@
   resize: vertical;
 }
 
+.pairing-qr {
+  background: white;
+  border-radius: 8px;
+  justify-self: start;
+  padding: 8px;
+  width: 220px;
+}
+
 .device-list {
   display: grid;
   gap: 8px;

@@ -2,6 +2,7 @@ import { Component, OnDestroy, OnInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
+import { toDataURL } from 'qrcode';
 import { NoteAttachmentI, NoteI } from 'src/app/interfaces/notes';
 import { ReminderI } from 'src/app/interfaces/reminder';
 import { LocalFirstVaultService } from 'src/app/kept2/local-first-vault.service';
@@ -78,6 +79,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
   deviceLabel = '';
   devicePairingStatus = '';
   pairingCode = '';
+  pairingQrCodeUrl = '';
   incomingPairingCode = '';
   remoteDevices: VaultDevicePublicKey[] = [];
   localFirstActive = false;
@@ -423,6 +425,12 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     this.isBusy = true;
     try {
       this.pairingCode = await this.devicePairing.createPairingCode(this.deviceLabel.trim() || this.defaultDeviceLabel());
+      this.pairingQrCodeUrl = await toDataURL(this.pairingCode, {
+        color: { dark: '#202124', light: '#ffffff' },
+        errorCorrectionLevel: 'M',
+        margin: 2,
+        width: 220
+      });
       await navigator.clipboard?.writeText(this.pairingCode).catch(() => undefined);
       this.devicePairingStatus = 'Pairing code created. Share it with an already-unlocked device for approval.';
     } catch (error: any) {

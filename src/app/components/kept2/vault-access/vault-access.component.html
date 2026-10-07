@@ -50,6 +50,9 @@
           <button type="button" class="secondary" (click)="createPairingCode()" [disabled]="isBusy">Create pairing code</button>
         </div>
         @if (pairingCode) {
+          @if (pairingQrCodeUrl) {
+            <img class="pairing-qr" [src]="pairingQrCodeUrl" alt="Kept 2 device pairing QR code">
+          }
           <label>
             <span>This device pairing code</span>
             <textarea name="pairingCode" [ngModel]="pairingCode" readonly rows="3"></textarea>

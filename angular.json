@@ -42,7 +42,8 @@
               }
             ],
             "allowedCommonJsDependencies": [
-              "jszip"
+              "jszip",
+              "qrcode"
             ]
           },
 
