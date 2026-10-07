@@ -181,7 +181,8 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       const result = await this.syncEngine.pushOutbox(
         this.identity.vaultId,
         this.transport(),
-        (resourceId, resourceType) => this.resourceKeys.keyFor(resourceId, resourceType)
+        (resourceId, resourceType) => this.resourceKeys.keyFor(resourceId, resourceType),
+        (vaultId, resourceId, resourceType) => this.resourceKeys.grantFor(vaultId, resourceId, resourceType)
       );
       this.syncStatus = `Pushed ${result.removed} of ${result.pushed} pending operation${result.pushed === 1 ? '' : 's'}.`;
       await this.refreshLocalState();
@@ -206,7 +207,8 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       const result = await this.syncEngine.pullChanges(
         this.identity.vaultId,
         this.transport(),
-        (resourceId, resourceType) => this.resourceKeys.existingKeyFor(resourceId, resourceType)
+        (resourceId, resourceType) => this.resourceKeys.existingKeyFor(resourceId, resourceType),
+        grant => this.resourceKeys.importGrant(grant)
       );
       this.syncStatus = `Pulled ${result.applied} remote change${result.applied === 1 ? '' : 's'}${result.failed ? `; ${result.failed} could not be decrypted on this device yet` : ''}.`;
       await this.refreshLocalState();
@@ -231,7 +233,8 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       const result = await this.syncEngine.bootstrapRemote(
         this.identity.vaultId,
         this.transport(),
-        (resourceId, resourceType) => this.resourceKeys.existingKeyFor(resourceId, resourceType)
+        (resourceId, resourceType) => this.resourceKeys.existingKeyFor(resourceId, resourceType),
+        grant => this.resourceKeys.importGrant(grant)
       );
       this.syncStatus = `Bootstrapped ${result.applied} encrypted resource${result.applied === 1 ? '' : 's'}${result.failed ? `; ${result.failed} could not be decrypted on this device yet` : ''}.`;
       await this.refreshLocalState();

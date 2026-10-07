@@ -8,10 +8,12 @@ import {
   Kept2LocalResourceKind,
   Kept2OutboxEntry,
   Kept2ResourceType,
+  KeyGrant,
   SyncTransport
 } from './vault-types';
 
 export type Kept2KeyResolver = (resourceId: string, resourceType: Kept2ResourceType) => Promise<Uint8Array>;
+export type Kept2GrantResolver = (vaultId: string, resourceId: string, resourceType: Kept2ResourceType) => Promise<KeyGrant>;
 
 export interface Kept2PullResult {
   applied: number;
@@ -27,7 +29,7 @@ export class SyncEngineService {
     private crypto: VaultCryptoService
   ) {}
 
-  async pushOutbox(vaultId: string, transport: SyncTransport, keyFor: Kept2KeyResolver) {
+  async pushOutbox(vaultId: string, transport: SyncTransport, keyFor: Kept2KeyResolver, grantFor?: Kept2GrantResolver) {
     const pending = await this.vault.listOutbox();
     if (!pending.length) return { pushed: 0, removed: 0, failed: 0 };
 
@@ -40,6 +42,11 @@ export class SyncEngineService {
     for (const entry of blobUploads) {
       try {
         await this.pushBlob(vaultId, entry, transport, keyFor);
+        if (grantFor) {
+          const grantMutation = await this.keyGrantMutation(vaultId, entry, 'blob', grantFor);
+          const grantResult = await transport.mutate(vaultId, [grantMutation]);
+          if (!grantResult[0]?.ok) throw new Error(grantResult[0]?.error || 'Could not sync blob key grant.');
+        }
         removable.push(entry.operationId);
       } catch {
         failed += 1;
@@ -47,19 +54,30 @@ export class SyncEngineService {
     }
 
     const encoded = await Promise.all([...resourceMutations, ...blobDeletes].map(entry => this.encodeOutboxEntry(entry, keyFor)));
-    const results = encoded.length ? await transport.mutate(vaultId, encoded) : [];
+    const grantMutations = grantFor
+      ? await this.keyGrantMutations(vaultId, resourceMutations, grantFor)
+      : [];
+    const results = encoded.length || grantMutations.length ? await transport.mutate(vaultId, [...grantMutations, ...encoded]) : [];
     removable.push(...results.filter(result => result.ok).map(result => result.operationId));
-    await this.vault.removeOutbox(removable);
+    const localOperationIds = new Set([...resourceMutations, ...blobDeletes].map(entry => entry.operationId));
+    const removableLocal = removable.filter(operationId => localOperationIds.has(operationId) || blobUploads.some(entry => entry.operationId === operationId));
+    await this.vault.removeOutbox(removableLocal);
     return {
       pushed: encoded.length + blobUploads.length,
-      removed: removable.length,
+      removed: removableLocal.length,
       failed: failed + results.filter(result => !result.ok).length
     };
   }
 
-  async pullChanges(vaultId: string, transport: SyncTransport, keyFor: Kept2KeyResolver) {
+  async pullChanges(
+    vaultId: string,
+    transport: SyncTransport,
+    keyFor: Kept2KeyResolver,
+    importGrant?: (grant: KeyGrant) => Promise<boolean>
+  ) {
     const cursorName = `remote:${vaultId}`;
     const cursor = await this.vault.getCursor(cursorName);
+    if (importGrant) await this.importRemoteKeyGrants(vaultId, transport, importGrant);
     const changes = await transport.changes(vaultId, cursor);
     let applied = 0;
     let failed = 0;
@@ -84,8 +102,18 @@ export class SyncEngineService {
     } satisfies Kept2PullResult;
   }
 
-  async bootstrapRemote(vaultId: string, transport: SyncTransport, keyFor: Kept2KeyResolver) {
+  async bootstrapRemote(
+    vaultId: string,
+    transport: SyncTransport,
+    keyFor: Kept2KeyResolver,
+    importGrant?: (grant: KeyGrant) => Promise<boolean>
+  ) {
     const snapshot = await transport.bootstrap(vaultId);
+    if (importGrant) {
+      for (const grant of snapshot.keyGrants || []) {
+        try { await importGrant(grant); } catch {}
+      }
+    }
     let applied = 0;
     let failed = 0;
     for (const envelope of snapshot.envelopes) {
@@ -103,6 +131,20 @@ export class SyncEngineService {
       cursor: snapshot.cursor,
       hasMore: false
     } satisfies Kept2PullResult;
+  }
+
+  async importRemoteKeyGrants(vaultId: string, transport: SyncTransport, importGrant: (grant: KeyGrant) => Promise<boolean>) {
+    const snapshot = await transport.bootstrap(vaultId);
+    let imported = 0;
+    let failed = 0;
+    for (const grant of snapshot.keyGrants || []) {
+      try {
+        if (await importGrant(grant)) imported += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    return { imported, failed, cursor: snapshot.cursor };
   }
 
   private async encodeOutboxEntry(entry: Kept2OutboxEntry, keyFor: Kept2KeyResolver): Promise<Kept2OutboxEntry> {
@@ -187,5 +229,33 @@ export class SyncEngineService {
     if (kind === 'reminder') return 'reminder';
     if (kind === 'attachment') return 'attachment';
     return 'note.content';
+  }
+
+  private async keyGrantMutations(vaultId: string, entries: Kept2OutboxEntry[], grantFor: Kept2GrantResolver) {
+    const mutations: Kept2OutboxEntry[] = [];
+    for (const entry of entries) {
+      if (entry.mutationType !== 'resource.upsert') continue;
+      const kind = this.localKind(entry.payload);
+      mutations.push(await this.keyGrantMutation(vaultId, entry, this.resourceTypeForKind(kind), grantFor));
+    }
+    return mutations;
+  }
+
+  private async keyGrantMutation(
+    vaultId: string,
+    entry: Kept2OutboxEntry,
+    resourceType: Kept2ResourceType,
+    grantFor: Kept2GrantResolver
+  ): Promise<Kept2OutboxEntry> {
+    const grant = await grantFor(vaultId, entry.resourceId, resourceType);
+    return {
+      operationId: `${entry.operationId}:grant:${grant.grantId}`.slice(0, 180),
+      mutationType: 'keyGrant.upsert',
+      resourceId: grant.grantId,
+      payload: { grant },
+      lww: entry.lww,
+      createdAt: entry.createdAt,
+      attempts: entry.attempts
+    };
   }
 }

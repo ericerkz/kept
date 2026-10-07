@@ -57,12 +57,14 @@ export class Kept2SyncCoordinatorService {
       await this.syncEngine.pushOutbox(
         activeIdentity.vaultId,
         transport,
-        (resourceId, resourceType) => this.resourceKeys.keyFor(resourceId, resourceType)
+        (resourceId, resourceType) => this.resourceKeys.keyFor(resourceId, resourceType),
+        (vaultId, resourceId, resourceType) => this.resourceKeys.grantFor(vaultId, resourceId, resourceType)
       );
       await this.syncEngine.pullChanges(
         activeIdentity.vaultId,
         transport,
-        (resourceId, resourceType) => this.resourceKeys.existingKeyFor(resourceId, resourceType)
+        (resourceId, resourceType) => this.resourceKeys.existingKeyFor(resourceId, resourceType),
+        grant => this.resourceKeys.importGrant(grant)
       );
       this.lastSyncAt = new Date().toISOString();
     } catch (error) {

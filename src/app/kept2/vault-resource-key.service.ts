@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { VaultCryptoService } from './vault-crypto.service';
 import { VaultSessionService } from './vault-session.service';
 import { VaultSqliteDriverService } from './vault-sqlite-driver.service';
-import { Kept2ResourceType } from './vault-types';
+import { Kept2GrantPurpose, Kept2ResourceType, KeyGrant } from './vault-types';
 
 interface StoredResourceKey {
   resourceId: string;
@@ -68,6 +68,54 @@ export class VaultResourceKeyService {
     return key;
   }
 
+  async grantFor(vaultId: string, resourceId: string, resourceType: Kept2ResourceType, grantPurpose: Kept2GrantPurpose = 'recovery') {
+    const grantId = this.grantId(vaultId, resourceId, resourceType, grantPurpose);
+    const existing = await this.readGrant(grantId);
+    if (existing) return existing;
+
+    const key = await this.keyFor(resourceId, resourceType);
+    const now = new Date().toISOString();
+    const grant: KeyGrant = {
+      grantId,
+      vaultId,
+      resourceId,
+      resourceType,
+      granteeId: `vault:${vaultId}:vmk`,
+      grantPurpose,
+      keyEpoch: 1,
+      wrappedKey: await this.cryptoService.wrapKeyWithSymmetricKey(key, this.session.currentVmk()),
+      createdAt: now,
+      revokedAt: null
+    };
+    await this.writeGrant(grant);
+    return grant;
+  }
+
+  async importGrant(grant: KeyGrant) {
+    if (!grant || grant.revokedAt) return false;
+    if (grant.grantPurpose !== 'recovery' && grant.grantPurpose !== 'device') return false;
+    if (!String(grant.granteeId || '').endsWith(':vmk')) return false;
+    const key = await this.cryptoService.unwrapKeyWithSymmetricKey(grant.wrappedKey, this.session.currentVmk());
+    const now = new Date().toISOString();
+    const value: StoredResourceKey = {
+      resourceId: grant.resourceId,
+      resourceType: grant.resourceType,
+      keyEpoch: grant.keyEpoch || 1,
+      wrappedKey: await this.cryptoService.wrapKeyWithSymmetricKey(key, this.session.currentVmk()),
+      createdAt: grant.createdAt || now,
+      updatedAt: now
+    };
+    await this.driver.run(
+      `INSERT INTO key_metadata (keyId, value, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(keyId) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`,
+      [this.metadataKey(grant.resourceId, grant.resourceType), JSON.stringify(value), value.createdAt, now]
+    );
+    await this.writeGrant(grant);
+    this.cache.set(this.cacheKey(grant.resourceId, grant.resourceType), key);
+    return true;
+  }
+
   clearCache() {
     this.cache.clear();
   }
@@ -84,8 +132,34 @@ export class VaultResourceKeyService {
     return row ? JSON.parse(row.value) as StoredResourceKey : null;
   }
 
+  private async readGrant(grantId: string): Promise<KeyGrant | null> {
+    const row = await this.driver.get<{ value: string }>(
+      'SELECT value FROM key_metadata WHERE keyId = ?',
+      [this.grantMetadataKey(grantId)]
+    );
+    return row ? JSON.parse(row.value) as KeyGrant : null;
+  }
+
+  private async writeGrant(grant: KeyGrant) {
+    const now = new Date().toISOString();
+    await this.driver.run(
+      `INSERT INTO key_metadata (keyId, value, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(keyId) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`,
+      [this.grantMetadataKey(grant.grantId), JSON.stringify(grant), grant.createdAt || now, now]
+    );
+  }
+
   private metadataKey(resourceId: string, resourceType: Kept2ResourceType) {
     return `resourceKey:${resourceType}:${resourceId}`;
+  }
+
+  private grantMetadataKey(grantId: string) {
+    return `keyGrant:${grantId}`;
+  }
+
+  private grantId(vaultId: string, resourceId: string, resourceType: Kept2ResourceType, grantPurpose: Kept2GrantPurpose) {
+    return `grant-${grantPurpose}-${vaultId}-${resourceType}-${resourceId}`.replace(/[^A-Za-z0-9._:-]/g, '-').slice(0, 180);
   }
 
   private cacheKey(resourceId: string, resourceType: Kept2ResourceType) {
