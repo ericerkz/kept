@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const { normalizeLwwStamp, shouldApplyLww } = require('./sync-core');
 
 const protocolVersion = 'encrypted-v1';
 
@@ -191,6 +192,17 @@ function mountKept2Relay(app, deps) {
       const envelope = mutation.payload?.envelope || mutation.payload;
       const valid = validateEnvelope(resourceId, envelope);
       if (!valid.ok) return { ok: false, operationId, error: valid.error };
+      const existingResource = await get(
+        `SELECT lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId
+         FROM kept2_encrypted_resources
+         WHERE vaultId = ? AND resourceId = ?`,
+        [vaultId, resourceId]
+      );
+      if (!shouldApplyLww(existingResource, envelope.lww)) {
+        sequence = await latestResourceSequence(vaultId, resourceId);
+        await recordMutationReceipt(vaultId, operationId, mutationHash, sequence);
+        return { ok: true, operationId, skipped: true, sequence, stale: true };
+      }
       await run(
         `INSERT INTO kept2_encrypted_resources
          (vaultId, resourceId, resourceType, keyEpoch, lwwPhysicalMs, lwwLogical, lwwDeviceId,
@@ -230,8 +242,33 @@ function mountKept2Relay(app, deps) {
       sequence = await recordChange(vaultId, resourceId, envelope.resourceType, 'upsert');
     } else if (type === 'resource.delete') {
       const resourceType = String(mutation.payload?.resourceType || 'note.content');
-      await run('UPDATE kept2_encrypted_resources SET deleted = 1, updatedAt = ? WHERE vaultId = ? AND resourceId = ?',
-        [new Date().toISOString(), vaultId, resourceId]);
+      const lww = normalizeLwwStamp(mutation.lww);
+      const existingResource = await get(
+        `SELECT lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId
+         FROM kept2_encrypted_resources
+         WHERE vaultId = ? AND resourceId = ?`,
+        [vaultId, resourceId]
+      );
+      if (!shouldApplyLww(existingResource, lww)) {
+        sequence = await latestResourceSequence(vaultId, resourceId);
+        await recordMutationReceipt(vaultId, operationId, mutationHash, sequence);
+        return { ok: true, operationId, skipped: true, sequence, stale: true };
+      }
+      await run(
+        `INSERT INTO kept2_encrypted_resources
+         (vaultId, resourceId, resourceType, keyEpoch, lwwPhysicalMs, lwwLogical, lwwDeviceId,
+          lwwOperationId, ciphertext, nonce, aad, ciphertextHash, schemaVersion, deleted, updatedAt)
+         VALUES (?, ?, ?, 1, ?, ?, ?, ?, '', '', '{}', '', 1, 1, ?)
+         ON CONFLICT(vaultId, resourceId) DO UPDATE SET
+           resourceType = excluded.resourceType,
+           lwwPhysicalMs = excluded.lwwPhysicalMs,
+           lwwLogical = excluded.lwwLogical,
+           lwwDeviceId = excluded.lwwDeviceId,
+           lwwOperationId = excluded.lwwOperationId,
+           deleted = 1,
+           updatedAt = excluded.updatedAt`,
+        [vaultId, resourceId, resourceType, lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString()]
+      );
       sequence = await recordChange(vaultId, resourceId, resourceType, 'delete');
     } else if (type === 'keyGrant.upsert') {
       const grant = mutation.payload?.grant || mutation.payload;
@@ -266,11 +303,23 @@ function mountKept2Relay(app, deps) {
     } else {
       return { ok: false, operationId, error: 'Unsupported mutation type.' };
     }
+    await recordMutationReceipt(vaultId, operationId, mutationHash, sequence);
+    return { ok: true, operationId, sequence };
+  }
+
+  async function latestResourceSequence(vaultId, resourceId) {
+    const row = await get(
+      'SELECT COALESCE(MAX(sequence), 0) AS sequence FROM kept2_sync_changes WHERE vaultId = ? AND resourceId = ?',
+      [vaultId, resourceId]
+    );
+    return Number(row?.sequence || 0);
+  }
+
+  async function recordMutationReceipt(vaultId, operationId, mutationHash, sequence) {
     await run(
       'INSERT INTO kept2_mutation_receipts (vaultId, operationId, mutationHash, sequence, createdAt) VALUES (?, ?, ?, ?, ?)',
-      [vaultId, operationId, mutationHash, sequence, new Date().toISOString()]
+      [vaultId, operationId, mutationHash, Number(sequence || 0), new Date().toISOString()]
     );
-    return { ok: true, operationId, sequence };
   }
 
   async function recordChange(vaultId, resourceId, resourceType, operation) {

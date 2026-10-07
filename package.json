@@ -11,7 +11,7 @@
     "test:native": "node server/native-client.test.js",
     "test:reminders": "node --test server/reminder-recurrence.test.js",
     "test:vault": "node server/kept2-relay.test.js",
-    "test:local-first": "node server/kept2-relay.test.js",
+    "test:local-first": "node --test server/kept2-sync-core.test.mjs",
     "test:encrypted-sync": "node server/kept2-relay.test.js",
     "test:crypto": "node --test server/kept2-crypto.test.mjs",
     "test:migration": "node --test server/kept2-migration.test.mjs",

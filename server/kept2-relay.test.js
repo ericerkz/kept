@@ -47,6 +47,19 @@ function bearer(token) {
   return { Authorization: `Bearer ${token}` };
 }
 
+function mutation(envelope, overrides = {}) {
+  return {
+    operationId: envelope.lww.operationId,
+    mutationType: 'resource.upsert',
+    resourceId: envelope.resourceId,
+    payload: { envelope },
+    lww: envelope.lww,
+    createdAt: new Date().toISOString(),
+    attempts: 0,
+    ...overrides
+  };
+}
+
 async function main() {
   const child = childProcess.spawn('node', ['server/server.js'], {
     cwd: root,
@@ -87,15 +100,7 @@ async function main() {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        mutations: [{
-          operationId: 'op-1',
-          mutationType: 'resource.upsert',
-          resourceId: 'note-test',
-          payload: { envelope },
-          lww: envelope.lww,
-          createdAt: new Date().toISOString(),
-          attempts: 0
-        }]
+        mutations: [mutation(envelope)]
       })
     });
     assert.equal(first[0].ok, true);
@@ -115,15 +120,7 @@ async function main() {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        mutations: [{
-          operationId: 'op-1',
-          mutationType: 'resource.upsert',
-          resourceId: 'note-test',
-          payload: { envelope },
-          lww: envelope.lww,
-          createdAt: new Date().toISOString(),
-          attempts: 1
-        }]
+        mutations: [mutation(envelope, { attempts: 1 })]
       })
     });
     assert.equal(replay[0].ok, true);
@@ -133,18 +130,77 @@ async function main() {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        mutations: [{
-          operationId: 'op-1',
-          mutationType: 'resource.upsert',
-          resourceId: 'note-test',
-          payload: { envelope: { ...envelope, ciphertext: 'different-ciphertext' } },
-          lww: envelope.lww,
-          createdAt: new Date().toISOString(),
-          attempts: 2
-        }]
+        mutations: [mutation({ ...envelope, ciphertext: 'different-ciphertext' }, { attempts: 2 })]
       })
     });
     assert.equal(conflicting[0].ok, false, 'operation id must not be reused with different encrypted payload');
+
+    const newer = {
+      ...envelope,
+      resourceId: 'note-lww',
+      lww: { physicalMs: 3000, logical: 0, deviceId: 'device-b', operationId: 'op-lww-newer' },
+      ciphertext: 'newer-ciphertext',
+      aad: { resourceId: 'note-lww' },
+      ciphertextHash: 'newer-hash'
+    };
+    const older = {
+      ...newer,
+      lww: { physicalMs: 2000, logical: 0, deviceId: 'device-a', operationId: 'op-lww-older' },
+      ciphertext: 'older-ciphertext',
+      ciphertextHash: 'older-hash'
+    };
+    const newerResult = await request(`/v2/vaults/${vaultId}/mutations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ mutations: [mutation(newer)] })
+    });
+    assert.equal(newerResult[0].ok, true);
+    const staleResult = await request(`/v2/vaults/${vaultId}/mutations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ mutations: [mutation(older)] })
+    });
+    assert.equal(staleResult[0].ok, true);
+    assert.equal(staleResult[0].skipped, true);
+    assert.equal(staleResult[0].stale, true);
+
+    const lwwSnapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
+    const lwwEnvelope = lwwSnapshot.envelopes.find(item => item.resourceId === 'note-lww');
+    assert.equal(lwwEnvelope.ciphertext, 'newer-ciphertext', 'stale upsert must not replace newer envelope');
+
+    const deleteLww = { physicalMs: 4000, logical: 0, deviceId: 'device-c', operationId: 'op-lww-delete' };
+    const deleted = await request(`/v2/vaults/${vaultId}/mutations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mutations: [{
+          operationId: deleteLww.operationId,
+          mutationType: 'resource.delete',
+          resourceId: 'note-lww',
+          payload: { resourceType: 'note.content' },
+          lww: deleteLww,
+          createdAt: new Date().toISOString(),
+          attempts: 0
+        }]
+      })
+    });
+    assert.equal(deleted[0].ok, true);
+    const resurrect = await request(`/v2/vaults/${vaultId}/mutations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mutations: [mutation({
+          ...newer,
+          lww: { physicalMs: 3500, logical: 0, deviceId: 'device-d', operationId: 'op-lww-resurrect' },
+          ciphertext: 'resurrected-ciphertext',
+          ciphertextHash: 'resurrected-hash'
+        })]
+      })
+    });
+    assert.equal(resurrect[0].ok, true);
+    assert.equal(resurrect[0].stale, true, 'stale upsert must not resurrect a newer tombstone');
+    const postDeleteSnapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
+    assert.equal(postDeleteSnapshot.envelopes.some(item => item.resourceId === 'note-lww'), false);
 
     console.log('Kept 2 relay tests passed.');
   } finally {
