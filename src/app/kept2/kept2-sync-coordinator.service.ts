@@ -7,6 +7,7 @@ import { EncryptedSelfHostedTransport } from './sync-transport';
 import { VaultIdentity } from './vault-types';
 import { VaultResourceKeyService } from './vault-resource-key.service';
 import { VaultSessionService } from './vault-session.service';
+import { VaultDevicePairingService } from './vault-device-pairing.service';
 
 @Injectable({ providedIn: 'root' })
 export class Kept2SyncCoordinatorService {
@@ -21,6 +22,7 @@ export class Kept2SyncCoordinatorService {
   constructor(
     private auth: AuthService,
     private http: HttpClient,
+    private devicePairing: VaultDevicePairingService,
     private resourceKeys: VaultResourceKeyService,
     private session: VaultSessionService,
     private syncEngine: SyncEngineService
@@ -76,7 +78,7 @@ export class Kept2SyncCoordinatorService {
         activeIdentity.vaultId,
         transport,
         (resourceId, resourceType) => this.resourceKeys.existingKeyFor(resourceId, resourceType),
-        grant => this.resourceKeys.importGrant(grant)
+        grant => this.resourceKeys.importGrant(grant).then(imported => imported || this.devicePairing.importDeviceGrant(grant))
       );
       this.lastSyncAt = new Date().toISOString();
     } catch (error) {
