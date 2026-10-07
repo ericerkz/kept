@@ -47,6 +47,20 @@
         <div class="button-row">
           <button type="button" (click)="registerThisDevice()" [disabled]="isBusy || !auth.currentUser">Register this device</button>
           <button type="button" class="secondary" (click)="refreshRemoteDevices()" [disabled]="isBusy || !auth.currentUser">Refresh devices</button>
+          <button type="button" class="secondary" (click)="createPairingCode()" [disabled]="isBusy">Create pairing code</button>
+        </div>
+        @if (pairingCode) {
+          <label>
+            <span>This device pairing code</span>
+            <textarea name="pairingCode" [ngModel]="pairingCode" readonly rows="3"></textarea>
+          </label>
+        }
+        <label>
+          <span>Approve another device's pairing code</span>
+          <textarea name="incomingPairingCode" [(ngModel)]="incomingPairingCode" rows="3" placeholder="Paste pairing code"></textarea>
+        </label>
+        <div class="button-row">
+          <button type="button" class="secondary" (click)="approvePairingCode()" [disabled]="isBusy || !auth.currentUser || !incomingPairingCode.trim()">Approve and grant keys</button>
         </div>
         @if (devicePairingStatus) { <span>{{devicePairingStatus}}</span> }
         @if (remoteDevices.length) {

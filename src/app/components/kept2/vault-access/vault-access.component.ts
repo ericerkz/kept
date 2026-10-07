@@ -77,6 +77,8 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
   localSearchQuery = '';
   deviceLabel = '';
   devicePairingStatus = '';
+  pairingCode = '';
+  incomingPairingCode = '';
   remoteDevices: VaultDevicePublicKey[] = [];
   localFirstActive = false;
 
@@ -409,6 +411,39 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       await this.refreshRemoteDevices(false);
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not register this device.';
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  async createPairingCode() {
+    if (!this.identity) return;
+    this.error = '';
+    this.devicePairingStatus = '';
+    this.isBusy = true;
+    try {
+      this.pairingCode = await this.devicePairing.createPairingCode(this.deviceLabel.trim() || this.defaultDeviceLabel());
+      await navigator.clipboard?.writeText(this.pairingCode).catch(() => undefined);
+      this.devicePairingStatus = 'Pairing code created. Share it with an already-unlocked device for approval.';
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not create a pairing code.';
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  async approvePairingCode() {
+    if (!this.identity || !this.auth.currentUser) return;
+    this.error = '';
+    this.devicePairingStatus = '';
+    this.isBusy = true;
+    try {
+      const result = await this.devicePairing.approvePairingCode(this.transport(), this.incomingPairingCode);
+      this.incomingPairingCode = '';
+      this.devicePairingStatus = `Approved ${result.device.deviceLabel || result.device.deviceId} and granted ${result.granted} key${result.granted === 1 ? '' : 's'}${result.failed ? `; ${result.failed} failed` : ''}.`;
+      await this.refreshRemoteDevices(false);
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not approve that pairing code.';
     } finally {
       this.isBusy = false;
     }

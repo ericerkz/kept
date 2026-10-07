@@ -14,6 +14,16 @@ interface StoredDeviceKeyPair {
   createdAt: string;
 }
 
+export interface Kept2DevicePairingCode {
+  type: 'kept2-device-pairing';
+  version: 1;
+  vaultId: string;
+  deviceId: string;
+  publicKey: string;
+  deviceLabel: string;
+  createdAt: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class VaultDevicePairingService {
   private cachedPrivateKeys = new Map<string, string>();
@@ -66,6 +76,59 @@ export class VaultDevicePairingService {
     if (!session) throw new Error('Kept 2 vault is locked.');
     if (!transport.listDevices) return [];
     return transport.listDevices(session.identity.vaultId);
+  }
+
+  async createPairingCode(deviceLabel = '') {
+    const session = this.session.currentSession();
+    if (!session) throw new Error('Kept 2 vault is locked.');
+    const pair = await this.ensureLocalDeviceKeyPair();
+    const payload: Kept2DevicePairingCode = {
+      type: 'kept2-device-pairing',
+      version: 1,
+      vaultId: session.identity.vaultId,
+      deviceId: pair.deviceId,
+      publicKey: pair.publicKey,
+      deviceLabel: deviceLabel.trim() || 'Kept device',
+      createdAt: new Date().toISOString()
+    };
+    return this.encodePairingCode(payload);
+  }
+
+  parsePairingCode(code: string): Kept2DevicePairingCode {
+    const payload = JSON.parse(this.decodePairingCode(code));
+    if (payload?.type !== 'kept2-device-pairing' || payload.version !== 1) {
+      throw new Error('This is not a Kept 2 device pairing code.');
+    }
+    for (const key of ['vaultId', 'deviceId', 'publicKey']) {
+      if (!String(payload[key] || '').trim()) throw new Error('Pairing code is missing device key information.');
+    }
+    return {
+      type: 'kept2-device-pairing',
+      version: 1,
+      vaultId: String(payload.vaultId),
+      deviceId: String(payload.deviceId),
+      publicKey: String(payload.publicKey),
+      deviceLabel: String(payload.deviceLabel || 'Kept device'),
+      createdAt: String(payload.createdAt || new Date().toISOString())
+    };
+  }
+
+  async approvePairingCode(transport: SyncTransport, code: string) {
+    const session = this.session.currentSession();
+    if (!session) throw new Error('Kept 2 vault is locked.');
+    if (!transport.registerDevice) throw new Error('This sync transport cannot register devices.');
+    const request = this.parsePairingCode(code);
+    if (request.vaultId !== session.identity.vaultId) {
+      throw new Error('That pairing code is for a different vault.');
+    }
+    const registered = await transport.registerDevice(
+      session.identity.vaultId,
+      request.deviceId,
+      request.publicKey,
+      request.deviceLabel
+    );
+    const grantResult = await this.grantLocalResourcesToDevice(transport, registered);
+    return { device: registered, ...grantResult };
   }
 
   async grantLocalResourcesToDevice(transport: SyncTransport, device: VaultDevicePublicKey) {
@@ -168,5 +231,18 @@ export class VaultDevicePairingService {
 
   private secretKey(deviceId: string) {
     return `kept2.deviceKeyPair.${deviceId}`;
+  }
+
+  private encodePairingCode(payload: Kept2DevicePairingCode) {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(payload))))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
+  }
+
+  private decodePairingCode(code: string) {
+    const normalized = String(code || '').trim().replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    return decodeURIComponent(escape(atob(padded)));
   }
 }

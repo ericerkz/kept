@@ -93,15 +93,27 @@
   gap: 6px;
 }
 
-.device-pairing input {
+.device-pairing input,
+.device-pairing textarea {
   background: #202124;
   border: 1px solid #5f6368;
   border-radius: 6px;
   color: #e8eaed;
   font: 15px Roboto, Arial, sans-serif;
-  height: 38px;
   outline: none;
-  padding: 0 12px;
+  padding: 10px 12px;
+}
+
+.device-pairing input {
+  height: 38px;
+  padding-bottom: 0;
+  padding-top: 0;
+}
+
+.device-pairing textarea {
+  line-height: 1.4;
+  min-height: 78px;
+  resize: vertical;
 }
 
 .device-list {
