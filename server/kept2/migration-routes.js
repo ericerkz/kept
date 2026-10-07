@@ -4,6 +4,8 @@ function mountKept2MigrationRoutes(app, {
   all,
   get,
   attachmentPath,
+  imagePath,
+  imageMimeType,
   asyncRoute,
   requireAuth,
   sourceVersion
@@ -58,7 +60,8 @@ function mountKept2MigrationRoutes(app, {
       warnings: plan.warnings,
       limitations: [
         'This Kept 2.0 migration export contains legacy plaintext over the authenticated connection so the unlocked local vault can encrypt it client-side.',
-        'Attachment bytes are fetched separately by syncId during import so they can be stored and re-synced as encrypted blobs.'
+        'Attachment bytes are fetched separately by syncId during import so they can be stored and re-synced as encrypted blobs.',
+        'Legacy note image bytes are fetched separately by filename during import so image notes remain available in the local encrypted vault.'
       ]
     });
   }));
@@ -77,6 +80,27 @@ function mountKept2MigrationRoutes(app, {
 
     const filePath = attachmentPath(attachment.storedFilename);
     res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.sendFile(filePath);
+  }));
+
+  app.get('/api/v2/migration/images/:filename/blob', requireAuth, asyncRoute(async (req, res) => {
+    const filename = sanitizeImageFilename(req.params.filename);
+    if (!filename) return res.status(400).json({ error: 'Invalid image filename.' });
+    const image = await get(
+      `SELECT ni.*
+         FROM note_images ni
+         JOIN notes n ON n.id = ni.noteId
+        WHERE ni.storedFilename = ? AND n.ownerUserId = ?
+        LIMIT 1`,
+      [filename, req.user.id]
+    );
+    if (!image) return res.status(404).json({ error: 'Image not found.' });
+
+    const filePath = imagePath(filename);
+    if (!filePath) return res.status(404).json({ error: 'Image file not found.' });
+    res.setHeader('Content-Type', image.mimeType || imageMimeType(filename));
+    res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.sendFile(filePath);
   }));
@@ -169,6 +193,12 @@ function sanitizeResourceId(value) {
   const resourceId = String(value || '').trim();
   if (!resourceId) return '';
   return /^[A-Za-z0-9._:-]{1,180}$/.test(resourceId) ? resourceId : '';
+}
+
+function sanitizeImageFilename(value) {
+  const filename = String(value || '').trim();
+  if (!filename) return '';
+  return /^[0-9]+-[a-f0-9]{24}\.(png|jpe?g|gif|webp)$/i.test(filename) ? filename : '';
 }
 
 function sqlIn(column, values) {

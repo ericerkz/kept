@@ -380,21 +380,22 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     for (const resource of resources) {
       if (resource.resourceType === 'note.content') {
         const plain = resource.plaintext || {};
+        const hydrated = await this.hydrateLegacyNoteImages(plain);
         const owner = ownerState.get(resource.resourceId) || {};
         await this.localVault.createNote({
           syncId: resource.resourceId,
-          id: plain.legacyId,
+          id: hydrated.legacyId,
           ownerUserId: owner.ownerUserId || undefined,
-          noteTitle: plain.title || '',
-          noteBody: plain.body || '',
-          checkBoxes: plain.checkBoxes || [],
-          images: plain.images || [],
-          isCbox: !!plain.isChecklist,
-          labels: plain.labels || [],
-          binder: plain.binder || '',
-          locked: !!plain.locked,
-          lockSalt: plain.lockSalt || '',
-          lockHash: plain.lockHash || '',
+          noteTitle: hydrated.title || '',
+          noteBody: hydrated.body || '',
+          checkBoxes: hydrated.checkBoxes || [],
+          images: hydrated.images || [],
+          isCbox: !!hydrated.isChecklist,
+          labels: hydrated.labels || [],
+          binder: hydrated.binder || '',
+          locked: !!hydrated.locked,
+          lockSalt: hydrated.lockSalt || '',
+          lockHash: hydrated.lockHash || '',
           pinned: !!owner.pinned,
           archived: !!owner.archived,
           trashed: !!owner.trashed,
@@ -403,8 +404,8 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
           bgColor: owner.bgColor || '',
           bgImage: owner.bgImage || '',
           completedChecklistCollapsed: !!owner.completedChecklistCollapsed,
-          createdAt: plain.createdAt,
-          updatedAt: plain.updatedAt
+          createdAt: hydrated.createdAt,
+          updatedAt: hydrated.updatedAt
         });
         notes += 1;
       } else if (resource.resourceType === 'reminder') {
@@ -454,6 +455,41 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     return { notes, reminders, attachments, attachmentBlobs };
   }
 
+  private async hydrateLegacyNoteImages(plain: any) {
+    const filenames = new Set<string>();
+    for (const image of Array.isArray(plain.images) ? plain.images : []) {
+      const filename = this.legacyImageFilename(image?.dataUrl);
+      if (filename) filenames.add(filename);
+    }
+    for (const match of String(plain.body || '').matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
+      const filename = this.legacyImageFilename(match[1]);
+      if (filename) filenames.add(filename);
+    }
+    if (!filenames.size) return plain;
+
+    const dataUrls = new Map<string, string>();
+    for (const filename of filenames) {
+      const dataUrl = await this.fetchLegacyImageDataUrl(filename);
+      if (dataUrl) dataUrls.set(filename, dataUrl);
+    }
+
+    return {
+      ...plain,
+      images: (Array.isArray(plain.images) ? plain.images : []).map((image: any) => {
+        const filename = this.legacyImageFilename(image?.dataUrl);
+        return filename && dataUrls.has(filename)
+          ? { ...image, dataUrl: dataUrls.get(filename) }
+          : image;
+      }),
+      body: String(plain.body || '').replace(/(<img[^>]+src=["'])([^"']+)(["'])/gi, (match, before, src, after) => {
+        const filename = this.legacyImageFilename(src);
+        return filename && dataUrls.has(filename)
+          ? `${before}${dataUrls.get(filename)}${after}`
+          : match;
+      })
+    };
+  }
+
   private async fetchLegacyAttachmentBlob(syncId: string) {
     try {
       const blob = await firstValueFrom(this.http.get(
@@ -468,6 +504,48 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.migrationWarnings.push(`Attachment file ${syncId} could not be imported; metadata was kept.`);
       return undefined;
     }
+  }
+
+  private async fetchLegacyImageDataUrl(filename: string) {
+    try {
+      const blob = await firstValueFrom(this.http.get(
+        `${environment.apiUrl}/v2/migration/images/${encodeURIComponent(filename)}/blob`,
+        {
+          headers: this.auth.authHeaders(),
+          responseType: 'blob'
+        }
+      ));
+      if (!blob.size) return '';
+      return await this.blobToDataUrl(blob);
+    } catch {
+      this.migrationWarnings.push(`Image file ${filename} could not be imported; the original image reference was kept.`);
+      return '';
+    }
+  }
+
+  private legacyImageFilename(value: string) {
+    const raw = String(value || '').trim();
+    if (!raw || raw.startsWith('data:')) return '';
+    let pathname = raw;
+    try {
+      pathname = new URL(raw, window.location.origin).pathname;
+    } catch {}
+    const match = pathname.match(/^(?:\/uploads\/|\/api\/uploads\/images\/)([^/?#]+)$/);
+    if (!match) return '';
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+
+  private blobToDataUrl(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error('Could not read image blob.'));
+      reader.readAsDataURL(blob);
+    });
   }
 
   private transport() {

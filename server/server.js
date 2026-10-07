@@ -1020,6 +1020,11 @@ function attachmentPath(storedFilename) {
   return path.join(uploadDir, filename);
 }
 
+function migrationImagePath(storedFilename) {
+  const filename = safeStoredImageFilename(storedFilename);
+  return filename ? path.join(uploadDir, filename) : '';
+}
+
 function sha256File(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
@@ -3618,6 +3623,8 @@ mountKept2MigrationRoutes(app, {
   all,
   get,
   attachmentPath,
+  imagePath: migrationImagePath,
+  imageMimeType,
   asyncRoute,
   requireAuth,
   sourceVersion: KEPT_VERSION
