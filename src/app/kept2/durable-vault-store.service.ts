@@ -177,13 +177,25 @@ export class DurableVaultStoreService implements DurableVaultStore {
     });
   }
 
+  getBlob(blobKey: string): Promise<Blob | undefined> {
+    return this.driver.getBlob(blobKey);
+  }
+
+  deleteBlob(blobKey: string): Promise<void> {
+    return this.driver.deleteBlob(blobKey);
+  }
+
   async deleteAttachment(syncId: string, stamp?: LwwStamp): Promise<void> {
     const lww = this.stamp(stamp);
-    await this.driver.run(
-      `UPDATE attachments SET deleted = 1, lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?,
-        lwwOperationId = ?, updatedAt = ? WHERE syncId = ?`,
-      [lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString(), syncId]
-    );
+    const row = await this.driver.get<{ blobKey?: string }>('SELECT blobKey FROM attachments WHERE syncId = ?', [syncId]);
+    await this.driver.transaction(async () => {
+      await this.driver.run(
+        `UPDATE attachments SET deleted = 1, lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?,
+          lwwOperationId = ?, updatedAt = ? WHERE syncId = ?`,
+        [lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString(), syncId]
+      );
+      if (row?.blobKey) await this.driver.deleteBlob(row.blobKey);
+    });
   }
 
   async enqueue(entry: Kept2OutboxEntry): Promise<void> {

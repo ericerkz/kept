@@ -85,6 +85,20 @@ async function main() {
     assert.equal(capabilities.contentBlindRealtime, true);
 
     const vaultId = 'vault-test';
+    const blobForm = new FormData();
+    const encryptedBlob = new Blob([Buffer.from('sealed attachment bytes')], { type: 'application/octet-stream' });
+    blobForm.append('blob', encryptedBlob, 'attachment-1.bin');
+    blobForm.append('ciphertextHash', 'blob-hash-1');
+    const blobUpload = await fetch(`${base}/v2/vaults/${vaultId}/blobs/blob-1`, {
+      method: 'POST',
+      headers,
+      body: blobForm
+    });
+    assert.equal(blobUpload.status, 201);
+    const downloadedBlob = await fetch(`${base}/v2/vaults/${vaultId}/blobs/blob-1`, { headers });
+    assert.equal(downloadedBlob.status, 200);
+    assert.equal(await downloadedBlob.text(), 'sealed attachment bytes');
+
     const envelope = {
       resourceId: 'note-test',
       resourceType: 'note.content',
@@ -201,6 +215,25 @@ async function main() {
     assert.equal(resurrect[0].stale, true, 'stale upsert must not resurrect a newer tombstone');
     const postDeleteSnapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
     assert.equal(postDeleteSnapshot.envelopes.some(item => item.resourceId === 'note-lww'), false);
+
+    const deletedBlob = await request(`/v2/vaults/${vaultId}/mutations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mutations: [{
+          operationId: 'op-blob-delete',
+          mutationType: 'blob.delete',
+          resourceId: 'blob-1',
+          payload: { resourceType: 'blob' },
+          lww: { physicalMs: 5000, logical: 0, deviceId: 'device-c', operationId: 'op-blob-delete' },
+          createdAt: new Date().toISOString(),
+          attempts: 0
+        }]
+      })
+    });
+    assert.equal(deletedBlob[0].ok, true);
+    const missingBlob = await fetch(`${base}/v2/vaults/${vaultId}/blobs/blob-1`, { headers });
+    assert.equal(missingBlob.status, 404);
 
     console.log('Kept 2 relay tests passed.');
   } finally {

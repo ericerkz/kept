@@ -174,6 +174,8 @@ export interface DurableVaultStore {
   deleteReminder(syncId: string, stamp?: LwwStamp): Promise<void>;
   listAttachments(noteSyncId?: string): Promise<NoteAttachmentI[]>;
   putAttachment(attachment: NoteAttachmentI, blob?: Blob, stamp?: LwwStamp): Promise<void>;
+  getBlob(blobKey: string): Promise<Blob | undefined>;
+  deleteBlob(blobKey: string): Promise<void>;
   deleteAttachment(syncId: string, stamp?: LwwStamp): Promise<void>;
   enqueue(entry: Kept2OutboxEntry): Promise<void>;
   listOutbox(): Promise<Kept2OutboxEntry[]>;

@@ -300,6 +300,13 @@ function mountKept2Relay(app, deps) {
       await run('UPDATE kept2_key_grants SET revokedAt = ? WHERE vaultId = ? AND grantId = ?',
         [new Date().toISOString(), vaultId, resourceId]);
       sequence = await recordChange(vaultId, resourceId, 'keyGrant', 'delete');
+    } else if (type === 'blob.delete') {
+      const blob = await get('SELECT storedFilename FROM kept2_blobs WHERE vaultId = ? AND blobId = ?', [vaultId, resourceId]);
+      await run('DELETE FROM kept2_blobs WHERE vaultId = ? AND blobId = ?', [vaultId, resourceId]);
+      if (blob?.storedFilename) {
+        try { fs.unlinkSync(path.join(kept2BlobDir, vaultId, blob.storedFilename)); } catch {}
+      }
+      sequence = await recordChange(vaultId, resourceId, 'blob', 'delete');
     } else {
       return { ok: false, operationId, error: 'Unsupported mutation type.' };
     }

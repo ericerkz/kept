@@ -91,11 +91,39 @@ export class LocalFirstVaultService {
     const stamp = await this.nextStamp();
     await this.vault.putAttachment(attachment, blob, stamp);
     await this.enqueueLocalMutation('resource.upsert', attachment.syncId, 'attachment', attachment, stamp);
+    if (blob) {
+      const blobStamp = await this.nextStamp();
+      await this.vault.enqueue({
+        operationId: blobStamp.operationId,
+        mutationType: 'blob.put',
+        resourceId: attachment.syncId,
+        payload: {
+          localResourceKind: 'blob',
+          blobKey: `attachment:${attachment.syncId}`
+        },
+        lww: blobStamp,
+        createdAt: new Date().toISOString(),
+        attempts: 0
+      });
+    }
     return attachment;
   }
 
   async deleteAttachment(syncId: string) {
     const stamp = await this.nextStamp();
+    const blobStamp = await this.nextStamp();
+    await this.vault.enqueue({
+      operationId: blobStamp.operationId,
+      mutationType: 'blob.delete',
+      resourceId: syncId,
+      payload: {
+        localResourceKind: 'blob',
+        blobKey: `attachment:${syncId}`
+      },
+      lww: blobStamp,
+      createdAt: new Date().toISOString(),
+      attempts: 0
+    });
     await this.vault.deleteAttachment(syncId, stamp);
     await this.enqueueLocalMutation('resource.delete', syncId, 'attachment', { syncId }, stamp);
   }
@@ -147,4 +175,3 @@ export class LocalFirstVaultService {
     return this.cachedIdentity;
   }
 }
-

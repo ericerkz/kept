@@ -57,6 +57,45 @@ export class VaultCryptoService {
     return JSON.parse(sodium.to_string(plaintext)) as T;
   }
 
+  async encryptBlob(resourceId: string, blob: Blob, key: Uint8Array, keyEpoch = 1) {
+    await this.ensureReady();
+    const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
+    const plaintext = new Uint8Array(await blob.arrayBuffer());
+    const aad = { resourceId, resourceType: 'blob', keyEpoch };
+    const ciphertext = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
+      plaintext,
+      this.aadBytes(aad),
+      null,
+      nonce,
+      key
+    );
+    const sealed = new Uint8Array(nonce.length + ciphertext.length);
+    sealed.set(nonce, 0);
+    sealed.set(ciphertext, nonce.length);
+    return {
+      ciphertext: new Blob([sealed], { type: 'application/octet-stream' }),
+      ciphertextHash: await this.sha256Base64Url(sealed)
+    };
+  }
+
+  async decryptBlob(resourceId: string, encryptedBlob: Blob, key: Uint8Array, contentType = 'application/octet-stream', keyEpoch = 1) {
+    await this.ensureReady();
+    const sealed = new Uint8Array(await encryptedBlob.arrayBuffer());
+    const nonceLength = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
+    if (sealed.length <= nonceLength) throw new Error('Invalid encrypted blob.');
+    const nonce = sealed.slice(0, nonceLength);
+    const ciphertext = sealed.slice(nonceLength);
+    const aad = { resourceId, resourceType: 'blob', keyEpoch };
+    const plaintext = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
+      null,
+      ciphertext,
+      this.aadBytes(aad),
+      nonce,
+      key
+    );
+    return new Blob([plaintext], { type: contentType });
+  }
+
   async wrapKeyWithSymmetricKey(keyToWrap: Uint8Array, wrappingKey: Uint8Array) {
     await this.ensureReady();
     const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);

@@ -23,14 +23,30 @@ export class SyncEngineService {
   async pushOutbox(vaultId: string, transport: SyncTransport, keyFor: Kept2KeyResolver) {
     const pending = await this.vault.listOutbox();
     if (!pending.length) return { pushed: 0, removed: 0, failed: 0 };
-    const encoded = await Promise.all(pending.map(entry => this.encodeOutboxEntry(entry, keyFor)));
-    const results = await transport.mutate(vaultId, encoded);
-    const removable = results.filter(result => result.ok).map(result => result.operationId);
+
+    const blobUploads = pending.filter(entry => entry.mutationType === 'blob.put');
+    const blobDeletes = pending.filter(entry => entry.mutationType === 'blob.delete');
+    const resourceMutations = pending.filter(entry => entry.mutationType !== 'blob.put' && entry.mutationType !== 'blob.delete');
+    const removable: string[] = [];
+    let failed = 0;
+
+    for (const entry of blobUploads) {
+      try {
+        await this.pushBlob(vaultId, entry, transport, keyFor);
+        removable.push(entry.operationId);
+      } catch {
+        failed += 1;
+      }
+    }
+
+    const encoded = await Promise.all([...resourceMutations, ...blobDeletes].map(entry => this.encodeOutboxEntry(entry, keyFor)));
+    const results = encoded.length ? await transport.mutate(vaultId, encoded) : [];
+    removable.push(...results.filter(result => result.ok).map(result => result.operationId));
     await this.vault.removeOutbox(removable);
     return {
-      pushed: encoded.length,
+      pushed: encoded.length + blobUploads.length,
       removed: removable.length,
-      failed: results.filter(result => !result.ok).length
+      failed: failed + results.filter(result => !result.ok).length
     };
   }
 
@@ -54,6 +70,14 @@ export class SyncEngineService {
   }
 
   private async encodeOutboxEntry(entry: Kept2OutboxEntry, keyFor: Kept2KeyResolver): Promise<Kept2OutboxEntry> {
+    if (entry.mutationType === 'blob.delete') {
+      return {
+        ...entry,
+        payload: {
+          resourceType: 'blob'
+        }
+      };
+    }
     if (entry.mutationType === 'resource.delete') {
       const kind = this.localKind(entry.payload);
       return {
@@ -78,6 +102,21 @@ export class SyncEngineService {
       ...entry,
       payload: { envelope }
     };
+  }
+
+  private async pushBlob(
+    vaultId: string,
+    entry: Kept2OutboxEntry,
+    transport: SyncTransport,
+    keyFor: Kept2KeyResolver
+  ) {
+    const blobKey = String((entry.payload as { blobKey?: string })?.blobKey || '');
+    if (!blobKey) throw new Error('blob.put payload is missing blobKey.');
+    const blob = await this.vault.getBlob(blobKey);
+    if (!blob) throw new Error('blob.put payload references a missing local blob.');
+    const key = await keyFor(entry.resourceId, 'blob');
+    const sealed = await this.crypto.encryptBlob(entry.resourceId, blob, key);
+    await transport.uploadBlob(vaultId, entry.resourceId, sealed.ciphertext, sealed.ciphertextHash);
   }
 
   private async applyRemoteEnvelope(envelope: EncryptedEnvelope, keyFor: Kept2KeyResolver) {
