@@ -24,7 +24,6 @@ import { UpdateBannerComponent } from './components/update-banner/update-banner.
 import { MergeDialogComponent } from './components/merge-dialog/merge-dialog.component';
 import { AuthExpiredInterceptor } from './services/auth-expired.interceptor';
 import { ConnectionHeadersInterceptor } from './services/connection-headers.interceptor';
-import { VaultAccessComponent } from './components/kept2/vault-access/vault-access.component';
 
 @NgModule({ declarations: [
         AppComponent,
@@ -46,7 +45,6 @@ import { VaultAccessComponent } from './components/kept2/vault-access/vault-acce
         LinkPreviewComponent,
         UpdateBannerComponent,
         MergeDialogComponent,
-        VaultAccessComponent,
     ],
     bootstrap: [AppComponent], imports: [BrowserModule,
         FormsModule,

@@ -7,7 +7,6 @@ import { RegisterComponent } from './components/auth/register/register.component
 import { SetupComponent } from './components/auth/setup/setup.component';
 import { UserManagementComponent } from './components/auth/user-management/user-management.component';
 import { SettingsComponent } from './components/settings/settings.component';
-import { VaultAccessComponent } from './components/kept2/vault-access/vault-access.component';
 import { AdminGuard, AuthGuard, LoginGuard, SetupGuard } from './services/auth.guard';
 
 const routes: Routes = [
@@ -16,7 +15,7 @@ const routes: Routes = [
   { path: "register", component: RegisterComponent, canActivate: [LoginGuard] },
   { path: "users", component: UserManagementComponent, canActivate: [AdminGuard] },
   { path: "settings", component: SettingsComponent, canActivate: [AuthGuard] },
-  { path: "kept2/vault", component: VaultAccessComponent },
+  { path: "kept2", loadChildren: () => import('./components/kept2/kept2.module').then(m => m.Kept2Module) },
   { path: "", component: MainComponent, canActivate: [AuthGuard] },
   { path: "archive", component: MainComponent, canActivate: [AuthGuard] },
   { path: "trash", component: MainComponent, canActivate: [AuthGuard] },
