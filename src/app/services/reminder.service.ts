@@ -83,6 +83,20 @@ type AndroidNativeTimeReminder = {
   deepLink?: string;
 };
 
+type IosNativeReminder = {
+  keptId: number;
+  dueAtUtc?: string;
+  title: string;
+  body?: string;
+  deepLink?: string;
+  repeatRule?: string | null;
+  locationName?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  radiusMeters?: number | null;
+  locationTrigger?: 'arrive' | 'leave';
+};
+
 interface KeptGeofencePlugin {
   getPermissionStatus(): Promise<AndroidLocationPermissionStatus>;
   requestForegroundLocationPermission(): Promise<AndroidLocationPermissionStatus>;
@@ -110,9 +124,18 @@ interface KeptTimeRemindersPlugin {
   openExactAlarmSettings(): Promise<void>;
 }
 
+interface KeptIosRemindersPlugin {
+  ensureKeptCalendar(): Promise<{ calendarIdentifier?: string; title?: string }>;
+  listKeptReminders(): Promise<{ items: Array<{ keptId: number; ekId?: string }> }>;
+  upsertReminder(input: IosNativeReminder): Promise<{ ok: boolean }>;
+  deleteReminder(input: { keptId: number }): Promise<{ ok: boolean }>;
+}
+
 const isAndroid = Capacitor.getPlatform() === 'android';
+const isIos = Capacitor.getPlatform() === 'ios';
 const KeptGeofence = isAndroid ? registerPlugin<KeptGeofencePlugin>('KeptGeofence') : null;
 const KeptTimeReminders = isAndroid ? registerPlugin<KeptTimeRemindersPlugin>('KeptTimeReminders') : null;
+const KeptIosReminders = isIos ? registerPlugin<KeptIosRemindersPlugin>('KeptReminders') : null;
 
 @Injectable({ providedIn: 'root' })
 export class ReminderService {
@@ -127,6 +150,8 @@ export class ReminderService {
   private androidTimeReminderSyncRunning = false;
   private androidExactAlarmPromptShown = false;
   private androidTriggeredEventsRunning = false;
+  private iosReminderSyncQueued = false;
+  private iosReminderSyncRunning = false;
   private androidResumeHandler?: () => void;
   private androidFocusHandler?: () => void;
   private inactiveNoteIds = new Set<number>();
@@ -287,7 +312,10 @@ export class ReminderService {
       };
       const reminder = await this.localFirstVault.upsertReminder(local);
       this.setReminders(this.reminders$.value.map(item => item.id === id ? reminder : item));
-      if (payload.status && payload.status !== 'pending') this.cancelAndroidTimeReminder(id);
+      if (payload.status && payload.status !== 'pending') {
+        this.cancelAndroidTimeReminder(id);
+        this.cancelIosReminder(id);
+      }
       return reminder;
     }
     const existing = this.reminders$.value.find(reminder => reminder.id === id);
@@ -311,6 +339,7 @@ export class ReminderService {
   async delete(id: number) {
     const existing = this.reminders$.value.find(reminder => reminder.id === id);
     this.cancelAndroidTimeReminder(id);
+    this.cancelIosReminder(id);
     if (this.useKept2LocalFirst()) {
       if (existing?.syncId) await this.localFirstVault.deleteReminder(existing.syncId);
       this.setReminders(this.reminders$.value.filter(reminder => reminder.id !== id));
@@ -418,6 +447,7 @@ export class ReminderService {
         this.inactiveNoteIds.add(noteId);
         this.cancelReminderTimersForNote(noteId);
         this.cancelAndroidTimeRemindersForNote(noteId);
+        this.cancelIosRemindersForNote(noteId);
         this.closeDisplayedNotificationsForNote(noteId).catch(console.error);
         changed = true;
       } else if (!inactive && this.inactiveNoteIds.delete(noteId)) {
@@ -436,9 +466,11 @@ export class ReminderService {
     this.inactiveNoteIds.add(noteId);
     this.cancelReminderTimersForNote(noteId);
     this.cancelAndroidTimeRemindersForNote(noteId);
+    this.cancelIosRemindersForNote(noteId);
     this.closeDisplayedNotificationsForNote(noteId).catch(console.error);
     this.syncAndroidGeofences(this.reminders$.value);
     this.syncAndroidTimeReminders(this.reminders$.value);
+    this.syncIosLocalFirstReminders(this.reminders$.value);
   }
 
   async refreshNoteContent(note: NoteI) {
@@ -598,6 +630,7 @@ export class ReminderService {
     this.schedulePendingReminders(reminders);
     this.syncAndroidGeofences(reminders);
     this.syncAndroidTimeReminders(reminders);
+    this.syncIosLocalFirstReminders(reminders);
     this.processAndroidTriggeredEvents();
   }
 
@@ -653,6 +686,12 @@ export class ReminderService {
   private cancelAndroidTimeRemindersForNote(noteId: number) {
     for (const reminder of this.reminders$.value) {
       if (reminder.noteId === noteId) this.cancelAndroidTimeReminder(reminder.id);
+    }
+  }
+
+  private cancelIosRemindersForNote(noteId: number) {
+    for (const reminder of this.reminders$.value) {
+      if (reminder.noteId === noteId) this.cancelIosReminder(reminder.id);
     }
   }
 
@@ -821,6 +860,10 @@ export class ReminderService {
     return isAndroid && !!KeptTimeReminders;
   }
 
+  private isIosRemindersAvailable() {
+    return isIos && !!KeptIosReminders;
+  }
+
   private nativeLocationReminders(reminders: ReminderI[]): AndroidNativeGeofenceReminder[] {
     return reminders
       .filter(r =>
@@ -928,6 +971,73 @@ export class ReminderService {
     if (!id) return;
     KeptTimeReminders!.cancelTimeReminder({ id })
       .catch(error => console.warn('Android time reminder cancellation failed', error));
+  }
+
+  private iosNativeReminders(reminders: ReminderI[]): IosNativeReminder[] {
+    const now = Date.now();
+    return reminders
+      .filter(reminder => {
+        if (!this.useKept2LocalFirst()) return false;
+        if (reminder.status !== 'pending') return false;
+        if (!reminder.noteId || this.inactiveNoteIds.has(Number(reminder.noteId))) return false;
+        const hasLocation = reminder.locationName && reminder.latitude != null && reminder.longitude != null;
+        if (hasLocation) return true;
+        if (!reminder.dueAtUtc) return false;
+        const dueAt = new Date(reminder.dueAtUtc).getTime();
+        return Number.isFinite(dueAt) && dueAt > now;
+      })
+      .map(reminder => ({
+        keptId: reminder.id,
+        dueAtUtc: reminder.dueAtUtc || undefined,
+        title: reminder.title || 'Kept reminder',
+        body: reminder.body || undefined,
+        deepLink: reminder.noteId ? `kept://note/${reminder.noteId}` : undefined,
+        repeatRule: reminder.repeatRule || undefined,
+        locationName: reminder.locationName,
+        latitude: reminder.latitude,
+        longitude: reminder.longitude,
+        radiusMeters: reminder.radiusMeters,
+        locationTrigger: reminder.locationTrigger || 'arrive'
+      }));
+  }
+
+  private syncIosLocalFirstReminders(reminders: ReminderI[]) {
+    if (!this.isIosRemindersAvailable() || !this.useKept2LocalFirst()) return;
+    if (this.iosReminderSyncRunning) {
+      this.iosReminderSyncQueued = true;
+      return;
+    }
+    this.iosReminderSyncRunning = true;
+    const nativeReminders = this.iosNativeReminders(reminders);
+    this.applyIosReminderSync(nativeReminders)
+      .catch(error => console.warn('iOS local-first reminder sync failed', error))
+      .finally(() => {
+        this.iosReminderSyncRunning = false;
+        if (this.iosReminderSyncQueued) {
+          this.iosReminderSyncQueued = false;
+          this.syncIosLocalFirstReminders(this.reminders$.value);
+        }
+      });
+  }
+
+  private async applyIosReminderSync(nativeReminders: IosNativeReminder[]) {
+    if (!KeptIosReminders) return;
+    await KeptIosReminders.ensureKeptCalendar();
+    const desiredIds = new Set(nativeReminders.map(reminder => reminder.keptId));
+    const existing = await KeptIosReminders.listKeptReminders().catch(() => ({ items: [] }));
+    await Promise.all(nativeReminders.map(reminder => KeptIosReminders.upsertReminder(reminder)));
+    const stale = (existing.items || [])
+      .map(item => Number(item.keptId))
+      .filter(keptId => Number.isFinite(keptId) && !desiredIds.has(keptId));
+    await Promise.all(stale.map(keptId => KeptIosReminders.deleteReminder({ keptId })));
+  }
+
+  private cancelIosReminder(reminderId: number | string | undefined | null) {
+    if (!this.isIosRemindersAvailable() || !this.useKept2LocalFirst() || reminderId === undefined || reminderId === null) return;
+    const keptId = Number(reminderId);
+    if (!Number.isFinite(keptId)) return;
+    KeptIosReminders!.deleteReminder({ keptId })
+      .catch(error => console.warn('iOS reminder cancellation failed', error));
   }
 
   private promptAndroidExactAlarmPermission() {
