@@ -1,0 +1,80 @@
+<main class="auth-page">
+  <section class="auth-panel compact">
+    <div class="brand-row">
+      <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
+      <span>Kept</span>
+    </div>
+
+    <h1>Kept 2 vault</h1>
+    <p class="helper">Create or unlock the local vault for this device.</p>
+
+    @if (identity) {
+      <div class="vault-status">
+        <strong>Unlocked</strong>
+        <code>{{identity.vaultId}}</code>
+      </div>
+    }
+
+    @if (!generatedRecoveryCode) {
+      <div class="mode-switcher">
+        <button type="button" [class.active]="mode === 'create'" (click)="setMode('create')" [disabled]="isBusy">Create</button>
+        <button type="button" [class.active]="mode === 'unlock'" (click)="setMode('unlock')" [disabled]="!hasVault || isBusy">Unlock</button>
+        <button type="button" [class.active]="mode === 'recover'" (click)="setMode('recover')" [disabled]="!hasVault || isBusy">Recover</button>
+      </div>
+    }
+
+    @if (generatedRecoveryCode) {
+      <div class="recovery-card">
+        <strong>Save this recovery code now</strong>
+        <code>{{generatedRecoveryCode}}</code>
+        <button type="button" (click)="generatedRecoveryCode = ''">Done</button>
+      </div>
+    } @else if (mode === 'create') {
+      <form (ngSubmit)="createVault()" #createForm="ngForm" class="auth-form">
+        <label>
+          <span>Vault password</span>
+          <input name="password" [(ngModel)]="password" autocomplete="new-password" type="password" minlength="8" required>
+          <small class="hint">Minimum 8 characters</small>
+        </label>
+        <label>
+          <span>Confirm password</span>
+          <input name="confirmPassword" [(ngModel)]="confirmPassword" autocomplete="new-password" type="password" minlength="8" required>
+        </label>
+        @if (error) { <div class="error">{{error}}</div> }
+        @if (success) { <div class="success">{{success}}</div> }
+        <button type="submit" [disabled]="createForm.invalid || isBusy">{{isBusy ? 'Creating...' : 'Create vault'}}</button>
+      </form>
+    } @else if (mode === 'recover') {
+      <form (ngSubmit)="recoverVault()" #recoverForm="ngForm" class="auth-form">
+        <label>
+          <span>Recovery code</span>
+          <input name="recoveryCode" [(ngModel)]="recoveryCode" autocomplete="off" required>
+        </label>
+        <label>
+          <span>New password</span>
+          <input name="recoveryPassword" [(ngModel)]="recoveryPassword" autocomplete="new-password" type="password" minlength="8">
+        </label>
+        @if (error) { <div class="error">{{error}}</div> }
+        @if (success) { <div class="success">{{success}}</div> }
+        <button type="submit" [disabled]="recoverForm.invalid || isBusy">{{isBusy ? 'Recovering...' : 'Recover vault'}}</button>
+      </form>
+    } @else {
+      <form (ngSubmit)="unlockVault()" #unlockForm="ngForm" class="auth-form">
+        <label>
+          <span>Vault password</span>
+          <input name="password" [(ngModel)]="password" autocomplete="current-password" type="password" required>
+        </label>
+        @if (error) { <div class="error">{{error}}</div> }
+        @if (success) { <div class="success">{{success}}</div> }
+        <div class="button-row">
+          <button type="submit" [disabled]="unlockForm.invalid || isBusy">{{isBusy ? 'Unlocking...' : 'Unlock vault'}}</button>
+          @if (identity) {
+            <button type="button" class="secondary" (click)="lockVault()" [disabled]="isBusy">Lock</button>
+          }
+        </div>
+      </form>
+    }
+
+    <div class="footer-tagline">Kept 2 local-first preview</div>
+  </section>
+</main>

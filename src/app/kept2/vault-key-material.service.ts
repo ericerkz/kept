@@ -84,7 +84,7 @@ export class VaultKeyMaterialService {
     const bits = await crypto.subtle.deriveBits({
       name: 'PBKDF2',
       hash: 'SHA-256',
-      salt: sodium.from_base64(salt, sodium.base64_variants.URLSAFE_NO_PADDING),
+      salt: this.bytesToArrayBuffer(sodium.from_base64(salt, sodium.base64_variants.URLSAFE_NO_PADDING)),
       iterations
     }, imported, 256);
     return new Uint8Array(bits);
@@ -97,5 +97,9 @@ export class VaultKeyMaterialService {
   private decodeRecoveryCode(recoveryCode: string) {
     const encoded = String(recoveryCode || '').trim().replace(/^kept2-recovery-/, '');
     return sodium.from_base64(encoded, sodium.base64_variants.URLSAFE_NO_PADDING);
+  }
+
+  private bytesToArrayBuffer(bytes: Uint8Array) {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   }
 }

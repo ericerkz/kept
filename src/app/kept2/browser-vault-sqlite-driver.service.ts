@@ -71,7 +71,7 @@ export class BrowserVaultSqliteDriverService implements VaultSqliteDriver {
     await this.open();
     const bytes = this.database().selectValue('SELECT bytes FROM blobs WHERE blobKey = ?', [blobKey] as BindingSpec);
     if (!(bytes instanceof Uint8Array)) return undefined;
-    return new Blob([bytes]);
+    return new Blob([bytesToArrayBuffer(bytes)]);
   }
 
   async deleteBlob(blobKey: string) {
@@ -172,4 +172,8 @@ export class BrowserVaultSqliteDriverService implements VaultSqliteDriver {
     const value = this.database().selectValue('SELECT last_insert_rowid()');
     return typeof value === 'number' ? value : undefined;
   }
+}
+
+function bytesToArrayBuffer(bytes: Uint8Array) {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }

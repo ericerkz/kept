@@ -1,0 +1,108 @@
+.mode-switcher {
+  border: 1px solid #5f6368;
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 22px 0;
+  overflow: hidden;
+
+  button {
+    background: transparent;
+    border: 0;
+    color: #bdc1c6;
+    cursor: pointer;
+    font: 500 13px "Google Sans", Roboto, Arial, sans-serif;
+    height: 38px;
+  }
+
+  button.active {
+    background: #fbbc04;
+    color: #202124;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}
+
+.button-row {
+  display: flex;
+  gap: 10px;
+}
+
+.auth-form button.secondary {
+  background: transparent;
+  border: 1px solid #5f6368;
+  color: #e8eaed;
+}
+
+.vault-status,
+.recovery-card {
+  border: 1px solid #5f6368;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 14px;
+}
+
+.vault-status strong,
+.recovery-card strong {
+  color: #81c995;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.vault-status code,
+.recovery-card code {
+  background: #202124;
+  border-radius: 6px;
+  color: #e8eaed;
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  padding: 10px;
+}
+
+.recovery-card button {
+  background: #fbbc04;
+  border: none;
+  border-radius: 6px;
+  color: #202124;
+  cursor: pointer;
+  font: 500 14px "Google Sans", Roboto, Arial, sans-serif;
+  height: 38px;
+  justify-self: start;
+  padding: 0 18px;
+}
+
+:host-context(.light-theme) {
+  .mode-switcher,
+  .vault-status,
+  .recovery-card,
+  .auth-form button.secondary {
+    border-color: #dadce0;
+  }
+
+  .mode-switcher button {
+    color: #5f6368;
+  }
+
+  .mode-switcher button.active,
+  .recovery-card button {
+    background: #1a73e8;
+    color: #fff;
+  }
+
+  .auth-form button.secondary {
+    color: #3c4043;
+  }
+
+  .vault-status code,
+  .recovery-card code {
+    background: #f1f3f4;
+    color: #202124;
+  }
+}

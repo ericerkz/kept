@@ -93,7 +93,7 @@ export class VaultCryptoService {
       nonce,
       key
     );
-    return new Blob([plaintext], { type: contentType });
+    return new Blob([this.bytesToArrayBuffer(plaintext)], { type: contentType });
   }
 
   async wrapKeyWithSymmetricKey(keyToWrap: Uint8Array, wrappingKey: Uint8Array) {
@@ -130,13 +130,17 @@ export class VaultCryptoService {
   }
 
   private async sha256Base64Url(value: Uint8Array) {
-    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', value));
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', this.bytesToArrayBuffer(value)));
     await this.ensureReady();
     return sodium.to_base64(digest, sodium.base64_variants.URLSAFE_NO_PADDING);
   }
 
   private aadBytes(value: unknown) {
     return sodium.from_string(this.canonicalJson(value));
+  }
+
+  private bytesToArrayBuffer(bytes: Uint8Array) {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   }
 
   private canonicalJson(value: unknown): string {
