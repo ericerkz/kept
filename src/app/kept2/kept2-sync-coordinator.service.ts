@@ -11,6 +11,7 @@ import { VaultSessionService } from './vault-session.service';
 @Injectable({ providedIn: 'root' })
 export class Kept2SyncCoordinatorService {
   private timer?: ReturnType<typeof setInterval>;
+  private unsubscribeRealtime?: () => void;
   private running = false;
   private lastError = '';
   private lastSyncAt = '';
@@ -26,12 +27,15 @@ export class Kept2SyncCoordinatorService {
   start(identity: VaultIdentity) {
     this.stop();
     this.syncOnce(identity);
+    this.unsubscribeRealtime = this.transport().subscribeRealtime(identity.vaultId, () => this.syncOnce(identity));
     this.timer = setInterval(() => this.syncOnce(identity), 15000);
   }
 
   stop() {
     if (this.timer) clearInterval(this.timer);
+    if (this.unsubscribeRealtime) this.unsubscribeRealtime();
     this.timer = undefined;
+    this.unsubscribeRealtime = undefined;
     this.running = false;
   }
 
@@ -49,11 +53,7 @@ export class Kept2SyncCoordinatorService {
     this.running = true;
     this.lastError = '';
     try {
-      const transport = new EncryptedSelfHostedTransport(
-        this.http,
-        environment.apiUrl,
-        () => this.auth.authHeaders()
-      );
+      const transport = this.transport();
       await this.syncEngine.pushOutbox(
         activeIdentity.vaultId,
         transport,
@@ -72,5 +72,13 @@ export class Kept2SyncCoordinatorService {
     } finally {
       this.running = false;
     }
+  }
+
+  private transport() {
+    return new EncryptedSelfHostedTransport(
+      this.http,
+      environment.apiUrl,
+      () => this.auth.authHeaders()
+    );
   }
 }

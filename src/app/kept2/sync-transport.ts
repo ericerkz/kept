@@ -61,8 +61,38 @@ export class EncryptedSelfHostedTransport implements SyncTransport {
     }));
   }
 
-  subscribeRealtime(_vaultId: string, _onChange: (event: { sequence: number; resourceId: string }) => void) {
-    return () => undefined;
+  subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string; vaultId?: string }) => void) {
+    const token = this.authToken();
+    if (!token || typeof WebSocket === 'undefined') return () => undefined;
+    const socket = new WebSocket(this.realtimeUrl(token));
+    socket.onmessage = event => {
+      try {
+        const message = JSON.parse(String(event.data || '{}'));
+        if (message?.type === 'kept2-resource-changed' && message.vaultId === vaultId) {
+          onChange({
+            sequence: Number(message.sequence || 0),
+            resourceId: String(message.resourceId || ''),
+            vaultId: message.vaultId
+          });
+        }
+      } catch {}
+    };
+    return () => {
+      try { socket.close(); } catch {}
+    };
+  }
+
+  private authToken() {
+    const header = this.authHeaders().get('Authorization') || '';
+    return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  }
+
+  private realtimeUrl(token: string) {
+    const encodedToken = encodeURIComponent(token);
+    if (this.apiUrl.startsWith('http')) {
+      return `${this.apiUrl.replace(/^http/, 'ws')}/realtime?token=${encodedToken}`;
+    }
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}${this.apiUrl}/realtime?token=${encodedToken}`;
   }
 }
-

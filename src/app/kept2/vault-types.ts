@@ -160,7 +160,7 @@ export interface SyncTransport {
   mutate(vaultId: string, mutations: Kept2OutboxEntry[]): Promise<MutationResult[]>;
   uploadBlob(vaultId: string, blobId: string, ciphertext: Blob, ciphertextHash: string): Promise<void>;
   downloadBlob(vaultId: string, blobId: string): Promise<Blob>;
-  subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string }) => void): () => void;
+  subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string; vaultId?: string }) => void): () => void;
 }
 
 export interface DurableVaultStore {
