@@ -148,6 +148,16 @@ export class VaultResourceKeyService {
     return grant;
   }
 
+  publicKeyGrantIdFor(
+    vaultId: string,
+    resourceId: string,
+    resourceType: Kept2ResourceType,
+    grantPurpose: Extract<Kept2GrantPurpose, 'mcp' | 'calendar'>,
+    granteeId: string
+  ) {
+    return this.grantId(vaultId, resourceId, resourceType, grantPurpose, granteeId);
+  }
+
   async importGrant(grant: KeyGrant) {
     if (!grant || grant.revokedAt) return false;
     if (grant.grantPurpose !== 'recovery' && grant.grantPurpose !== 'device') return false;

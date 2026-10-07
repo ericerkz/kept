@@ -4,7 +4,8 @@ import { AuthService } from '../services/auth.service';
 import { environment } from 'src/environments/environment';
 import { SyncEngineService } from './sync-engine.service';
 import { EncryptedSelfHostedTransport } from './sync-transport';
-import { Kept2ResourceType, KeyGrant, SyncTransport, VaultIdentity } from './vault-types';
+import { Kept2OutboxEntry, Kept2ResourceType, KeyGrant, SyncTransport, VaultIdentity } from './vault-types';
+import { LocalFirstVaultService } from './local-first-vault.service';
 import { VaultResourceKeyService } from './vault-resource-key.service';
 import { VaultSessionService } from './vault-session.service';
 import { VaultDevicePairingService } from './vault-device-pairing.service';
@@ -23,6 +24,7 @@ export class Kept2SyncCoordinatorService {
     private auth: AuthService,
     private http: HttpClient,
     private devicePairing: VaultDevicePairingService,
+    private localVault: LocalFirstVaultService,
     private resourceKeys: VaultResourceKeyService,
     private session: VaultSessionService,
     private syncEngine: SyncEngineService
@@ -75,6 +77,7 @@ export class Kept2SyncCoordinatorService {
         (resourceId, resourceType) => this.resourceKeys.keyFor(resourceId, resourceType),
         (vaultId, resourceId, resourceType) => this.grantsForResource(remoteMcp, vaultId, resourceId, resourceType)
       );
+      if (remoteMcp) await this.reconcileRemoteMcpNoteGrants(activeIdentity, transport, remoteMcp);
       await this.syncEngine.pullChanges(
         activeIdentity.vaultId,
         transport,
@@ -105,6 +108,10 @@ export class Kept2SyncCoordinatorService {
   ): Promise<KeyGrant[]> {
     const grants = [await this.resourceKeys.grantFor(vaultId, resourceId, resourceType)];
     if (remoteMcp) {
+      if (resourceType === 'note.content') {
+        const note = await this.localVault.getNote(resourceId);
+        if (!note || this.isLockedNote(note)) return grants;
+      }
       grants.push(await this.resourceKeys.publicKeyGrantFor(
         vaultId,
         resourceId,
@@ -117,9 +124,83 @@ export class Kept2SyncCoordinatorService {
     return grants;
   }
 
+  private async reconcileRemoteMcpNoteGrants(
+    identity: VaultIdentity,
+    transport: SyncTransport,
+    remoteMcp: { granteeId: string; publicKey: string }
+  ) {
+    const mutations: Kept2OutboxEntry[] = [];
+    const createdAt = new Date().toISOString();
+    let logical = 0;
+    for (const note of await this.localVault.notes()) {
+      if (!note.syncId) continue;
+      const grantId = this.resourceKeys.publicKeyGrantIdFor(
+        identity.vaultId,
+        note.syncId,
+        'note.content',
+        'mcp',
+        remoteMcp.granteeId
+      );
+      const stateKey = `${remoteMcp.publicKey}:${grantId}`;
+      const locked = this.isLockedNote(note);
+      if (this.mcpGrantStates.get(stateKey) === (locked ? 'revoked' : 'granted')) continue;
+      const lww = {
+        physicalMs: Date.now(),
+        logical: logical++,
+        deviceId: identity.deviceId,
+        operationId: `${locked ? 'revoke' : 'grant'}-mcp-${crypto.randomUUID()}`
+      };
+      if (locked) {
+        mutations.push({
+          operationId: lww.operationId,
+          mutationType: 'keyGrant.revoke',
+          resourceId: grantId,
+          payload: { grantId },
+          lww,
+          createdAt,
+          attempts: 0
+        });
+      } else {
+        const grant = await this.resourceKeys.publicKeyGrantFor(
+          identity.vaultId,
+          note.syncId,
+          'note.content',
+          'mcp',
+          remoteMcp.granteeId,
+          remoteMcp.publicKey
+        );
+        mutations.push({
+          operationId: lww.operationId,
+          mutationType: 'keyGrant.upsert',
+          resourceId: grant.grantId,
+          payload: { grant },
+          lww,
+          createdAt,
+          attempts: 0
+        });
+      }
+    }
+    for (let index = 0; index < mutations.length; index += 100) {
+      const chunk = mutations.slice(index, index + 100);
+      const results = await transport.mutate(identity.vaultId, chunk);
+      results.forEach((result, offset) => {
+        if (!result.ok) return;
+        const mutation = chunk[offset];
+        const state = mutation.mutationType === 'keyGrant.revoke' ? 'revoked' : 'granted';
+        this.mcpGrantStates.set(`${remoteMcp.publicKey}:${mutation.resourceId}`, state);
+      });
+    }
+  }
+
   private remoteMcpKey(transport: SyncTransport) {
     if (!transport.integrationServiceKey) return Promise.resolve(null);
     return transport.integrationServiceKey('remote-mcp');
+  }
+
+  private mcpGrantStates = new Map<string, 'granted' | 'revoked'>();
+
+  private isLockedNote(note: { locked?: boolean; lockSalt?: string; lockHash?: string }) {
+    return !!(note.locked && note.lockSalt && note.lockHash);
   }
 
   private registerGlobalTriggers() {
