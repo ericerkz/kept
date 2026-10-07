@@ -8,7 +8,7 @@ import {
   VaultIdentity
 } from './vault-types';
 import { VaultIdentityService } from './vault-identity.service';
-import { BrowserVaultSqliteDriverService } from './browser-vault-sqlite-driver.service';
+import { VaultSqliteDriverService } from './vault-sqlite-driver.service';
 
 type StoredJson<T> = {
   syncId: string;
@@ -19,7 +19,7 @@ type StoredJson<T> = {
 export class DurableVaultStoreService implements DurableVaultStore {
   constructor(
     private identities: VaultIdentityService,
-    private driver: BrowserVaultSqliteDriverService
+    private driver: VaultSqliteDriverService
   ) {}
 
   identity(): Promise<VaultIdentity> {

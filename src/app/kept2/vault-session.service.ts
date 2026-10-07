@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BrowserVaultSqliteDriverService } from './browser-vault-sqlite-driver.service';
+import { VaultSqliteDriverService } from './vault-sqlite-driver.service';
 import { VaultIdentityService } from './vault-identity.service';
 import { VaultKeyMaterialService } from './vault-key-material.service';
 import { VaultIdentity, WrappedVaultKey } from './vault-types';
@@ -23,7 +23,7 @@ export class VaultSessionService {
   private session: Kept2VaultSession | null = null;
 
   constructor(
-    private driver: BrowserVaultSqliteDriverService,
+    private driver: VaultSqliteDriverService,
     private identities: VaultIdentityService,
     private keyMaterial: VaultKeyMaterialService
   ) {}
