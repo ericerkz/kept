@@ -93,6 +93,16 @@
   opacity: 0.45;
 }
 
+.vault-status button.secondary {
+  border-color: #5f6368;
+  color: #e8eaed;
+}
+
+.vault-status button.danger {
+  border-color: #f6aea9;
+  color: #f6aea9;
+}
+
 .vault-status strong,
 .recovery-card strong {
   color: #81c995;
@@ -233,6 +243,16 @@
   .vault-status button {
     border-color: #1e8e3e;
     color: #1e8e3e;
+  }
+
+  .vault-status button.secondary {
+    border-color: #dadce0;
+    color: #3c4043;
+  }
+
+  .vault-status button.danger {
+    border-color: #d93025;
+    color: #d93025;
   }
 
   .vault-workbench,

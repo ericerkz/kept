@@ -167,6 +167,33 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     this.success = 'Vault locked.';
   }
 
+  async deleteLocalVault() {
+    const confirmed = window.confirm(
+      'Delete this local Kept 2 vault from this device? Synced encrypted server data is not deleted.'
+    );
+    if (!confirmed) return;
+    this.error = '';
+    this.success = '';
+    this.isBusy = true;
+    try {
+      this.syncCoordinator.stop();
+      this.resourceKeys.clearCache();
+      await this.vaultSession.deleteLocalVault();
+      this.identity = null;
+      this.notes = [];
+      this.outboxCount = 0;
+      this.hasVault = false;
+      this.generatedRecoveryCode = '';
+      this.mode = 'create';
+      this.clearDraft();
+      this.success = 'Local vault deleted from this device.';
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not delete the local vault.';
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
   async pushOutbox() {
     if (!this.identity) return;
     this.error = '';

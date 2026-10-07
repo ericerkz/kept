@@ -27,6 +27,10 @@ export class VaultIdentityService {
     return next;
   }
 
+  clear() {
+    localStorage.removeItem(IDENTITY_KEY);
+  }
+
   private read(): VaultIdentity | null {
     try {
       const raw = localStorage.getItem(IDENTITY_KEY);
@@ -43,4 +47,3 @@ export class VaultIdentityService {
     localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
   }
 }
-

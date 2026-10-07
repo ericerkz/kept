@@ -18,6 +18,8 @@
           <button type="button" class="secondary" (click)="pullRemote()" [disabled]="isBusy">Pull remote changes</button>
           <button type="button" class="secondary" (click)="bootstrapRemote()" [disabled]="isBusy">Bootstrap remote</button>
           <button type="button" class="secondary" (click)="importLegacySnapshot()" [disabled]="isBusy">Import legacy notes</button>
+          <button type="button" class="secondary" (click)="lockVault()" [disabled]="isBusy">Lock</button>
+          <button type="button" class="danger" (click)="deleteLocalVault()" [disabled]="isBusy">Delete local vault</button>
         </div>
         @if (syncStatus) { <span>{{syncStatus}}</span> }
         @if (migrationStatus) { <span>{{migrationStatus}}</span> }
@@ -84,9 +86,6 @@
         @if (success) { <div class="success">{{success}}</div> }
         <div class="button-row">
           <button type="submit" [disabled]="unlockForm.invalid || isBusy">{{isBusy ? 'Unlocking...' : 'Unlock vault'}}</button>
-          @if (identity) {
-            <button type="button" class="secondary" (click)="lockVault()" [disabled]="isBusy">Lock</button>
-          }
         </div>
       </form>
     }

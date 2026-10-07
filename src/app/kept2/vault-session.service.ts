@@ -108,6 +108,25 @@ export class VaultSessionService {
     window.dispatchEvent(new CustomEvent('kept2-vault-locked'));
   }
 
+  async deleteLocalVault() {
+    await this.driver.transaction(async () => {
+      for (const table of [
+        'notes',
+        'reminders',
+        'attachments',
+        'outbox',
+        'sync_cursors',
+        'key_metadata',
+        'blobs',
+        'vault_meta'
+      ]) {
+        await this.driver.run(`DELETE FROM ${table}`);
+      }
+    });
+    this.identities.clear();
+    this.lock();
+  }
+
   private async requireMetadata<T>(keyId: string): Promise<T> {
     const row = await this.readMetadata<T>(keyId);
     if (!row) throw new Error(`Missing Kept 2 key metadata: ${keyId}`);
