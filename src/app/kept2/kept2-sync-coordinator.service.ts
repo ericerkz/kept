@@ -77,7 +77,7 @@ export class Kept2SyncCoordinatorService {
         (resourceId, resourceType) => this.resourceKeys.keyFor(resourceId, resourceType),
         (vaultId, resourceId, resourceType) => this.grantsForResource(remoteMcp, vaultId, resourceId, resourceType)
       );
-      if (remoteMcp) await this.reconcileRemoteMcpNoteGrants(activeIdentity, transport, remoteMcp);
+      if (remoteMcp) await this.reconcileRemoteMcpGrants(activeIdentity, transport, remoteMcp);
       await this.syncEngine.pullChanges(
         activeIdentity.vaultId,
         transport,
@@ -124,7 +124,7 @@ export class Kept2SyncCoordinatorService {
     return grants;
   }
 
-  private async reconcileRemoteMcpNoteGrants(
+  private async reconcileRemoteMcpGrants(
     identity: VaultIdentity,
     transport: SyncTransport,
     remoteMcp: { granteeId: string; publicKey: string }
@@ -132,18 +132,20 @@ export class Kept2SyncCoordinatorService {
     const mutations: Kept2OutboxEntry[] = [];
     const createdAt = new Date().toISOString();
     let logical = 0;
-    for (const note of await this.localVault.notes()) {
-      if (!note.syncId) continue;
+    const addGrantMutation = async (
+      resourceId: string,
+      resourceType: Kept2ResourceType,
+      locked = false
+    ) => {
       const grantId = this.resourceKeys.publicKeyGrantIdFor(
         identity.vaultId,
-        note.syncId,
-        'note.content',
+        resourceId,
+        resourceType,
         'mcp',
         remoteMcp.granteeId
       );
       const stateKey = `${remoteMcp.publicKey}:${grantId}`;
-      const locked = this.isLockedNote(note);
-      if (this.mcpGrantStates.get(stateKey) === (locked ? 'revoked' : 'granted')) continue;
+      if (this.mcpGrantStates.get(stateKey) === (locked ? 'revoked' : 'granted')) return;
       const lww = {
         physicalMs: Date.now(),
         logical: logical++,
@@ -155,7 +157,7 @@ export class Kept2SyncCoordinatorService {
           operationId: lww.operationId,
           mutationType: 'keyGrant.revoke',
           resourceId: grantId,
-          payload: { grantId },
+          payload: { grantId, resourceType: 'keyGrant' },
           lww,
           createdAt,
           attempts: 0
@@ -163,8 +165,8 @@ export class Kept2SyncCoordinatorService {
       } else {
         const grant = await this.resourceKeys.publicKeyGrantFor(
           identity.vaultId,
-          note.syncId,
-          'note.content',
+          resourceId,
+          resourceType,
           'mcp',
           remoteMcp.granteeId,
           remoteMcp.publicKey
@@ -179,6 +181,15 @@ export class Kept2SyncCoordinatorService {
           attempts: 0
         });
       }
+    };
+
+    for (const note of await this.localVault.notes()) {
+      if (!note.syncId) continue;
+      await addGrantMutation(note.syncId, 'note.content', this.isLockedNote(note));
+    }
+    for (const reminder of await this.localVault.reminders()) {
+      if (!reminder.syncId) continue;
+      await addGrantMutation(reminder.syncId, 'reminder');
     }
     for (let index = 0; index < mutations.length; index += 100) {
       const chunk = mutations.slice(index, index + 100);
