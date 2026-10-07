@@ -12,6 +12,7 @@
       <div class="vault-status">
         <strong>Unlocked</strong>
         <code>{{identity.vaultId}}</code>
+        <span>{{notes.length}} local note{{notes.length === 1 ? '' : 's'}} · {{outboxCount}} pending sync operation{{outboxCount === 1 ? '' : 's'}}</span>
       </div>
     }
 
@@ -73,6 +74,44 @@
           }
         </div>
       </form>
+    }
+
+    @if (identity && !generatedRecoveryCode) {
+      <section class="vault-workbench">
+        <form (ngSubmit)="saveDraft()" #noteForm="ngForm" class="auth-form">
+          <label>
+            <span>{{selectedSyncId ? 'Edit local note' : 'New local note'}}</span>
+            <input name="draftTitle" [(ngModel)]="draftTitle" placeholder="Title">
+          </label>
+          <label>
+            <span>Body</span>
+            <textarea name="draftBody" [(ngModel)]="draftBody" rows="4" placeholder="Take a note..."></textarea>
+          </label>
+          <div class="button-row">
+            <button type="submit" [disabled]="isBusy || (!draftTitle.trim() && !draftBody.trim())">
+              {{selectedSyncId ? 'Update note' : 'Create note'}}
+            </button>
+            @if (selectedSyncId || draftTitle || draftBody) {
+              <button type="button" class="secondary" (click)="clearDraft()" [disabled]="isBusy">Clear</button>
+            }
+          </div>
+        </form>
+
+        <div class="local-note-list">
+          @if (!notes.length) {
+            <p class="empty-state">No local notes yet.</p>
+          }
+          @for (note of notes; track note.syncId) {
+            <article class="local-note">
+              <button type="button" class="note-body-button" (click)="editNote(note)">
+                <strong>{{note.noteTitle || 'Untitled'}}</strong>
+                @if (note.noteBody) { <span>{{note.noteBody}}</span> }
+              </button>
+              <button type="button" class="delete-note" (click)="deleteNote(note)" [disabled]="isBusy" aria-label="Delete local note">Delete</button>
+            </article>
+          }
+        </div>
+      </section>
     }
 
     <div class="footer-tagline">Kept 2 local-first preview</div>

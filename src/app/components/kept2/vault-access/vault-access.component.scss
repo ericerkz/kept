@@ -37,6 +37,20 @@
   color: #e8eaed;
 }
 
+.auth-form textarea {
+  background: #202124;
+  border: 1px solid #5f6368;
+  border-radius: 6px;
+  color: #e8eaed;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  min-height: 96px;
+  outline: none;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
 .vault-status,
 .recovery-card {
   border: 1px solid #5f6368;
@@ -45,6 +59,11 @@
   gap: 10px;
   margin: 18px 0;
   padding: 14px;
+}
+
+.vault-status span {
+  color: #bdc1c6;
+  font-size: 12px;
 }
 
 .vault-status strong,
@@ -78,6 +97,68 @@
   padding: 0 18px;
 }
 
+.vault-workbench {
+  border-top: 1px solid #5f6368;
+  display: grid;
+  gap: 18px;
+  margin-top: 24px;
+  padding-top: 24px;
+}
+
+.local-note-list {
+  display: grid;
+  gap: 10px;
+}
+
+.empty-state {
+  color: #9aa0a6;
+  font-size: 13px;
+  margin: 0;
+}
+
+.local-note {
+  align-items: stretch;
+  border: 1px solid #5f6368;
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.note-body-button {
+  background: transparent;
+  border: 0;
+  color: #e8eaed;
+  cursor: pointer;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  text-align: left;
+
+  strong,
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    color: #bdc1c6;
+    font-size: 13px;
+  }
+}
+
+.delete-note {
+  background: transparent;
+  border: 0;
+  border-left: 1px solid #5f6368;
+  color: #f6aea9;
+  cursor: pointer;
+  font: 500 12px "Google Sans", Roboto, Arial, sans-serif;
+  padding: 0 12px;
+}
+
 :host-context(.light-theme) {
   .mode-switcher,
   .vault-status,
@@ -100,9 +181,35 @@
     color: #3c4043;
   }
 
+  .auth-form textarea {
+    background: #fff;
+    border-color: #dadce0;
+    color: #202124;
+  }
+
   .vault-status code,
   .recovery-card code {
     background: #f1f3f4;
     color: #202124;
+  }
+
+  .vault-status span,
+  .empty-state,
+  .note-body-button span {
+    color: #5f6368;
+  }
+
+  .vault-workbench,
+  .local-note,
+  .delete-note {
+    border-color: #dadce0;
+  }
+
+  .note-body-button {
+    color: #202124;
+  }
+
+  .delete-note {
+    color: #d93025;
   }
 }

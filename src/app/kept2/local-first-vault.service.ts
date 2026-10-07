@@ -3,6 +3,7 @@ import { NoteAttachmentI, NoteI } from '../interfaces/notes';
 import { ReminderI } from '../interfaces/reminder';
 import { DurableVaultStoreService } from './durable-vault-store.service';
 import { Kept2MutationType, LwwStamp, VaultIdentity } from './vault-types';
+import { VaultSessionService } from './vault-session.service';
 
 type LocalResourceKind = 'note' | 'reminder' | 'attachment';
 
@@ -12,13 +13,18 @@ export class LocalFirstVaultService {
   private lastLogical = 0;
   private cachedIdentity?: Promise<VaultIdentity>;
 
-  constructor(private vault: DurableVaultStoreService) {}
+  constructor(
+    private vault: DurableVaultStoreService,
+    private session: VaultSessionService
+  ) {}
 
   notes() {
+    this.requireUnlocked();
     return this.vault.listNotes();
   }
 
   async createNote(input: Partial<NoteI>) {
+    this.requireUnlocked();
     const now = new Date().toISOString();
     const note: NoteI = {
       noteTitle: input.noteTitle || '',
@@ -44,6 +50,7 @@ export class LocalFirstVaultService {
   }
 
   async updateNote(syncId: string, patch: Partial<NoteI>) {
+    this.requireUnlocked();
     const existing = await this.vault.getNote(syncId);
     if (!existing) throw new Error('Note not found in local vault.');
     const note: NoteI = {
@@ -59,16 +66,19 @@ export class LocalFirstVaultService {
   }
 
   async deleteNote(syncId: string) {
+    this.requireUnlocked();
     const stamp = await this.nextStamp();
     await this.vault.deleteNote(syncId, stamp);
     await this.enqueueLocalMutation('resource.delete', syncId, 'note', { syncId }, stamp);
   }
 
   reminders() {
+    this.requireUnlocked();
     return this.vault.listReminders();
   }
 
   async upsertReminder(input: ReminderI & { noteSyncId?: string }) {
+    this.requireUnlocked();
     input.syncId ||= `reminder-${crypto.randomUUID()}`;
     const stamp = await this.nextStamp();
     await this.vault.putReminder(input, stamp);
@@ -77,16 +87,19 @@ export class LocalFirstVaultService {
   }
 
   async deleteReminder(syncId: string) {
+    this.requireUnlocked();
     const stamp = await this.nextStamp();
     await this.vault.deleteReminder(syncId, stamp);
     await this.enqueueLocalMutation('resource.delete', syncId, 'reminder', { syncId }, stamp);
   }
 
   attachments(noteSyncId?: string) {
+    this.requireUnlocked();
     return this.vault.listAttachments(noteSyncId);
   }
 
   async upsertAttachment(attachment: NoteAttachmentI & { noteSyncId?: string }, blob?: Blob) {
+    this.requireUnlocked();
     attachment.syncId ||= `attachment-${crypto.randomUUID()}`;
     const stamp = await this.nextStamp();
     await this.vault.putAttachment(attachment, blob, stamp);
@@ -110,6 +123,7 @@ export class LocalFirstVaultService {
   }
 
   async deleteAttachment(syncId: string) {
+    this.requireUnlocked();
     const stamp = await this.nextStamp();
     const blobStamp = await this.nextStamp();
     await this.vault.enqueue({
@@ -129,7 +143,12 @@ export class LocalFirstVaultService {
   }
 
   outbox() {
+    this.requireUnlocked();
     return this.vault.listOutbox();
+  }
+
+  private requireUnlocked() {
+    if (!this.session.isUnlocked()) throw new Error('Kept 2 vault is locked.');
   }
 
   private async enqueueLocalMutation(
