@@ -1,9 +1,11 @@
 import { Injectable } from '@angular/core';
+import { LabelI } from '../interfaces/labels';
 import { NoteAttachmentI, NoteI } from '../interfaces/notes';
 import { ReminderI } from '../interfaces/reminder';
 import { DurableVaultStoreService } from './durable-vault-store.service';
 import { VaultCryptoService } from './vault-crypto.service';
 import {
+  BinderResource,
   EncryptedEnvelope,
   Kept2LocalResourceKind,
   Kept2OutboxEntry,
@@ -206,6 +208,10 @@ export class SyncEngineService {
       await this.vault.putReminder(value as ReminderI, envelope.lww);
     } else if (envelope.resourceType === 'attachment') {
       await this.vault.putAttachment(value as NoteAttachmentI, undefined, envelope.lww);
+    } else if (envelope.resourceType === 'label') {
+      await this.vault.putLabel(value as LabelI & { syncId?: string }, envelope.lww);
+    } else if (envelope.resourceType === 'binder') {
+      await this.vault.putBinder(value as BinderResource, envelope.lww);
     }
   }
 
@@ -213,11 +219,13 @@ export class SyncEngineService {
     if (resourceType === 'note.content') await this.vault.deleteNote(resourceId);
     if (resourceType === 'reminder') await this.vault.deleteReminder(resourceId);
     if (resourceType === 'attachment') await this.vault.deleteAttachment(resourceId);
+    if (resourceType === 'label') await this.vault.deleteLabel(resourceId);
+    if (resourceType === 'binder') await this.vault.deleteBinder(resourceId);
   }
 
   private localKind(payload: unknown): Kept2LocalResourceKind {
     const kind = String((payload as { localResourceKind?: string })?.localResourceKind || '');
-    if (kind === 'note' || kind === 'reminder' || kind === 'attachment') return kind;
+    if (kind === 'note' || kind === 'reminder' || kind === 'attachment' || kind === 'label' || kind === 'binder') return kind;
     return 'note';
   }
 
@@ -228,6 +236,8 @@ export class SyncEngineService {
   private resourceTypeForKind(kind: Kept2LocalResourceKind): Kept2ResourceType {
     if (kind === 'reminder') return 'reminder';
     if (kind === 'attachment') return 'attachment';
+    if (kind === 'label') return 'label';
+    if (kind === 'binder') return 'binder';
     return 'note.content';
   }
 

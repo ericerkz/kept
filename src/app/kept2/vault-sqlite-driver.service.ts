@@ -170,6 +170,28 @@ export class VaultSqliteDriverService implements VaultSqliteDriver {
           deleted INTEGER NOT NULL DEFAULT 0,
           updatedAt TEXT NOT NULL
         )`,
+      `CREATE TABLE IF NOT EXISTS labels (
+          syncId TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          value TEXT NOT NULL,
+          lwwPhysicalMs INTEGER NOT NULL DEFAULT 0,
+          lwwLogical INTEGER NOT NULL DEFAULT 0,
+          lwwDeviceId TEXT NOT NULL DEFAULT '',
+          lwwOperationId TEXT NOT NULL DEFAULT '',
+          deleted INTEGER NOT NULL DEFAULT 0,
+          updatedAt TEXT NOT NULL
+        )`,
+      `CREATE TABLE IF NOT EXISTS binders (
+          syncId TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          value TEXT NOT NULL,
+          lwwPhysicalMs INTEGER NOT NULL DEFAULT 0,
+          lwwLogical INTEGER NOT NULL DEFAULT 0,
+          lwwDeviceId TEXT NOT NULL DEFAULT '',
+          lwwOperationId TEXT NOT NULL DEFAULT '',
+          deleted INTEGER NOT NULL DEFAULT 0,
+          updatedAt TEXT NOT NULL
+        )`,
       `CREATE TABLE IF NOT EXISTS attachments (
           syncId TEXT PRIMARY KEY,
           noteSyncId TEXT,
@@ -206,6 +228,8 @@ export class VaultSqliteDriverService implements VaultSqliteDriver {
         )`,
       'CREATE INDEX IF NOT EXISTS notes_deleted_updated_idx ON notes(deleted, updatedAt)',
       'CREATE INDEX IF NOT EXISTS notes_search_idx ON notes(searchText)',
+      'CREATE INDEX IF NOT EXISTS labels_name_idx ON labels(name)',
+      'CREATE INDEX IF NOT EXISTS binders_name_idx ON binders(name)',
       'CREATE INDEX IF NOT EXISTS reminders_note_idx ON reminders(noteSyncId)',
       'CREATE INDEX IF NOT EXISTS attachments_note_idx ON attachments(noteSyncId)',
       'CREATE INDEX IF NOT EXISTS outbox_created_idx ON outbox(createdAt)'

@@ -293,7 +293,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
         ...(migration.warnings || []).map(warning => warning.code),
         ...(migration.limitations || [])
       ];
-      this.migrationStatus = `Imported ${imported.notes} note${imported.notes === 1 ? '' : 's'}, ${imported.reminders} reminder${imported.reminders === 1 ? '' : 's'}, ${imported.attachments} attachment record${imported.attachments === 1 ? '' : 's'}, and ${imported.attachmentBlobs} attachment file${imported.attachmentBlobs === 1 ? '' : 's'} into the local vault.`;
+      this.migrationStatus = `Imported ${imported.notes} note${imported.notes === 1 ? '' : 's'}, ${imported.labels} label${imported.labels === 1 ? '' : 's'}, ${imported.binders} binder${imported.binders === 1 ? '' : 's'}, ${imported.reminders} reminder${imported.reminders === 1 ? '' : 's'}, ${imported.attachments} attachment record${imported.attachments === 1 ? '' : 's'}, and ${imported.attachmentBlobs} attachment file${imported.attachmentBlobs === 1 ? '' : 's'} into the local vault.`;
       await this.refreshLocalState();
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not import legacy notes.';
@@ -374,6 +374,8 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     }
 
     let notes = 0;
+    let labels = 0;
+    let binders = 0;
     let reminders = 0;
     let attachments = 0;
     let attachmentBlobs = 0;
@@ -433,6 +435,23 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
         };
         await this.localVault.upsertReminder(reminder);
         reminders += 1;
+      } else if (resource.resourceType === 'label') {
+        const plain = resource.plaintext || {};
+        await this.localVault.upsertLabel({
+          syncId: resource.resourceId,
+          id: Number(plain.legacyId || 0) || undefined,
+          name: plain.name || ''
+        });
+        labels += 1;
+      } else if (resource.resourceType === 'binder') {
+        const plain = resource.plaintext || {};
+        await this.localVault.upsertBinder({
+          syncId: resource.resourceId,
+          name: plain.name || '',
+          createdAt: plain.createdAt,
+          updatedAt: plain.updatedAt
+        });
+        binders += 1;
       } else if (resource.resourceType === 'attachment') {
         const plain = resource.plaintext || {};
         const attachment: NoteAttachmentI & { noteSyncId?: string } = {
@@ -452,7 +471,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       }
     }
 
-    return { notes, reminders, attachments, attachmentBlobs };
+    return { notes, labels, binders, reminders, attachments, attachmentBlobs };
   }
 
   private async hydrateLegacyNoteImages(plain: any) {

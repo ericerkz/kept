@@ -1,11 +1,12 @@
 import { Injectable } from '@angular/core';
+import { LabelI } from '../interfaces/labels';
 import { NoteAttachmentI, NoteI } from '../interfaces/notes';
 import { ReminderI } from '../interfaces/reminder';
 import { DurableVaultStoreService } from './durable-vault-store.service';
 import { Kept2MutationType, LwwStamp, VaultIdentity } from './vault-types';
 import { VaultSessionService } from './vault-session.service';
 
-type LocalResourceKind = 'note' | 'reminder' | 'attachment';
+type LocalResourceKind = 'note' | 'reminder' | 'attachment' | 'label' | 'binder';
 
 @Injectable({ providedIn: 'root' })
 export class LocalFirstVaultService {
@@ -70,6 +71,48 @@ export class LocalFirstVaultService {
     const stamp = await this.nextStamp();
     await this.vault.deleteNote(syncId, stamp);
     await this.enqueueLocalMutation('resource.delete', syncId, 'note', { syncId }, stamp);
+  }
+
+  labels() {
+    this.requireUnlocked();
+    return this.vault.listLabels();
+  }
+
+  async upsertLabel(input: LabelI & { syncId?: string }) {
+    this.requireUnlocked();
+    input.syncId ||= `label-${crypto.randomUUID()}`;
+    const stamp = await this.nextStamp();
+    await this.vault.putLabel(input, stamp);
+    await this.enqueueLocalMutation('resource.upsert', input.syncId, 'label', input, stamp);
+    return input;
+  }
+
+  async deleteLabel(syncId: string) {
+    this.requireUnlocked();
+    const stamp = await this.nextStamp();
+    await this.vault.deleteLabel(syncId, stamp);
+    await this.enqueueLocalMutation('resource.delete', syncId, 'label', { syncId }, stamp);
+  }
+
+  binders() {
+    this.requireUnlocked();
+    return this.vault.listBinders();
+  }
+
+  async upsertBinder(input: { syncId?: string; name: string; createdAt?: string; updatedAt?: string }) {
+    this.requireUnlocked();
+    input.syncId ||= `binder-${crypto.randomUUID()}`;
+    const stamp = await this.nextStamp();
+    await this.vault.putBinder(input, stamp);
+    await this.enqueueLocalMutation('resource.upsert', input.syncId, 'binder', input, stamp);
+    return input;
+  }
+
+  async deleteBinder(syncId: string) {
+    this.requireUnlocked();
+    const stamp = await this.nextStamp();
+    await this.vault.deleteBinder(syncId, stamp);
+    await this.enqueueLocalMutation('resource.delete', syncId, 'binder', { syncId }, stamp);
   }
 
   reminders() {

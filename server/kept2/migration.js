@@ -103,6 +103,32 @@ function createMigrationPlan(snapshot, options = {}) {
     });
   }
 
+  for (const label of snapshot.labels || []) {
+    resources.push({
+      resourceId: modernResourceId(label, 'label'),
+      resourceType: 'label',
+      keyPurpose: 'label',
+      lww: migrationLww(label, deviceId),
+      plaintext: {
+        ...preserveUnknown(label, ['id', 'syncId', 'name', 'createdAt', 'updatedAt']),
+        legacyId: label.id,
+        name: label.name || '',
+        createdAt: label.createdAt || createdAt,
+        updatedAt: label.updatedAt || label.createdAt || createdAt
+      }
+    });
+  }
+
+  for (const binder of legacyBinders(snapshot.notes || [], createdAt)) {
+    resources.push({
+      resourceId: binder.syncId,
+      resourceType: 'binder',
+      keyPurpose: 'binder',
+      lww: migrationLww(binder, deviceId),
+      plaintext: binder
+    });
+  }
+
   resources.push({
     resourceId: `migration-backup:${snapshot.snapshotId}`,
     resourceType: 'migrationBackup',
@@ -168,6 +194,25 @@ function legacyOwnerState(note) {
     completedChecklistCollapsed: Boolean(note.completedChecklistCollapsed),
     isDemo: Boolean(note.isDemo)
   };
+}
+
+function legacyBinders(notes, createdAt) {
+  const binders = [];
+  const seen = new Set();
+  for (const note of notes) {
+    const name = String(note.binder || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    binders.push({
+      syncId: `binder-${sha256(key).slice(0, 24)}`,
+      name,
+      createdAt,
+      updatedAt: createdAt
+    });
+  }
+  return binders;
 }
 
 function migrationLww(row, deviceId) {

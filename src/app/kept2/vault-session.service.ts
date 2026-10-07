@@ -113,6 +113,8 @@ export class VaultSessionService {
       for (const table of [
         'notes',
         'reminders',
+        'labels',
+        'binders',
         'attachments',
         'outbox',
         'sync_cursors',

@@ -28,12 +28,14 @@ test('kept2 migration snapshot is deterministic and non-destructive', () => {
       updatedAt: '2026-01-01T00:00:00.000Z'
     }],
     reminders: [{ id: 4, syncId: 'reminder-stable', noteId: 7, title: 'Remind', dueAt: '2026-02-01T00:00:00.000Z' }],
-    attachments: [{ id: 5, syncId: 'attachment-stable', noteId: 7, originalName: 'file.pdf', storedFilename: 'abc.pdf', fileSize: 42, mimeType: 'application/pdf' }]
+    attachments: [{ id: 5, syncId: 'attachment-stable', noteId: 7, originalName: 'file.pdf', storedFilename: 'abc.pdf', fileSize: 42, mimeType: 'application/pdf' }],
+    labels: [{ id: 3, syncId: 'label-stable', name: 'work' }]
   };
   const snapshotA = createLegacySnapshot(input);
   const snapshotB = createLegacySnapshot(input);
   assert.equal(snapshotA.snapshotHash, snapshotB.snapshotHash);
   assert.equal(snapshotA.counts.notes, 1);
+  assert.equal(snapshotA.counts.labels, 1);
   assert.equal(input.notes[0].noteTitle, 'Legacy note', 'planner must not mutate legacy source rows');
 });
 
@@ -57,7 +59,8 @@ test('kept2 migration plan creates syncId resources and preserves unknown fields
       updatedAt: '2026-01-01T00:00:00.000Z'
     }],
     reminders: [{ id: 4, noteId: 7, title: 'Remind' }],
-    attachments: [{ id: 5, noteId: 7, originalName: 'file.pdf', storedFilename: 'abc.pdf' }]
+    attachments: [{ id: 5, noteId: 7, originalName: 'file.pdf', storedFilename: 'abc.pdf' }],
+    labels: [{ id: 3, syncId: 'label-stable', name: 'work' }]
   });
   const plan = createMigrationPlan(snapshot, {
     vaultId: 'vault-test',
@@ -74,6 +77,10 @@ test('kept2 migration plan creates syncId resources and preserves unknown fields
   assert.equal(reminder.noteSyncId, 'note-stable');
   const attachment = plan.resources.find(resource => resource.resourceType === 'attachment').plaintext;
   assert.equal(attachment.noteSyncId, 'note-stable');
+  const label = plan.resources.find(resource => resource.resourceType === 'label').plaintext;
+  assert.equal(label.name, 'work');
+  const binder = plan.resources.find(resource => resource.resourceType === 'binder').plaintext;
+  assert.equal(binder.name, 'projects');
 });
 
 test('kept2 migration plan warns but still carries locked notes', () => {

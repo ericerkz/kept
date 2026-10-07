@@ -1,4 +1,5 @@
 import { NoteAttachmentI, NoteI } from '../interfaces/notes';
+import { LabelI } from '../interfaces/labels';
 import { ReminderI } from '../interfaces/reminder';
 
 export const KEPT2_PROTOCOL_VERSION = 'encrypted-v1';
@@ -7,6 +8,8 @@ export type Kept2ResourceType =
   | 'note.content'
   | 'note.ownerState'
   | 'note.userState'
+  | 'label'
+  | 'binder'
   | 'reminder'
   | 'attachment'
   | 'blob'
@@ -105,7 +108,14 @@ export type Kept2MutationType =
   | 'blob.put'
   | 'blob.delete';
 
-export type Kept2LocalResourceKind = 'note' | 'reminder' | 'attachment';
+export type Kept2LocalResourceKind = 'note' | 'reminder' | 'attachment' | 'label' | 'binder';
+
+export interface BinderResource {
+  syncId?: string;
+  name: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export interface Kept2OutboxEntry {
   operationId: string;
@@ -169,6 +179,12 @@ export interface DurableVaultStore {
   putNote(note: NoteI, stamp?: LwwStamp): Promise<void>;
   getNote(syncId: string): Promise<NoteI | undefined>;
   deleteNote(syncId: string, stamp?: LwwStamp): Promise<void>;
+  listLabels(): Promise<Array<LabelI & { syncId?: string }>>;
+  putLabel(label: LabelI & { syncId?: string }, stamp?: LwwStamp): Promise<void>;
+  deleteLabel(syncId: string, stamp?: LwwStamp): Promise<void>;
+  listBinders(): Promise<BinderResource[]>;
+  putBinder(binder: BinderResource, stamp?: LwwStamp): Promise<void>;
+  deleteBinder(syncId: string, stamp?: LwwStamp): Promise<void>;
   listReminders(): Promise<ReminderI[]>;
   putReminder(reminder: ReminderI, stamp?: LwwStamp): Promise<void>;
   deleteReminder(syncId: string, stamp?: LwwStamp): Promise<void>;
