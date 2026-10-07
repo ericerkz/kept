@@ -176,6 +176,7 @@ export class LocalFirstVaultService {
         createdAt: new Date().toISOString(),
         attempts: 0
       });
+      this.announceOutboxChanged();
     }
     return attachment;
   }
@@ -196,6 +197,7 @@ export class LocalFirstVaultService {
       createdAt: new Date().toISOString(),
       attempts: 0
     });
+    this.announceOutboxChanged();
     await this.vault.deleteAttachment(syncId, stamp);
     await this.enqueueLocalMutation('resource.delete', syncId, 'attachment', { syncId }, stamp);
   }
@@ -228,6 +230,13 @@ export class LocalFirstVaultService {
       createdAt: new Date().toISOString(),
       attempts: 0
     });
+    this.announceOutboxChanged();
+  }
+
+  private announceOutboxChanged() {
+    try {
+      window.dispatchEvent(new CustomEvent('kept2-outbox-changed'));
+    } catch {}
   }
 
   private async nextStamp(): Promise<LwwStamp> {

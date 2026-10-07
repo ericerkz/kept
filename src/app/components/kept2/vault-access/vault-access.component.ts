@@ -103,7 +103,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
-    this.syncCoordinator.stop();
+    // Sync is app-wide once the vault is unlocked; lock/delete explicitly stop it.
   }
 
   setMode(mode: VaultMode) {

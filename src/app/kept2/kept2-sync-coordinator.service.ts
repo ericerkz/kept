@@ -11,10 +11,12 @@ import { VaultSessionService } from './vault-session.service';
 @Injectable({ providedIn: 'root' })
 export class Kept2SyncCoordinatorService {
   private timer?: ReturnType<typeof setInterval>;
+  private syncSoonTimer?: ReturnType<typeof setTimeout>;
   private unsubscribeRealtime?: () => void;
   private running = false;
   private lastError = '';
   private lastSyncAt = '';
+  private started = false;
 
   constructor(
     private auth: AuthService,
@@ -22,20 +24,21 @@ export class Kept2SyncCoordinatorService {
     private resourceKeys: VaultResourceKeyService,
     private session: VaultSessionService,
     private syncEngine: SyncEngineService
-  ) {}
+  ) {
+    this.registerGlobalTriggers();
+  }
 
   start(identity: VaultIdentity) {
-    this.stop();
+    this.stopRealtime();
+    this.started = true;
     this.syncOnce(identity);
     this.unsubscribeRealtime = this.transport().subscribeRealtime(identity.vaultId, () => this.syncOnce(identity));
     this.timer = setInterval(() => this.syncOnce(identity), 15000);
   }
 
   stop() {
-    if (this.timer) clearInterval(this.timer);
-    if (this.unsubscribeRealtime) this.unsubscribeRealtime();
-    this.timer = undefined;
-    this.unsubscribeRealtime = undefined;
+    this.started = false;
+    this.stopRealtime();
     this.running = false;
   }
 
@@ -45,6 +48,15 @@ export class Kept2SyncCoordinatorService {
       lastError: this.lastError,
       lastSyncAt: this.lastSyncAt
     };
+  }
+
+  private stopRealtime() {
+    if (this.timer) clearInterval(this.timer);
+    if (this.syncSoonTimer) clearTimeout(this.syncSoonTimer);
+    if (this.unsubscribeRealtime) this.unsubscribeRealtime();
+    this.timer = undefined;
+    this.syncSoonTimer = undefined;
+    this.unsubscribeRealtime = undefined;
   }
 
   async syncOnce(identity?: VaultIdentity) {
@@ -80,5 +92,28 @@ export class Kept2SyncCoordinatorService {
       environment.apiUrl,
       () => this.auth.authHeaders()
     );
+  }
+
+  private registerGlobalTriggers() {
+    if (typeof window === 'undefined') return;
+    const request = () => this.scheduleSync();
+    window.addEventListener('online', request);
+    window.addEventListener('focus', request);
+    window.addEventListener('kept2-outbox-changed', request);
+    window.addEventListener('kept2-local-first-changed', request);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') request();
+      });
+    }
+  }
+
+  private scheduleSync(delay = 300) {
+    if (!this.started && !this.session.currentSession()) return;
+    if (this.syncSoonTimer) clearTimeout(this.syncSoonTimer);
+    this.syncSoonTimer = setTimeout(() => {
+      this.syncSoonTimer = undefined;
+      this.syncOnce().catch(console.error);
+    }, delay);
   }
 }
