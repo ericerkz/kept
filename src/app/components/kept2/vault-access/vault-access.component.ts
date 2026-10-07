@@ -37,6 +37,15 @@ interface MigrationExport {
   limitations?: string[];
 }
 
+interface MigrationCutoverReceipt {
+  cutoverReady: boolean;
+  vaultId: string;
+  snapshotId: string;
+  snapshotHash: string;
+  resourceCount: number;
+  completedAt: string;
+}
+
 @Component({
   selector: 'app-kept2-vault-access',
   templateUrl: './vault-access.component.html',
@@ -290,11 +299,18 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
         params: { vaultId: this.identity.vaultId }
       }));
       const imported = await this.importMigrationResources(migration.resources || []);
+      await this.syncEngine.pushOutbox(
+        this.identity.vaultId,
+        this.transport(),
+        (resourceId, resourceType) => this.resourceKeys.keyFor(resourceId, resourceType),
+        (vaultId, resourceId, resourceType) => this.resourceKeys.grantFor(vaultId, resourceId, resourceType)
+      );
+      const cutover = await this.acknowledgeMigrationCutover(migration, migration.resources?.length || 0);
       this.migrationWarnings = [
         ...(migration.warnings || []).map(warning => warning.code),
         ...(migration.limitations || [])
       ];
-      this.migrationStatus = `Imported ${imported.notes} note${imported.notes === 1 ? '' : 's'}, ${imported.labels} label${imported.labels === 1 ? '' : 's'}, ${imported.binders} binder${imported.binders === 1 ? '' : 's'}, ${imported.reminders} reminder${imported.reminders === 1 ? '' : 's'}, ${imported.attachments} attachment record${imported.attachments === 1 ? '' : 's'}, and ${imported.attachmentBlobs} attachment file${imported.attachmentBlobs === 1 ? '' : 's'} into the local vault.`;
+      this.migrationStatus = `Imported ${imported.notes} note${imported.notes === 1 ? '' : 's'}, ${imported.labels} label${imported.labels === 1 ? '' : 's'}, ${imported.binders} binder${imported.binders === 1 ? '' : 's'}, ${imported.reminders} reminder${imported.reminders === 1 ? '' : 's'}, ${imported.attachments} attachment record${imported.attachments === 1 ? '' : 's'}, and ${imported.attachmentBlobs} attachment file${imported.attachmentBlobs === 1 ? '' : 's'} into the local vault. Cutover receipt saved for ${cutover.resourceCount} encrypted resource${cutover.resourceCount === 1 ? '' : 's'}.`;
       await this.refreshLocalState();
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not import legacy notes.';
@@ -540,6 +556,18 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     }
 
     return { notes, labels, binders, reminders, attachments, attachmentBlobs };
+  }
+
+  private acknowledgeMigrationCutover(migration: MigrationExport, importedResourceCount: number) {
+    return firstValueFrom(this.http.post<MigrationCutoverReceipt>(
+      `${environment.apiUrl}/v2/migration/cutover`,
+      {
+        vaultId: migration.vaultId,
+        snapshotHash: migration.snapshotHash,
+        importedResourceCount
+      },
+      { headers: this.auth.authHeaders() }
+    ));
   }
 
   private async hydrateLegacyNoteImages(plain: any) {
