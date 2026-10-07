@@ -19,6 +19,7 @@ const { nextRepeatDueAt, isRepeatOccurrence } = require('./reminder-recurrence')
 const { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken } = require('./oauth-mcp');
 const { initKept2RelaySchema, mountKept2Relay } = require('./kept2/relay');
 const { initKept2OpaqueSchema, mountKept2OpaqueRoutes } = require('./kept2/opaque-auth');
+const { mountKept2MigrationRoutes } = require('./kept2/migration-routes');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -3611,6 +3612,13 @@ mountKept2Relay(app, {
   afterDatabaseCommit,
   broadcastRealtime,
   dataDir
+});
+
+mountKept2MigrationRoutes(app, {
+  all,
+  asyncRoute,
+  requireAuth,
+  sourceVersion: KEPT_VERSION
 });
 
 app.get('/api/setup/status', asyncRoute(async (_req, res) => {

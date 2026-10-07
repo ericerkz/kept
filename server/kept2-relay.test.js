@@ -86,6 +86,28 @@ async function main() {
     const remoteMcpDefault = await request('/v2/integrations/remote-mcp', { headers });
     assert.equal(remoteMcpDefault.enabled, false);
 
+    const legacyNote = await request('/notes', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        noteTitle: 'Legacy migration note',
+        noteBody: 'This is still plaintext legacy data.',
+        labels: [{ id: 1, name: 'migration' }],
+        binder: 'legacy',
+        checkBoxes: [{ id: 'task-1', data: 'migrate me', done: false, indentLevel: 1 }]
+      })
+    });
+    assert.ok(legacyNote.id);
+    const migrationPreview = await request('/v2/migration/preview?vaultId=vault-preview', { headers });
+    assert.equal(migrationPreview.destructive, false);
+    assert.equal(migrationPreview.cutoverReady, false);
+    assert.equal(migrationPreview.vaultId, 'vault-preview');
+    assert.ok(migrationPreview.counts.notes >= 1);
+    assert.ok(migrationPreview.resourceCount >= 3);
+    assert.ok(migrationPreview.resourcesByType['note.content'] >= 1);
+    assert.ok(migrationPreview.resourcesByType['note.ownerState'] >= 1);
+    assert.equal(typeof migrationPreview.snapshotHash, 'string');
+
     const vaultId = 'vault-test';
     const blobForm = new FormData();
     const encryptedBlob = new Blob([Buffer.from('sealed attachment bytes')], { type: 'application/octet-stream' });
