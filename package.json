@@ -14,6 +14,7 @@
     "test:local-first": "node --test server/kept2-sync-core.test.mjs",
     "test:encrypted-sync": "node server/kept2-relay.test.js",
     "test:crypto": "node --test server/kept2-crypto.test.mjs",
+    "test:key-material": "node --test server/kept2-key-material.test.mjs",
     "test:migration": "node --test server/kept2-migration.test.mjs",
     "test:legacy-compat": "node --test server/kept2-legacy-compat.test.mjs",
     "test:opaque": "node --test server/kept2-opaque.test.mjs",

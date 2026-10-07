@@ -29,6 +29,31 @@ export interface VaultIdentity {
   lastUnlockedAt: string | null;
 }
 
+export type VaultKeyWrapPurpose =
+  | 'password'
+  | 'recovery'
+  | 'opaqueExport'
+  | 'device';
+
+export interface WrappedVaultKey {
+  wrapId: string;
+  purpose: VaultKeyWrapPurpose;
+  algorithm: 'pbkdf2-sha256.secretbox' | 'raw-secretbox';
+  salt: string | null;
+  iterations: number | null;
+  wrappedKey: string;
+  createdAt: string;
+}
+
+export interface VaultKeyMaterial {
+  vmk: Uint8Array;
+  backupKey: Uint8Array;
+  recoveryKey: Uint8Array;
+  passwordWrap: WrappedVaultKey;
+  recoveryWrap: WrappedVaultKey;
+  recoveryCode: string;
+}
+
 export interface VaultSqliteDriver {
   open(): Promise<void>;
   transaction<T>(work: () => Promise<T>): Promise<T>;
@@ -152,4 +177,3 @@ export interface DurableVaultStore {
   listOutbox(): Promise<Kept2OutboxEntry[]>;
   removeOutbox(operationIds: string[]): Promise<void>;
 }
-
