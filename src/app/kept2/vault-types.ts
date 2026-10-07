@@ -105,6 +105,8 @@ export type Kept2MutationType =
   | 'blob.put'
   | 'blob.delete';
 
+export type Kept2LocalResourceKind = 'note' | 'reminder' | 'attachment';
+
 export interface Kept2OutboxEntry {
   operationId: string;
   mutationType: Kept2MutationType;
@@ -176,4 +178,6 @@ export interface DurableVaultStore {
   enqueue(entry: Kept2OutboxEntry): Promise<void>;
   listOutbox(): Promise<Kept2OutboxEntry[]>;
   removeOutbox(operationIds: string[]): Promise<void>;
+  getCursor(name: string): Promise<number>;
+  setCursor(name: string, cursor: number): Promise<void>;
 }

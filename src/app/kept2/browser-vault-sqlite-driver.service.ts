@@ -139,6 +139,17 @@ export class BrowserVaultSqliteDriverService implements VaultSqliteDriver {
         createdAt TEXT NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS sync_cursors (
+        name TEXT PRIMARY KEY,
+        cursor INTEGER NOT NULL DEFAULT 0,
+        updatedAt TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS key_metadata (
+        keyId TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS blobs (
         blobKey TEXT PRIMARY KEY,
         bytes BLOB NOT NULL,

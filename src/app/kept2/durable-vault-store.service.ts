@@ -208,6 +208,20 @@ export class DurableVaultStoreService implements DurableVaultStore {
     });
   }
 
+  async getCursor(name: string): Promise<number> {
+    const row = await this.driver.get<{ cursor: number }>('SELECT cursor FROM sync_cursors WHERE name = ?', [name]);
+    return Number(row?.cursor || 0);
+  }
+
+  async setCursor(name: string, cursor: number): Promise<void> {
+    await this.driver.run(
+      `INSERT INTO sync_cursors (name, cursor, updatedAt)
+       VALUES (?, ?, ?)
+       ON CONFLICT(name) DO UPDATE SET cursor = excluded.cursor, updatedAt = excluded.updatedAt`,
+      [name, Math.max(0, Number(cursor || 0)), new Date().toISOString()]
+    );
+  }
+
   private ensureSyncId(value: { syncId?: string }, prefix: 'note' | 'reminder' | 'attachment') {
     value.syncId ||= `${prefix}-${crypto.randomUUID()}`;
     return value.syncId;
