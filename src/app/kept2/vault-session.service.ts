@@ -105,6 +105,7 @@ export class VaultSessionService {
   lock() {
     this.vmk = null;
     this.session = null;
+    window.dispatchEvent(new CustomEvent('kept2-vault-locked'));
   }
 
   private async requireMetadata<T>(keyId: string): Promise<T> {

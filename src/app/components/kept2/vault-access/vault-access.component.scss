@@ -66,6 +66,23 @@
   font-size: 12px;
 }
 
+.vault-status button {
+  background: transparent;
+  border: 1px solid #81c995;
+  border-radius: 6px;
+  color: #81c995;
+  cursor: pointer;
+  font: 500 13px "Google Sans", Roboto, Arial, sans-serif;
+  height: 36px;
+  justify-self: start;
+  padding: 0 14px;
+}
+
+.vault-status button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .vault-status strong,
 .recovery-card strong {
   color: #81c995;
@@ -197,6 +214,11 @@
   .empty-state,
   .note-body-button span {
     color: #5f6368;
+  }
+
+  .vault-status button {
+    border-color: #1e8e3e;
+    color: #1e8e3e;
   }
 
   .vault-workbench,

@@ -1,8 +1,14 @@
 import { Component, OnInit } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { NoteI } from 'src/app/interfaces/notes';
 import { LocalFirstVaultService } from 'src/app/kept2/local-first-vault.service';
+import { SyncEngineService } from 'src/app/kept2/sync-engine.service';
+import { EncryptedSelfHostedTransport } from 'src/app/kept2/sync-transport';
+import { VaultResourceKeyService } from 'src/app/kept2/vault-resource-key.service';
 import { VaultSessionService } from 'src/app/kept2/vault-session.service';
 import { VaultIdentity } from 'src/app/kept2/vault-types';
+import { AuthService } from 'src/app/services/auth.service';
+import { environment } from 'src/environments/environment';
 
 type VaultMode = 'create' | 'unlock' | 'recover';
 
@@ -29,10 +35,15 @@ export class VaultAccessComponent implements OnInit {
   draftTitle = '';
   draftBody = '';
   selectedSyncId = '';
+  syncStatus = '';
 
   constructor(
+    private auth: AuthService,
+    private http: HttpClient,
     private vaultSession: VaultSessionService,
-    private localVault: LocalFirstVaultService
+    private localVault: LocalFirstVaultService,
+    private resourceKeys: VaultResourceKeyService,
+    private syncEngine: SyncEngineService
   ) {}
 
   async ngOnInit() {
@@ -109,11 +120,42 @@ export class VaultAccessComponent implements OnInit {
 
   lockVault() {
     this.vaultSession.lock();
+    this.resourceKeys.clearCache();
     this.identity = null;
     this.notes = [];
     this.outboxCount = 0;
     this.clearDraft();
     this.success = 'Vault locked.';
+  }
+
+  async pushOutbox() {
+    if (!this.identity) return;
+    this.error = '';
+    this.success = '';
+    this.syncStatus = '';
+    if (!this.auth.currentUser) {
+      this.error = 'Sign in to the Kept server before syncing this local vault.';
+      return;
+    }
+    this.isBusy = true;
+    try {
+      const transport = new EncryptedSelfHostedTransport(
+        this.http,
+        environment.apiUrl,
+        () => this.auth.authHeaders()
+      );
+      const result = await this.syncEngine.pushOutbox(
+        this.identity.vaultId,
+        transport,
+        (resourceId, resourceType) => this.resourceKeys.keyFor(resourceId, resourceType)
+      );
+      this.syncStatus = `Pushed ${result.removed} of ${result.pushed} pending operation${result.pushed === 1 ? '' : 's'}.`;
+      await this.refreshLocalState();
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not push local changes.';
+    } finally {
+      this.isBusy = false;
+    }
   }
 
   async saveDraft() {
