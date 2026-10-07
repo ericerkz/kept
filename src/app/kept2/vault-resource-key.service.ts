@@ -119,6 +119,35 @@ export class VaultResourceKeyService {
     return grant;
   }
 
+  async publicKeyGrantFor(
+    vaultId: string,
+    resourceId: string,
+    resourceType: Kept2ResourceType,
+    grantPurpose: Extract<Kept2GrantPurpose, 'mcp' | 'calendar'>,
+    granteeId: string,
+    recipientPublicKey: string
+  ) {
+    const grantId = this.grantId(vaultId, resourceId, resourceType, grantPurpose, granteeId);
+    const existing = await this.readGrant(grantId);
+    if (existing) return existing;
+    const key = await this.keyFor(resourceId, resourceType);
+    const now = new Date().toISOString();
+    const grant: KeyGrant = {
+      grantId,
+      vaultId,
+      resourceId,
+      resourceType,
+      granteeId,
+      grantPurpose,
+      keyEpoch: 1,
+      wrappedKey: await this.cryptoService.wrapKeyForDevicePublicKey(key, recipientPublicKey),
+      createdAt: now,
+      revokedAt: null
+    };
+    await this.writeGrant(grant);
+    return grant;
+  }
+
   async importGrant(grant: KeyGrant) {
     if (!grant || grant.revokedAt) return false;
     if (grant.grantPurpose !== 'recovery' && grant.grantPurpose !== 'device') return false;

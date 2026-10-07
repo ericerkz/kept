@@ -15,7 +15,7 @@ import {
 } from './vault-types';
 
 export type Kept2KeyResolver = (resourceId: string, resourceType: Kept2ResourceType) => Promise<Uint8Array>;
-export type Kept2GrantResolver = (vaultId: string, resourceId: string, resourceType: Kept2ResourceType) => Promise<KeyGrant>;
+export type Kept2GrantResolver = (vaultId: string, resourceId: string, resourceType: Kept2ResourceType) => Promise<KeyGrant | KeyGrant[]>;
 
 export interface Kept2PullResult {
   applied: number;
@@ -45,9 +45,10 @@ export class SyncEngineService {
       try {
         await this.pushBlob(vaultId, entry, transport, keyFor);
         if (grantFor) {
-          const grantMutation = await this.keyGrantMutation(vaultId, entry, 'blob', grantFor);
-          const grantResult = await transport.mutate(vaultId, [grantMutation]);
-          if (!grantResult[0]?.ok) throw new Error(grantResult[0]?.error || 'Could not sync blob key grant.');
+          const grantMutations = await this.keyGrantMutationsForEntry(vaultId, entry, 'blob', grantFor);
+          const grantResult = await transport.mutate(vaultId, grantMutations);
+          const failedGrant = grantResult.find(result => !result.ok);
+          if (failedGrant) throw new Error(failedGrant.error || 'Could not sync blob key grant.');
         }
         removable.push(entry.operationId);
       } catch {
@@ -273,19 +274,19 @@ export class SyncEngineService {
     for (const entry of entries) {
       if (entry.mutationType !== 'resource.upsert') continue;
       const kind = this.localKind(entry.payload);
-      mutations.push(await this.keyGrantMutation(vaultId, entry, this.resourceTypeForKind(kind), grantFor));
+      mutations.push(...await this.keyGrantMutationsForEntry(vaultId, entry, this.resourceTypeForKind(kind), grantFor));
     }
     return mutations;
   }
 
-  private async keyGrantMutation(
+  private async keyGrantMutationsForEntry(
     vaultId: string,
     entry: Kept2OutboxEntry,
     resourceType: Kept2ResourceType,
     grantFor: Kept2GrantResolver
-  ): Promise<Kept2OutboxEntry> {
-    const grant = await grantFor(vaultId, entry.resourceId, resourceType);
-    return {
+  ): Promise<Kept2OutboxEntry[]> {
+    const grants = await grantFor(vaultId, entry.resourceId, resourceType);
+    return (Array.isArray(grants) ? grants : [grants]).map(grant => ({
       operationId: `${entry.operationId}:grant:${grant.grantId}`.slice(0, 180),
       mutationType: 'keyGrant.upsert',
       resourceId: grant.grantId,
@@ -293,6 +294,6 @@ export class SyncEngineService {
       lww: entry.lww,
       createdAt: entry.createdAt,
       attempts: entry.attempts
-    };
+    }));
   }
 }

@@ -4,7 +4,7 @@ import { AuthService } from '../services/auth.service';
 import { environment } from 'src/environments/environment';
 import { SyncEngineService } from './sync-engine.service';
 import { EncryptedSelfHostedTransport } from './sync-transport';
-import { VaultIdentity } from './vault-types';
+import { Kept2ResourceType, KeyGrant, SyncTransport, VaultIdentity } from './vault-types';
 import { VaultResourceKeyService } from './vault-resource-key.service';
 import { VaultSessionService } from './vault-session.service';
 import { VaultDevicePairingService } from './vault-device-pairing.service';
@@ -68,11 +68,12 @@ export class Kept2SyncCoordinatorService {
     this.lastError = '';
     try {
       const transport = this.transport();
+      const remoteMcp = await this.remoteMcpKey(transport);
       await this.syncEngine.pushOutbox(
         activeIdentity.vaultId,
         transport,
         (resourceId, resourceType) => this.resourceKeys.keyFor(resourceId, resourceType),
-        (vaultId, resourceId, resourceType) => this.resourceKeys.grantFor(vaultId, resourceId, resourceType)
+        (vaultId, resourceId, resourceType) => this.grantsForResource(remoteMcp, vaultId, resourceId, resourceType)
       );
       await this.syncEngine.pullChanges(
         activeIdentity.vaultId,
@@ -94,6 +95,31 @@ export class Kept2SyncCoordinatorService {
       environment.apiUrl,
       () => this.auth.authHeaders()
     );
+  }
+
+  private async grantsForResource(
+    remoteMcp: { granteeId: string; publicKey: string } | null,
+    vaultId: string,
+    resourceId: string,
+    resourceType: Kept2ResourceType
+  ): Promise<KeyGrant[]> {
+    const grants = [await this.resourceKeys.grantFor(vaultId, resourceId, resourceType)];
+    if (remoteMcp) {
+      grants.push(await this.resourceKeys.publicKeyGrantFor(
+        vaultId,
+        resourceId,
+        resourceType,
+        'mcp',
+        remoteMcp.granteeId,
+        remoteMcp.publicKey
+      ));
+    }
+    return grants;
+  }
+
+  private remoteMcpKey(transport: SyncTransport) {
+    if (!transport.integrationServiceKey) return Promise.resolve(null);
+    return transport.integrationServiceKey('remote-mcp');
   }
 
   private registerGlobalTriggers() {

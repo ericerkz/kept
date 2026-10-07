@@ -3,6 +3,7 @@ import { firstValueFrom } from 'rxjs';
 import {
   Kept2OutboxEntry,
   MutationResult,
+  HostedIntegrationServiceKey,
   SyncCapabilities,
   SyncChanges,
   SyncSnapshot,
@@ -83,6 +84,17 @@ export class EncryptedSelfHostedTransport implements SyncTransport {
       `${this.apiUrl}/v2/vaults/${encodeURIComponent(vaultId)}/devices/${encodeURIComponent(deviceId)}`,
       { headers: this.authHeaders() }
     ));
+  }
+
+  async integrationServiceKey(integration: 'remote-mcp' | 'hosted-calendar') {
+    try {
+      return await firstValueFrom(this.http.get<HostedIntegrationServiceKey>(
+        `${this.apiUrl}/v2/integrations/${encodeURIComponent(integration)}/service-key`,
+        { headers: this.authHeaders() }
+      ));
+    } catch {
+      return null;
+    }
   }
 
   subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string; vaultId?: string }) => void) {

@@ -63,7 +63,7 @@ function mutation(envelope, overrides = {}) {
 async function main() {
   const child = childProcess.spawn('node', ['server/server.js'], {
     cwd: root,
-    env: { ...process.env, PORT: String(port), SQLITE_PATH: dbPath, DATA_DIR: dataDir },
+    env: { ...process.env, PORT: String(port), SQLITE_PATH: dbPath, DATA_DIR: dataDir, KEPT2_REMOTE_MCP_PUBLIC_KEY: 'remote-mcp-public-key' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   child.stdout.on('data', chunk => process.stdout.write(chunk));
@@ -226,6 +226,12 @@ async function main() {
       body: JSON.stringify({ enabled: true })
     });
     assert.equal(enabledMcp.enabled, true);
+    const remoteMcpServiceKey = await request('/v2/integrations/remote-mcp/service-key', { headers });
+    assert.deepEqual(remoteMcpServiceKey, {
+      integration: 'remote-mcp',
+      granteeId: 'remote-mcp',
+      publicKey: 'remote-mcp-public-key'
+    });
     const acceptedGrant = await request(`/v2/vaults/${vaultId}/mutations`, {
       method: 'POST',
       headers,

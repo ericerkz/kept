@@ -39,6 +39,22 @@ test('kept2 three-client LWW convergence handles stale edits and tombstones', ()
   assert.equal(relay.resource('note-1').deleted, true);
 });
 
+test('kept2 local outbox survives app kill before the server sees an edit', () => {
+  const relay = new FakeRelay();
+  const beforeKill = new FakeClient('device-a', relay);
+
+  beforeKill.upsert('note-offline', 'written while signal was gone', stamp(1000, 'device-a', 'op-offline'));
+  assert.equal(relay.resource('note-offline'), undefined, 'the relay has not seen the local edit yet');
+
+  const restored = FakeClient.restore(beforeKill.persistedState(), relay);
+  restored.push();
+
+  const freshDevice = new FakeClient('device-b', relay);
+  freshDevice.pull();
+  assert.equal(freshDevice.value('note-offline'), 'written while signal was gone');
+  assert.equal(restored.outbox.length, 0, 'successful push clears the durable outbox');
+});
+
 class FakeClient {
   constructor(deviceId, relay) {
     this.deviceId = deviceId;
@@ -46,6 +62,14 @@ class FakeClient {
     this.rows = new Map();
     this.outbox = [];
     this.cursor = 0;
+  }
+
+  static restore(state, relay) {
+    const client = new FakeClient(state.deviceId, relay);
+    client.rows = new Map(state.rows.map(row => [row.resourceId, row]));
+    client.outbox = [...state.outbox];
+    client.cursor = state.cursor;
+    return client;
   }
 
   upsert(resourceId, value, lww) {
@@ -89,6 +113,15 @@ class FakeClient {
   has(resourceId) {
     const row = this.rows.get(resourceId);
     return !!row && !row.deleted;
+  }
+
+  persistedState() {
+    return {
+      deviceId: this.deviceId,
+      rows: Array.from(this.rows.values()),
+      outbox: [...this.outbox],
+      cursor: this.cursor
+    };
   }
 }
 

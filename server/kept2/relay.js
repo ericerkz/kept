@@ -40,6 +40,18 @@ function mountKept2Relay(app, deps) {
     res.json(await remoteMcpSettings(req.user.id));
   }));
 
+  app.get('/api/v2/integrations/remote-mcp/service-key', requireAuth, asyncRoute(async (req, res) => {
+    const setting = await remoteMcpSettings(req.user.id);
+    if (!setting.enabled) return res.status(403).json({ error: 'Remote MCP access is disabled.' });
+    const publicKey = String(process.env.KEPT2_REMOTE_MCP_PUBLIC_KEY || '').trim();
+    if (!publicKey) return res.status(503).json({ error: 'Remote MCP service key is not configured.' });
+    res.json({
+      integration: 'remote-mcp',
+      granteeId: 'remote-mcp',
+      publicKey
+    });
+  }));
+
   app.put('/api/v2/integrations/remote-mcp', requireAuth, asyncRoute(async (req, res) => {
     const enabled = req.body?.enabled === true;
     const now = new Date().toISOString();
