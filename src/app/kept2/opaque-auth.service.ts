@@ -2,17 +2,21 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import opaque from '@serenity-kit/opaque';
 import { firstValueFrom } from 'rxjs';
+import { environment } from 'src/environments/environment';
 
 export interface Kept2OpaqueLoginResult {
   userIdentifier: string;
+  accountId?: string;
   exportKey: string;
   sessionKey: string;
   sessionKeyHash: string;
+  sessionToken?: string;
+  expiresAt?: string;
 }
 
 @Injectable({ providedIn: 'root' })
 export class Kept2OpaqueAuthService {
-  private apiUrl = '/api';
+  private apiUrl = environment.apiUrl;
 
   constructor(private http: HttpClient) {}
 
@@ -52,7 +56,7 @@ export class Kept2OpaqueAuthService {
     };
   }
 
-  async login(userIdentifier: string, password: string): Promise<Kept2OpaqueLoginResult> {
+  async login(userIdentifier: string, password: string, deviceLabel = ''): Promise<Kept2OpaqueLoginResult> {
     await opaque.ready;
     const started = opaque.client.startLogin({ password });
     const login = await firstValueFrom(this.http.post<{ loginId: string; loginResponse: string }>(
@@ -68,18 +72,29 @@ export class Kept2OpaqueAuthService {
       password
     });
     if (!finished) throw new Error('OPAQUE login failed.');
-    const result = await firstValueFrom(this.http.post<{ ok: boolean; userIdentifier: string; sessionKeyHash: string }>(
+    const result = await firstValueFrom(this.http.post<{
+      ok: boolean;
+      userIdentifier?: string;
+      accountId?: string;
+      sessionKeyHash: string;
+      sessionToken?: string;
+      expiresAt?: string;
+    }>(
       `${this.apiUrl}/v2/opaque/login/finish`,
       {
         loginId: login.loginId,
-        finishLoginRequest: finished.finishLoginRequest
+        finishLoginRequest: finished.finishLoginRequest,
+        deviceLabel
       }
     ));
     return {
-      userIdentifier: result.userIdentifier,
+      userIdentifier: result.userIdentifier || userIdentifier,
+      accountId: result.accountId,
       exportKey: finished.exportKey,
       sessionKey: finished.sessionKey,
-      sessionKeyHash: result.sessionKeyHash
+      sessionKeyHash: result.sessionKeyHash,
+      sessionToken: result.sessionToken,
+      expiresAt: result.expiresAt
     };
   }
 }
