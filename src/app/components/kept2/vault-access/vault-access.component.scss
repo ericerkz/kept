@@ -67,6 +67,55 @@
   font-size: 12px;
 }
 
+.device-pairing label {
+  display: grid;
+  gap: 6px;
+}
+
+.device-pairing input {
+  background: #202124;
+  border: 1px solid #5f6368;
+  border-radius: 6px;
+  color: #e8eaed;
+  font: 15px Roboto, Arial, sans-serif;
+  height: 38px;
+  outline: none;
+  padding: 0 12px;
+}
+
+.device-list {
+  display: grid;
+  gap: 8px;
+}
+
+.device-row {
+  align-items: center;
+  border: 1px solid #5f6368;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 10px;
+
+  div {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  strong {
+    color: #e8eaed;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  code {
+    padding: 6px 8px;
+  }
+}
+
 .migration-warnings {
   color: #fdd663;
   display: grid;
@@ -229,6 +278,12 @@
     color: #202124;
   }
 
+  .device-pairing input {
+    background: #fff;
+    border-color: #dadce0;
+    color: #202124;
+  }
+
   .vault-status code,
   .recovery-card code {
     background: #f1f3f4;
@@ -263,11 +318,13 @@
   .vault-workbench,
   .local-search-form,
   .local-note,
-  .delete-note {
+  .delete-note,
+  .device-row {
     border-color: #dadce0;
   }
 
-  .note-body-button {
+  .note-body-button,
+  .device-row strong {
     color: #202124;
   }
 

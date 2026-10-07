@@ -7,9 +7,10 @@ import { LocalFirstVaultService } from 'src/app/kept2/local-first-vault.service'
 import { Kept2SyncCoordinatorService } from 'src/app/kept2/kept2-sync-coordinator.service';
 import { SyncEngineService } from 'src/app/kept2/sync-engine.service';
 import { EncryptedSelfHostedTransport } from 'src/app/kept2/sync-transport';
+import { VaultDevicePairingService } from 'src/app/kept2/vault-device-pairing.service';
 import { VaultResourceKeyService } from 'src/app/kept2/vault-resource-key.service';
 import { VaultSessionService } from 'src/app/kept2/vault-session.service';
-import { VaultIdentity } from 'src/app/kept2/vault-types';
+import { KeyGrant, VaultDevicePublicKey, VaultIdentity } from 'src/app/kept2/vault-types';
 import { AuthService } from 'src/app/services/auth.service';
 import { environment } from 'src/environments/environment';
 
@@ -73,12 +74,16 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
   migrationStatus = '';
   migrationWarnings: string[] = [];
   localSearchQuery = '';
+  deviceLabel = '';
+  devicePairingStatus = '';
+  remoteDevices: VaultDevicePublicKey[] = [];
 
   constructor(
-    private auth: AuthService,
+    public auth: AuthService,
     private http: HttpClient,
     private vaultSession: VaultSessionService,
     private localVault: LocalFirstVaultService,
+    private devicePairing: VaultDevicePairingService,
     private resourceKeys: VaultResourceKeyService,
     private syncCoordinator: Kept2SyncCoordinatorService,
     private syncEngine: SyncEngineService
@@ -91,6 +96,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     if (this.identity) {
       this.syncCoordinator.start(this.identity);
       await this.refreshLocalState();
+      await this.refreshRemoteDevices(false);
     }
   }
 
@@ -122,6 +128,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.success = 'Vault created and unlocked.';
       this.syncCoordinator.start(result.identity);
       await this.refreshLocalState();
+      await this.registerThisDevice(false);
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not create vault.';
     } finally {
@@ -140,6 +147,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.success = 'Vault unlocked.';
       this.syncCoordinator.start(session.identity);
       await this.refreshLocalState();
+      await this.refreshRemoteDevices(false);
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not unlock vault.';
     } finally {
@@ -159,6 +167,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.success = 'Vault recovered and unlocked.';
       if (this.identity) this.syncCoordinator.start(this.identity);
       await this.refreshLocalState();
+      await this.refreshRemoteDevices(false);
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not recover vault.';
     } finally {
@@ -172,6 +181,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     this.resourceKeys.clearCache();
     this.identity = null;
     this.notes = [];
+    this.remoteDevices = [];
     this.outboxCount = 0;
     this.clearDraft();
     this.success = 'Vault locked.';
@@ -191,6 +201,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       await this.vaultSession.deleteLocalVault();
       this.identity = null;
       this.notes = [];
+      this.remoteDevices = [];
       this.outboxCount = 0;
       this.hasVault = false;
       this.generatedRecoveryCode = '';
@@ -223,6 +234,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       );
       this.syncStatus = `Pushed ${result.removed} of ${result.pushed} pending operation${result.pushed === 1 ? '' : 's'}.`;
       await this.refreshLocalState();
+      await this.refreshRemoteDevices(false);
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not push local changes.';
     } finally {
@@ -245,10 +257,11 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
         this.identity.vaultId,
         this.transport(),
         (resourceId, resourceType) => this.resourceKeys.existingKeyFor(resourceId, resourceType),
-        grant => this.resourceKeys.importGrant(grant)
+        grant => this.importRemoteGrant(grant)
       );
       this.syncStatus = `Pulled ${result.applied} remote change${result.applied === 1 ? '' : 's'}${result.failed ? `; ${result.failed} could not be decrypted on this device yet` : ''}.`;
       await this.refreshLocalState();
+      await this.refreshRemoteDevices(false);
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not pull remote changes.';
     } finally {
@@ -271,10 +284,11 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
         this.identity.vaultId,
         this.transport(),
         (resourceId, resourceType) => this.resourceKeys.existingKeyFor(resourceId, resourceType),
-        grant => this.resourceKeys.importGrant(grant)
+        grant => this.importRemoteGrant(grant)
       );
       this.syncStatus = `Bootstrapped ${result.applied} encrypted resource${result.applied === 1 ? '' : 's'}${result.failed ? `; ${result.failed} could not be decrypted on this device yet` : ''}.`;
       await this.refreshLocalState();
+      await this.refreshRemoteDevices(false);
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not bootstrap remote vault.';
     } finally {
@@ -312,6 +326,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       ];
       this.migrationStatus = `Imported ${imported.notes} note${imported.notes === 1 ? '' : 's'}, ${imported.labels} label${imported.labels === 1 ? '' : 's'}, ${imported.binders} binder${imported.binders === 1 ? '' : 's'}, ${imported.reminders} reminder${imported.reminders === 1 ? '' : 's'}, ${imported.attachments} attachment record${imported.attachments === 1 ? '' : 's'}, and ${imported.attachmentBlobs} attachment file${imported.attachmentBlobs === 1 ? '' : 's'} into the local vault. Cutover receipt saved for ${cutover.resourceCount} encrypted resource${cutover.resourceCount === 1 ? '' : 's'}.`;
       await this.refreshLocalState();
+      await this.refreshRemoteDevices(false);
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not import legacy notes.';
     } finally {
@@ -365,6 +380,48 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.success = 'Local vault export created.';
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not export the local vault.';
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  async registerThisDevice(showStatus = true) {
+    if (!this.identity || !this.auth.currentUser) return;
+    this.error = '';
+    if (showStatus) this.devicePairingStatus = '';
+    this.isBusy = true;
+    try {
+      const label = this.deviceLabel.trim() || this.defaultDeviceLabel();
+      const device = await this.devicePairing.registerThisDevice(this.transport(), label);
+      if (showStatus) this.devicePairingStatus = `Registered ${device.deviceLabel || device.deviceId}.`;
+      await this.refreshRemoteDevices(false);
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not register this device.';
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  async refreshRemoteDevices(showStatus = true) {
+    if (!this.identity || !this.auth.currentUser) return;
+    try {
+      this.remoteDevices = await this.devicePairing.listRemoteDevices(this.transport());
+      if (showStatus) this.devicePairingStatus = `Found ${this.remoteDevices.length} registered device${this.remoteDevices.length === 1 ? '' : 's'}.`;
+    } catch (error: any) {
+      if (showStatus) this.error = error instanceof Error ? error.message : 'Could not load registered devices.';
+    }
+  }
+
+  async grantLocalResourcesToDevice(device: VaultDevicePublicKey) {
+    if (!this.identity) return;
+    this.error = '';
+    this.devicePairingStatus = '';
+    this.isBusy = true;
+    try {
+      const result = await this.devicePairing.grantLocalResourcesToDevice(this.transport(), device);
+      this.devicePairingStatus = `Granted ${result.granted} key${result.granted === 1 ? '' : 's'} to ${device.deviceLabel || device.deviceId}${result.failed ? `; ${result.failed} failed` : ''}.`;
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not grant keys to that device.';
     } finally {
       this.isBusy = false;
     }
@@ -676,11 +733,22 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     URL.revokeObjectURL(url);
   }
 
+  private defaultDeviceLabel() {
+    const platform = /iPad|iPhone|iPod/.test(navigator.userAgent) ? 'iOS'
+      : /Android/.test(navigator.userAgent) ? 'Android'
+      : 'Web';
+    return `${platform} device`;
+  }
+
   private transport() {
     return new EncryptedSelfHostedTransport(
       this.http,
       environment.apiUrl,
       () => this.auth.authHeaders()
     );
+  }
+
+  private async importRemoteGrant(grant: KeyGrant) {
+    return await this.resourceKeys.importGrant(grant) || await this.devicePairing.importDeviceGrant(grant);
   }
 }

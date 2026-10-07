@@ -32,6 +32,39 @@
           </ul>
         }
       </div>
+
+      <div class="vault-status device-pairing">
+        <strong>Device pairing</strong>
+        <span>Register this device's public key, then grant encrypted resource keys to another registered device.</span>
+        <label>
+          <span>Device label</span>
+          <input name="deviceLabel" [(ngModel)]="deviceLabel" placeholder="Web device">
+        </label>
+        <div class="button-row">
+          <button type="button" (click)="registerThisDevice()" [disabled]="isBusy || !auth.currentUser">Register this device</button>
+          <button type="button" class="secondary" (click)="refreshRemoteDevices()" [disabled]="isBusy || !auth.currentUser">Refresh devices</button>
+        </div>
+        @if (devicePairingStatus) { <span>{{devicePairingStatus}}</span> }
+        @if (remoteDevices.length) {
+          <div class="device-list">
+            @for (device of remoteDevices; track device.deviceId) {
+              <article class="device-row">
+                <div>
+                  <strong>{{device.deviceLabel || device.deviceId}}</strong>
+                  <code>{{device.deviceId}}</code>
+                </div>
+                @if (device.deviceId !== identity.deviceId) {
+                  <button type="button" class="secondary" (click)="grantLocalResourcesToDevice(device)" [disabled]="isBusy">
+                    Grant keys
+                  </button>
+                } @else {
+                  <span>This device</span>
+                }
+              </article>
+            }
+          </div>
+        }
+      </div>
     }
 
     @if (!generatedRecoveryCode) {
