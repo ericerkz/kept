@@ -16,6 +16,7 @@
     "test:crypto": "node --test server/kept2-crypto.test.mjs",
     "test:migration": "node --test server/kept2-migration.test.mjs",
     "test:legacy-compat": "node --test server/kept2-legacy-compat.test.mjs",
+    "test:opaque": "node --test server/kept2-opaque.test.mjs",
     "test:cloud": "node --test server/kept2-cloud.test.mjs",
     "mcp": "node mcp/index.mjs",
     "test:mcp": "node --test mcp/*.test.mjs",
