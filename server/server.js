@@ -3622,6 +3622,7 @@ mountKept2Relay(app, {
 mountKept2MigrationRoutes(app, {
   all,
   get,
+  run,
   attachmentPath,
   imagePath: migrationImagePath,
   imageMimeType,

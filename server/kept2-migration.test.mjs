@@ -39,6 +39,17 @@ test('kept2 migration snapshot is deterministic and non-destructive', () => {
   assert.equal(input.notes[0].noteTitle, 'Legacy note', 'planner must not mutate legacy source rows');
 });
 
+test('kept2 migration snapshot hash ignores export time', () => {
+  const input = {
+    sourceVersion: '1.8.1',
+    notes: [{ id: 1, noteTitle: 'Same data' }]
+  };
+  const morning = createLegacySnapshot({ ...input, createdAt: '2026-01-01T00:00:00.000Z' });
+  const evening = createLegacySnapshot({ ...input, createdAt: '2026-01-01T12:00:00.000Z' });
+  assert.notEqual(morning.createdAt, evening.createdAt);
+  assert.equal(morning.snapshotHash, evening.snapshotHash);
+});
+
 test('kept2 migration plan creates syncId resources and preserves unknown fields', () => {
   const snapshot = createLegacySnapshot({
     createdAt: '2026-01-01T00:00:00.000Z',

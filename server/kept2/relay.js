@@ -488,8 +488,19 @@ async function initKept2RelaySchema({ run }) {
     updatedAt TEXT NOT NULL,
     PRIMARY KEY(userId, integration)
   )`);
+  await run(`CREATE TABLE IF NOT EXISTS kept2_migration_cutovers (
+    userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    vaultId TEXT NOT NULL REFERENCES kept2_vaults(vaultId) ON DELETE CASCADE,
+    snapshotId TEXT NOT NULL,
+    snapshotHash TEXT NOT NULL,
+    resourceCount INTEGER NOT NULL DEFAULT 0,
+    warningsJson TEXT NOT NULL DEFAULT '[]',
+    completedAt TEXT NOT NULL,
+    PRIMARY KEY(userId, vaultId)
+  )`);
   await run('CREATE INDEX IF NOT EXISTS kept2_changes_vault_sequence_idx ON kept2_sync_changes(vaultId, sequence)');
   await run('CREATE INDEX IF NOT EXISTS kept2_grants_vault_resource_idx ON kept2_key_grants(vaultId, resourceId)');
+  await run('CREATE INDEX IF NOT EXISTS kept2_cutovers_user_idx ON kept2_migration_cutovers(userId, completedAt)');
 }
 
 function validateEnvelope(resourceId, envelope) {

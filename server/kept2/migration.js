@@ -13,7 +13,15 @@ function createLegacySnapshot(input = {}) {
     labels: normalizeRows(input.labels),
     collaborators: normalizeRows(input.collaborators)
   };
-  const hash = sha256(stableJson(snapshot));
+  const hash = sha256(stableJson({
+    sourceVersion: snapshot.sourceVersion,
+    notes: snapshot.notes,
+    reminders: snapshot.reminders,
+    attachments: snapshot.attachments,
+    noteImages: snapshot.noteImages,
+    labels: snapshot.labels,
+    collaborators: snapshot.collaborators
+  }));
   return {
     ...snapshot,
     snapshotId: `legacy-${hash.slice(0, 24)}`,

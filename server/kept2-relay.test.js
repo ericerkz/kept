@@ -162,6 +162,23 @@ async function main() {
     });
     assert.equal(first[0].ok, true);
     assert.ok(first[0].sequence > 0);
+    const vaultMigrationExport = await request(`/v2/migration/export?vaultId=${vaultId}`, { headers });
+    const cutover = await request('/v2/migration/cutover', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        vaultId,
+        snapshotHash: vaultMigrationExport.snapshotHash,
+        importedResourceCount: vaultMigrationExport.resources.length
+      })
+    });
+    assert.equal(cutover.destructive, false);
+    assert.equal(cutover.cutoverReady, true);
+    assert.equal(cutover.vaultId, vaultId);
+    assert.equal(cutover.snapshotHash, vaultMigrationExport.snapshotHash);
+    const cutoverStatus = await request(`/v2/migration/cutover?vaultId=${vaultId}`, { headers });
+    assert.equal(cutoverStatus.cutovers.length, 1);
+    assert.equal(cutoverStatus.cutovers[0].snapshotHash, vaultMigrationExport.snapshotHash);
 
     const mcpGrant = {
       grantId: 'grant-mcp-1',
