@@ -10,6 +10,8 @@ import { OfflineStoreService } from './offline-store.service';
 import { OfflineSyncService } from './offline-sync.service';
 import { NoteI } from '../interfaces/notes';
 import { UserPreferencesService } from './user-preferences.service';
+import { LocalFirstVaultService } from '../kept2/local-first-vault.service';
+import { VaultSessionService } from '../kept2/vault-session.service';
 
 type ReminderCreateData = {
   noteId?: number;
@@ -138,7 +140,9 @@ export class ReminderService {
     private push: PushNotificationService,
     private offlineStore: OfflineStoreService,
     private offlineSync: OfflineSyncService,
-    private userPreferences: UserPreferencesService
+    private userPreferences: UserPreferencesService,
+    private localFirstVault: LocalFirstVaultService,
+    private vaultSession: VaultSessionService
   ) {
     this.offlineSync.cacheChanged$.subscribe(() => {
       this.loadCachedReminders().catch(console.error);
@@ -159,6 +163,11 @@ export class ReminderService {
   }
 
   async load() {
+    if (this.useKept2LocalFirst()) {
+      const reminders = await this.localFirstVault.reminders();
+      this.setReminders(reminders);
+      return;
+    }
     try {
       const reminders = await firstValueFrom(
         this.http.get<ReminderI[]>(`${this.apiUrl}/reminders`, { headers: this.auth.authHeaders() })
@@ -175,6 +184,34 @@ export class ReminderService {
   }
 
   async create(data: ReminderCreateData) {
+    if (this.useKept2LocalFirst()) {
+      const now = new Date().toISOString();
+      const local: ReminderI & { noteSyncId?: string } = {
+        ...data,
+        id: this.nextLocalReminderId(),
+        syncId: `reminder-${crypto.randomUUID()}`,
+        userId: this.auth.currentUser?.id || 0,
+        noteId: data.noteId ?? null,
+        noteSyncId: data.noteSyncId,
+        dueAtUtc: data.dueAtUtc || null,
+        timezone: data.timezone || 'UTC',
+        repeatRule: this.serializeRepeatRule(data.repeatRule),
+        status: 'pending',
+        title: data.title || null,
+        body: data.body || null,
+        imageUrl: data.imageUrl || null,
+        locationName: data.locationName || null,
+        latitude: data.latitude ?? null,
+        longitude: data.longitude ?? null,
+        radiusMeters: data.radiusMeters ?? null,
+        locationTrigger: data.locationTrigger || 'arrive',
+        createdAt: now,
+        updatedAt: now
+      };
+      const reminder = await this.localFirstVault.upsertReminder(local);
+      this.setReminders([reminder, ...this.reminders$.value.filter(item => item.noteId !== reminder.noteId)]);
+      return reminder;
+    }
     if (data.noteId && data.noteId < 0 && this.offlineSync.partition) {
       const note = await this.offlineStore.getNote(this.offlineSync.partition, data.noteId);
       data = { ...data, noteSyncId: note?.syncId };
@@ -235,6 +272,20 @@ export class ReminderService {
     if (Object.prototype.hasOwnProperty.call(data, 'repeatRule')) {
       payload.repeatRule = this.serializeRepeatRule(data.repeatRule);
     }
+    if (this.useKept2LocalFirst()) {
+      const existing = this.reminders$.value.find(reminder => reminder.id === id);
+      if (!existing?.syncId) return existing || null;
+      const local = {
+        ...existing,
+        ...payload,
+        repeatRule: payload.repeatRule === undefined ? existing.repeatRule : payload.repeatRule as string | null,
+        updatedAt: new Date().toISOString()
+      };
+      const reminder = await this.localFirstVault.upsertReminder(local);
+      this.setReminders(this.reminders$.value.map(item => item.id === id ? reminder : item));
+      if (payload.status && payload.status !== 'pending') this.cancelAndroidTimeReminder(id);
+      return reminder;
+    }
     const existing = this.reminders$.value.find(reminder => reminder.id === id);
     if (existing) {
       const local: ReminderI = { ...existing, ...payload, repeatRule: payload.repeatRule === undefined ? existing.repeatRule : payload.repeatRule as string | null, updatedAt: new Date().toISOString() };
@@ -256,6 +307,11 @@ export class ReminderService {
   async delete(id: number) {
     const existing = this.reminders$.value.find(reminder => reminder.id === id);
     this.cancelAndroidTimeReminder(id);
+    if (this.useKept2LocalFirst()) {
+      if (existing?.syncId) await this.localFirstVault.deleteReminder(existing.syncId);
+      this.setReminders(this.reminders$.value.filter(reminder => reminder.id !== id));
+      return;
+    }
     if (existing?.syncId && this.offlineSync.partition) {
       await this.offlineStore.deleteReminder(this.offlineSync.partition, existing.syncId);
       this.setReminders(this.reminders$.value.filter(reminder => reminder.id !== id));
@@ -271,9 +327,25 @@ export class ReminderService {
   }
 
   private async loadCachedReminders() {
+    if (this.useKept2LocalFirst()) return;
     if (!this.offlineSync.partition) return;
     const reminders = await this.offlineStore.listReminders(this.offlineSync.partition);
     this.setReminders(reminders);
+  }
+
+  private useKept2LocalFirst() {
+    try {
+      return localStorage.getItem('kept2LocalFirst') === '1' && this.vaultSession.isUnlocked();
+    } catch {
+      return false;
+    }
+  }
+
+  private nextLocalReminderId() {
+    const usedIds = new Set(this.reminders$.value.map(reminder => reminder.id));
+    let id = -Date.now();
+    while (usedIds.has(id)) id -= 1;
+    return id;
   }
 
   getActiveForNote(noteId: number): ReminderI | undefined {
@@ -338,7 +410,11 @@ export class ReminderService {
     });
     if (!changedIds.size) return;
 
-    if (this.offlineSync.partition) {
+    if (this.useKept2LocalFirst()) {
+      for (const reminder of next) {
+        if (changedIds.has(reminder.id) && reminder.syncId) await this.localFirstVault.upsertReminder(reminder);
+      }
+    } else if (this.offlineSync.partition) {
       for (const reminder of next) {
         if (changedIds.has(reminder.id)) await this.offlineStore.putReminder(this.offlineSync.partition, reminder);
       }
