@@ -8,7 +8,7 @@ export class VaultCryptoService {
 
   async randomKey() {
     await this.ensureReady();
-    return sodium.randombytes_buf(sodium.crypto_secretbox_KEYBYTES);
+    return sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES);
   }
 
   async encryptJson(
@@ -20,10 +20,16 @@ export class VaultCryptoService {
     keyEpoch = 1
   ): Promise<EncryptedEnvelope> {
     await this.ensureReady();
-    const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+    const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
     const plaintext = sodium.from_string(JSON.stringify(value ?? null));
     const aad = { resourceId, resourceType, keyEpoch };
-    const ciphertextBytes = sodium.crypto_secretbox_easy(plaintext, nonce, key);
+    const ciphertextBytes = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
+      plaintext,
+      this.aadBytes(aad),
+      null,
+      nonce,
+      key
+    );
     return {
       resourceId,
       resourceType,
@@ -41,7 +47,13 @@ export class VaultCryptoService {
     await this.ensureReady();
     const nonce = sodium.from_base64(envelope.nonce, sodium.base64_variants.URLSAFE_NO_PADDING);
     const ciphertext = sodium.from_base64(envelope.ciphertext, sodium.base64_variants.URLSAFE_NO_PADDING);
-    const plaintext = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
+    const plaintext = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
+      null,
+      ciphertext,
+      this.aadBytes(envelope.aad),
+      nonce,
+      key
+    );
     return JSON.parse(sodium.to_string(plaintext)) as T;
   }
 
@@ -83,5 +95,18 @@ export class VaultCryptoService {
     await this.ensureReady();
     return sodium.to_base64(digest, sodium.base64_variants.URLSAFE_NO_PADDING);
   }
-}
 
+  private aadBytes(value: unknown) {
+    return sodium.from_string(this.canonicalJson(value));
+  }
+
+  private canonicalJson(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(item => this.canonicalJson(item)).join(',')}]`;
+    if (value && typeof value === 'object') {
+      return `{${Object.keys(value as Record<string, unknown>).sort().map(key => {
+        return `${JSON.stringify(key)}:${this.canonicalJson((value as Record<string, unknown>)[key])}`;
+      }).join(',')}}`;
+    }
+    return JSON.stringify(value);
+  }
+}
