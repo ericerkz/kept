@@ -1,6 +1,8 @@
 function resourceTypeForLocalKind(kind) {
   if (kind === 'reminder') return 'reminder';
   if (kind === 'attachment') return 'attachment';
+  if (kind === 'label') return 'label';
+  if (kind === 'binder') return 'binder';
   return 'note.content';
 }
 

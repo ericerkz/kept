@@ -10,6 +10,8 @@ test('kept2 encrypted sync maps local resource kinds to encrypted resource types
   assert.equal(resourceTypeForLocalKind('note'), 'note.content');
   assert.equal(resourceTypeForLocalKind('reminder'), 'reminder');
   assert.equal(resourceTypeForLocalKind('attachment'), 'attachment');
+  assert.equal(resourceTypeForLocalKind('label'), 'label');
+  assert.equal(resourceTypeForLocalKind('binder'), 'binder');
   assert.equal(resourceTypeForLocalKind('unknown'), 'note.content');
 });
 
