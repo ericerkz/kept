@@ -31,6 +31,9 @@ interface NotesLoadOptions {
 type KeptDownloadsPlugin = {
   saveFile: (options: { filename: string; mimeType: string; base64Data: string }) => Promise<void>;
 };
+type KeptWidgetIntentsPlugin = {
+  saveLocalWidgetSnapshot?: (options: { notes: any[] }) => Promise<{ saved: number }>;
+};
 import { environment } from 'src/environments/environment';
 import { NoteAttachmentI, NoteI, UpdateKeyI } from './../interfaces/notes';
 import { AuthService } from './auth.service';
@@ -43,6 +46,7 @@ import { LocalFirstVaultService } from '../kept2/local-first-vault.service';
 import { VaultSessionService } from '../kept2/vault-session.service';
 
 const KeptDownloads = registerPlugin<KeptDownloadsPlugin>('KeptDownloads');
+const KeptWidgetIntents = registerPlugin<KeptWidgetIntentsPlugin>('KeptWidgetIntents');
 
 @Injectable({
   providedIn: 'root'
@@ -939,6 +943,7 @@ export class NotesService {
     if (notes.length) this.lastNonEmptyNotes = notes;
     this.reminders.updateNoteLifecycle(notes);
     this.notesList$.next(notes);
+    if (this.useKept2LocalFirst()) this.publishKept2WidgetSnapshot(notes).catch(console.error);
   }
 
   private withOptimisticNotes(notes: NoteI[]) {
@@ -1068,6 +1073,44 @@ export class NotesService {
     this.kept2SyntheticIds.set(syncId, id);
     this.kept2SyncIdsBySyntheticId.set(id, syncId);
     return id;
+  }
+
+  private async publishKept2WidgetSnapshot(notes: NoteI[]) {
+    if (Capacitor.getPlatform() !== 'android' || !KeptWidgetIntents.saveLocalWidgetSnapshot) return;
+    const visible = notes
+      .filter(note => !note.trashed && !note.archived)
+      .slice(0, 100)
+      .map(note => ({
+        id: note.id,
+        title: this.plainText(note.noteTitle || ''),
+        previewText: this.plainText(note.noteBody || ''),
+        isCbox: !!note.isCbox,
+        checkBoxes: (note.checkBoxes || [])
+          .slice(0, 4)
+          .map(item => ({
+            text: this.plainText(item.data || ''),
+            done: !!item.done,
+            indentLevel: item.indentLevel || 0
+          }))
+          .filter(item => item.text),
+        checklistTotal: (note.checkBoxes || []).length,
+        locked: !!note.locked,
+        pinned: !!note.pinned,
+        archived: !!note.archived,
+        trashed: !!note.trashed,
+        updatedAtMs: Date.parse(note.updatedAt || note.createdAt || '') || Date.now(),
+        labels: (note.labels || []).filter(label => label.added !== false).map(label => label.name).filter(Boolean),
+        binder: note.binder || '',
+        bgColor: note.bgColor || ''
+      }))
+      .filter(note => note.id);
+    await KeptWidgetIntents.saveLocalWidgetSnapshot({ notes: visible });
+  }
+
+  private plainText(value: string) {
+    const div = document.createElement('div');
+    div.innerHTML = value || '';
+    return (div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim();
   }
 
   private mergeNoteIntoList(note: NoteI) {

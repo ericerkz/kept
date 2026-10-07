@@ -2779,7 +2779,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       }
       const result = await KeptWidgetIntents.getPendingOpenNoteId()
       const noteId = Number(result?.noteId || 0)
-      if (!Number.isFinite(noteId) || noteId <= 0) return
+      if (!Number.isFinite(noteId) || noteId === 0) return
       await this.openWidgetNote(noteId, true)
     } catch (error) {
       console.warn('Could not process pending Kept widget action', error)
@@ -2827,7 +2827,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private async openWidgetNote(noteId: number, acknowledge: boolean) {
-    if (!Number.isFinite(noteId) || noteId <= 0) return
+    if (!Number.isFinite(noteId) || noteId === 0) return
     await this.waitForAuth()
     if (this.modalContainer?.nativeElement?.style.display === 'block') {
       this.Shared.saveNote.next(true)
@@ -2852,9 +2852,9 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private noteIdFromWidgetUrl(url: string) {
-    const match = String(url || '').match(/^kept:\/\/note\/(\d+)(?:[/?#]|$)/i)
+    const match = String(url || '').match(/^kept:\/\/note\/(-?\d+)(?:[/?#]|$)/i)
     const noteId = Number(match?.[1] || 0)
-    return Number.isFinite(noteId) && noteId > 0 ? noteId : null
+    return Number.isFinite(noteId) && noteId !== 0 ? noteId : null
   }
 
   ngOnDestroy(): void {
