@@ -6,7 +6,8 @@ import {
   SyncCapabilities,
   SyncChanges,
   SyncSnapshot,
-  SyncTransport
+  SyncTransport,
+  VaultDevicePublicKey
 } from './vault-types';
 
 export class EncryptedSelfHostedTransport implements SyncTransport {
@@ -59,6 +60,29 @@ export class EncryptedSelfHostedTransport implements SyncTransport {
       headers: this.authHeaders(),
       responseType: 'blob'
     }));
+  }
+
+  registerDevice(vaultId: string, deviceId: string, publicKey: string, deviceLabel = '') {
+    return firstValueFrom(this.http.put<VaultDevicePublicKey>(
+      `${this.apiUrl}/v2/vaults/${encodeURIComponent(vaultId)}/devices/${encodeURIComponent(deviceId)}`,
+      { publicKey, deviceLabel },
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async listDevices(vaultId: string) {
+    const response = await firstValueFrom(this.http.get<{ devices: VaultDevicePublicKey[] }>(
+      `${this.apiUrl}/v2/vaults/${encodeURIComponent(vaultId)}/devices`,
+      { headers: this.authHeaders() }
+    ));
+    return response.devices || [];
+  }
+
+  async revokeDevice(vaultId: string, deviceId: string) {
+    await firstValueFrom(this.http.delete(
+      `${this.apiUrl}/v2/vaults/${encodeURIComponent(vaultId)}/devices/${encodeURIComponent(deviceId)}`,
+      { headers: this.authHeaders() }
+    ));
   }
 
   subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string; vaultId?: string }) => void) {

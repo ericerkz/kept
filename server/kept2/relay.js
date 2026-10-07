@@ -73,13 +73,63 @@ function mountKept2Relay(app, deps) {
        WHERE vaultId = ? AND revokedAt IS NULL`,
       [vault.vaultId]
     );
+    const devices = await listVaultDevices(vault.vaultId);
     const cursor = await get('SELECT COALESCE(MAX(sequence), 0) AS cursor FROM kept2_sync_changes WHERE vaultId = ?', [vault.vaultId]);
     res.json({
       envelopes: envelopes.map(rowToEnvelope),
       keyGrants,
+      devices,
       cursor: Number(cursor?.cursor || 0),
       serverTime: Date.now()
     });
+  }));
+
+  app.get('/api/v2/vaults/:vaultId/devices', requireAuth, asyncRoute(async (req, res) => {
+    const vault = await requireVaultAccess(req, res);
+    if (!vault) return;
+    res.json({ devices: await listVaultDevices(vault.vaultId) });
+  }));
+
+  app.put('/api/v2/vaults/:vaultId/devices/:deviceId', requireAuth, asyncRoute(async (req, res) => {
+    const vault = await requireVaultAccess(req, res, { create: true });
+    if (!vault) return;
+    const deviceId = safeOpaqueId(req.params.deviceId);
+    const publicKey = String(req.body?.publicKey || '').trim();
+    const deviceLabel = String(req.body?.deviceLabel || '').trim().slice(0, 120);
+    if (!deviceId || !publicKey) return res.status(400).json({ error: 'deviceId and publicKey are required.' });
+    const now = new Date().toISOString();
+    await run(
+      `INSERT INTO kept2_vault_devices
+         (vaultId, deviceId, publicKey, deviceLabel, status, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, 'active', ?, ?)
+       ON CONFLICT(vaultId, deviceId) DO UPDATE SET
+         publicKey = excluded.publicKey,
+         deviceLabel = excluded.deviceLabel,
+         status = 'active',
+         revokedAt = NULL,
+         updatedAt = excluded.updatedAt`,
+      [vault.vaultId, deviceId, publicKey, deviceLabel, now, now]
+    );
+    const device = await get(
+      `SELECT vaultId, deviceId, publicKey, deviceLabel, status, createdAt, updatedAt, revokedAt
+       FROM kept2_vault_devices WHERE vaultId = ? AND deviceId = ?`,
+      [vault.vaultId, deviceId]
+    );
+    res.json(device);
+  }));
+
+  app.delete('/api/v2/vaults/:vaultId/devices/:deviceId', requireAuth, asyncRoute(async (req, res) => {
+    const vault = await requireVaultAccess(req, res);
+    if (!vault) return;
+    const deviceId = safeOpaqueId(req.params.deviceId);
+    if (!deviceId) return res.status(400).json({ error: 'Invalid device id.' });
+    await run(
+      `UPDATE kept2_vault_devices
+          SET status = 'revoked', revokedAt = ?, updatedAt = ?
+        WHERE vaultId = ? AND deviceId = ?`,
+      [new Date().toISOString(), new Date().toISOString(), vault.vaultId, deviceId]
+    );
+    res.json({ ok: true, deviceId });
   }));
 
   app.get('/api/v2/vaults/:vaultId/changes', requireAuth, asyncRoute(async (req, res) => {
@@ -361,6 +411,16 @@ function mountKept2Relay(app, deps) {
     return !!row?.enabled;
   }
 
+  async function listVaultDevices(vaultId) {
+    return all(
+      `SELECT vaultId, deviceId, publicKey, deviceLabel, status, createdAt, updatedAt, revokedAt
+       FROM kept2_vault_devices
+       WHERE vaultId = ? AND status = 'active'
+       ORDER BY updatedAt DESC`,
+      [vaultId]
+    );
+  }
+
   async function revokeRemoteMcpGrants(userId) {
     const active = await all(
       `SELECT g.grantId, g.vaultId
@@ -455,6 +515,17 @@ async function initKept2RelaySchema({ run }) {
     createdAt TEXT NOT NULL,
     revokedAt TEXT
   )`);
+  await run(`CREATE TABLE IF NOT EXISTS kept2_vault_devices (
+    vaultId TEXT NOT NULL REFERENCES kept2_vaults(vaultId) ON DELETE CASCADE,
+    deviceId TEXT NOT NULL,
+    publicKey TEXT NOT NULL,
+    deviceLabel TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','revoked')),
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    revokedAt TEXT,
+    PRIMARY KEY(vaultId, deviceId)
+  )`);
   await run(`CREATE TABLE IF NOT EXISTS kept2_sync_changes (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     vaultId TEXT NOT NULL REFERENCES kept2_vaults(vaultId) ON DELETE CASCADE,
@@ -500,6 +571,7 @@ async function initKept2RelaySchema({ run }) {
   )`);
   await run('CREATE INDEX IF NOT EXISTS kept2_changes_vault_sequence_idx ON kept2_sync_changes(vaultId, sequence)');
   await run('CREATE INDEX IF NOT EXISTS kept2_grants_vault_resource_idx ON kept2_key_grants(vaultId, resourceId)');
+  await run('CREATE INDEX IF NOT EXISTS kept2_devices_vault_status_idx ON kept2_vault_devices(vaultId, status, updatedAt)');
   await run('CREATE INDEX IF NOT EXISTS kept2_cutovers_user_idx ON kept2_migration_cutovers(userId, completedAt)');
 }
 

@@ -128,6 +128,17 @@ async function main() {
     assert.equal(await legacyAttachmentBlob.text(), 'legacy attachment bytes');
 
     const vaultId = 'vault-test';
+    const registeredDevice = await request(`/v2/vaults/${vaultId}/devices/device-test`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ publicKey: 'device-public-key', deviceLabel: 'Test device' })
+    });
+    assert.equal(registeredDevice.deviceId, 'device-test');
+    assert.equal(registeredDevice.publicKey, 'device-public-key');
+    const devices = await request(`/v2/vaults/${vaultId}/devices`, { headers });
+    assert.equal(devices.devices.length, 1);
+    assert.equal(devices.devices[0].deviceLabel, 'Test device');
+
     const blobForm = new FormData();
     const encryptedBlob = new Blob([Buffer.from('sealed attachment bytes')], { type: 'application/octet-stream' });
     blobForm.append('blob', encryptedBlob, 'attachment-1.bin');
@@ -247,6 +258,11 @@ async function main() {
     assert.equal(snapshot.envelopes.length, 1);
     assert.equal(snapshot.envelopes[0].ciphertext, 'opaque-ciphertext');
     assert.equal(snapshot.envelopes[0].resourceId, 'note-test');
+    assert.equal(snapshot.devices.some(device => device.deviceId === 'device-test'), true);
+
+    await request(`/v2/vaults/${vaultId}/devices/device-test`, { method: 'DELETE', headers });
+    const devicesAfterRevoke = await request(`/v2/vaults/${vaultId}/devices`, { headers });
+    assert.equal(devicesAfterRevoke.devices.some(device => device.deviceId === 'device-test'), false);
 
     const changes = await request(`/v2/vaults/${vaultId}/changes?cursor=0`, { headers });
     const noteChange = changes.changes.find(change => change.resourceId === 'note-test');

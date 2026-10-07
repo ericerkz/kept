@@ -107,6 +107,17 @@ export interface KeyGrant {
   revokedAt: string | null;
 }
 
+export interface VaultDevicePublicKey {
+  vaultId: string;
+  deviceId: string;
+  publicKey: string;
+  deviceLabel: string;
+  status: 'active' | 'revoked';
+  createdAt: string;
+  updatedAt: string;
+  revokedAt: string | null;
+}
+
 export type Kept2MutationType =
   | 'resource.upsert'
   | 'resource.delete'
@@ -145,6 +156,7 @@ export interface SyncCapabilities {
 export interface SyncSnapshot {
   envelopes: EncryptedEnvelope[];
   keyGrants: KeyGrant[];
+  devices?: VaultDevicePublicKey[];
   cursor: number;
   serverTime: number;
 }
@@ -178,6 +190,9 @@ export interface SyncTransport {
   mutate(vaultId: string, mutations: Kept2OutboxEntry[]): Promise<MutationResult[]>;
   uploadBlob(vaultId: string, blobId: string, ciphertext: Blob, ciphertextHash: string): Promise<void>;
   downloadBlob(vaultId: string, blobId: string): Promise<Blob>;
+  registerDevice?(vaultId: string, deviceId: string, publicKey: string, deviceLabel?: string): Promise<VaultDevicePublicKey>;
+  listDevices?(vaultId: string): Promise<VaultDevicePublicKey[]>;
+  revokeDevice?(vaultId: string, deviceId: string): Promise<void>;
   subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string; vaultId?: string }) => void): () => void;
 }
 
