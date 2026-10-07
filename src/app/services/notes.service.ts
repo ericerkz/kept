@@ -103,6 +103,8 @@ export class NotesService {
       if (user?.token) {
         this.connectRealtime(user.token);
         this.publishCachedNotes(this.searchQuery).catch(console.error);
+      } else if (this.useKept2LocalFirst()) {
+        this.load(this.searchQuery, { cacheBust: true }).catch(console.error);
       } else {
         if (this.iosReminderRefreshTimer) clearTimeout(this.iosReminderRefreshTimer);
         this.iosReminderRefreshTimer = undefined;

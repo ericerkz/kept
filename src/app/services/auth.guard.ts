@@ -1,21 +1,46 @@
 import { Injectable } from '@angular/core';
 import { ActivatedRouteSnapshot, Router, UrlTree } from '@angular/router';
 import { AuthService } from './auth.service';
+import { VaultSessionService } from '../kept2/vault-session.service';
 
 @Injectable({
   providedIn: 'root'
 })
 export class AuthGuard  {
-  constructor(private auth: AuthService, private router: Router) { }
+  constructor(
+    private auth: AuthService,
+    private router: Router,
+    private vaultSession: VaultSessionService
+  ) { }
 
-  async canActivate(): Promise<boolean | UrlTree> {
+  async canActivate(route: ActivatedRouteSnapshot): Promise<boolean | UrlTree> {
     if (this.auth.currentUser) return true;
+    if (this.isLocalFirstRoute(route)) {
+      if (this.vaultSession.isUnlocked() && this.isLocalFirstActive()) return true;
+      const returnUrl = `/${route.url.map(segment => segment.path).join('/')}`;
+      return this.router.createUrlTree(['/kept2/vault'], {
+        queryParams: await this.vaultSession.hasLocalVault() ? { returnUrl } : {}
+      });
+    }
     try {
       if (!await this.auth.hasUsers()) return this.router.createUrlTree(['/setup']);
     } catch {
       return this.router.createUrlTree(['/login']);
     }
     return this.router.createUrlTree(['/login']);
+  }
+
+  private isLocalFirstRoute(route: ActivatedRouteSnapshot) {
+    const path = route.routeConfig?.path || '';
+    return ['', 'archive', 'trash', 'reminders', 'attachments', 'binder/:name', 'label/:name'].includes(path);
+  }
+
+  private isLocalFirstActive() {
+    try {
+      return localStorage.getItem('kept2LocalFirst') === '1';
+    } catch {
+      return false;
+    }
   }
 }
 

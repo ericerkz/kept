@@ -183,6 +183,7 @@ export class ReminderService {
         this.loadCachedReminders().catch(console.error);
         this.load().catch(console.error);
       }
+      else if (this.useKept2LocalFirst()) this.load().catch(console.error);
       else this.setReminders([]);
     });
     this.listenForServiceWorkerMessages();

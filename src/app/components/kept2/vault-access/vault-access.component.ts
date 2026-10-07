@@ -1,5 +1,6 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { NoteAttachmentI, NoteI } from 'src/app/interfaces/notes';
 import { ReminderI } from 'src/app/interfaces/reminder';
@@ -87,7 +88,9 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     private devicePairing: VaultDevicePairingService,
     private resourceKeys: VaultResourceKeyService,
     private syncCoordinator: Kept2SyncCoordinatorService,
-    private syncEngine: SyncEngineService
+    private syncEngine: SyncEngineService,
+    private route: ActivatedRoute,
+    private router: Router
   ) {}
 
   async ngOnInit() {
@@ -152,6 +155,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.setLocalFirstMode(true, false);
       await this.refreshLocalState();
       await this.refreshRemoteDevices(false);
+      await this.navigateToReturnUrl();
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not unlock vault.';
     } finally {
@@ -173,6 +177,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.setLocalFirstMode(true, false);
       await this.refreshLocalState();
       await this.refreshRemoteDevices(false);
+      await this.navigateToReturnUrl();
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not recover vault.';
     } finally {
@@ -548,6 +553,12 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     } catch {
       this.localFirstActive = false;
     }
+  }
+
+  private async navigateToReturnUrl() {
+    const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
+    if (!returnUrl || returnUrl.startsWith('/kept2')) return;
+    await this.router.navigateByUrl(returnUrl.startsWith('/') ? returnUrl : `/${returnUrl}`);
   }
 
   private async refreshLocalState() {
