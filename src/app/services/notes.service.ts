@@ -79,6 +79,7 @@ export class NotesService {
   private iosReminderRefreshTimer?: ReturnType<typeof setTimeout>;
   private kept2SyntheticIds = new Map<string, number>();
   private kept2SyncIdsBySyntheticId = new Map<number, string>();
+  private kept2LocalFirstListener = () => this.load(this.searchQuery, { cacheBust: true }).catch(console.error);
 
   constructor(
     private http: HttpClient,
@@ -109,6 +110,7 @@ export class NotesService {
         this.notesList$.next(null);
       }
     });
+    window.addEventListener('kept2-local-first-changed', this.kept2LocalFirstListener);
   }
 
   async load(searchQuery = this.searchQuery, options: NotesLoadOptions = {}) {
@@ -1015,6 +1017,14 @@ export class NotesService {
   }
 
   private useKept2LocalFirst() {
+    try {
+      return this.isKept2LocalFirstActive();
+    } catch {
+      return false;
+    }
+  }
+
+  isKept2LocalFirstActive() {
     try {
       return localStorage.getItem('kept2LocalFirst') === '1' && this.vaultSession.isUnlocked();
     } catch {

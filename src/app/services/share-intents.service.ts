@@ -221,7 +221,7 @@ export class ShareIntentsService {
     const imageRefs = fileRefs.filter(file => this.isImageFile(file));
     const attachmentRefs = fileRefs.filter(file => !this.isImageFile(file));
 
-    if (imageRefs.length && !navigator.onLine) {
+    if (imageRefs.length && !navigator.onLine && !this.notes.isKept2LocalFirstActive()) {
       throw new Error('Image shares require a connection so images can be uploaded.');
     }
 

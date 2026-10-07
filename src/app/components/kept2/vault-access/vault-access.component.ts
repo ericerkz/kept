@@ -77,6 +77,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
   deviceLabel = '';
   devicePairingStatus = '';
   remoteDevices: VaultDevicePublicKey[] = [];
+  localFirstActive = false;
 
   constructor(
     public auth: AuthService,
@@ -95,6 +96,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     this.mode = this.hasVault ? 'unlock' : 'create';
     if (this.identity) {
       this.syncCoordinator.start(this.identity);
+      this.loadLocalFirstMode();
       await this.refreshLocalState();
       await this.refreshRemoteDevices(false);
     }
@@ -127,6 +129,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.confirmPassword = '';
       this.success = 'Vault created and unlocked.';
       this.syncCoordinator.start(result.identity);
+      this.setLocalFirstMode(true, false);
       await this.refreshLocalState();
       await this.registerThisDevice(false);
     } catch (error: any) {
@@ -146,6 +149,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.password = '';
       this.success = 'Vault unlocked.';
       this.syncCoordinator.start(session.identity);
+      this.setLocalFirstMode(true, false);
       await this.refreshLocalState();
       await this.refreshRemoteDevices(false);
     } catch (error: any) {
@@ -166,6 +170,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.recoveryPassword = '';
       this.success = 'Vault recovered and unlocked.';
       if (this.identity) this.syncCoordinator.start(this.identity);
+      this.setLocalFirstMode(true, false);
       await this.refreshLocalState();
       await this.refreshRemoteDevices(false);
     } catch (error: any) {
@@ -183,6 +188,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     this.notes = [];
     this.remoteDevices = [];
     this.outboxCount = 0;
+    this.loadLocalFirstMode();
     this.clearDraft();
     this.success = 'Vault locked.';
   }
@@ -204,6 +210,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.remoteDevices = [];
       this.outboxCount = 0;
       this.hasVault = false;
+      this.setLocalFirstMode(false, false);
       this.generatedRecoveryCode = '';
       this.mode = 'create';
       this.clearDraft();
@@ -497,6 +504,32 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
   async clearLocalSearch() {
     this.localSearchQuery = '';
     await this.refreshLocalState();
+  }
+
+  toggleLocalFirstMode(event: Event) {
+    this.setLocalFirstMode(!!(event.target as HTMLInputElement)?.checked);
+  }
+
+  private setLocalFirstMode(enabled: boolean, showStatus = true) {
+    try {
+      if (enabled) localStorage.setItem('kept2LocalFirst', '1');
+      else localStorage.removeItem('kept2LocalFirst');
+    } catch {}
+    this.loadLocalFirstMode();
+    window.dispatchEvent(new CustomEvent('kept2-local-first-changed', { detail: { enabled } }));
+    if (showStatus) {
+      this.success = enabled
+        ? 'Main notes now use the unlocked local vault.'
+        : 'Main notes now use the legacy server path.';
+    }
+  }
+
+  private loadLocalFirstMode() {
+    try {
+      this.localFirstActive = localStorage.getItem('kept2LocalFirst') === '1' && this.vaultSession.isUnlocked();
+    } catch {
+      this.localFirstActive = false;
+    }
   }
 
   private async refreshLocalState() {

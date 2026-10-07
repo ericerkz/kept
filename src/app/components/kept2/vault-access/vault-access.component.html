@@ -13,6 +13,10 @@
         <strong>Unlocked</strong>
         <code>{{identity.vaultId}}</code>
         <span>{{notes.length}} local note{{notes.length === 1 ? '' : 's'}} · {{outboxCount}} pending sync operation{{outboxCount === 1 ? '' : 's'}}</span>
+        <label class="local-first-toggle">
+          <input type="checkbox" [checked]="localFirstActive" (change)="toggleLocalFirstMode($event)">
+          <span>Use this local vault in the main Notes app</span>
+        </label>
         <div class="button-row">
           <button type="button" (click)="pushOutbox()" [disabled]="isBusy || !outboxCount">Push local changes</button>
           <button type="button" class="secondary" (click)="pullRemote()" [disabled]="isBusy">Pull remote changes</button>

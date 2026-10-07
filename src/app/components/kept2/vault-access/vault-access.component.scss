@@ -67,6 +67,27 @@
   font-size: 12px;
 }
 
+.local-first-toggle {
+  align-items: center;
+  border: 1px solid #5f6368;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+
+  input {
+    accent-color: #81c995;
+    height: 18px;
+    width: 18px;
+  }
+
+  span {
+    color: #e8eaed;
+    font-size: 13px;
+  }
+}
+
 .device-pairing label {
   display: grid;
   gap: 6px;
@@ -254,7 +275,8 @@
   .mode-switcher,
   .vault-status,
   .recovery-card,
-  .auth-form button.secondary {
+  .auth-form button.secondary,
+  .local-first-toggle {
     border-color: #dadce0;
   }
 
@@ -294,6 +316,10 @@
   .empty-state,
   .note-body-button span {
     color: #5f6368;
+  }
+
+  .local-first-toggle span {
+    color: #202124;
   }
 
   .migration-warnings {
