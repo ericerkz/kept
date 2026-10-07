@@ -147,6 +147,11 @@
   gap: 10px;
 }
 
+.local-search-form {
+  border-top: 1px solid #5f6368;
+  padding-top: 18px;
+}
+
 .empty-state {
   color: #9aa0a6;
   font-size: 13px;
@@ -256,6 +261,7 @@
   }
 
   .vault-workbench,
+  .local-search-form,
   .local-note,
   .delete-note {
     border-color: #dadce0;

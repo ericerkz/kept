@@ -176,6 +176,7 @@ export interface SyncTransport {
 export interface DurableVaultStore {
   identity(): Promise<VaultIdentity>;
   listNotes(): Promise<NoteI[]>;
+  searchNotes(query: string): Promise<NoteI[]>;
   putNote(note: NoteI, stamp?: LwwStamp): Promise<void>;
   getNote(syncId: string): Promise<NoteI | undefined>;
   deleteNote(syncId: string, stamp?: LwwStamp): Promise<void>;

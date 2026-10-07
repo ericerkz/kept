@@ -35,6 +35,24 @@ export class DurableVaultStoreService implements DurableVaultStore {
     return rows.map(row => this.parseJson<NoteI>(row.value));
   }
 
+  async searchNotes(query: string): Promise<NoteI[]> {
+    const terms = String(query || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return this.listNotes();
+    const clauses = terms.map(() => `searchText LIKE ? ESCAPE '\\'`).join(' AND ');
+    const params = terms.map(term => `%${this.escapeLike(term)}%`);
+    const rows = await this.driver.all<StoredJson<NoteI>>(
+      `SELECT syncId, value FROM notes
+       WHERE deleted = 0 AND ${clauses}
+       ORDER BY updatedAt DESC`,
+      params
+    );
+    return rows.map(row => this.parseJson<NoteI>(row.value));
+  }
+
+  private escapeLike(value: string) {
+    return value.replace(/[\\%_]/g, match => `\\${match}`);
+  }
+
   async putNote(note: NoteI, stamp?: LwwStamp): Promise<void> {
     const syncId = this.ensureSyncId(note, 'note');
     const now = new Date().toISOString();

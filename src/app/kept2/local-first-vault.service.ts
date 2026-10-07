@@ -24,6 +24,11 @@ export class LocalFirstVaultService {
     return this.vault.listNotes();
   }
 
+  searchNotes(query: string) {
+    this.requireUnlocked();
+    return this.vault.searchNotes(query);
+  }
+
   async createNote(input: Partial<NoteI>) {
     this.requireUnlocked();
     const now = new Date().toISOString();

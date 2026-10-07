@@ -63,6 +63,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
   syncStatus = '';
   migrationStatus = '';
   migrationWarnings: string[] = [];
+  localSearchQuery = '';
 
   constructor(
     private auth: AuthService,
@@ -360,8 +361,24 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     this.draftBody = '';
   }
 
+  async searchLocalNotes() {
+    this.error = '';
+    try {
+      this.notes = await this.localVault.searchNotes(this.localSearchQuery);
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not search local notes.';
+    }
+  }
+
+  async clearLocalSearch() {
+    this.localSearchQuery = '';
+    await this.refreshLocalState();
+  }
+
   private async refreshLocalState() {
-    this.notes = await this.localVault.notes();
+    this.notes = this.localSearchQuery.trim()
+      ? await this.localVault.searchNotes(this.localSearchQuery)
+      : await this.localVault.notes();
     this.outboxCount = (await this.localVault.outbox()).length;
   }
 

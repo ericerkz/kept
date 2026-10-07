@@ -111,6 +111,19 @@
           </div>
         </form>
 
+        <form (ngSubmit)="searchLocalNotes()" class="auth-form local-search-form">
+          <label>
+            <span>Search local vault</span>
+            <input name="localSearchQuery" [(ngModel)]="localSearchQuery" placeholder="Search notes, labels, binders">
+          </label>
+          <div class="button-row">
+            <button type="submit" [disabled]="isBusy">Search</button>
+            @if (localSearchQuery) {
+              <button type="button" class="secondary" (click)="clearLocalSearch()" [disabled]="isBusy">Clear search</button>
+            }
+          </div>
+        </form>
+
         <div class="local-note-list">
           @if (!notes.length) {
             <p class="empty-state">No local notes yet.</p>
