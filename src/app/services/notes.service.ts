@@ -39,6 +39,8 @@ import { ReminderService } from './reminder.service';
 import { OfflineStoreService } from './offline-store.service';
 import { OfflineSyncService } from './offline-sync.service';
 import { UserPreferencesService } from './user-preferences.service';
+import { LocalFirstVaultService } from '../kept2/local-first-vault.service';
+import { VaultSessionService } from '../kept2/vault-session.service';
 
 const KeptDownloads = registerPlugin<KeptDownloadsPlugin>('KeptDownloads');
 
@@ -75,6 +77,8 @@ export class NotesService {
   private optimisticNotes = new Map<number, NoteI>();
   private lastNonEmptyNotes: NoteI[] = [];
   private iosReminderRefreshTimer?: ReturnType<typeof setTimeout>;
+  private kept2SyntheticIds = new Map<string, number>();
+  private kept2SyncIdsBySyntheticId = new Map<number, string>();
 
   constructor(
     private http: HttpClient,
@@ -82,7 +86,9 @@ export class NotesService {
     private reminders: ReminderService,
     private offlineStore: OfflineStoreService,
     private offlineSync: OfflineSyncService,
-    private preferences: UserPreferencesService
+    private preferences: UserPreferencesService,
+    private localFirstVault: LocalFirstVaultService,
+    private vaultSession: VaultSessionService
   ) {
     this.offlineSync.cacheChanged$.subscribe(() => {
       this.publishCachedNotes(this.searchQuery).catch(console.error);
@@ -106,6 +112,10 @@ export class NotesService {
   }
 
   async load(searchQuery = this.searchQuery, options: NotesLoadOptions = {}) {
+    if (this.useKept2LocalFirst()) {
+      await this.loadKept2LocalNotes(searchQuery);
+      return;
+    }
     if (this.isLoading) {
       this.pendingLoadQuery = searchQuery;
       return new Promise<void>(resolve => this.pendingLoadWaiters.push(resolve));
@@ -182,6 +192,10 @@ export class NotesService {
   }
 
   async loadNextPage() {
+    if (this.useKept2LocalFirst()) {
+      this.nextCursor = null;
+      return;
+    }
     if (!navigator.onLine) {
       this.nextCursor = null;
       return;
@@ -813,6 +827,11 @@ export class NotesService {
   }
 
   async get(id: number, options: { merge?: boolean } = {}) {
+    if (this.useKept2LocalFirst()) {
+      const note = await this.getKept2LocalNote(id);
+      if (note && options.merge !== false) this.mergeNoteIntoList(note);
+      if (note) return note;
+    }
     if (id !== -1) {
       if (id < 0 || !navigator.onLine) {
         const cached = this.offlineSync.partition ? await this.offlineStore.getNote(this.offlineSync.partition, id) : undefined;
@@ -872,6 +891,81 @@ export class NotesService {
     }
     const missing = [...this.optimisticNotes.values()].filter(note => note.id && !seen.has(note.id));
     return missing.length ? [...missing, ...notes] : notes;
+  }
+
+  private async loadKept2LocalNotes(searchQuery: string) {
+    this.isLoading = true;
+    this.loading = true;
+    this.loadError = false;
+    this.searchQuery = searchQuery;
+    try {
+      const query = searchQuery.trim();
+      const notes = query ? await this.localFirstVault.searchNotes(query) : await this.localFirstVault.notes();
+      const hydrated = notes.map(note => this.withKept2SyntheticId(note));
+      this.nextCursor = null;
+      this.hasLoaded = true;
+      this.publishNotes(this.withOptimisticNotes(hydrated));
+      this.queueLinkPreviewPreload(hydrated);
+    } catch (error) {
+      this.loadError = !this.notesList$.value?.length;
+      console.error(error);
+    } finally {
+      this.isLoading = false;
+      this.loading = false;
+    }
+  }
+
+  private async getKept2LocalNote(id: number) {
+    const syncId = this.kept2SyncIdsBySyntheticId.get(id);
+    if (!syncId) return undefined;
+    const note = await this.localFirstVault.getNote(syncId);
+    return note ? this.withKept2SyntheticId(note) : undefined;
+  }
+
+  private useKept2LocalFirst() {
+    try {
+      return localStorage.getItem('kept2LocalFirst') === '1' && this.vaultSession.isUnlocked();
+    } catch {
+      return false;
+    }
+  }
+
+  private withKept2SyntheticId(note: NoteI): NoteI {
+    const syncId = String(note.syncId || '');
+    if (!syncId) return note;
+    const id = this.kept2SyntheticId(syncId);
+    this.kept2SyncIdsBySyntheticId.set(id, syncId);
+    return {
+      ...note,
+      id,
+      pinned: !!note.pinned,
+      bgColor: note.bgColor || '',
+      bgImage: note.bgImage || '',
+      checkBoxes: note.checkBoxes || [],
+      images: note.images || [],
+      labels: note.labels || [],
+      binder: note.binder || '',
+      archived: !!note.archived,
+      trashed: !!note.trashed,
+      isCbox: !!note.isCbox,
+      isCardPreview: false
+    };
+  }
+
+  private kept2SyntheticId(syncId: string) {
+    const existing = this.kept2SyntheticIds.get(syncId);
+    if (existing) return existing;
+    let hash = 0;
+    for (let index = 0; index < syncId.length; index += 1) {
+      hash = ((hash << 5) - hash + syncId.charCodeAt(index)) | 0;
+    }
+    let id = -Math.max(1, Math.abs(hash));
+    while (this.kept2SyncIdsBySyntheticId.has(id) && this.kept2SyncIdsBySyntheticId.get(id) !== syncId) {
+      id -= 1;
+    }
+    this.kept2SyntheticIds.set(syncId, id);
+    this.kept2SyncIdsBySyntheticId.set(id, syncId);
+    return id;
   }
 
   private mergeNoteIntoList(note: NoteI) {
@@ -1141,6 +1235,7 @@ export class NotesService {
   }
 
   private async publishCachedNotes(searchQuery: string) {
+    if (this.useKept2LocalFirst()) return;
     if (!this.offlineSync.partition) return;
     const cached = await this.offlineStore.listNotes(this.offlineSync.partition);
     const hydrated = await Promise.all(cached.map(note => this.hydrateOfflineNoteMedia(note)));
