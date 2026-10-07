@@ -17,6 +17,13 @@ type StoredJson<T> = {
   value: string;
 };
 
+type StoredLww = {
+  lwwPhysicalMs: number;
+  lwwLogical: number;
+  lwwDeviceId: string;
+  lwwOperationId: string;
+};
+
 @Injectable({ providedIn: 'root' })
 export class DurableVaultStoreService implements DurableVaultStore {
   constructor(
@@ -57,6 +64,7 @@ export class DurableVaultStoreService implements DurableVaultStore {
     const syncId = this.ensureSyncId(note, 'note');
     const now = new Date().toISOString();
     const lww = this.stamp(stamp);
+    if (!(await this.shouldApply('notes', syncId, lww))) return;
     const value = { ...note, syncId, updatedAt: note.updatedAt || now };
     await this.driver.run(
       `INSERT INTO notes
@@ -94,10 +102,19 @@ export class DurableVaultStoreService implements DurableVaultStore {
 
   async deleteNote(syncId: string, stamp?: LwwStamp): Promise<void> {
     const lww = this.stamp(stamp);
+    if (!(await this.shouldApply('notes', syncId, lww))) return;
     await this.driver.run(
-      `UPDATE notes SET deleted = 1, lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?,
-        lwwOperationId = ?, updatedAt = ? WHERE syncId = ?`,
-      [lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString(), syncId]
+      `INSERT INTO notes
+       (syncId, value, searchText, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId, deleted, updatedAt)
+       VALUES (?, ?, '', ?, ?, ?, ?, 1, ?)
+       ON CONFLICT(syncId) DO UPDATE SET
+         lwwPhysicalMs = excluded.lwwPhysicalMs,
+         lwwLogical = excluded.lwwLogical,
+         lwwDeviceId = excluded.lwwDeviceId,
+         lwwOperationId = excluded.lwwOperationId,
+         deleted = 1,
+         updatedAt = excluded.updatedAt`,
+      [syncId, JSON.stringify({ syncId }), lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString()]
     );
   }
 
@@ -112,6 +129,7 @@ export class DurableVaultStoreService implements DurableVaultStore {
     const syncId = this.ensureSyncId(label, 'label');
     const now = new Date().toISOString();
     const lww = this.stamp(stamp);
+    if (!(await this.shouldApply('labels', syncId, lww))) return;
     const value = { ...label, syncId, name: String(label.name || '').trim() };
     await this.driver.run(
       `INSERT INTO labels
@@ -132,10 +150,19 @@ export class DurableVaultStoreService implements DurableVaultStore {
 
   async deleteLabel(syncId: string, stamp?: LwwStamp): Promise<void> {
     const lww = this.stamp(stamp);
+    if (!(await this.shouldApply('labels', syncId, lww))) return;
     await this.driver.run(
-      `UPDATE labels SET deleted = 1, lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?,
-        lwwOperationId = ?, updatedAt = ? WHERE syncId = ?`,
-      [lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString(), syncId]
+      `INSERT INTO labels
+       (syncId, name, value, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId, deleted, updatedAt)
+       VALUES (?, '', ?, ?, ?, ?, ?, 1, ?)
+       ON CONFLICT(syncId) DO UPDATE SET
+         lwwPhysicalMs = excluded.lwwPhysicalMs,
+         lwwLogical = excluded.lwwLogical,
+         lwwDeviceId = excluded.lwwDeviceId,
+         lwwOperationId = excluded.lwwOperationId,
+         deleted = 1,
+         updatedAt = excluded.updatedAt`,
+      [syncId, JSON.stringify({ syncId, name: '' }), lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString()]
     );
   }
 
@@ -150,6 +177,7 @@ export class DurableVaultStoreService implements DurableVaultStore {
     const syncId = this.ensureSyncId(binder, 'binder');
     const now = new Date().toISOString();
     const lww = this.stamp(stamp);
+    if (!(await this.shouldApply('binders', syncId, lww))) return;
     const value = { ...binder, syncId, name: String(binder.name || '').trim(), updatedAt: binder.updatedAt || now };
     await this.driver.run(
       `INSERT INTO binders
@@ -170,10 +198,19 @@ export class DurableVaultStoreService implements DurableVaultStore {
 
   async deleteBinder(syncId: string, stamp?: LwwStamp): Promise<void> {
     const lww = this.stamp(stamp);
+    if (!(await this.shouldApply('binders', syncId, lww))) return;
     await this.driver.run(
-      `UPDATE binders SET deleted = 1, lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?,
-        lwwOperationId = ?, updatedAt = ? WHERE syncId = ?`,
-      [lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString(), syncId]
+      `INSERT INTO binders
+       (syncId, name, value, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId, deleted, updatedAt)
+       VALUES (?, '', ?, ?, ?, ?, ?, 1, ?)
+       ON CONFLICT(syncId) DO UPDATE SET
+         lwwPhysicalMs = excluded.lwwPhysicalMs,
+         lwwLogical = excluded.lwwLogical,
+         lwwDeviceId = excluded.lwwDeviceId,
+         lwwOperationId = excluded.lwwOperationId,
+         deleted = 1,
+         updatedAt = excluded.updatedAt`,
+      [syncId, JSON.stringify({ syncId, name: '' }), lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString()]
     );
   }
 
@@ -188,6 +225,7 @@ export class DurableVaultStoreService implements DurableVaultStore {
     const syncId = this.ensureSyncId(reminder, 'reminder');
     const now = new Date().toISOString();
     const lww = this.stamp(stamp);
+    if (!(await this.shouldApply('reminders', syncId, lww))) return;
     const value = { ...reminder, syncId, updatedAt: reminder.updatedAt || now };
     await this.driver.run(
       `INSERT INTO reminders
@@ -217,10 +255,19 @@ export class DurableVaultStoreService implements DurableVaultStore {
 
   async deleteReminder(syncId: string, stamp?: LwwStamp): Promise<void> {
     const lww = this.stamp(stamp);
+    if (!(await this.shouldApply('reminders', syncId, lww))) return;
     await this.driver.run(
-      `UPDATE reminders SET deleted = 1, lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?,
-        lwwOperationId = ?, updatedAt = ? WHERE syncId = ?`,
-      [lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString(), syncId]
+      `INSERT INTO reminders
+       (syncId, noteSyncId, value, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId, deleted, updatedAt)
+       VALUES (?, '', ?, ?, ?, ?, ?, 1, ?)
+       ON CONFLICT(syncId) DO UPDATE SET
+         lwwPhysicalMs = excluded.lwwPhysicalMs,
+         lwwLogical = excluded.lwwLogical,
+         lwwDeviceId = excluded.lwwDeviceId,
+         lwwOperationId = excluded.lwwOperationId,
+         deleted = 1,
+         updatedAt = excluded.updatedAt`,
+      [syncId, JSON.stringify({ syncId }), lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString()]
     );
   }
 
@@ -241,6 +288,7 @@ export class DurableVaultStoreService implements DurableVaultStore {
     const now = new Date().toISOString();
     const blobKey = blob ? `attachment:${syncId}` : '';
     const lww = this.stamp(stamp);
+    if (!(await this.shouldApply('attachments', syncId, lww))) return;
     const value = { ...attachment, syncId };
     await this.driver.transaction(async () => {
       if (blob) await this.driver.putBlob(blobKey, blob);
@@ -283,12 +331,21 @@ export class DurableVaultStoreService implements DurableVaultStore {
 
   async deleteAttachment(syncId: string, stamp?: LwwStamp): Promise<void> {
     const lww = this.stamp(stamp);
+    if (!(await this.shouldApply('attachments', syncId, lww))) return;
     const row = await this.driver.get<{ blobKey?: string }>('SELECT blobKey FROM attachments WHERE syncId = ?', [syncId]);
     await this.driver.transaction(async () => {
       await this.driver.run(
-        `UPDATE attachments SET deleted = 1, lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?,
-          lwwOperationId = ?, updatedAt = ? WHERE syncId = ?`,
-        [lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString(), syncId]
+        `INSERT INTO attachments
+         (syncId, noteSyncId, blobKey, value, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId, deleted, updatedAt)
+         VALUES (?, '', '', ?, ?, ?, ?, ?, 1, ?)
+         ON CONFLICT(syncId) DO UPDATE SET
+           lwwPhysicalMs = excluded.lwwPhysicalMs,
+           lwwLogical = excluded.lwwLogical,
+           lwwDeviceId = excluded.lwwDeviceId,
+           lwwOperationId = excluded.lwwOperationId,
+           deleted = 1,
+           updatedAt = excluded.updatedAt`,
+        [syncId, JSON.stringify({ syncId }), lww.physicalMs, lww.logical, lww.deviceId, lww.operationId, new Date().toISOString()]
       );
       if (row?.blobKey) await this.driver.deleteBlob(row.blobKey);
     });
@@ -328,6 +385,32 @@ export class DurableVaultStoreService implements DurableVaultStore {
        ON CONFLICT(name) DO UPDATE SET cursor = excluded.cursor, updatedAt = excluded.updatedAt`,
       [name, Math.max(0, Number(cursor || 0)), new Date().toISOString()]
     );
+  }
+
+  private async shouldApply(
+    table: 'notes' | 'reminders' | 'labels' | 'binders' | 'attachments',
+    syncId: string,
+    incoming: LwwStamp
+  ) {
+    const existing = await this.driver.get<StoredLww>(
+      `SELECT lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId FROM ${table} WHERE syncId = ?`,
+      [syncId]
+    );
+    return !existing || this.compareLww(incoming, existing) >= 0;
+  }
+
+  private compareLww(left: LwwStamp, right: StoredLww) {
+    const values: Array<[number | string, number | string]> = [
+      [Number(left.physicalMs || 0), Number(right.lwwPhysicalMs || 0)],
+      [Number(left.logical || 0), Number(right.lwwLogical || 0)],
+      [String(left.deviceId || ''), String(right.lwwDeviceId || '')],
+      [String(left.operationId || ''), String(right.lwwOperationId || '')]
+    ];
+    for (const [a, b] of values) {
+      if (a > b) return 1;
+      if (a < b) return -1;
+    }
+    return 0;
   }
 
   private ensureSyncId(value: { syncId?: string }, prefix: 'note' | 'reminder' | 'attachment' | 'label' | 'binder') {

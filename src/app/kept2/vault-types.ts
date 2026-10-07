@@ -148,6 +148,7 @@ export interface SyncChanges {
     operation: 'upsert' | 'delete';
     resourceId: string;
     resourceType: Kept2ResourceType;
+    lww: LwwStamp;
     envelope: EncryptedEnvelope | null;
   }>;
   cursor: number;

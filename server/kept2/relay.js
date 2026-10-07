@@ -106,6 +106,7 @@ function mountKept2Relay(app, deps) {
         operation: row.operation,
         resourceId: row.resourceId,
         resourceType: row.resourceType,
+        lww: rowToLww(row),
         envelope: row.operation === 'delete' ? null : rowToEnvelope(row)
       })),
       cursor: rows.length ? Number(rows[rows.length - 1].sequence) : cursor,
@@ -506,17 +507,21 @@ function rowToEnvelope(row) {
     resourceId: row.resourceId,
     resourceType: row.resourceType,
     keyEpoch: Number(row.keyEpoch || 1),
-    lww: {
-      physicalMs: Number(row.lwwPhysicalMs || 0),
-      logical: Number(row.lwwLogical || 0),
-      deviceId: row.lwwDeviceId || '',
-      operationId: row.lwwOperationId || ''
-    },
+    lww: rowToLww(row),
     ciphertext: row.ciphertext,
     nonce: row.nonce,
     aad: safeJson(row.aad, {}),
     ciphertextHash: row.ciphertextHash,
     schemaVersion: Number(row.schemaVersion || 1)
+  };
+}
+
+function rowToLww(row) {
+  return {
+    physicalMs: Number(row?.lwwPhysicalMs || 0),
+    logical: Number(row?.lwwLogical || 0),
+    deviceId: row?.lwwDeviceId || '',
+    operationId: row?.lwwOperationId || ''
   };
 }
 

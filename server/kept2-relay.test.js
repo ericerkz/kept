@@ -234,6 +234,7 @@ async function main() {
     const changes = await request(`/v2/vaults/${vaultId}/changes?cursor=0`, { headers });
     const noteChange = changes.changes.find(change => change.resourceId === 'note-test');
     assert.equal(noteChange.operation, 'upsert');
+    assert.deepEqual(noteChange.lww, envelope.lww);
     assert.equal(noteChange.envelope.ciphertext, 'opaque-ciphertext');
 
     const replay = await request(`/v2/vaults/${vaultId}/mutations`, {
@@ -321,6 +322,9 @@ async function main() {
     assert.equal(resurrect[0].stale, true, 'stale upsert must not resurrect a newer tombstone');
     const postDeleteSnapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
     assert.equal(postDeleteSnapshot.envelopes.some(item => item.resourceId === 'note-lww'), false);
+    const deleteChanges = await request(`/v2/vaults/${vaultId}/changes?cursor=0`, { headers });
+    const deleteChange = deleteChanges.changes.find(change => change.resourceId === 'note-lww' && change.operation === 'delete');
+    assert.deepEqual(deleteChange.lww, deleteLww, 'delete changes carry the tombstone LWW stamp');
 
     const deletedBlob = await request(`/v2/vaults/${vaultId}/mutations`, {
       method: 'POST',

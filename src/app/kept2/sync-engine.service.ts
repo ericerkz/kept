@@ -86,7 +86,7 @@ export class SyncEngineService {
     for (const change of changes.changes) {
       try {
         if (change.operation === 'delete') {
-          await this.applyRemoteDelete(change.resourceId, change.resourceType);
+          await this.applyRemoteDelete(change.resourceId, change.resourceType, change.lww);
         } else if (change.envelope) {
           await this.applyRemoteEnvelope(vaultId, transport, change.envelope, keyFor);
         }
@@ -241,13 +241,13 @@ export class SyncEngineService {
     }
   }
 
-  private async applyRemoteDelete(resourceId: string, resourceType: Kept2ResourceType) {
-    if (resourceType === 'note.content') await this.vault.deleteNote(resourceId);
-    if (resourceType === 'reminder') await this.vault.deleteReminder(resourceId);
-    if (resourceType === 'attachment') await this.vault.deleteAttachment(resourceId);
+  private async applyRemoteDelete(resourceId: string, resourceType: Kept2ResourceType, lww: EncryptedEnvelope['lww']) {
+    if (resourceType === 'note.content') await this.vault.deleteNote(resourceId, lww);
+    if (resourceType === 'reminder') await this.vault.deleteReminder(resourceId, lww);
+    if (resourceType === 'attachment') await this.vault.deleteAttachment(resourceId, lww);
     if (resourceType === 'blob') await this.vault.deleteBlob(`attachment:${resourceId}`);
-    if (resourceType === 'label') await this.vault.deleteLabel(resourceId);
-    if (resourceType === 'binder') await this.vault.deleteBinder(resourceId);
+    if (resourceType === 'label') await this.vault.deleteLabel(resourceId, lww);
+    if (resourceType === 'binder') await this.vault.deleteBinder(resourceId, lww);
   }
 
   private localKind(payload: unknown): Kept2LocalResourceKind {
