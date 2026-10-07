@@ -146,6 +146,11 @@ export class LocalFirstVaultService {
     return this.vault.listAttachments(noteSyncId);
   }
 
+  attachmentBlob(syncId: string) {
+    this.requireUnlocked();
+    return this.vault.getBlob(`attachment:${syncId}`);
+  }
+
   async upsertAttachment(attachment: NoteAttachmentI & { noteSyncId?: string }, blob?: Blob) {
     this.requireUnlocked();
     attachment.syncId ||= `attachment-${crypto.randomUUID()}`;

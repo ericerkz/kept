@@ -18,6 +18,7 @@
           <button type="button" class="secondary" (click)="pullRemote()" [disabled]="isBusy">Pull remote changes</button>
           <button type="button" class="secondary" (click)="bootstrapRemote()" [disabled]="isBusy">Bootstrap remote</button>
           <button type="button" class="secondary" (click)="importLegacySnapshot()" [disabled]="isBusy">Import legacy notes</button>
+          <button type="button" class="secondary" (click)="exportLocalVault()" [disabled]="isBusy">Export local vault</button>
           <button type="button" class="secondary" (click)="lockVault()" [disabled]="isBusy">Lock</button>
           <button type="button" class="danger" (click)="deleteLocalVault()" [disabled]="isBusy">Delete local vault</button>
         </div>

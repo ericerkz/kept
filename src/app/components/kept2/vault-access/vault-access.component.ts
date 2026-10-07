@@ -303,6 +303,57 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     }
   }
 
+  async exportLocalVault() {
+    if (!this.identity) return;
+    this.error = '';
+    this.success = '';
+    this.isBusy = true;
+    try {
+      const notes = await this.localVault.notes();
+      const reminders = await this.localVault.reminders();
+      const labels = await this.localVault.labels();
+      const binders = await this.localVault.binders();
+      const attachments = await this.localVault.attachments();
+      const attachmentBlobs: Record<string, { dataUrl: string; mimeType: string; size: number }> = {};
+
+      for (const attachment of attachments) {
+        if (!attachment.syncId) continue;
+        const blob = await this.localVault.attachmentBlob(attachment.syncId);
+        if (!blob) continue;
+        attachmentBlobs[attachment.syncId] = {
+          dataUrl: await this.blobToDataUrl(blob),
+          mimeType: blob.type || attachment.mimeType || 'application/octet-stream',
+          size: blob.size
+        };
+      }
+
+      this.downloadJson(`kept2-vault-${this.identity.vaultId}-${Date.now()}.json`, {
+        format: 'kept2-local-export',
+        exportedAt: new Date().toISOString(),
+        vault: this.identity,
+        counts: {
+          notes: notes.length,
+          reminders: reminders.length,
+          labels: labels.length,
+          binders: binders.length,
+          attachments: attachments.length,
+          attachmentBlobs: Object.keys(attachmentBlobs).length
+        },
+        notes,
+        reminders,
+        labels,
+        binders,
+        attachments,
+        attachmentBlobs
+      });
+      this.success = 'Local vault export created.';
+    } catch (error: any) {
+      this.error = error instanceof Error ? error.message : 'Could not export the local vault.';
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
   async saveDraft() {
     this.error = '';
     this.success = '';
@@ -582,6 +633,19 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       reader.onerror = () => reject(reader.error || new Error('Could not read image blob.'));
       reader.readAsDataURL(blob);
     });
+  }
+
+  private downloadJson(filename: string, value: unknown) {
+    const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   private transport() {
