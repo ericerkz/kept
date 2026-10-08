@@ -80,3 +80,61 @@ test('kept2 device grants wrap keys to a recipient public key', async () => {
   assert.deepEqual(Array.from(opened), Array.from(resourceKey));
   assert.throws(() => sodium.crypto_box_seal_open(sealed, other.publicKey, other.privateKey));
 });
+
+test('kept2 fresh device grant can unlock and decrypt an existing resource envelope', async () => {
+  await sodium.ready;
+  const note = {
+    syncId: 'note-fresh-device',
+    noteTitle: 'Fresh device handoff',
+    noteBody: 'recoverable encrypted content'
+  };
+  const resourceKey = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES);
+  const recipient = sodium.crypto_box_keypair();
+  const other = sodium.crypto_box_keypair();
+  const envelope = await encryptWithKey(note, resourceKey, {
+    resourceId: note.syncId,
+    resourceType: 'note.content',
+    keyEpoch: 1
+  });
+  const grant = {
+    grantPurpose: 'device',
+    granteeId: 'device:fresh-device',
+    resourceId: note.syncId,
+    resourceType: 'note.content',
+    wrappedKey: sodium.crypto_box_seal(resourceKey, recipient.publicKey)
+  };
+
+  const openedKey = sodium.crypto_box_seal_open(grant.wrappedKey, recipient.publicKey, recipient.privateKey);
+  assert.deepEqual(Array.from(openedKey), Array.from(resourceKey));
+  const decrypted = decryptWithKey(envelope, openedKey);
+  assert.deepEqual(decrypted, note);
+  assert.throws(() => sodium.crypto_box_seal_open(grant.wrappedKey, other.publicKey, other.privateKey));
+  assert.throws(() => decryptWithKey(envelope, sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES)));
+});
+
+async function encryptWithKey(value, key, aad) {
+  const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
+  const ciphertext = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
+    sodium.from_string(JSON.stringify(value)),
+    sodium.from_string(canonicalJson(aad)),
+    null,
+    nonce,
+    key
+  );
+  return {
+    ciphertext,
+    nonce,
+    aad
+  };
+}
+
+function decryptWithKey(envelope, key) {
+  const plaintext = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
+    null,
+    envelope.ciphertext,
+    sodium.from_string(canonicalJson(envelope.aad)),
+    envelope.nonce,
+    key
+  );
+  return JSON.parse(sodium.to_string(plaintext));
+}
