@@ -129,6 +129,7 @@ export class Kept2SyncCoordinatorService {
         const note = await this.localVault.getNote(resourceId);
         if (!note || this.isLockedNote(note)) return grants;
       }
+      if (resourceType === 'reminder' && await this.isReminderParentLocked(resourceId)) return grants;
       grants.push(await this.resourceKeys.publicKeyGrantFor(
         vaultId,
         resourceId,
@@ -222,7 +223,7 @@ export class Kept2SyncCoordinatorService {
     }
     for (const reminder of await this.localVault.reminders()) {
       if (!reminder.syncId) continue;
-      await addGrantMutation(reminder.syncId, 'reminder');
+      await addGrantMutation(reminder.syncId, 'reminder', await this.isReminderParentLocked(reminder.syncId));
     }
     for (const label of await this.localVault.labels()) {
       if (!label.syncId) continue;
@@ -404,6 +405,14 @@ export class Kept2SyncCoordinatorService {
   private async isAttachmentParentLocked(attachment: NoteAttachmentI & { noteSyncId?: string }) {
     if (!attachment.noteSyncId) return false;
     const note = await this.localVault.getNote(attachment.noteSyncId);
+    return !!note && this.isLockedNote(note);
+  }
+
+  private async isReminderParentLocked(reminderSyncId: string) {
+    const reminder = (await this.localVault.reminders())
+      .find(candidate => candidate.syncId === reminderSyncId) as { noteSyncId?: string } | undefined;
+    if (!reminder?.noteSyncId) return false;
+    const note = await this.localVault.getNote(reminder.noteSyncId);
     return !!note && this.isLockedNote(note);
   }
 
