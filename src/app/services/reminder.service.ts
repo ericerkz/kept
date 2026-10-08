@@ -319,7 +319,7 @@ export class ReminderService {
       const reminder = await this.localFirstVault.upsertReminder(local);
       this.setReminders(this.reminders$.value.map(item => item.id === id ? reminder : item));
       if (payload.status && payload.status !== 'pending') {
-        this.cancelAndroidTimeReminder(id);
+        this.cancelAndroidTimeReminder(existing || id);
         this.cancelIosReminder(id);
       }
       return reminder;
@@ -329,7 +329,7 @@ export class ReminderService {
       const local: ReminderI = { ...existing, ...payload, repeatRule: payload.repeatRule === undefined ? existing.repeatRule : payload.repeatRule as string | null, updatedAt: new Date().toISOString() };
       if (this.offlineSync.partition) await this.offlineStore.putReminder(this.offlineSync.partition, local);
       this.setReminders(this.reminders$.value.map(reminder => reminder.id === id ? local : reminder));
-      if (payload.status && payload.status !== 'pending') this.cancelAndroidTimeReminder(id);
+      if (payload.status && payload.status !== 'pending') this.cancelAndroidTimeReminder(existing || id);
       if (id < 0 || !navigator.onLine) {
         await this.offlineSync.enqueue('reminder.upsert', local.syncId!, local);
         return local;
@@ -344,7 +344,7 @@ export class ReminderService {
 
   async delete(id: number) {
     const existing = this.reminders$.value.find(reminder => reminder.id === id);
-    this.cancelAndroidTimeReminder(id);
+    this.cancelAndroidTimeReminder(existing || id);
     this.cancelIosReminder(id);
     if (this.useKept2LocalFirst()) {
       if (existing?.syncId) await this.localFirstVault.deleteReminder(existing.syncId);
@@ -687,7 +687,7 @@ export class ReminderService {
 
   private cancelAndroidTimeRemindersForNote(noteId: number) {
     for (const reminder of this.reminders$.value) {
-      if (reminder.noteId === noteId) this.cancelAndroidTimeReminder(reminder.id);
+      if (reminder.noteId === noteId) this.cancelAndroidTimeReminder(reminder);
     }
   }
 
@@ -933,7 +933,7 @@ export class ReminderService {
       const fireAtMs = new Date(reminder.dueAtUtc).getTime();
       if (!Number.isFinite(fireAtMs) || fireAtMs <= now) continue;
       nativeReminders.push({
-        id: String(reminder.id),
+        id: this.androidTimeReminderKey(reminder),
         fireAtMs,
         title: reminder.title || 'Kept reminder',
         body: reminder.body || undefined,
@@ -967,12 +967,16 @@ export class ReminderService {
       });
   }
 
-  private cancelAndroidTimeReminder(reminderId: number | string | undefined | null) {
-    if (!this.isAndroidTimeRemindersAvailable() || reminderId === undefined || reminderId === null) return;
-    const id = String(reminderId);
+  private cancelAndroidTimeReminder(reminder: ReminderI | number | string | undefined | null) {
+    if (!this.isAndroidTimeRemindersAvailable() || reminder === undefined || reminder === null) return;
+    const id = typeof reminder === 'object' ? this.androidTimeReminderKey(reminder) : String(reminder);
     if (!id) return;
     KeptTimeReminders!.cancelTimeReminder({ id })
       .catch(error => console.warn('Android time reminder cancellation failed', error));
+  }
+
+  private androidTimeReminderKey(reminder: ReminderI) {
+    return String(reminder.syncId || reminder.id || '');
   }
 
   private iosNativeReminders(reminders: ReminderI[]): IosNativeReminder[] {
