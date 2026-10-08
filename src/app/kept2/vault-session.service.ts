@@ -60,6 +60,7 @@ export class VaultSessionService {
       identity: await this.identities.markUnlocked(),
       unlockedAt: new Date().toISOString()
     };
+    this.announceUnlocked();
     return {
       identity,
       recoveryCode: material.recoveryCode
@@ -73,6 +74,7 @@ export class VaultSessionService {
       identity: await this.identities.markUnlocked(),
       unlockedAt: new Date().toISOString()
     };
+    this.announceUnlocked();
     return this.session;
   }
 
@@ -86,6 +88,7 @@ export class VaultSessionService {
         identity: await this.identities.markUnlocked(),
         unlockedAt: new Date().toISOString()
       };
+      this.announceUnlocked();
     }
     return this.session;
   }
@@ -99,6 +102,7 @@ export class VaultSessionService {
       identity: await this.identities.markUnlocked(),
       unlockedAt: new Date().toISOString()
     };
+    this.announceUnlocked();
     return this.session;
   }
 
@@ -115,6 +119,7 @@ export class VaultSessionService {
       identity: await this.identities.markUnlocked(),
       unlockedAt: new Date().toISOString()
     };
+    this.announceUnlocked();
     return this.session;
   }
 
@@ -172,5 +177,11 @@ export class VaultSessionService {
        ON CONFLICT(keyId) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`,
       [keyId, JSON.stringify(value), existing?.createdAt || now, now]
     );
+  }
+
+  private announceUnlocked() {
+    window.dispatchEvent(new CustomEvent('kept2-vault-unlocked', {
+      detail: { identity: this.session?.identity || null }
+    }));
   }
 }

@@ -188,6 +188,11 @@ export class ReminderService {
     });
     this.listenForServiceWorkerMessages();
     this.listenForAndroidResume();
+    window.addEventListener('kept2-vault-unlocked', () => this.load().catch(console.error));
+    window.addEventListener('kept2-vault-locked', () => {
+      if (this.auth.currentUser) this.load().catch(console.error);
+      else this.setReminders([]);
+    });
   }
 
   async load() {
@@ -368,11 +373,7 @@ export class ReminderService {
   }
 
   private useKept2LocalFirst() {
-    try {
-      return localStorage.getItem('kept2LocalFirst') === '1' && this.vaultSession.isUnlocked();
-    } catch {
-      return false;
-    }
+    return this.vaultSession.isUnlocked();
   }
 
   private async hydrateKept2ReminderNoteIds(reminders: ReminderI[]) {

@@ -342,7 +342,7 @@ export class Kept2SyncCoordinatorService {
     window.addEventListener('online', request);
     window.addEventListener('focus', request);
     window.addEventListener('kept2-outbox-changed', request);
-    window.addEventListener('kept2-local-first-changed', request);
+    window.addEventListener('kept2-vault-unlocked', request);
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') request();

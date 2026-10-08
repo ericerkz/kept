@@ -16,7 +16,7 @@ export class AuthGuard  {
   async canActivate(route: ActivatedRouteSnapshot): Promise<boolean | UrlTree> {
     if (this.auth.currentUser) return true;
     if (this.isLocalFirstRoute(route)) {
-      if (this.vaultSession.isUnlocked() && this.isLocalFirstActive()) return true;
+      if (this.vaultSession.isUnlocked()) return true;
       const returnUrl = `/${route.url.map(segment => segment.path).join('/')}`;
       return this.router.createUrlTree(['/kept2/vault'], {
         queryParams: await this.vaultSession.hasLocalVault() ? { returnUrl } : {}
@@ -33,14 +33,6 @@ export class AuthGuard  {
   private isLocalFirstRoute(route: ActivatedRouteSnapshot) {
     const path = route.routeConfig?.path || '';
     return ['', 'archive', 'trash', 'reminders', 'attachments', 'binder/:name', 'label/:name'].includes(path);
-  }
-
-  private isLocalFirstActive() {
-    try {
-      return localStorage.getItem('kept2LocalFirst') === '1';
-    } catch {
-      return false;
-    }
   }
 }
 

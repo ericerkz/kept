@@ -83,7 +83,18 @@ export class NotesService {
   private iosReminderRefreshTimer?: ReturnType<typeof setTimeout>;
   private kept2SyntheticIds = new Map<string, number>();
   private kept2SyncIdsBySyntheticId = new Map<number, string>();
-  private kept2LocalFirstListener = () => this.load(this.searchQuery, { cacheBust: true }).catch(console.error);
+  private kept2VaultStateListener = () => {
+    if (this.useKept2LocalFirst() || this.auth.currentUser) {
+      this.load(this.searchQuery, { cacheBust: true }).catch(console.error);
+      return;
+    }
+    this.loading = false;
+    this.hasLoaded = false;
+    this.loadError = false;
+    this.nextCursor = null;
+    this.lastNonEmptyNotes = [];
+    this.notesList$.next(null);
+  };
 
   constructor(
     private http: HttpClient,
@@ -116,7 +127,8 @@ export class NotesService {
         this.notesList$.next(null);
       }
     });
-    window.addEventListener('kept2-local-first-changed', this.kept2LocalFirstListener);
+    window.addEventListener('kept2-vault-unlocked', this.kept2VaultStateListener);
+    window.addEventListener('kept2-vault-locked', this.kept2VaultStateListener);
   }
 
   async load(searchQuery = this.searchQuery, options: NotesLoadOptions = {}) {
@@ -1032,11 +1044,7 @@ export class NotesService {
   }
 
   isKept2LocalFirstActive() {
-    try {
-      return localStorage.getItem('kept2LocalFirst') === '1' && this.vaultSession.isUnlocked();
-    } catch {
-      return false;
-    }
+    return this.vaultSession.isUnlocked();
   }
 
   private withKept2SyntheticId(note: NoteI): NoteI {
