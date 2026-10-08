@@ -4,6 +4,19 @@ Kept includes a local [Model Context Protocol (MCP)](https://modelcontextprotoco
 
 External access is disabled by default. When enabled through either OAuth app access or a local MCP token, an agent can search and read notes, create and edit all supported note types, manage checklists, images, attachments, reminders, labels, binders, collaborators, pinning, archive, and trash. Locked-note access and permanent note deletion remain disabled unless you turn on their separate shared settings.
 
+## Kept 2 encrypted vaults
+
+On the `kept2` preview branch, remote MCP remains supported for encrypted vaults, but the access model changes. The server cannot simply read note plaintext from its database; a hosted MCP worker can only work with resources that the unlocked local vault grants to the service.
+
+In practice:
+
+- Remote MCP is still off by default.
+- Enabling hosted/remote MCP creates service access for eligible unlocked notes after sync grants the needed keys.
+- The service can search, create, edit, archive, restore, delete-to-trash, and manage the connected user's unlocked notes.
+- Locked notes stay excluded.
+- Turning hosted/remote MCP off revokes future service access and existing grants, but the current preview does not rotate and re-encrypt every affected note key.
+- Local stdio MCP against the classic HTTP API still uses the token flow below.
+
 ## Enable local MCP access
 
 1. Sign in to Kept and open **Settings**.

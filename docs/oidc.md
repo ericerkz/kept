@@ -4,6 +4,8 @@ Kept can use one OpenID Connect (OIDC) provider as an additional sign-in method.
 
 OIDC does not replace Kept's authorization model. A provider identity is linked to one Kept user, and that user retains their normal Kept role, note ownership, sharing permissions, and settings.
 
+On the `kept2` preview branch, OIDC is still only a sign-in/account-linking method. It does not unlock a Kept 2 local vault by itself, and it does not replace the vault password, recovery code, device pairing, or OPAQUE-backed vault-key flow being built for synced accounts.
+
 ## Provider setup
 
 Create an OIDC application in your identity provider and register this redirect URI:

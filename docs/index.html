@@ -32,6 +32,10 @@
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 17H4v2h10v-2zm6-8H4v2h16V9zM4 15h16v-2H4v2zM4 5v2h16V5H4z"/></svg>
         Welcome
       </a>
+      <a href="#kept2-preview" class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4Zm0 2.2 7 3.1V11c0 4.15-2.74 8.1-7 9.85C7.74 19.1 5 15.15 5 11V6.3l7-3.1Zm-1 5.8h2v7h-2V9Zm0 9h2v2h-2v-2Z"/></svg>
+        Kept 2 preview
+      </a>
       <a href="#features" class="nav-item">
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm-1-11v6h2v-6h-2zm0-4v2h2V7h-2z"/></svg>
         Features
@@ -71,6 +75,7 @@
           <p>Get the speed, simplicity, and visual ease of your favorite note-taking apps—while keeping full control of your own data.</p>
           <div class="hero-actions">
             <a href="#quick-start" class="btn btn-primary">Get Started</a>
+            <a href="#kept2-preview" class="btn btn-secondary">Kept 2 Preview</a>
             <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer" class="app-store-badge app-store-badge--compact" aria-label="Download Kept Notes on the App Store">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.05 12.4c-.03-3.05 2.49-4.52 2.6-4.59-1.42-2.08-3.63-2.36-4.41-2.39-1.88-.19-3.67 1.1-4.62 1.1-.96 0-2.44-1.07-4.01-1.04-2.06.03-3.96 1.2-5.02 3.04-2.14 3.72-.55 9.23 1.54 12.24 1.02 1.48 2.24 3.15 3.84 3.09 1.54-.06 2.12-.99 3.98-.99s2.38.99 4.01.96c1.65-.03 2.7-1.51 3.71-3 1.17-1.71 1.65-3.37 1.68-3.45-.04-.02-3.26-1.25-3.3-4.97ZM14.01 3.44c.85-1.03 1.42-2.46 1.26-3.88-1.22.05-2.7.81-3.58 1.84-.78.91-1.47 2.37-1.28 3.76 1.36.1 2.75-.69 3.6-1.72Z"/></svg>
               <span><small>Download on the</small>App Store</span>
@@ -93,6 +98,46 @@
           <p>Kept is designed for people who love fast, low-friction note capture. Whether you need a quick checklist, a drawing, or a simple text note, Kept makes it effortless to jot things down and organize them visually with colors and labels.</p>
           <img src="assets/images/ui-showcase.png" alt="UI Showcase" class="img-fluid">
           <p>If you're migrating from Google Keep, we've even included a simple import tool to bring all your existing notes over seamlessly.</p>
+        </section>
+
+        <section id="kept2-preview">
+          <h2>🔐 Kept 2 preview</h2>
+          <p>The <code>kept2</code> branch is an unreleased preview of Kept's local-first and encrypted-sync direction. It is meant for testing and development right now; the stable self-hosted release remains the published Docker image and default branch.</p>
+
+          <div class="hosted-setup-callout">
+            <h3>What is in the preview branch</h3>
+            <ul>
+              <li>Password-unlocked local vaults at <code>/kept2/vault</code>, with recovery codes and password rewrap support.</li>
+              <li>SQLite-backed local-first storage with a durable outbox, so local edits can survive reloads, app kills, and poor connections.</li>
+              <li>Encrypted <code>/api/v2</code> sync for resources and blobs. The server stores encrypted envelopes and content-blind change notifications.</li>
+              <li>Device registration, QR/device pairing, encrypted device grants, and device revocation.</li>
+              <li>Non-destructive migration paths from existing Kept 1.x data into an encrypted Kept 2 vault.</li>
+              <li>Hosted integration controls for encrypted-vault remote MCP and hosted calendar access. These are off by default and exclude locked notes.</li>
+              <li>Native-facing paths for local-first reminders, share intents, Smart Capture, and fresh-device recovery validation.</li>
+            </ul>
+          </div>
+
+          <div class="hosted-setup-callout">
+            <h3>How to try it</h3>
+            <pre><code>git clone https://github.com/ericerkz/kept.git
+cd kept
+git checkout kept2
+npm install
+npm run start</code></pre>
+            <p>Open <code>http://localhost:6767</code>, sign in normally, then open <code>http://localhost:6767/kept2/vault</code>. Create a vault password and save the recovery code somewhere safe.</p>
+            <p>This preview password unlocks the local vault. Kept 2.0 should not be described as full device-level SQLite at-rest encryption.</p>
+          </div>
+
+          <div class="hosted-setup-callout">
+            <h3>Still being validated</h3>
+            <ul>
+              <li>Real Android and iOS device behavior for vault unlock, recovery, widgets, reminders, share intents, deep links, and native SQLite paths.</li>
+              <li>Multi-device sync with real devices, attachments, offline edits, reconnects, and poor-network conditions.</li>
+              <li>Migration against larger, messier real-world Kept 1.x instances.</li>
+              <li>Hosted encrypted integration and Cloud deployment burn-in.</li>
+            </ul>
+            <p>Run the current Kept 2 automated test gate with <code>npm run test:kept2</code>.</p>
+          </div>
         </section>
 
         <section id="features">
@@ -155,6 +200,11 @@
             </div>
 
             <div class="feature-box">
+              <h3>🔐 Kept 2 Local Vaults</h3>
+              <p>The unreleased <code>kept2</code> branch adds password-unlocked local vaults, SQLite-backed local-first storage, encrypted sync, recovery codes, device pairing, and encrypted integration grants for testers.</p>
+            </div>
+
+            <div class="feature-box">
               <h3>🔑 Optional SSO</h3>
               <p>Connect an OpenID Connect provider such as Google, Authentik, or Pocket ID while keeping normal Kept username/password login available.</p>
             </div>
@@ -181,6 +231,7 @@ cd kept
 docker compose up -d</code></pre>
           
           <p>That's it! Open your browser and go to <code>http://localhost:6767</code>. You'll be greeted by a friendly setup wizard to create your admin account.</p>
+          <p>If you are testing the unreleased Kept 2 branch, use <code>git checkout kept2</code> and build from source with the dev compose override below instead of relying on the stable <code>latest</code> image.</p>
 
           <section id="deploy-on-railway" class="hosted-setup-callout">
             <h2>Deploy Kept on Railway</h2>
@@ -298,19 +349,19 @@ KEPT_OIDC_ISSUER=https://accounts.google.com
 KEPT_OIDC_CLIENT_ID=your-client-id
 KEPT_OIDC_CLIENT_SECRET=your-client-secret
 KEPT_OIDC_NAME=Google</code></pre>
-            <p>Register this redirect URI with the provider: <code>https://kept.example.com/api/auth/oidc/callback</code>. See the <a href="https://github.com/ericerkz/kept/blob/master/docs/oidc.md" target="_blank" rel="noopener noreferrer">OIDC setup guide</a> for Google, Authentik, and Pocket ID examples.</p>
+            <p>Register this redirect URI with the provider: <code>https://kept.example.com/api/auth/oidc/callback</code>. See the <a href="https://github.com/ericerkz/kept/blob/kept2/docs/oidc.md" target="_blank" rel="noopener noreferrer">OIDC setup guide</a> for Google, Authentik, and Pocket ID examples.</p>
           </div>
 
           <div class="hosted-setup-callout">
             <h3>OAuth app access</h3>
             <p>Kept includes an OAuth 2.1 authorization server for approved external apps. Users enable OAuth app access in Settings, approve each connection, and can revoke connected apps later without changing their password.</p>
-            <p>OAuth clients can request read-only or read/write scopes. Remote MCP clients, including ChatGPT-style MCP connections, use this same OAuth layer. See the <a href="https://github.com/ericerkz/kept/blob/master/docs/oauth.md" target="_blank" rel="noopener noreferrer">OAuth integration guide</a>.</p>
+            <p>OAuth clients can request read-only or read/write scopes. Remote MCP clients, including ChatGPT-style MCP connections, use this same OAuth layer. See the <a href="https://github.com/ericerkz/kept/blob/kept2/docs/oauth.md" target="_blank" rel="noopener noreferrer">OAuth integration guide</a>.</p>
           </div>
 
           <div class="hosted-setup-callout">
             <h3>MCP access</h3>
             <p>Kept's MCP server lets trusted clients search and read notes, create notes and checklists, manage reminders, work with images and attachments, add collaborators, and archive or trash notes through Kept's normal API permissions.</p>
-            <p>Local MCP access uses a dedicated token generated in Settings. Remote MCP uses <code>https://kept.example.com/mcp</code> with OAuth. Locked-note access and permanent deletion remain separate opt-ins. See the <a href="https://github.com/ericerkz/kept/blob/master/docs/mcp.md" target="_blank" rel="noopener noreferrer">MCP setup and security guide</a>.</p>
+            <p>Local MCP access uses a dedicated token generated in Settings. Remote MCP uses <code>https://kept.example.com/mcp</code> with OAuth. Locked-note access and permanent deletion remain separate opt-ins. In Kept 2 encrypted vaults, hosted remote MCP uses explicit encrypted grants and stays disabled until the user enables it. See the <a href="https://github.com/ericerkz/kept/blob/kept2/docs/mcp.md" target="_blank" rel="noopener noreferrer">MCP setup and security guide</a>.</p>
           </div>
         </section>
 

@@ -6,6 +6,8 @@ OAuth access is disabled per user until they enable **OAuth app access** in Kept
 
 After authorization, an application can call `GET /api/oauth/me` to identify the connected Kept user and use the standard supported note routes such as `GET /api/notes`, `GET /api/notes/search`, and the corresponding note, label, reminder, collaborator, image, and attachment routes allowed by its scopes.
 
+On the `kept2` preview branch, OAuth also remains the front door for remote MCP and other approved external clients. For encrypted vault data, OAuth authorization identifies the user and the approved service, while actual note access depends on encrypted grants produced by the unlocked local vault. Locked notes remain excluded unless a separate locked-note flow explicitly allows access.
+
 ## Discovery
 
 Set `BASE_URL` to Kept's public HTTPS origin. OAuth metadata is available at:
@@ -60,3 +62,5 @@ Use the returned `client_id` in the authorization-code flow. Web redirect URIs m
 Applications should send access or refresh tokens to `/oauth/revoke` when disconnected. Kept also lists authorized apps in **Settings > External Access**, where the user can revoke one connection or disable OAuth app access to revoke all OAuth grants. These actions do not change the separate local MCP token.
 
 OAuth here authorizes access to Kept data. Kept's optional upstream OIDC configuration is separate: it lets users sign in to Kept through an identity provider.
+
+In Kept 2, OAuth/OIDC also does not replace the vault password. The local vault still needs to be created, unlocked, recovered, or paired with its own vault key material.

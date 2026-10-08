@@ -11,6 +11,8 @@
 
 Kept is a self-hosted notes app built for quick capture: text notes, checklists, images, drawings, links, attachments, labels, colors, and reminders. It aims to keep the lightweight feel of Google Keep while storing your data on your own server.
 
+> **Kept 2 preview branch:** this `kept2` branch contains unreleased local-first and encrypted-sync work. It is intended for testing and development, not as the stable production branch yet. The current stable self-hosted release remains the published Docker image and the default branch.
+
 <p>
   <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473">
     <img src="https://img.shields.io/badge/App%20Store-Kept%20Notes-000000?logo=apple&logoColor=white" alt="Download Kept Notes on the App Store">
@@ -56,6 +58,49 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Local and remote MCP server options for authenticated agent access without direct database access.
 - OAuth 2.1 access for scoped third-party API integrations and remote MCP clients.
 - Optional OpenID Connect (OIDC) single sign-on alongside Kept's local accounts.
+- Kept 2 preview: password-unlocked local vaults, SQLite-backed local-first storage, encrypted sync, device pairing, recovery codes, and encrypted hosted integration grants.
+
+## Kept 2 Preview
+
+The `kept2` branch is the in-progress next-generation architecture branch. It keeps the existing Kept app available while adding a separate local vault flow at `/kept2/vault`.
+
+What is currently present in this branch:
+
+- A password-unlocked local vault on each device.
+- SQLite-backed local storage in the app, with a durable outbox for edits made while offline or on poor connections.
+- Local-first note, reminder, label, binder, attachment, and blob paths using stable sync IDs instead of server-generated numeric IDs.
+- Encrypted `/api/v2` sync relay endpoints for resources and blobs. The server stores encrypted envelopes and content-blind change notifications.
+- Last-write-wins convergence, idempotent mutation receipts, and after-commit realtime notifications.
+- Vault key material, recovery codes, password rewrap, device registration, QR/device pairing, and device grant revocation.
+- Non-destructive migration/export paths from the current 1.x data model into a Kept 2 vault.
+- OPAQUE account-authentication foundations for synced password accounts.
+- Hosted integration controls for encrypted-vault remote MCP and hosted calendar access. These integrations are off by default, receive explicit encrypted grants, and exclude locked notes.
+- Native-facing paths for local-first reminders, share intents, Smart Capture, and fresh-device recovery validation.
+
+What is still being validated before release:
+
+- Real Android and iOS device testing across vault unlock, recovery, widgets, reminders, share intents, deep links, and native SQLite paths.
+- Multi-device sync burn-in with real devices and poor-network/offline scenarios.
+- Migration validation against real existing Kept data.
+- Hosted encrypted integration and Cloud deployment testing.
+
+To test this branch locally:
+
+```bash
+git clone https://github.com/ericerkz/kept.git
+cd kept
+git checkout kept2
+npm install
+npm run start
+```
+
+Then sign in normally and open `http://localhost:6767/kept2/vault`. Create a vault password and save the recovery code. This password unlocks the local vault; Kept 2.0 should not be treated as a promise of full device-level SQLite at-rest encryption.
+
+The Kept 2 automated gate can be run with:
+
+```bash
+npm run test:kept2
+```
 
 ## Install With Docker
 
@@ -64,7 +109,7 @@ Requirements:
 - Docker with Compose
 - Git
 
-Kept's recommended install path is to use the published Docker image: `ghcr.io/ericerkz/kept:latest`.
+Kept's recommended stable install path is to use the published Docker image: `ghcr.io/ericerkz/kept:latest`.
 
 ```bash
 git clone https://github.com/ericerkz/kept.git
@@ -75,6 +120,13 @@ docker compose up -d
 Open `http://localhost:6767` and create the first admin account.
 
 Kept stores its database, uploads, attachments, and generated server data in `./data`. Back that folder up if you are not using the built-in backup tools.
+
+If you are testing the unreleased Kept 2 branch, build from the checked-out `kept2` source instead of relying on the `latest` image:
+
+```bash
+git checkout kept2
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
 
 ## Easy Hosted Setup
 
@@ -250,12 +302,18 @@ Useful environment variables are documented in `docker-compose.yml`. The common 
 - `PUID` / `PGID`: run the container as a specific Linux user/group.
 - `KEPT_ALLOW_RESTORE`: temporarily enables restore from backup during setup.
 - `VAPID_SUBJECT`: optional public URL/contact identity for web push. Kept auto-generates VAPID keys if you do not set them; only set this if push notifications need a more explicit public origin.
+- `KEPT2_BLOB_UPLOAD_MAX`: optional upload cap for encrypted Kept 2 blob sync. Defaults to 250 MB.
+- `KEPT2_OPAQUE_SERVER_SETUP`: optional fixed OPAQUE server setup for deployments that need deterministic server key material across rebuilds. If omitted, Kept stores generated setup in the app database.
+- `KEPT2_REMOTE_MCP_PUBLIC_KEY`: public key for the encrypted hosted/remote MCP worker. Required only when testing Kept 2 encrypted-vault remote MCP grants.
+- `KEPT2_HOSTED_CALENDAR_PUBLIC_KEY`: public key for encrypted hosted calendar workers. Required only when testing Kept 2 hosted calendar grants.
 
 ## OAuth, MCP, And External Access
 
 Kept includes an optional OAuth 2.1 authorization server for third-party apps and integrations. OAuth clients can request read-only or read/write access to the supported Kept API without receiving a user's password or long-lived local MCP token. See [the OAuth integration guide](docs/oauth.md).
 
 Remote MCP is one consumer of that OAuth layer. Local MCP clients can use stdio with a dedicated token; remote clients such as ChatGPT can connect to the Streamable HTTP endpoint at `/mcp`. OAuth app access and local MCP access are independent, off-by-default settings, so either can be enabled or revoked without affecting the other. Locked notes and permanent deletion have separate shared opt-in controls. See [the MCP setup and security guide](docs/mcp.md).
+
+In Kept 2 encrypted vaults, remote MCP is still supported but it works through explicit encrypted grants rather than broad server-side plaintext access. Turning remote MCP off revokes future service access and existing grants, but it does not rotate or re-encrypt every affected note key in the current preview.
 
 ## Development
 
