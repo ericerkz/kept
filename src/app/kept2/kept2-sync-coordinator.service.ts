@@ -5,7 +5,8 @@ import { environment } from 'src/environments/environment';
 import { NoteAttachmentI } from '../interfaces/notes';
 import { SyncEngineService } from './sync-engine.service';
 import { EncryptedSelfHostedTransport } from './sync-transport';
-import { Kept2OutboxEntry, Kept2ResourceType, KeyGrant, SyncTransport, VaultIdentity } from './vault-types';
+import { HostedIntegrationConnection, Kept2OutboxEntry, Kept2ResourceType, KeyGrant, SyncTransport, VaultIdentity } from './vault-types';
+import { VaultCryptoService } from './vault-crypto.service';
 import { LocalFirstVaultService } from './local-first-vault.service';
 import { VaultResourceKeyService } from './vault-resource-key.service';
 import { VaultSessionService } from './vault-session.service';
@@ -26,6 +27,7 @@ export class Kept2SyncCoordinatorService {
     private http: HttpClient,
     private devicePairing: VaultDevicePairingService,
     private localVault: LocalFirstVaultService,
+    private vaultCrypto: VaultCryptoService,
     private resourceKeys: VaultResourceKeyService,
     private session: VaultSessionService,
     private syncEngine: SyncEngineService
@@ -80,7 +82,10 @@ export class Kept2SyncCoordinatorService {
         (vaultId, resourceId, resourceType) => this.grantsForResource(remoteMcp, hostedCalendar, vaultId, resourceId, resourceType)
       );
       if (remoteMcp) await this.reconcileRemoteMcpGrants(activeIdentity, transport, remoteMcp);
-      if (hostedCalendar) await this.reconcileHostedCalendarGrants(activeIdentity, transport, hostedCalendar);
+      if (hostedCalendar) {
+        await this.reconcileHostedCalendarGrants(activeIdentity, transport, hostedCalendar);
+        await this.queueHostedCalendarJobs(activeIdentity, transport, hostedCalendar);
+      }
       await this.syncEngine.pullChanges(
         activeIdentity.vaultId,
         transport,
@@ -328,6 +333,51 @@ export class Kept2SyncCoordinatorService {
     return transport.integrationServiceKey('hosted-calendar');
   }
 
+  private async queueHostedCalendarJobs(
+    identity: VaultIdentity,
+    transport: SyncTransport,
+    hostedCalendar: { granteeId: string; publicKey: string }
+  ) {
+    if (!transport.listHostedCalendarConnections || !transport.createHostedIntegrationJob) return;
+    const [connections, reminders] = await Promise.all([
+      transport.listHostedCalendarConnections(identity.vaultId),
+      this.localVault.reminders()
+    ]);
+    if (!reminders.length) return;
+    const activeConnections = connections.filter(connection => connection.status === 'active');
+    if (!activeConnections.length) return;
+    const reminderFingerprint = reminders
+      .map(reminder => [
+        reminder.syncId || '',
+        (reminder as { status?: string }).status || '',
+        (reminder as { dueAtUtc?: string }).dueAtUtc || '',
+        (reminder as { updatedAt?: string }).updatedAt || ''
+      ].join(':'))
+      .sort()
+      .join('|');
+    for (const connection of activeConnections) {
+      const fingerprint = this.calendarJobFingerprint(connection, reminderFingerprint);
+      if (this.calendarJobStates.get(connection.connectionId) === fingerprint) continue;
+      const encryptedRequest = await this.vaultCrypto.sealJsonForPublicKey({
+        requestedAt: new Date().toISOString()
+      }, hostedCalendar.publicKey);
+      await transport.createHostedIntegrationJob('hosted-calendar', identity.vaultId, {
+        jobType: 'sync',
+        connectionId: connection.connectionId,
+        encryptedRequest
+      });
+      this.calendarJobStates.set(connection.connectionId, fingerprint);
+    }
+  }
+
+  private calendarJobFingerprint(connection: HostedIntegrationConnection, reminderFingerprint: string) {
+    return [
+      connection.connectionId,
+      connection.updatedAt || '',
+      reminderFingerprint
+    ].join('|');
+  }
+
   private async noteHasReminder(noteSyncId: string) {
     return (await this.localVault.reminders()).some(reminder => (reminder as { noteSyncId?: string }).noteSyncId === noteSyncId);
   }
@@ -351,6 +401,7 @@ export class Kept2SyncCoordinatorService {
 
   private mcpGrantStates = new Map<string, 'granted' | 'revoked'>();
   private calendarGrantStates = new Map<string, 'granted' | 'revoked'>();
+  private calendarJobStates = new Map<string, string>();
 
   private isLockedNote(note: { locked?: boolean; lockSalt?: string; lockHash?: string }) {
     return !!(note.locked && note.lockSalt && note.lockHash);

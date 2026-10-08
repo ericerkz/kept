@@ -151,6 +151,18 @@ export class EncryptedSelfHostedTransport implements SyncTransport {
     ));
   }
 
+  createHostedIntegrationJob(
+    integration: 'remote-mcp' | 'hosted-calendar',
+    vaultId: string,
+    payload: { jobType: string; encryptedRequest: string; connectionId?: string }
+  ) {
+    return firstValueFrom(this.http.post<{ jobId: string; status: string }>(
+      `${this.apiUrl}/v2/integrations/${encodeURIComponent(integration)}/jobs`,
+      { vaultId, ...payload },
+      { headers: this.authHeaders() }
+    ));
+  }
+
   subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string; vaultId?: string }) => void) {
     const token = this.authToken();
     if (!token || typeof WebSocket === 'undefined') return () => undefined;

@@ -230,6 +230,11 @@ export interface SyncTransport {
     payload: { provider: string; displayName: string; encryptedSettings: string; status?: 'active' | 'disabled' }
   ): Promise<HostedIntegrationConnection>;
   deleteHostedCalendarConnection?(vaultId: string, connectionId: string): Promise<void>;
+  createHostedIntegrationJob?(
+    integration: 'remote-mcp' | 'hosted-calendar',
+    vaultId: string,
+    payload: { jobType: string; encryptedRequest: string; connectionId?: string }
+  ): Promise<{ jobId: string; status: string }>;
   subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string; vaultId?: string }) => void): () => void;
 }
 
