@@ -307,6 +307,25 @@ Useful environment variables are documented in `docker-compose.yml`. The common 
 - `KEPT2_REMOTE_MCP_PUBLIC_KEY`: public key for the encrypted hosted/remote MCP worker. Required only when testing Kept 2 encrypted-vault remote MCP grants.
 - `KEPT2_HOSTED_CALENDAR_PUBLIC_KEY`: public key for encrypted hosted calendar workers. Required only when testing Kept 2 hosted calendar grants.
 
+### Kept 2 Self-Hosting Versus Kept Cloud
+
+Kept 2 self-hosting should not require the abundance of Kept Cloud operator keys. A normal self-hosted Kept 2 server is still just the Kept app server plus persistent `./data` storage. For the encrypted `/api/v2` sync relay, the server stores encrypted envelopes and generated server metadata; it does not need the hosted MCP/calendar private service keys used by Kept Cloud.
+
+For most self-hosters, the setup remains:
+
+1. Run Docker Compose.
+2. Keep the `./data` folder backed up.
+3. Set `BASE_URL` if using HTTPS, OAuth, OIDC, or remote MCP callbacks.
+4. Optionally set OIDC, CORS, push, restore, or upload-size variables if those features are needed.
+
+The Kept 2 variables are optional:
+
+- `KEPT2_OPAQUE_SERVER_SETUP` can be omitted; Kept stores a generated setup in the app database.
+- `KEPT2_REMOTE_MCP_PUBLIC_KEY` is only for testing/providing encrypted-vault hosted MCP grants.
+- `KEPT2_HOSTED_CALENDAR_PUBLIC_KEY` is only for testing/providing encrypted hosted calendar grants.
+
+In short: self-hosters do not need the Kept Cloud `.env`, Cloud admin token, worker secret, MCP private key, calendar private key, billing webhook secret, Stripe keys, or App Store/Play credentials unless they are deliberately running a Kept Cloud-style service.
+
 ## OAuth, MCP, And External Access
 
 Kept includes an optional OAuth 2.1 authorization server for third-party apps and integrations. OAuth clients can request read-only or read/write access to the supported Kept API without receiving a user's password or long-lived local MCP token. See [the OAuth integration guide](docs/oauth.md).
