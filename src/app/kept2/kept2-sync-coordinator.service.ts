@@ -57,6 +57,14 @@ export class Kept2SyncCoordinatorService {
     };
   }
 
+  clearHostedIntegrationGrantCache(integration?: 'remote-mcp' | 'hosted-calendar') {
+    if (!integration || integration === 'remote-mcp') this.mcpGrantStates.clear();
+    if (!integration || integration === 'hosted-calendar') {
+      this.calendarGrantStates.clear();
+      this.calendarJobStates.clear();
+    }
+  }
+
   private stopRealtime() {
     if (this.timer) clearInterval(this.timer);
     if (this.syncSoonTimer) clearTimeout(this.syncSoonTimer);

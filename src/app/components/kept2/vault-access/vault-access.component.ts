@@ -586,6 +586,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     this.isBusy = true;
     try {
       const setting = await this.transport().setIntegrationEnabled(integration, enabled);
+      this.syncCoordinator.clearHostedIntegrationGrantCache(integration);
       this.hostedIntegrations = {
         ...this.hostedIntegrations,
         [integration]: setting
