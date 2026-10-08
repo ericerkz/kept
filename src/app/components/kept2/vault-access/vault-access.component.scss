@@ -198,6 +198,66 @@
       line-height: 1.4;
     }
   }
+
+  .calendar-connections {
+    border-top: 1px solid #5f6368;
+    display: grid;
+    gap: 10px;
+    margin-top: 4px;
+    padding-top: 12px;
+  }
+
+  .calendar-connection-form {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+
+    label {
+      display: grid;
+      gap: 5px;
+    }
+
+    input {
+      background: #202124;
+      border: 1px solid #5f6368;
+      border-radius: 6px;
+      color: #e8eaed;
+      font: 14px Roboto, Arial, sans-serif;
+      height: 38px;
+      min-width: 0;
+      outline: none;
+      padding: 0 10px;
+    }
+
+    input:focus {
+      border-color: #fbbc04;
+    }
+
+    button {
+      align-self: end;
+    }
+  }
+
+  .connection-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .connection-row {
+    align-items: center;
+    border: 1px solid #5f6368;
+    border-radius: 8px;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 10px;
+
+    div {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+  }
 }
 
 .migration-warnings {

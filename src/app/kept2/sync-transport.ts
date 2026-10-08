@@ -3,6 +3,7 @@ import { firstValueFrom } from 'rxjs';
 import {
   Kept2OutboxEntry,
   MutationResult,
+  HostedIntegrationConnection,
   HostedIntegrationSetting,
   HostedIntegrationServiceKey,
   SyncCapabilities,
@@ -114,6 +115,39 @@ export class EncryptedSelfHostedTransport implements SyncTransport {
       `${this.apiUrl}/v2/integrations/${encodeURIComponent(integration)}`,
       { enabled },
       { headers: this.authHeaders() }
+    ));
+  }
+
+  async listHostedCalendarConnections(vaultId: string) {
+    const response = await firstValueFrom(this.http.get<{ connections: HostedIntegrationConnection[] }>(
+      `${this.apiUrl}/v2/integrations/hosted-calendar/connections`,
+      {
+        headers: this.authHeaders(),
+        params: { vaultId }
+      }
+    ));
+    return response.connections || [];
+  }
+
+  upsertHostedCalendarConnection(
+    vaultId: string,
+    connectionId: string,
+    payload: { provider: string; displayName: string; encryptedSettings: string; status?: 'active' | 'disabled' }
+  ) {
+    return firstValueFrom(this.http.put<HostedIntegrationConnection>(
+      `${this.apiUrl}/v2/integrations/hosted-calendar/connections/${encodeURIComponent(connectionId)}`,
+      { vaultId, ...payload },
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async deleteHostedCalendarConnection(vaultId: string, connectionId: string) {
+    await firstValueFrom(this.http.delete(
+      `${this.apiUrl}/v2/integrations/hosted-calendar/connections/${encodeURIComponent(connectionId)}`,
+      {
+        headers: this.authHeaders(),
+        params: { vaultId }
+      }
     ));
   }
 

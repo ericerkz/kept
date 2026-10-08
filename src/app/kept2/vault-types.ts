@@ -133,6 +133,18 @@ export interface HostedIntegrationSetting {
   cancelledJobs?: number;
 }
 
+export interface HostedIntegrationConnection {
+  connectionId: string;
+  vaultId: string;
+  integration: 'hosted-calendar';
+  provider: string;
+  displayName: string;
+  status: 'active' | 'disabled' | 'deleted';
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
 export type Kept2MutationType =
   | 'resource.upsert'
   | 'resource.delete'
@@ -211,6 +223,13 @@ export interface SyncTransport {
   integrationSetting?(integration: 'remote-mcp' | 'hosted-calendar'): Promise<HostedIntegrationSetting | null>;
   setIntegrationEnabled?(integration: 'remote-mcp' | 'hosted-calendar', enabled: boolean): Promise<HostedIntegrationSetting>;
   integrationServiceKey?(integration: 'remote-mcp' | 'hosted-calendar'): Promise<HostedIntegrationServiceKey | null>;
+  listHostedCalendarConnections?(vaultId: string): Promise<HostedIntegrationConnection[]>;
+  upsertHostedCalendarConnection?(
+    vaultId: string,
+    connectionId: string,
+    payload: { provider: string; displayName: string; encryptedSettings: string; status?: 'active' | 'disabled' }
+  ): Promise<HostedIntegrationConnection>;
+  deleteHostedCalendarConnection?(vaultId: string, connectionId: string): Promise<void>;
   subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string; vaultId?: string }) => void): () => void;
 }
 

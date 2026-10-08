@@ -119,6 +119,47 @@
             </span>
           </label>
         </div>
+        @if (hostedIntegrations['hosted-calendar']?.enabled) {
+          <div class="calendar-connections">
+            <strong>Hosted calendar connections</strong>
+            <div class="calendar-connection-form">
+              <label>
+                <span>Name</span>
+                <input type="text" [(ngModel)]="calendarDisplayName" [disabled]="isBusy">
+              </label>
+              <label>
+                <span>CalDAV URL</span>
+                <input type="url" [(ngModel)]="calendarUrl" placeholder="https://calendar.example.com/user/calendar" [disabled]="isBusy">
+              </label>
+              <label>
+                <span>Username</span>
+                <input type="text" [(ngModel)]="calendarUsername" autocomplete="username" [disabled]="isBusy">
+              </label>
+              <label>
+                <span>Password or app password</span>
+                <input type="password" [(ngModel)]="calendarPassword" autocomplete="new-password" [disabled]="isBusy">
+              </label>
+              <button type="button" class="secondary" (click)="saveCalDavConnection()" [disabled]="isBusy || !auth.currentUser">
+                Save CalDAV connection
+              </button>
+            </div>
+            @if (hostedCalendarConnections.length) {
+              <div class="connection-list">
+                @for (connection of hostedCalendarConnections; track connection.connectionId) {
+                  <article class="connection-row">
+                    <div>
+                      <strong>{{connection.displayName || connection.provider}}</strong>
+                      <small>{{connection.provider}} · {{connection.status}} · {{connection.updatedAt | date:'short'}}</small>
+                    </div>
+                    <button type="button" class="danger" (click)="deleteHostedCalendarConnection(connection)" [disabled]="isBusy">
+                      Delete
+                    </button>
+                  </article>
+                }
+              </div>
+            }
+          </div>
+        }
         <div class="button-row">
           <button type="button" class="secondary" (click)="refreshHostedIntegrations()" [disabled]="isBusy || !auth.currentUser">Refresh integrations</button>
         </div>

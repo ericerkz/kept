@@ -9,10 +9,11 @@ import { LocalFirstVaultService } from 'src/app/kept2/local-first-vault.service'
 import { Kept2SyncCoordinatorService } from 'src/app/kept2/kept2-sync-coordinator.service';
 import { SyncEngineService } from 'src/app/kept2/sync-engine.service';
 import { EncryptedSelfHostedTransport } from 'src/app/kept2/sync-transport';
+import { VaultCryptoService } from 'src/app/kept2/vault-crypto.service';
 import { VaultDevicePairingService } from 'src/app/kept2/vault-device-pairing.service';
 import { VaultResourceKeyService } from 'src/app/kept2/vault-resource-key.service';
 import { VaultSessionService } from 'src/app/kept2/vault-session.service';
-import { HostedIntegrationSetting, KeyGrant, VaultDevicePublicKey, VaultIdentity } from 'src/app/kept2/vault-types';
+import { HostedIntegrationConnection, HostedIntegrationSetting, KeyGrant, VaultDevicePublicKey, VaultIdentity } from 'src/app/kept2/vault-types';
 import { AuthService } from 'src/app/services/auth.service';
 import { environment } from 'src/environments/environment';
 
@@ -93,6 +94,11 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     'hosted-calendar': null
   };
   hostedIntegrationStatus = '';
+  hostedCalendarConnections: HostedIntegrationConnection[] = [];
+  calendarDisplayName = 'Primary calendar';
+  calendarUrl = '';
+  calendarUsername = '';
+  calendarPassword = '';
 
   constructor(
     public auth: AuthService,
@@ -100,6 +106,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     private vaultSession: VaultSessionService,
     private localVault: LocalFirstVaultService,
     private devicePairing: VaultDevicePairingService,
+    private vaultCrypto: VaultCryptoService,
     private resourceKeys: VaultResourceKeyService,
     private syncCoordinator: Kept2SyncCoordinatorService,
     private syncEngine: SyncEngineService,
@@ -553,6 +560,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
         'hosted-calendar': hostedCalendar
       };
       if (showStatus) this.hostedIntegrationStatus = 'Hosted integration settings refreshed.';
+      await this.refreshHostedCalendarConnections(false);
     } catch (error: any) {
       if (showStatus) this.error = error instanceof Error ? error.message : 'Could not load hosted integration settings.';
     }
@@ -584,10 +592,12 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
         this.hostedIntegrationStatus = `${this.hostedIntegrationLabel(integration)} enabled. Eligible local resources will be granted on the next sync.`;
         await this.syncCoordinator.syncOnce(this.identity);
         await this.refreshLocalState();
+        if (integration === 'hosted-calendar') await this.refreshHostedCalendarConnections(false);
       } else {
         const revoked = Number(setting.revokedGrants || 0);
         const cancelled = Number(setting.cancelledJobs || 0);
         this.hostedIntegrationStatus = `${this.hostedIntegrationLabel(integration)} disabled. Revoked ${revoked} grant${revoked === 1 ? '' : 's'} and cancelled ${cancelled} job${cancelled === 1 ? '' : 's'}.`;
+        if (integration === 'hosted-calendar') this.hostedCalendarConnections = [];
       }
       await this.refreshHostedIntegrations(false);
     } catch (error: any) {
@@ -600,6 +610,87 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
 
   hostedIntegrationLabel(integration: 'remote-mcp' | 'hosted-calendar') {
     return integration === 'remote-mcp' ? 'Hosted MCP' : 'Hosted calendar';
+  }
+
+  async refreshHostedCalendarConnections(showStatus = true) {
+    if (!this.identity || !this.auth.currentUser) return;
+    const transport = this.transport();
+    if (!transport.listHostedCalendarConnections) return;
+    try {
+      this.hostedCalendarConnections = await transport.listHostedCalendarConnections(this.identity.vaultId);
+      if (showStatus) this.hostedIntegrationStatus = 'Hosted calendar connections refreshed.';
+    } catch (error: any) {
+      if (showStatus) this.error = error?.error?.error || (error instanceof Error ? error.message : 'Could not load hosted calendar connections.');
+    }
+  }
+
+  async saveCalDavConnection() {
+    if (!this.identity || !this.auth.currentUser) return;
+    const calendarUrl = this.calendarUrl.trim();
+    const username = this.calendarUsername.trim();
+    if (!calendarUrl || !username || !this.calendarPassword) {
+      this.error = 'Calendar URL, username, and password are required.';
+      return;
+    }
+    const transport = this.transport();
+    if (!transport.upsertHostedCalendarConnection || !transport.integrationServiceKey) {
+      this.error = 'Hosted calendar connections are not available on this server.';
+      return;
+    }
+    this.error = '';
+    this.hostedIntegrationStatus = '';
+    this.isBusy = true;
+    try {
+      const serviceKey = await transport.integrationServiceKey('hosted-calendar');
+      if (!serviceKey?.publicKey) throw new Error('Hosted calendar service key is not configured.');
+      const encryptedSettings = await this.vaultCrypto.sealJsonForPublicKey({
+        writeback: {
+          provider: 'caldav',
+          calendarUrl,
+          username,
+          password: this.calendarPassword
+        }
+      }, serviceKey.publicKey);
+      await transport.upsertHostedCalendarConnection(
+        this.identity.vaultId,
+        `caldav-${crypto.randomUUID()}`,
+        {
+          provider: 'caldav',
+          displayName: this.calendarDisplayName.trim() || 'CalDAV calendar',
+          encryptedSettings,
+          status: 'active'
+        }
+      );
+      this.calendarPassword = '';
+      this.hostedIntegrationStatus = 'Hosted calendar connection saved.';
+      await this.refreshHostedCalendarConnections(false);
+    } catch (error: any) {
+      this.error = error?.error?.error || (error instanceof Error ? error.message : 'Could not save hosted calendar connection.');
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  async deleteHostedCalendarConnection(connection: HostedIntegrationConnection) {
+    if (!this.identity || !this.auth.currentUser) return;
+    if (!window.confirm(`Delete ${connection.displayName || connection.provider || 'this calendar connection'}? Pending calendar jobs using it will no longer run.`)) return;
+    const transport = this.transport();
+    if (!transport.deleteHostedCalendarConnection) {
+      this.error = 'Hosted calendar connections are not available on this server.';
+      return;
+    }
+    this.error = '';
+    this.hostedIntegrationStatus = '';
+    this.isBusy = true;
+    try {
+      await transport.deleteHostedCalendarConnection(this.identity.vaultId, connection.connectionId);
+      this.hostedIntegrationStatus = 'Hosted calendar connection deleted.';
+      await this.refreshHostedCalendarConnections(false);
+    } catch (error: any) {
+      this.error = error?.error?.error || (error instanceof Error ? error.message : 'Could not delete hosted calendar connection.');
+    } finally {
+      this.isBusy = false;
+    }
   }
 
   async saveDraft() {

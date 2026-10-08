@@ -133,6 +133,13 @@ export class VaultCryptoService {
     return sodium.to_base64(sealed, sodium.base64_variants.URLSAFE_NO_PADDING);
   }
 
+  async sealJsonForPublicKey(value: unknown, recipientPublicKey: string) {
+    await this.ensureReady();
+    const publicKey = sodium.from_base64(recipientPublicKey, sodium.base64_variants.URLSAFE_NO_PADDING);
+    const sealed = sodium.crypto_box_seal(sodium.from_string(JSON.stringify(value ?? null)), publicKey);
+    return sodium.to_base64(sealed, sodium.base64_variants.URLSAFE_NO_PADDING);
+  }
+
   async unwrapKeyFromDeviceGrant(wrapped: string, recipientPublicKey: string, recipientPrivateKey: string) {
     await this.ensureReady();
     const sealed = sodium.from_base64(wrapped, sodium.base64_variants.URLSAFE_NO_PADDING);
