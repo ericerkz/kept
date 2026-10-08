@@ -327,6 +327,26 @@ async function main() {
     });
     assert.equal(disabledMcp.enabled, false);
     assert.equal(disabledMcp.revokedGrants, 1);
+    await assert.rejects(
+      request('/v2/integrations/remote-mcp/service-key', { headers }),
+      error => error.status === 403
+    );
+    const blockedGrantAfterDisable = await request(`/v2/vaults/${vaultId}/mutations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mutations: [{
+          operationId: 'op-mcp-grant-blocked-after-disable',
+          mutationType: 'keyGrant.upsert',
+          resourceId: mcpGrant.grantId,
+          payload: { grant: mcpGrant },
+          lww: { physicalMs: 1003, logical: 0, deviceId: 'device-a', operationId: 'op-mcp-grant-blocked-after-disable' },
+          createdAt: new Date().toISOString(),
+          attempts: 0
+        }]
+      })
+    });
+    assert.equal(blockedGrantAfterDisable[0].ok, false, 'remote MCP key grants are rejected after disable');
     const disabledCalendar = await request('/v2/integrations/hosted-calendar', {
       method: 'PUT',
       headers,
