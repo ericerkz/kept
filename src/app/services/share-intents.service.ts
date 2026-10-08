@@ -54,6 +54,7 @@ export class ShareIntentsService {
   private authSubscription?: Subscription;
   private visibilityListener?: () => void;
   private focusListener?: () => void;
+  private vaultUnlockedListener?: () => void;
   private listenerRetryTimer?: number;
   private listenerRetryCount = 0;
   private processQueueTimer?: number;
@@ -90,7 +91,7 @@ export class ShareIntentsService {
 
     await this.registerQueueTriggers();
     this.authSubscription = this.auth.currentUser$.subscribe(user => {
-      if (!user?.token) return;
+      if (!user?.token && !this.notes.isKept2LocalFirstActive()) return;
       this.requestProcessQueueBurst();
     });
   }
@@ -104,6 +105,7 @@ export class ShareIntentsService {
     await this.appResumeHandle?.remove();
     if (this.visibilityListener) document.removeEventListener('visibilitychange', this.visibilityListener);
     if (this.focusListener) window.removeEventListener('focus', this.focusListener);
+    if (this.vaultUnlockedListener) window.removeEventListener('kept2-vault-unlocked', this.vaultUnlockedListener);
     this.authSubscription?.unsubscribe();
     this.processQueueTimer = undefined;
     this.listenerHandle = undefined;
@@ -111,6 +113,7 @@ export class ShareIntentsService {
     this.appResumeHandle = undefined;
     this.visibilityListener = undefined;
     this.focusListener = undefined;
+    this.vaultUnlockedListener = undefined;
     this.authSubscription = undefined;
     this.listenerRetryTimer = undefined;
     this.listenerRetryCount = 0;
@@ -136,8 +139,10 @@ export class ShareIntentsService {
       if (document.visibilityState === 'visible') this.zone.run(() => this.requestProcessQueueBurst(150));
     };
     this.focusListener = () => this.zone.run(() => this.requestProcessQueueBurst(150));
+    this.vaultUnlockedListener = () => this.zone.run(() => this.requestProcessQueueBurst(150));
     document.addEventListener('visibilitychange', this.visibilityListener);
     window.addEventListener('focus', this.focusListener);
+    window.addEventListener('kept2-vault-unlocked', this.vaultUnlockedListener);
 
     try {
       this.appStateHandle = await CapacitorApp.addListener('appStateChange', event => {
@@ -152,7 +157,7 @@ export class ShareIntentsService {
   }
 
   private requestProcessQueueBurst(delay = 0) {
-    if (!this.auth.currentUser?.token) return;
+    if (!this.canProcessSharedIntents()) return;
     this.processQueueBurstUntil = Math.max(this.processQueueBurstUntil, Date.now() + 12000);
     this.requestProcessQueue(delay);
     this.scheduleNextQueueBurstTick(delay + 1500);
@@ -162,14 +167,14 @@ export class ShareIntentsService {
     if (this.processQueueBurstTimer) window.clearTimeout(this.processQueueBurstTimer);
     this.processQueueBurstTimer = window.setTimeout(() => {
       this.processQueueBurstTimer = undefined;
-      if (!this.auth.currentUser?.token || Date.now() > this.processQueueBurstUntil) return;
+      if (!this.canProcessSharedIntents() || Date.now() > this.processQueueBurstUntil) return;
       this.requestProcessQueue();
       this.scheduleNextQueueBurstTick();
     }, delay);
   }
 
   private requestProcessQueue(delay = 0) {
-    if (!this.auth.currentUser?.token) return;
+    if (!this.canProcessSharedIntents()) return;
     if (this.processQueueTimer) window.clearTimeout(this.processQueueTimer);
     this.processQueueTimer = window.setTimeout(() => {
       this.processQueueTimer = undefined;
@@ -178,7 +183,7 @@ export class ShareIntentsService {
   }
 
   private async processQueue() {
-    if (!this.auth.currentUser?.token) return;
+    if (!this.canProcessSharedIntents()) return;
     if (this.processQueueInFlight) {
       this.processQueueAgain = true;
       return;
@@ -198,7 +203,7 @@ export class ShareIntentsService {
   }
 
   private async handleIntent(intent: ShareIntent) {
-    if (!intent?.intentId || !this.auth.currentUser?.token) return;
+    if (!intent?.intentId || !this.canProcessSharedIntents()) return;
     if (this.processingIntentIds.has(intent.intentId)) return;
     this.processingIntentIds.add(intent.intentId);
 
@@ -406,5 +411,9 @@ export class ShareIntentsService {
     try {
       (window as any).Snackbar?.show({ pos: 'bottom-left', text, duration: 3200 });
     } catch {}
+  }
+
+  private canProcessSharedIntents() {
+    return !!this.auth.currentUser?.token || this.notes.isKept2LocalFirstActive();
   }
 }
