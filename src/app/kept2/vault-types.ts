@@ -124,6 +124,15 @@ export interface HostedIntegrationServiceKey {
   publicKey: string;
 }
 
+export interface HostedIntegrationSetting {
+  accountId?: string;
+  integration: 'remote-mcp' | 'hosted-calendar';
+  enabled: boolean;
+  updatedAt: string | null;
+  revokedGrants?: number;
+  cancelledJobs?: number;
+}
+
 export type Kept2MutationType =
   | 'resource.upsert'
   | 'resource.delete'
@@ -199,6 +208,8 @@ export interface SyncTransport {
   registerDevice?(vaultId: string, deviceId: string, publicKey: string, deviceLabel?: string): Promise<VaultDevicePublicKey>;
   listDevices?(vaultId: string): Promise<VaultDevicePublicKey[]>;
   revokeDevice?(vaultId: string, deviceId: string): Promise<void>;
+  integrationSetting?(integration: 'remote-mcp' | 'hosted-calendar'): Promise<HostedIntegrationSetting | null>;
+  setIntegrationEnabled?(integration: 'remote-mcp' | 'hosted-calendar', enabled: boolean): Promise<HostedIntegrationSetting>;
   integrationServiceKey?(integration: 'remote-mcp' | 'hosted-calendar'): Promise<HostedIntegrationServiceKey | null>;
   subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string; vaultId?: string }) => void): () => void;
 }

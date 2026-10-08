@@ -12,7 +12,7 @@ import { EncryptedSelfHostedTransport } from 'src/app/kept2/sync-transport';
 import { VaultDevicePairingService } from 'src/app/kept2/vault-device-pairing.service';
 import { VaultResourceKeyService } from 'src/app/kept2/vault-resource-key.service';
 import { VaultSessionService } from 'src/app/kept2/vault-session.service';
-import { KeyGrant, VaultDevicePublicKey, VaultIdentity } from 'src/app/kept2/vault-types';
+import { HostedIntegrationSetting, KeyGrant, VaultDevicePublicKey, VaultIdentity } from 'src/app/kept2/vault-types';
 import { AuthService } from 'src/app/services/auth.service';
 import { environment } from 'src/environments/environment';
 
@@ -88,6 +88,11 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
   pairingQrCodeUrl = '';
   incomingPairingCode = '';
   remoteDevices: VaultDevicePublicKey[] = [];
+  hostedIntegrations: Record<'remote-mcp' | 'hosted-calendar', HostedIntegrationSetting | null> = {
+    'remote-mcp': null,
+    'hosted-calendar': null
+  };
+  hostedIntegrationStatus = '';
 
   constructor(
     public auth: AuthService,
@@ -110,6 +115,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.syncCoordinator.start(this.identity);
       await this.refreshLocalState();
       await this.refreshRemoteDevices(false);
+      await this.refreshHostedIntegrations(false);
     }
   }
 
@@ -142,6 +148,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.syncCoordinator.start(result.identity);
       await this.refreshLocalState();
       await this.registerThisDevice(false);
+      await this.refreshHostedIntegrations(false);
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not create vault.';
     } finally {
@@ -161,6 +168,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.syncCoordinator.start(session.identity);
       await this.refreshLocalState();
       await this.refreshRemoteDevices(false);
+      await this.refreshHostedIntegrations(false);
       await this.navigateToReturnUrl();
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not unlock vault.';
@@ -182,6 +190,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       if (this.identity) this.syncCoordinator.start(this.identity);
       await this.refreshLocalState();
       await this.refreshRemoteDevices(false);
+      await this.refreshHostedIntegrations(false);
       await this.navigateToReturnUrl();
     } catch (error: any) {
       this.error = error instanceof Error ? error.message : 'Could not recover vault.';
@@ -197,6 +206,8 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     this.identity = null;
     this.notes = [];
     this.remoteDevices = [];
+    this.hostedIntegrations = { 'remote-mcp': null, 'hosted-calendar': null };
+    this.hostedIntegrationStatus = '';
     this.outboxCount = 0;
     this.clearDraft();
     this.success = 'Vault locked.';
@@ -217,6 +228,8 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
       this.identity = null;
       this.notes = [];
       this.remoteDevices = [];
+      this.hostedIntegrations = { 'remote-mcp': null, 'hosted-calendar': null };
+      this.hostedIntegrationStatus = '';
       this.outboxCount = 0;
       this.hasVault = false;
       this.generatedRecoveryCode = '';
@@ -525,6 +538,68 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     } finally {
       this.isBusy = false;
     }
+  }
+
+  async refreshHostedIntegrations(showStatus = true) {
+    if (!this.identity || !this.auth.currentUser) return;
+    try {
+      const transport = this.transport();
+      const [remoteMcp, hostedCalendar] = await Promise.all([
+        transport.integrationSetting?.('remote-mcp') || Promise.resolve(null),
+        transport.integrationSetting?.('hosted-calendar') || Promise.resolve(null)
+      ]);
+      this.hostedIntegrations = {
+        'remote-mcp': remoteMcp,
+        'hosted-calendar': hostedCalendar
+      };
+      if (showStatus) this.hostedIntegrationStatus = 'Hosted integration settings refreshed.';
+    } catch (error: any) {
+      if (showStatus) this.error = error instanceof Error ? error.message : 'Could not load hosted integration settings.';
+    }
+  }
+
+  async toggleHostedIntegration(integration: 'remote-mcp' | 'hosted-calendar', event: Event) {
+    if (!this.identity || !this.auth.currentUser) return;
+    const input = event.target as HTMLInputElement;
+    const enabled = !!input.checked;
+    if (!enabled) {
+      const ok = window.confirm(
+        `Disable ${this.hostedIntegrationLabel(integration)}? Future service access is revoked and pending jobs are cancelled, but existing resource keys are not rotated.`
+      );
+      if (!ok) {
+        input.checked = true;
+        return;
+      }
+    }
+    this.error = '';
+    this.hostedIntegrationStatus = '';
+    this.isBusy = true;
+    try {
+      const setting = await this.transport().setIntegrationEnabled(integration, enabled);
+      this.hostedIntegrations = {
+        ...this.hostedIntegrations,
+        [integration]: setting
+      };
+      if (enabled) {
+        this.hostedIntegrationStatus = `${this.hostedIntegrationLabel(integration)} enabled. Eligible local resources will be granted on the next sync.`;
+        await this.syncCoordinator.syncOnce(this.identity);
+        await this.refreshLocalState();
+      } else {
+        const revoked = Number(setting.revokedGrants || 0);
+        const cancelled = Number(setting.cancelledJobs || 0);
+        this.hostedIntegrationStatus = `${this.hostedIntegrationLabel(integration)} disabled. Revoked ${revoked} grant${revoked === 1 ? '' : 's'} and cancelled ${cancelled} job${cancelled === 1 ? '' : 's'}.`;
+      }
+      await this.refreshHostedIntegrations(false);
+    } catch (error: any) {
+      input.checked = !enabled;
+      this.error = error?.error?.error || (error instanceof Error ? error.message : 'Could not update hosted integration.');
+    } finally {
+      this.isBusy = false;
+    }
+  }
+
+  hostedIntegrationLabel(integration: 'remote-mcp' | 'hosted-calendar') {
+    return integration === 'remote-mcp' ? 'Hosted MCP' : 'Hosted calendar';
   }
 
   async saveDraft() {

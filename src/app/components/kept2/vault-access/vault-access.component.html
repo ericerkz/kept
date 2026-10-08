@@ -91,6 +91,39 @@
           </div>
         }
       </div>
+
+      <div class="vault-status hosted-integrations">
+        <strong>Hosted integrations</strong>
+        <span>Enable encrypted service access for this account. Services receive only explicit per-resource grants; locked notes stay excluded.</span>
+        <div class="integration-list">
+          <label class="integration-row">
+            <input
+              type="checkbox"
+              [checked]="!!hostedIntegrations['remote-mcp']?.enabled"
+              [disabled]="isBusy || !auth.currentUser"
+              (change)="toggleHostedIntegration('remote-mcp', $event)">
+            <span>
+              <strong>Hosted MCP</strong>
+              <small>Trusted MCP workers can search, create, edit, archive, trash, and manage unlocked notes after sync grants eligible keys.</small>
+            </span>
+          </label>
+          <label class="integration-row">
+            <input
+              type="checkbox"
+              [checked]="!!hostedIntegrations['hosted-calendar']?.enabled"
+              [disabled]="isBusy || !auth.currentUser"
+              (change)="toggleHostedIntegration('hosted-calendar', $event)">
+            <span>
+              <strong>Hosted calendar</strong>
+              <small>Calendar workers receive reminder grants plus the unlocked note metadata needed for event projection.</small>
+            </span>
+          </label>
+        </div>
+        <div class="button-row">
+          <button type="button" class="secondary" (click)="refreshHostedIntegrations()" [disabled]="isBusy || !auth.currentUser">Refresh integrations</button>
+        </div>
+        @if (hostedIntegrationStatus) { <span>{{hostedIntegrationStatus}}</span> }
+      </div>
     }
 
     @if (!generatedRecoveryCode) {
