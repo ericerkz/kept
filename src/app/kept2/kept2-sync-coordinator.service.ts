@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { AuthService } from '../services/auth.service';
 import { environment } from 'src/environments/environment';
+import { NoteAttachmentI } from '../interfaces/notes';
 import { SyncEngineService } from './sync-engine.service';
 import { EncryptedSelfHostedTransport } from './sync-transport';
 import { Kept2OutboxEntry, Kept2ResourceType, KeyGrant, SyncTransport, VaultIdentity } from './vault-types';
@@ -218,10 +219,12 @@ export class Kept2SyncCoordinatorService {
       if (!binder.syncId) continue;
       await addGrantMutation(binder.syncId, 'binder');
     }
+    const lockedAttachmentIds = await this.lockedAttachmentSyncIds();
     for (const attachment of await this.localVault.attachments()) {
       if (!attachment.syncId) continue;
-      await addGrantMutation(attachment.syncId, 'attachment');
-      await addGrantMutation(attachment.syncId, 'blob');
+      const locked = lockedAttachmentIds.has(attachment.syncId) || await this.isAttachmentParentLocked(attachment);
+      await addGrantMutation(attachment.syncId, 'attachment', locked);
+      await addGrantMutation(attachment.syncId, 'blob', locked);
     }
     for (let index = 0; index < mutations.length; index += 100) {
       const chunk = mutations.slice(index, index + 100);
@@ -327,6 +330,23 @@ export class Kept2SyncCoordinatorService {
 
   private async noteHasReminder(noteSyncId: string) {
     return (await this.localVault.reminders()).some(reminder => (reminder as { noteSyncId?: string }).noteSyncId === noteSyncId);
+  }
+
+  private async lockedAttachmentSyncIds() {
+    const ids = new Set<string>();
+    for (const note of await this.localVault.notes()) {
+      if (!this.isLockedNote(note)) continue;
+      for (const attachment of note.attachments || []) {
+        if (attachment.syncId) ids.add(attachment.syncId);
+      }
+    }
+    return ids;
+  }
+
+  private async isAttachmentParentLocked(attachment: NoteAttachmentI & { noteSyncId?: string }) {
+    if (!attachment.noteSyncId) return false;
+    const note = await this.localVault.getNote(attachment.noteSyncId);
+    return !!note && this.isLockedNote(note);
   }
 
   private mcpGrantStates = new Map<string, 'granted' | 'revoked'>();
