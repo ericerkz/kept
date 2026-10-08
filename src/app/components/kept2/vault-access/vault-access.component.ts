@@ -116,6 +116,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
   ) {}
 
   async ngOnInit() {
+    this.applyHostedCalendarQueryStatus();
     this.hasVault = await this.vaultSession.hasLocalVault();
     this.identity = this.vaultSession.currentSession()?.identity || null;
     this.mode = this.hasVault ? 'unlock' : 'create';
@@ -678,6 +679,26 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     }
   }
 
+  async connectGoogleHostedCalendar() {
+    if (!this.identity || !this.auth.currentUser) return;
+    const transport = this.transport();
+    if (!transport.initiateHostedCalendarGoogleAuth) {
+      this.error = 'Google hosted calendar connection is not available on this server.';
+      return;
+    }
+    this.error = '';
+    this.hostedIntegrationStatus = '';
+    this.isBusy = true;
+    try {
+      const returnUrl = this.cleanCurrentUrlForReturn();
+      const { url } = await transport.initiateHostedCalendarGoogleAuth(this.identity.vaultId, returnUrl);
+      window.location.href = url;
+    } catch (error: any) {
+      this.error = error?.error?.error || (error instanceof Error ? error.message : 'Could not start Google Calendar connection.');
+      this.isBusy = false;
+    }
+  }
+
   async deleteHostedCalendarConnection(connection: HostedIntegrationConnection) {
     if (!this.identity || !this.auth.currentUser) return;
     if (!window.confirm(`Delete ${connection.displayName || connection.provider || 'this calendar connection'}? Pending calendar jobs using it will no longer run.`)) return;
@@ -698,6 +719,32 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
     } finally {
       this.isBusy = false;
     }
+  }
+
+  private applyHostedCalendarQueryStatus() {
+    const calendar = this.route.snapshot.queryParamMap.get('calendar');
+    if (calendar === 'connected') {
+      this.hostedIntegrationStatus = 'Google Calendar connection saved.';
+      this.router.navigate([], {
+        queryParams: { calendar: null, message: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true
+      });
+    } else if (calendar === 'error') {
+      this.error = this.route.snapshot.queryParamMap.get('message') || 'Google Calendar connection failed.';
+      this.router.navigate([], {
+        queryParams: { calendar: null, message: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true
+      });
+    }
+  }
+
+  private cleanCurrentUrlForReturn() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('calendar');
+    url.searchParams.delete('message');
+    return url.toString();
   }
 
   async saveDraft() {

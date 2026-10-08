@@ -163,6 +163,14 @@ export class EncryptedSelfHostedTransport implements SyncTransport {
     ));
   }
 
+  initiateHostedCalendarGoogleAuth(vaultId: string, returnUrl: string) {
+    return firstValueFrom(this.http.post<{ url: string }>(
+      `${this.apiUrl}/v2/integrations/hosted-calendar/google/initiate`,
+      { vaultId, returnUrl },
+      { headers: this.authHeaders() }
+    ));
+  }
+
   subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string; vaultId?: string }) => void) {
     const token = this.authToken();
     if (!token || typeof WebSocket === 'undefined') return () => undefined;

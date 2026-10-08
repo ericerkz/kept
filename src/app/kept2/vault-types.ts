@@ -235,6 +235,7 @@ export interface SyncTransport {
     vaultId: string,
     payload: { jobType: string; encryptedRequest: string; connectionId?: string }
   ): Promise<{ jobId: string; status: string }>;
+  initiateHostedCalendarGoogleAuth?(vaultId: string, returnUrl: string): Promise<{ url: string }>;
   subscribeRealtime(vaultId: string, onChange: (event: { sequence: number; resourceId: string; vaultId?: string }) => void): () => void;
 }
 

@@ -142,6 +142,9 @@
               <button type="button" class="secondary" (click)="saveCalDavConnection()" [disabled]="isBusy || !auth.currentUser">
                 Save CalDAV connection
               </button>
+              <button type="button" class="secondary" (click)="connectGoogleHostedCalendar()" [disabled]="isBusy || !auth.currentUser">
+                Connect Google Calendar
+              </button>
             </div>
             @if (hostedCalendarConnections.length) {
               <div class="connection-list">
