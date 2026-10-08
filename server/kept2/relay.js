@@ -37,11 +37,11 @@ function mountKept2Relay(app, deps) {
   });
 
   app.get('/api/v2/integrations/remote-mcp', requireAuth, asyncRoute(async (req, res) => {
-    res.json(await remoteMcpSettings(req.user.id));
+    res.json(await integrationSettings(req.user.id, 'remote-mcp'));
   }));
 
   app.get('/api/v2/integrations/remote-mcp/service-key', requireAuth, asyncRoute(async (req, res) => {
-    const setting = await remoteMcpSettings(req.user.id);
+    const setting = await integrationSettings(req.user.id, 'remote-mcp');
     if (!setting.enabled) return res.status(403).json({ error: 'Remote MCP access is disabled.' });
     const publicKey = String(process.env.KEPT2_REMOTE_MCP_PUBLIC_KEY || '').trim();
     if (!publicKey) return res.status(503).json({ error: 'Remote MCP service key is not configured.' });
@@ -53,18 +53,27 @@ function mountKept2Relay(app, deps) {
   }));
 
   app.put('/api/v2/integrations/remote-mcp', requireAuth, asyncRoute(async (req, res) => {
-    const enabled = req.body?.enabled === true;
-    const now = new Date().toISOString();
-    await run(
-      `INSERT INTO kept2_integration_settings (userId, integration, enabled, updatedAt)
-       VALUES (?, 'remote-mcp', ?, ?)
-       ON CONFLICT(userId, integration) DO UPDATE SET
-         enabled = excluded.enabled,
-         updatedAt = excluded.updatedAt`,
-      [req.user.id, enabled ? 1 : 0, now]
-    );
-    if (!enabled) await revokeRemoteMcpGrants(req.user.id);
-    res.json(await remoteMcpSettings(req.user.id));
+    res.json(await setIntegrationEnabled(req.user.id, 'remote-mcp', 'mcp', req.body?.enabled === true));
+  }));
+
+  app.get('/api/v2/integrations/hosted-calendar', requireAuth, asyncRoute(async (req, res) => {
+    res.json(await integrationSettings(req.user.id, 'hosted-calendar'));
+  }));
+
+  app.get('/api/v2/integrations/hosted-calendar/service-key', requireAuth, asyncRoute(async (req, res) => {
+    const setting = await integrationSettings(req.user.id, 'hosted-calendar');
+    if (!setting.enabled) return res.status(403).json({ error: 'Hosted calendar access is disabled.' });
+    const publicKey = String(process.env.KEPT2_HOSTED_CALENDAR_PUBLIC_KEY || process.env.KEPT2_CALENDAR_PUBLIC_KEY || '').trim();
+    if (!publicKey) return res.status(503).json({ error: 'Hosted calendar service key is not configured.' });
+    res.json({
+      integration: 'hosted-calendar',
+      granteeId: 'hosted-calendar',
+      publicKey
+    });
+  }));
+
+  app.put('/api/v2/integrations/hosted-calendar', requireAuth, asyncRoute(async (req, res) => {
+    res.json(await setIntegrationEnabled(req.user.id, 'hosted-calendar', 'calendar', req.body?.enabled === true));
   }));
 
   app.get('/api/v2/vaults/:vaultId/bootstrap', requireAuth, asyncRoute(async (req, res) => {
@@ -356,8 +365,12 @@ function mountKept2Relay(app, deps) {
       const grant = mutation.payload?.grant || mutation.payload;
       const grantId = safeOpaqueId(grant?.grantId);
       if (!grantId) return { ok: false, operationId, error: 'Invalid grantId.' };
-      if (String(grant.grantPurpose || '') === 'mcp' && !await remoteMcpEnabledForVault(vaultId)) {
+      const grantPurpose = String(grant.grantPurpose || '');
+      if (grantPurpose === 'mcp' && !await integrationEnabledForVault(vaultId, 'remote-mcp')) {
         return { ok: false, operationId, error: 'Remote MCP grants are disabled for this account.' };
+      }
+      if (grantPurpose === 'calendar' && !await integrationEnabledForVault(vaultId, 'hosted-calendar')) {
+        return { ok: false, operationId, error: 'Hosted calendar grants are disabled for this account.' };
       }
       await run(
         `INSERT INTO kept2_key_grants
@@ -373,7 +386,7 @@ function mountKept2Relay(app, deps) {
           safeOpaqueId(grant.resourceId),
           String(grant.resourceType || ''),
           String(grant.granteeId || ''),
-          String(grant.grantPurpose || ''),
+          grantPurpose,
           Number(grant.keyEpoch || 1),
           String(grant.wrappedKey || ''),
           String(grant.createdAt || new Date().toISOString()),
@@ -399,26 +412,45 @@ function mountKept2Relay(app, deps) {
     return { ok: true, operationId, sequence };
   }
 
-  async function remoteMcpSettings(userId) {
+  async function integrationSettings(userId, integration) {
     const row = await get(
       `SELECT enabled, updatedAt FROM kept2_integration_settings
-       WHERE userId = ? AND integration = 'remote-mcp'`,
-      [userId]
+       WHERE userId = ? AND integration = ?`,
+      [userId, integration]
     );
     return {
+      integration,
       enabled: !!row?.enabled,
       updatedAt: row?.updatedAt || null
     };
   }
 
-  async function remoteMcpEnabledForVault(vaultId) {
+  async function setIntegrationEnabled(userId, integration, grantPurpose, enabled) {
+    const now = new Date().toISOString();
+    await run(
+      `INSERT INTO kept2_integration_settings (userId, integration, enabled, updatedAt)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(userId, integration) DO UPDATE SET
+         enabled = excluded.enabled,
+         updatedAt = excluded.updatedAt`,
+      [userId, integration, enabled ? 1 : 0, now]
+    );
+    const revokedGrants = enabled ? 0 : await revokeIntegrationGrants(userId, grantPurpose);
+    return {
+      ...await integrationSettings(userId, integration),
+      revokedGrants,
+      cancelledJobs: 0
+    };
+  }
+
+  async function integrationEnabledForVault(vaultId, integration) {
     const row = await get(
       `SELECT s.enabled
        FROM kept2_vaults v
        LEFT JOIN kept2_integration_settings s
-         ON s.userId = v.ownerUserId AND s.integration = 'remote-mcp'
+         ON s.userId = v.ownerUserId AND s.integration = ?
        WHERE v.vaultId = ?`,
-      [vaultId]
+      [integration, vaultId]
     );
     return !!row?.enabled;
   }
@@ -433,26 +465,27 @@ function mountKept2Relay(app, deps) {
     );
   }
 
-  async function revokeRemoteMcpGrants(userId) {
+  async function revokeIntegrationGrants(userId, grantPurpose) {
     const active = await all(
       `SELECT g.grantId, g.vaultId
        FROM kept2_key_grants g
        JOIN kept2_vaults v ON v.vaultId = g.vaultId
-       WHERE v.ownerUserId = ? AND g.grantPurpose = 'mcp' AND g.revokedAt IS NULL`,
-      [userId]
+       WHERE v.ownerUserId = ? AND g.grantPurpose = ? AND g.revokedAt IS NULL`,
+      [userId, grantPurpose]
     );
     const now = new Date().toISOString();
     await run(
       `UPDATE kept2_key_grants
        SET revokedAt = ?
-       WHERE grantPurpose = 'mcp'
+       WHERE grantPurpose = ?
          AND revokedAt IS NULL
          AND vaultId IN (SELECT vaultId FROM kept2_vaults WHERE ownerUserId = ?)`,
-      [now, userId]
+      [now, grantPurpose, userId]
     );
     for (const grant of active) {
       await recordChange(grant.vaultId, grant.grantId, 'keyGrant', 'delete');
     }
+    return active.length;
   }
 
   async function latestResourceSequence(vaultId, resourceId) {

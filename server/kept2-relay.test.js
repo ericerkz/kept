@@ -63,7 +63,14 @@ function mutation(envelope, overrides = {}) {
 async function main() {
   const child = childProcess.spawn('node', ['server/server.js'], {
     cwd: root,
-    env: { ...process.env, PORT: String(port), SQLITE_PATH: dbPath, DATA_DIR: dataDir, KEPT2_REMOTE_MCP_PUBLIC_KEY: 'remote-mcp-public-key' },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      SQLITE_PATH: dbPath,
+      DATA_DIR: dataDir,
+      KEPT2_REMOTE_MCP_PUBLIC_KEY: 'remote-mcp-public-key',
+      KEPT2_HOSTED_CALENDAR_PUBLIC_KEY: 'hosted-calendar-public-key'
+    },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   child.stdout.on('data', chunk => process.stdout.write(chunk));
@@ -84,7 +91,11 @@ async function main() {
     assert.equal(capabilities.protocolVersion, 'encrypted-v1');
     assert.equal(capabilities.contentBlindRealtime, true);
     const remoteMcpDefault = await request('/v2/integrations/remote-mcp', { headers });
+    assert.equal(remoteMcpDefault.integration, 'remote-mcp');
     assert.equal(remoteMcpDefault.enabled, false);
+    const hostedCalendarDefault = await request('/v2/integrations/hosted-calendar', { headers });
+    assert.equal(hostedCalendarDefault.integration, 'hosted-calendar');
+    assert.equal(hostedCalendarDefault.enabled, false);
 
     const legacyNote = await request('/notes', {
       method: 'POST',
@@ -220,6 +231,35 @@ async function main() {
     });
     assert.equal(blockedGrant[0].ok, false, 'remote MCP key grants are off by default');
 
+    const calendarGrant = {
+      grantId: 'grant-calendar-1',
+      vaultId,
+      resourceId: 'note-test',
+      resourceType: 'note.content',
+      granteeId: 'hosted-calendar',
+      grantPurpose: 'calendar',
+      keyEpoch: 1,
+      wrappedKey: 'wrapped-calendar-note-key',
+      createdAt: new Date().toISOString(),
+      revokedAt: null
+    };
+    const blockedCalendarGrant = await request(`/v2/vaults/${vaultId}/mutations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mutations: [{
+          operationId: 'op-calendar-grant-blocked',
+          mutationType: 'keyGrant.upsert',
+          resourceId: calendarGrant.grantId,
+          payload: { grant: calendarGrant },
+          lww: { physicalMs: 1000, logical: 1, deviceId: 'device-a', operationId: 'op-calendar-grant-blocked' },
+          createdAt: new Date().toISOString(),
+          attempts: 0
+        }]
+      })
+    });
+    assert.equal(blockedCalendarGrant[0].ok, false, 'hosted calendar key grants are off by default');
+
     const enabledMcp = await request('/v2/integrations/remote-mcp', {
       method: 'PUT',
       headers,
@@ -231,6 +271,18 @@ async function main() {
       integration: 'remote-mcp',
       granteeId: 'remote-mcp',
       publicKey: 'remote-mcp-public-key'
+    });
+    const enabledCalendar = await request('/v2/integrations/hosted-calendar', {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ enabled: true })
+    });
+    assert.equal(enabledCalendar.enabled, true);
+    const hostedCalendarServiceKey = await request('/v2/integrations/hosted-calendar/service-key', { headers });
+    assert.deepEqual(hostedCalendarServiceKey, {
+      integration: 'hosted-calendar',
+      granteeId: 'hosted-calendar',
+      publicKey: 'hosted-calendar-public-key'
     });
     const acceptedGrant = await request(`/v2/vaults/${vaultId}/mutations`, {
       method: 'POST',
@@ -248,8 +300,25 @@ async function main() {
       })
     });
     assert.equal(acceptedGrant[0].ok, true);
+    const acceptedCalendarGrant = await request(`/v2/vaults/${vaultId}/mutations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mutations: [{
+          operationId: 'op-calendar-grant-allowed',
+          mutationType: 'keyGrant.upsert',
+          resourceId: calendarGrant.grantId,
+          payload: { grant: calendarGrant },
+          lww: { physicalMs: 1002, logical: 0, deviceId: 'device-a', operationId: 'op-calendar-grant-allowed' },
+          createdAt: new Date().toISOString(),
+          attempts: 0
+        }]
+      })
+    });
+    assert.equal(acceptedCalendarGrant[0].ok, true);
     let grantSnapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
     assert.equal(grantSnapshot.keyGrants.some(grant => grant.grantId === mcpGrant.grantId), true);
+    assert.equal(grantSnapshot.keyGrants.some(grant => grant.grantId === calendarGrant.grantId), true);
 
     const disabledMcp = await request('/v2/integrations/remote-mcp', {
       method: 'PUT',
@@ -257,8 +326,17 @@ async function main() {
       body: JSON.stringify({ enabled: false })
     });
     assert.equal(disabledMcp.enabled, false);
+    assert.equal(disabledMcp.revokedGrants, 1);
+    const disabledCalendar = await request('/v2/integrations/hosted-calendar', {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ enabled: false })
+    });
+    assert.equal(disabledCalendar.enabled, false);
+    assert.equal(disabledCalendar.revokedGrants, 1);
     grantSnapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
     assert.equal(grantSnapshot.keyGrants.some(grant => grant.grantId === mcpGrant.grantId), false);
+    assert.equal(grantSnapshot.keyGrants.some(grant => grant.grantId === calendarGrant.grantId), false);
 
     const snapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
     assert.equal(snapshot.envelopes.length, 1);
