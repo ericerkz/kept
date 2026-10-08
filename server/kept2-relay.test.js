@@ -149,6 +149,12 @@ async function main() {
     const devices = await request(`/v2/vaults/${vaultId}/devices`, { headers });
     assert.equal(devices.devices.length, 1);
     assert.equal(devices.devices[0].deviceLabel, 'Test device');
+    const freshDevice = await request(`/v2/vaults/${vaultId}/devices/device-fresh`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ publicKey: 'fresh-device-public-key', deviceLabel: 'Fresh device' })
+    });
+    assert.equal(freshDevice.deviceId, 'device-fresh');
 
     const blobForm = new FormData();
     const encryptedBlob = new Blob([Buffer.from('sealed attachment bytes')], { type: 'application/octet-stream' });
@@ -316,9 +322,46 @@ async function main() {
       })
     });
     assert.equal(acceptedCalendarGrant[0].ok, true);
+    const freshDeviceGrant = {
+      grantId: 'grant-device-fresh-note',
+      vaultId,
+      resourceId: 'note-test',
+      resourceType: 'note.content',
+      granteeId: 'device:device-fresh',
+      grantPurpose: 'device',
+      keyEpoch: 1,
+      wrappedKey: 'wrapped-fresh-device-note-key',
+      createdAt: new Date().toISOString(),
+      revokedAt: null
+    };
+    const acceptedFreshDeviceGrant = await request(`/v2/vaults/${vaultId}/mutations`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        mutations: [{
+          operationId: 'op-device-fresh-grant',
+          mutationType: 'keyGrant.upsert',
+          resourceId: freshDeviceGrant.grantId,
+          payload: { grant: freshDeviceGrant },
+          lww: { physicalMs: 1002, logical: 1, deviceId: 'device-a', operationId: 'op-device-fresh-grant' },
+          createdAt: new Date().toISOString(),
+          attempts: 0
+        }]
+      })
+    });
+    assert.equal(acceptedFreshDeviceGrant[0].ok, true);
     let grantSnapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
     assert.equal(grantSnapshot.keyGrants.some(grant => grant.grantId === mcpGrant.grantId), true);
     assert.equal(grantSnapshot.keyGrants.some(grant => grant.grantId === calendarGrant.grantId), true);
+    assert.equal(grantSnapshot.keyGrants.some(grant => grant.grantId === freshDeviceGrant.grantId), true);
+
+    const revokedFreshDevice = await request(`/v2/vaults/${vaultId}/devices/device-fresh`, { method: 'DELETE', headers });
+    assert.equal(revokedFreshDevice.ok, true);
+    assert.equal(revokedFreshDevice.revokedGrants, 1);
+    const devicesAfterFreshRevoke = await request(`/v2/vaults/${vaultId}/devices`, { headers });
+    assert.equal(devicesAfterFreshRevoke.devices.some(device => device.deviceId === 'device-fresh'), false);
+    grantSnapshot = await request(`/v2/vaults/${vaultId}/bootstrap`, { headers });
+    assert.equal(grantSnapshot.keyGrants.some(grant => grant.grantId === freshDeviceGrant.grantId), false);
 
     const disabledMcp = await request('/v2/integrations/remote-mcp', {
       method: 'PUT',

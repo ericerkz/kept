@@ -144,13 +144,37 @@ function mountKept2Relay(app, deps) {
     if (!vault) return;
     const deviceId = safeOpaqueId(req.params.deviceId);
     if (!deviceId) return res.status(400).json({ error: 'Invalid device id.' });
+    const activeGrants = await all(
+      `SELECT grantId
+       FROM kept2_key_grants
+       WHERE vaultId = ?
+         AND grantPurpose = 'device'
+         AND granteeId = ?
+         AND revokedAt IS NULL`,
+      [vault.vaultId, `device:${deviceId}`]
+    );
     await run(
       `UPDATE kept2_vault_devices
           SET status = 'revoked', revokedAt = ?, updatedAt = ?
         WHERE vaultId = ? AND deviceId = ?`,
       [new Date().toISOString(), new Date().toISOString(), vault.vaultId, deviceId]
     );
-    res.json({ ok: true, deviceId });
+    if (activeGrants.length) {
+      const now = new Date().toISOString();
+      await run(
+        `UPDATE kept2_key_grants
+         SET revokedAt = ?
+         WHERE vaultId = ?
+           AND grantPurpose = 'device'
+           AND granteeId = ?
+           AND revokedAt IS NULL`,
+        [now, vault.vaultId, `device:${deviceId}`]
+      );
+      for (const grant of activeGrants) {
+        await recordChange(vault.vaultId, grant.grantId, 'keyGrant', 'delete');
+      }
+    }
+    res.json({ ok: true, deviceId, revokedGrants: activeGrants.length });
   }));
 
   app.get('/api/v2/vaults/:vaultId/changes', requireAuth, asyncRoute(async (req, res) => {
