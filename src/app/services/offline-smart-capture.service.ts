@@ -9,10 +9,17 @@ import {
 import { NoteI } from '../interfaces/notes';
 import { NotesService } from './notes.service';
 import { ReminderService } from './reminder.service';
+import { LocalFirstVaultService } from '../kept2/local-first-vault.service';
 
 const OFFLINE_ACTION_TYPES = new Set([
   'create_text_note',
   'create_todo_note',
+  'append_to_note',
+  'add_checklist_items',
+  'add_labels',
+  'share_note',
+  'archive_note',
+  'trash_note',
   'set_reminder'
 ]);
 
@@ -20,7 +27,8 @@ const OFFLINE_ACTION_TYPES = new Set([
 export class OfflineSmartCaptureService {
   constructor(
     private notes: NotesService,
-    private reminders: ReminderService
+    private reminders: ReminderService,
+    private localVault: LocalFirstVaultService
   ) {}
 
   validate(transcript: string, inputPlan: KeptActionPlan): KeptPlanValidation {
@@ -43,6 +51,21 @@ export class OfflineSmartCaptureService {
       }
       if (action.type === 'create_todo_note' && !this.checklistItems(action).length) {
         errors.push(`${label}.items are required.`);
+      }
+      if (this.noteTargetRequired(action) && !action.noteId && !createdNoteAvailable) {
+        errors.push(`${label}.noteId is required unless a previous action creates a note.`);
+      }
+      if (action.type === 'append_to_note' && !this.actionText(action)) {
+        errors.push(`${label}.text is required.`);
+      }
+      if (action.type === 'add_checklist_items' && !this.checklistItems(action).length) {
+        errors.push(`${label}.items are required.`);
+      }
+      if (action.type === 'add_labels' && !this.labelNames(action).length) {
+        errors.push(`${label}.labels are required.`);
+      }
+      if (action.type === 'share_note' && !this.userIds(action).length) {
+        errors.push(`${label}.userIds are required.`);
       }
       if (action.type === 'set_reminder') {
         const reminder = action as SetReminderAction;
@@ -115,6 +138,47 @@ export class OfflineSmartCaptureService {
           continue;
         }
 
+        if (action.type === 'append_to_note') {
+          const noteId = this.resolveActionNoteId(action, lastCreatedNote);
+          const note = await this.notes.get(noteId, { merge: false });
+          const separator = note.noteBody && String(note.noteBody).trim() ? '<br>' : '';
+          await this.notes.updateKey({
+            noteBody: `${note.noteBody || ''}${separator}${this.escapeHtml(this.actionText(action))}`
+          }, noteId);
+          result.updatedNoteIds.push(noteId);
+          result.executed.push({ type: action.type, noteId });
+          continue;
+        }
+
+        if (action.type === 'add_checklist_items') {
+          const noteId = this.resolveActionNoteId(action, lastCreatedNote);
+          const note = await this.notes.get(noteId, { merge: false });
+          const base = Date.now();
+          const checkBoxes = [
+            ...(note.checkBoxes || []),
+            ...this.checklistItems(action).map((item, itemIndex) => ({
+              id: base + itemIndex,
+              data: item,
+              done: false
+            }))
+          ];
+          await this.notes.updateKey({ checkBoxes, isCbox: true }, noteId);
+          result.updatedNoteIds.push(noteId);
+          result.executed.push({ type: action.type, noteId });
+          continue;
+        }
+
+        if (action.type === 'add_labels') {
+          const noteId = this.resolveActionNoteId(action, lastCreatedNote);
+          const note = await this.notes.get(noteId, { merge: false });
+          const labels = await this.mergeLabels(note.labels || [], this.labelNames(action));
+          await this.notes.updateKey({ labels }, noteId);
+          result.updatedNoteIds.push(noteId);
+          result.createdLabelIds.push(...labels.filter(label => label.id != null).map(label => label.id!));
+          result.executed.push({ type: action.type, noteId, labels: labels.map(label => label.name) });
+          continue;
+        }
+
         if (action.type === 'set_reminder') {
           const reminderAction = action as SetReminderAction;
           const noteId = reminderAction.noteId || lastCreatedNote?.id;
@@ -135,6 +199,31 @@ export class OfflineSmartCaptureService {
           result.reminderIds.push(reminder.id);
           result.updatedNoteIds.push(noteId);
           result.executed.push({ type: action.type, reminderId: reminder.id, noteId });
+          continue;
+        }
+
+        if (action.type === 'share_note') {
+          const noteId = this.resolveActionNoteId(action, lastCreatedNote);
+          const userIds = this.userIds(action);
+          await this.notes.updateCollaborators(noteId, userIds);
+          result.updatedNoteIds.push(noteId);
+          result.executed.push({ type: action.type, noteId, userIds });
+          continue;
+        }
+
+        if (action.type === 'archive_note') {
+          const noteId = this.resolveActionNoteId(action, lastCreatedNote);
+          await this.notes.updateKey({ archived: true, trashed: false }, noteId);
+          result.updatedNoteIds.push(noteId);
+          result.executed.push({ type: action.type, noteId });
+          continue;
+        }
+
+        if (action.type === 'trash_note') {
+          const noteId = this.resolveActionNoteId(action, lastCreatedNote);
+          await this.notes.updateKey({ archived: false, trashed: true }, noteId);
+          result.updatedNoteIds.push(noteId);
+          result.executed.push({ type: action.type, noteId });
           continue;
         }
 
@@ -190,6 +279,8 @@ export class OfflineSmartCaptureService {
       ...raw,
       type: String(raw.type || '').trim()
     };
+    if (['archive', 'archiveNote'].includes(action.type)) action.type = 'archive_note';
+    if (['trash', 'trashNote'].includes(action.type)) action.type = 'trash_note';
     const title = this.actionTitle(raw);
     const text = this.actionText(raw);
     if (title) action.title = title;
@@ -199,6 +290,10 @@ export class OfflineSmartCaptureService {
       if (Number.isFinite(noteId) && noteId !== 0) action.noteId = noteId;
     }
     if (action.type === 'create_todo_note') action.items = this.checklistItems(raw);
+    const labels = this.labelNames(raw);
+    if (labels.length) action.labels = labels;
+    const userIds = this.userIds(raw);
+    if (userIds.length) action.userIds = userIds;
     action.dueAtUtc = raw.dueAtUtc || raw.dueAt || raw.datetime || raw.dateTime;
     action.locationName = raw.locationName || raw.location_name || raw.triggerLocationName
       || location.displayName || location.name || location.address;
@@ -250,6 +345,24 @@ export class OfflineSmartCaptureService {
     ).filter(Boolean);
   }
 
+  private labelNames(action: any) {
+    const raw = action?.labels ?? action?.labelNames ?? action?.names ?? [];
+    const labels = Array.isArray(raw) ? raw : [raw];
+    return [...new Set(labels.map(label => typeof label === 'string'
+      ? label.trim()
+      : String(label?.name ?? '').trim()
+    ).filter(Boolean))];
+  }
+
+  private userIds(action: any) {
+    const raw = action?.userIds ?? action?.users ?? action?.collaboratorUserIds ?? action?.shareWithUserIds ?? [];
+    const users = Array.isArray(raw) ? raw : [raw];
+    return [...new Set(users
+      .map(user => Number(typeof user === 'object' ? user?.id ?? user?.userId : user))
+      .filter(Boolean)
+    )];
+  }
+
   private isLocationReminder(action: SetReminderAction) {
     return action.latitude != null
       && action.longitude != null
@@ -280,5 +393,51 @@ export class OfflineSmartCaptureService {
 
   private firstDefined(...values: any[]) {
     return values.find(value => value !== undefined && value !== null && value !== '');
+  }
+
+  private noteTargetRequired(action: KeptAction) {
+    return [
+      'append_to_note',
+      'add_checklist_items',
+      'add_labels',
+      'share_note',
+      'archive_note',
+      'trash_note'
+    ].includes(action.type);
+  }
+
+  private resolveActionNoteId(action: KeptAction, lastCreatedNote: NoteI | null) {
+    const noteId = Number((action as any).noteId || lastCreatedNote?.id || 0);
+    if (!Number.isFinite(noteId) || noteId === 0) throw new Error(`${action.type} does not have a note.`);
+    return noteId;
+  }
+
+  private async mergeLabels(current: any[], names: string[]) {
+    const labels = [...(current || [])];
+    const byName = new Map(labels.map(label => [String(label.name || '').toLowerCase(), label]));
+    for (const name of names) {
+      const key = name.toLowerCase();
+      if (byName.has(key)) {
+        byName.get(key).added = true;
+        continue;
+      }
+      const label: any = { id: -Date.now() - labels.length, name, added: true };
+      if (this.notes.isKept2LocalFirstActive()) {
+        const stored = await this.localVault.upsertLabel({ name, syncId: `label-${crypto.randomUUID()}` } as any);
+        label.syncId = stored.syncId;
+      }
+      labels.push(label);
+      byName.set(key, label);
+    }
+    return labels;
+  }
+
+  private escapeHtml(value: string) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 }

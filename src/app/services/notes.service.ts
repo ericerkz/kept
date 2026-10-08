@@ -1218,6 +1218,22 @@ export class NotesService {
   }
 
   async updateCollaborators(id: number, userIds: number[]) {
+    if (this.useKept2LocalFirst()) {
+      const note = await this.getKept2LocalNote(id);
+      if (!note?.syncId) return [];
+      const uniqueIds = [...new Set((userIds || []).map(userId => Number(userId)).filter(Boolean))];
+      const collaborators: ShareUserI[] = uniqueIds.map(userId => ({
+        id: userId,
+        username: '',
+        displayName: '',
+        avatarDataUrl: '',
+        avatarPreset: '',
+        shareCount: 0
+      }));
+      const updated = await this.localFirstVault.updateNote(note.syncId, { collaborators });
+      this.mergeNoteIntoList(this.withKept2SyntheticId(updated));
+      return collaborators;
+    }
     if (id !== -1) {
       const users = await firstValueFrom(this.http.put<ShareUserI[]>(
         `${this.apiUrl}/${id}/collaborators`,

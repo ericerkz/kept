@@ -357,7 +357,7 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureError = '';
     this.smartCaptureValidatedOffline = false;
     try {
-      if (!navigator.onLine) {
+      if (this.notes.isKept2LocalFirstActive() || !navigator.onLine) {
         this.smartCaptureValidation = this.offlineSmartCapture.validate(this.smartCaptureTranscript, this.smartCapturePlan);
         this.smartCaptureValidatedOffline = true;
       } else {
@@ -429,8 +429,8 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureError = '';
     this.smartCaptureResult = null;
     try {
-      const executeOffline = this.smartCaptureValidatedOffline || !navigator.onLine;
-      this.smartCaptureResult = executeOffline
+      const executeLocally = this.smartCaptureValidatedOffline || this.notes.isKept2LocalFirstActive() || !navigator.onLine;
+      this.smartCaptureResult = executeLocally
         ? await this.offlineSmartCapture.execute(preparedPlan, selectedActionIndexes)
         : await this.ai.executePlan(this.smartCaptureTranscript, preparedPlan, {
             confirmed: true,
@@ -443,7 +443,7 @@ export class MainComponent implements OnInit, OnDestroy {
         ? preparedPlan.actions.filter((_action, index) => selectedActionIndexes.includes(index))
         : preparedPlan.actions;
       await this.syncNativeConfirmedReminders(confirmedActions);
-      if (!executeOffline) {
+      if (!executeLocally) {
         await this.notes.ensureNotesVisible(this.smartCaptureResult.createdNoteIds || []);
         await this.notes.load(undefined, { cacheBust: true });
         await this.reminders.load();
