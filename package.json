@@ -20,6 +20,7 @@
     "test:legacy-compat": "node --test server/kept2-legacy-compat.test.mjs",
     "test:opaque": "node --test server/kept2-opaque.test.mjs",
     "test:cloud": "node --test server/kept2-cloud.test.mjs",
+    "test:kept2": "npm run test:vault && npm run test:local-first && npm run test:convergence && npm run test:encrypted-sync && npm run test:crypto && npm run test:key-material && npm run test:migration && npm run test:legacy-compat && npm run test:opaque && npm run test:cloud",
     "mcp": "node mcp/index.mjs",
     "test:mcp": "node --test mcp/*.test.mjs",
     "purgecss": "purgecss -c purgecss.config.js",
