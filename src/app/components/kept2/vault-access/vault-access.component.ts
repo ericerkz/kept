@@ -95,6 +95,7 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
   };
   hostedIntegrationStatus = '';
   hostedCalendarConnections: HostedIntegrationConnection[] = [];
+  hostedCalendarConnectionsSupported = false;
   calendarDisplayName = 'Primary calendar';
   calendarUrl = '';
   calendarUsername = '';
@@ -615,11 +616,17 @@ export class VaultAccessComponent implements OnInit, OnDestroy {
   async refreshHostedCalendarConnections(showStatus = true) {
     if (!this.identity || !this.auth.currentUser) return;
     const transport = this.transport();
-    if (!transport.listHostedCalendarConnections) return;
+    if (!transport.listHostedCalendarConnections) {
+      this.hostedCalendarConnectionsSupported = false;
+      return;
+    }
     try {
       this.hostedCalendarConnections = await transport.listHostedCalendarConnections(this.identity.vaultId);
+      this.hostedCalendarConnectionsSupported = true;
       if (showStatus) this.hostedIntegrationStatus = 'Hosted calendar connections refreshed.';
     } catch (error: any) {
+      this.hostedCalendarConnectionsSupported = false;
+      this.hostedCalendarConnections = [];
       if (showStatus) this.error = error?.error?.error || (error instanceof Error ? error.message : 'Could not load hosted calendar connections.');
     }
   }

@@ -119,7 +119,7 @@
             </span>
           </label>
         </div>
-        @if (hostedIntegrations['hosted-calendar']?.enabled) {
+        @if (hostedIntegrations['hosted-calendar']?.enabled && hostedCalendarConnectionsSupported) {
           <div class="calendar-connections">
             <strong>Hosted calendar connections</strong>
             <div class="calendar-connection-form">
