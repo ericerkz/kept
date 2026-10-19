@@ -3395,8 +3395,14 @@ export class InputComponent implements OnInit {
           this.saveNote()
         }
       },
-      clone: () => {
-        this.saveNote()
+      clone: async () => {
+        if (this.isEditing && this.noteToEdit.id) {
+          const saved = await this.saveNote()
+          if (saved === false) return
+          await this.notesService.clone(this.noteToEdit.id)
+          return
+        }
+        await this.saveNote()
       },
       toggleCbox: () => {
         this.toggleCbox()
