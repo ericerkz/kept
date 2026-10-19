@@ -136,7 +136,9 @@
   <div #noteEl class="notes-layout" [class.list-layout]="Shared.noteViewType.value === 'list'">
     @let filteredNotes = notes | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value;
     @for (note of visibleNotes(filteredNotes); track note.id) {
-      <div #noteEL class="note-container" [class.selected]="Shared.isNoteSelected(note.id)"
+      <div #noteEL class="note-container"
+        [attr.data-note-ink]="note.bgColor || hasRealBgImage(note.bgImage) ? noteTextColor(note) : null"
+        [style.--note-ink]="note.bgColor || hasRealBgImage(note.bgImage) ? noteTextColor(note) : null" [class.selected]="Shared.isNoteSelected(note.id)"
         [class.note-dragging]="draggedNoteId === note.id"
         [attr.data-note-id]="note.id"
         [draggable]="canReorderNote(note)"

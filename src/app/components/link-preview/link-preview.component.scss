@@ -58,7 +58,7 @@
   }
 
   .lp-title {
-    color: #e8eaed;
+    color: var(--note-ink, #e8eaed);
     font-family: 'Google Sans', Roboto, Arial, sans-serif;
     font-size: 14px;
     font-weight: 500;
@@ -68,7 +68,7 @@
   }
 
   .lp-domain {
-    color: #9aa0a6;
+    color: var(--note-ink, #9aa0a6);
     font-size: 12px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -79,7 +79,7 @@
     display: flex;
     gap: 12px;
     margin-left: 12px;
-    opacity: 0.6; // Keep them slightly visible as per screenshot
+    opacity: var(--note-link-actions-opacity, 0.6); // Keep them slightly visible as per screenshot
     transition: opacity 0.15s;
   }
 
@@ -87,7 +87,7 @@
     align-items: center;
     background: transparent;
     border: none;
-    color: #bdc1c6;
+    color: var(--note-ink, #bdc1c6);
     cursor: pointer;
     display: flex;
     height: 24px;
@@ -102,7 +102,7 @@
     }
 
     &:hover {
-      color: #e8eaed;
+      color: var(--note-ink, #e8eaed);
     }
   }
 
@@ -160,14 +160,14 @@
 
 :host-context(.light-theme) {
   .lp-card { 
-    background: #fff;
+    background: var(--note-link-background, #fff);
     border-color: #dadce0;
-    &:hover { background: #f8f9fa; border-color: #bdc1c6; }
+    &:hover { background: var(--note-link-hover, #f8f9fa); border-color: var(--note-ink, #bdc1c6); }
   }
-  .lp-title { color: #202124; }
-  .lp-domain { color: #5f6368; }
+  .lp-title { color: var(--note-ink, #202124); }
+  .lp-domain { color: var(--note-ink, #5f6368); }
   .lp-action-btn {
-    color: #5f6368;
-    &:hover { color: #202124; }
+    color: var(--note-ink, #5f6368);
+    &:hover { color: var(--note-ink, #202124); }
   }
 }
