@@ -111,13 +111,8 @@
   right: 14px;
   top: 8px;
   position: absolute;
-  background-image: url(/assets/images/svg/pin.svg);
-  background-position: center;
-  background-repeat: no-repeat;
-
-  &.pinned {
-    background-image: url(/assets/images/svg/pin-pinned.svg) !important;
-  }
+  // The pin graphic is rendered by the ::after SVG mask in styles.scss.
+  // Avoid a second SVG background underneath it (visible halo when pinned).
 
   &:hover {
     opacity: 0.87 !important;

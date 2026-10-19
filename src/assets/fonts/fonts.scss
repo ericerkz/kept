@@ -1,26 +1,45 @@
 @font-face {
-  font-family: "Google Sans";
-  src: url("1.woff2") format("woff2");
-  font-weight: normal;
+  font-family: "Roboto";
+  src: url("Roboto.woff2") format("woff2");
   font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 75% 100%;
   font-display: swap;
-  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Roboto";
+  src: url("Roboto-Italic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 100 900;
+  font-stretch: 75% 100%;
+  font-display: swap;
+}
+
+// Keep the existing family names working while using the complete Roboto font.
+@font-face {
+  font-family: "Google Sans";
+  src: url("Roboto.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 75% 100%;
+  font-display: swap;
 }
 
 @font-face {
   font-family: "Google Sans Light 1";
-  src: url("2.woff2") format("woff2");
-  font-weight: normal;
+  src: url("Roboto.woff2") format("woff2");
   font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 75% 100%;
   font-display: swap;
-  font-weight: 400;
 }
 
 @font-face {
   font-family: "Google Sans Light 2";
-  src: url("3.woff2") format("woff2");
-  font-weight: normal;
+  src: url("Roboto.woff2") format("woff2");
   font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 75% 100%;
   font-display: swap;
-  font-weight: 400;
 }
