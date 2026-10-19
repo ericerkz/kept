@@ -74,14 +74,26 @@ export class ReminderNotificationComponent implements OnInit, OnDestroy {
   }
 
   private showBrowserNotification(payload: ReminderFiredPayload) {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-    if (Notification.permission !== 'granted') return;
-
     // The SW push handler already called showNotification() for push-fired
     // events; skip the in-page duplicate. For locally-fired (timer) events
     // we MUST surface the OS notification ourselves, otherwise desktop users
     // see nothing when the page is in another tab.
     if (payload.source === 'sw-push') return;
+
+    if (this.reminderService.isAndroidNativeNotificationAvailable()) {
+      this.reminderService.postAndroidReminderNotification(payload).catch(error => {
+        console.warn('Android reminder notification failed', error);
+        this.showWebNotification(payload);
+      });
+      return;
+    }
+
+    this.showWebNotification(payload);
+  }
+
+  private showWebNotification(payload: ReminderFiredPayload) {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
 
     const title = this.cleanText(payload.title) || 'Reminder';
     const body = this.cleanText(payload.body);

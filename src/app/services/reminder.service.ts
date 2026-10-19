@@ -95,6 +95,12 @@ interface KeptGeofencePlugin {
   unregisterGeofence(input: { reminderId: string }): Promise<void>;
   getPendingTriggeredEvents(): Promise<{ events: AndroidTriggeredGeofenceEvent[] }>;
   acknowledgeTriggeredEvents(input: { eventIds: string[] }): Promise<void>;
+  postNotification(input: {
+    title: string;
+    body?: string;
+    reminderId: string;
+    deepLink?: string;
+  }): Promise<{ posted: boolean; notificationKey?: string }>;
 }
 
 interface KeptTimeRemindersPlugin {
@@ -240,7 +246,9 @@ export class ReminderService {
       const local: ReminderI = { ...existing, ...payload, repeatRule: payload.repeatRule === undefined ? existing.repeatRule : payload.repeatRule as string | null, updatedAt: new Date().toISOString() };
       if (this.offlineSync.partition) await this.offlineStore.putReminder(this.offlineSync.partition, local);
       this.setReminders(this.reminders$.value.map(reminder => reminder.id === id ? local : reminder));
-      if (payload.status && payload.status !== 'pending') this.cancelAndroidTimeReminder(id);
+      if (payload.status && payload.status !== 'pending' && payload.status !== 'fired') {
+        this.cancelAndroidTimeReminder(id);
+      }
       if (id < 0 || !navigator.onLine) {
         await this.offlineSync.enqueue('reminder.upsert', local.syncId!, local);
         return local;
@@ -371,6 +379,7 @@ export class ReminderService {
 
   async dismissFiredReminder(reminderId: number) {
     const reminder = this.reminders$.value.find(r => r.id === reminderId);
+    this.cancelAndroidTimeReminder(reminderId);
     if (this.isRepeatingRule(this.parseRepeatRule(reminder?.repeatRule))) {
       if (navigator.onLine) await this.load().catch(console.error);
       return reminder || null;
@@ -459,6 +468,20 @@ export class ReminderService {
 
   isIos() { return this.push.isIos(); }
   isStandalone() { return this.push.isStandalone(); }
+
+  isAndroidNativeNotificationAvailable() {
+    return this.isAndroidGeofenceAvailable();
+  }
+
+  async postAndroidReminderNotification(payload: ReminderFiredPayload) {
+    if (!this.isAndroidGeofenceAvailable()) return;
+    await KeptGeofence!.postNotification({
+      title: this.plainText(payload.title || '') || 'Reminder',
+      body: this.plainText(payload.body || '') || undefined,
+      reminderId: String(payload.reminderId),
+      deepLink: payload.noteId ? `kept://note/${payload.noteId}` : undefined
+    });
+  }
 
   private setReminders(reminders: ReminderI[]) {
     this.reminders$.next(reminders);
