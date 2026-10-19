@@ -431,7 +431,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     return value.startsWith('url(') ? value : `url(${value})`
   }
 
-  private hasRealBgImage(data?: string | null) {
+  hasRealBgImage(data?: string | null) {
     return !!this.normalizeBgImage(data)
   }
 

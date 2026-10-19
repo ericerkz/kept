@@ -3457,3 +3457,50 @@ body.light-theme .reminder-date-dialog {
   .rp-clear { color: #f6aea9; }
   .rp-debug { color: #fbbc04; }
 }
+
+// Opt in only on note surfaces; shared menus keep their theme styling.
+// Scoped !important declarations override Angular-encapsulated fixed colors.
+body [data-note-ink] {
+  --note-link-actions-opacity: 1;
+  --note-link-background: transparent;
+  --note-link-hover: color-mix(in srgb, var(--note-ink) 8%, transparent);
+
+  .icons-container .icons > div::after,
+  .icons-container .icons > button.undo::after,
+  .pin-icon::after { background-color: var(--note-ink) !important; }
+
+  .icons-container .icons > .alarm-active::after {
+    background-color: var(--note-ink) !important;
+  }
+  .icons-container .icons > .alarm-active {
+    box-shadow: inset 0 -2px var(--note-ink);
+  }
+
+  .icons-container .icons > .material-restore,
+  .attachment-card,
+  .attachment-card .attachment-type,
+  .attachment-card .attachment-name,
+  .attachment-card .attachment-size,
+  .attachment-card .attachment-download,
+  .attachment-card .attachment-remove,
+  .link-overflow-chip,
+  .link-open-glyph,
+  .link-open-glyph:hover,
+  .reminder-chip,
+  .reminder-chip.reminder-chip--past { color: var(--note-ink) !important; }
+
+  .reminder-chip,
+  .reminder-chip.reminder-chip--past {
+    background: color-mix(in srgb, var(--note-ink) 8%, transparent) !important;
+    border: 1px solid color-mix(in srgb, var(--note-ink) 35%, transparent);
+    &:hover { background: color-mix(in srgb, var(--note-ink) 14%, transparent) !important; }
+  }
+  .reminder-chip--past { text-decoration: line-through; }
+  .reminder-chip img { opacity: 1; }
+}
+// The external clock SVG is black, including on neutral dark notes.
+body:not(.light-theme) :where(.note-main, .note-container) .reminder-chip img {
+  filter: brightness(0) invert(1);
+}
+body [data-note-ink="#202124"] .reminder-chip img { filter: brightness(0) !important; }
+body [data-note-ink="#e8eaed"] .reminder-chip img { filter: brightness(0) invert(1); }

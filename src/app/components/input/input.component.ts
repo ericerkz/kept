@@ -968,6 +968,7 @@ export class InputComponent implements OnInit {
     this.noteMain.nativeElement.style.borderColor = ''
     this.noteMain.nativeElement.style.color = ''
     this.hasBackgroundImage = false
+    this.updateTextColor('')
     //
     this.checkBoxes = []
     this.cboxSuggestionEligibleIds.clear()
@@ -3505,6 +3506,16 @@ export class InputComponent implements OnInit {
   }
 
   private updateTextColor(color: string) {
+    const surface = this.noteMain.nativeElement
+    // Match the card foreground, including the existing image-background policy.
+    const ink = this.hasBackgroundImage || this.isLightColor(color) ? '#202124' : '#e8eaed'
+    if (color || this.hasBackgroundImage) {
+      surface.setAttribute('data-note-ink', ink)
+      surface.style.setProperty('--note-ink', ink)
+    } else {
+      surface.removeAttribute('data-note-ink')
+      surface.style.removeProperty('--note-ink')
+    }
     if (this.hasBackgroundImage || this.isLightColor(color)) {
       this.noteMain.nativeElement.style.color = '#202124'
     } else if (color) {
@@ -3736,9 +3747,7 @@ export class InputComponent implements OnInit {
     }
     if (this.noteMain?.nativeElement) {
       this.noteMain.nativeElement.style.backgroundColor = note.bgColor || "";
-      if (note.bgImage) {
-        this.noteMain.nativeElement.style.backgroundImage = note.bgImage;
-      }
+      this.applyBackgroundImage(note.bgImage || '');
     }
     if (!this.cboxDragImage) {
       this.checkBoxes = this.normalizeCheckBoxes(note.checkBoxes || []);
