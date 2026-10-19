@@ -1,4 +1,4 @@
-import { AfterViewInit, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { SharedService } from 'src/app/services/shared.service';
 import { LabelActionsT } from 'src/app/interfaces/labels';
@@ -12,7 +12,7 @@ import { isNativePhonePlatform } from 'src/app/utils/platform';
     styleUrls: ['./sidenav.component.scss'],
     standalone: false
 })
-export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
+export class NavComponent implements OnInit, OnDestroy {
   @ViewChild("modalContainer ") modalContainer !: ElementRef<HTMLInputElement>
   @ViewChild("modal") modal !: ElementRef<HTMLInputElement>
   @ViewChild("labelInput") labelInput !: ElementRef<HTMLInputElement>
@@ -21,7 +21,6 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild("binderModal") binderModal !: ElementRef<HTMLInputElement>
   @ViewChild("binderInput") binderInput !: ElementRef<HTMLInputElement>
   @ViewChild("binderError") binderError !: ElementRef<HTMLInputElement>
-  @ViewChild('labelsScroll') labelsScroll?: ElementRef<HTMLDivElement>
 
   isMobileOpen = false;
   get nativePhoneDrawer() {
@@ -30,11 +29,8 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
 
   installHelpOpen = false;
 
-  // Visual cues that the labels region is scrollable.
-  canScrollUp = false;
-  canScrollDown = false;
-  private labelsResizeObserver?: ResizeObserver;
-  private labelsMutationObserver?: MutationObserver;
+  bindersExpanded = true;
+  labelsExpanded = true;
   private subscriptions: Subscription[] = [];
 
   constructor(public Shared: SharedService, public router: Router, public auth: AuthService) {
@@ -130,6 +126,18 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  toggleBinders() {
+    if (!this.Shared.binder.list.length) return;
+    this.bindersExpanded = !this.bindersExpanded;
+    this.saveSectionExpanded('binders', this.bindersExpanded);
+  }
+
+  toggleLabels() {
+    if (!this.Shared.label.list.length) return;
+    this.labelsExpanded = !this.labelsExpanded;
+    this.saveSectionExpanded('labels', this.labelsExpanded);
+  }
+
   compactLabel(name: string) {
     const words = String(name || '')
       .trim()
@@ -196,6 +204,8 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.bindersExpanded = this.readSectionExpanded('binders');
+    this.labelsExpanded = this.readSectionExpanded('labels');
     this.subscriptions.push(
       this.Shared.closeSideBar.subscribe(x => { if (x) this.collapseSideBar() }),
       this.Shared.closeSideBarIfOpen.subscribe(x => { if (x) this.closeSideBarIfOpen() })
@@ -209,47 +219,23 @@ export class NavComponent implements OnInit, AfterViewInit, OnDestroy {
     this.isMobileOpen = !collapsed && this.usesDrawerSidebar();
   }
 
-  ngAfterViewInit() {
-    const el = this.labelsScroll?.nativeElement;
-    if (!el) return;
-    this.updateLabelsOverflowState();
-    if (typeof ResizeObserver !== 'undefined') {
-      this.labelsResizeObserver = new ResizeObserver(() => this.updateLabelsOverflowState());
-      this.labelsResizeObserver.observe(el);
-    }
-    if (typeof MutationObserver !== 'undefined') {
-      this.labelsMutationObserver = new MutationObserver(() => this.updateLabelsOverflowState());
-      this.labelsMutationObserver.observe(el, { childList: true });
-    }
-  }
-
   ngOnDestroy() {
-    this.labelsResizeObserver?.disconnect();
-    this.labelsMutationObserver?.disconnect();
     this.subscriptions.forEach(sub => sub.unsubscribe());
     this.subscriptions = [];
   }
 
-  onLabelsScroll() {
-    this.updateLabelsOverflowState();
+  private sectionStorageKey(section: 'binders' | 'labels') {
+    return `kept_sidebar_${section}_expanded:${this.auth.currentUser?.id || 'anon'}`;
   }
 
-  @HostListener('window:resize')
-  onWindowResizeForOverflow() {
-    this.updateLabelsOverflowState();
+  private readSectionExpanded(section: 'binders' | 'labels') {
+    try { return localStorage.getItem(this.sectionStorageKey(section)) !== 'false'; }
+    catch { return true; }
   }
 
-  private updateLabelsOverflowState() {
-    const el = this.labelsScroll?.nativeElement;
-    if (!el) {
-      this.canScrollUp = false;
-      this.canScrollDown = false;
-      return;
-    }
-    const max = el.scrollHeight - el.clientHeight;
-    // 2px tolerance to avoid sub-pixel flicker.
-    this.canScrollUp = el.scrollTop > 2;
-    this.canScrollDown = el.scrollTop < max - 2;
+  private saveSectionExpanded(section: 'binders' | 'labels', expanded: boolean) {
+    try { localStorage.setItem(this.sectionStorageKey(section), String(expanded)); }
+    catch { /* Sidebar remains usable when storage is blocked. */ }
   }
 
   private usesDrawerSidebar() {

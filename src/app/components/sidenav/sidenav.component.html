@@ -22,15 +22,24 @@
   </div>
 
   <div class="sidenav-labels-header sidenav-binders-header">
-    <span class="material-pic material-symbols-outlined binder-section-icon" aria-hidden="true">folder_open</span>
-    <span class="text">Binders</span>
+    <button type="button" class="section-toggle" (click)="toggleBinders()"
+      [disabled]="Shared.binder.list.length === 0"
+      [attr.aria-expanded]="Shared.binder.list.length > 0 && bindersExpanded"
+      [attr.aria-label]="'Binders (' + Shared.binder.list.length + ')'"
+      aria-controls="sidebar-binders">
+      <span class="material-pic material-symbols-outlined binder-section-icon" aria-hidden="true">folder_open</span>
+      <span class="text">Binders <span class="section-count">({{Shared.binder.list.length}})</span></span>
+      @if (Shared.binder.list.length > 0) {
+        <span class="material-symbols-outlined section-chevron" [class.collapsed]="!bindersExpanded" aria-hidden="true">expand_more</span>
+      }
+    </button>
     <button type="button" class="edit-labels-btn H" aria-label="Edit binders" title="Edit binders"
       (click)="openBinderModal()">
       <span class="material-symbols-outlined">edit</span>
     </button>
   </div>
 
-  <div class="sidenav-binders">
+  <div id="sidebar-binders" class="sidenav-binders" [hidden]="!bindersExpanded || Shared.binder.list.length === 0">
     @for (binder of Shared.binder.list; track binder.name) {
       <div [class.active]="router.url === '/binder/'+binder.name" class="item is-binder"
         (click)="onNavItemClick()"
@@ -44,27 +53,34 @@
   </div>
 
   <div class="sidenav-labels-header">
-    <span class="pic label" aria-hidden="true"></span>
-    <span class="text">Labels</span>
+    <button type="button" class="section-toggle" (click)="toggleLabels()"
+      [disabled]="Shared.label.list.length === 0"
+      [attr.aria-expanded]="Shared.label.list.length > 0 && labelsExpanded"
+      [attr.aria-label]="'Labels (' + Shared.label.list.length + ')'"
+      aria-controls="sidebar-labels">
+      <span class="pic label" aria-hidden="true"></span>
+      <span class="text">Labels <span class="section-count">({{Shared.label.list.length}})</span></span>
+      @if (Shared.label.list.length > 0) {
+        <span class="material-symbols-outlined section-chevron" [class.collapsed]="!labelsExpanded" aria-hidden="true">expand_more</span>
+      }
+    </button>
     <button type="button" class="edit-labels-btn H" aria-label="Edit labels" title="Edit labels"
       (click)="openModal()">
       <span class="material-symbols-outlined">edit</span>
     </button>
   </div>
 
-  <div class="sidenav-labels-wrap" [class.can-scroll-up]="canScrollUp" [class.can-scroll-down]="canScrollDown">
-    <div #labelsScroll class="sidenav-labels" (scroll)="onLabelsScroll()">
-      @for (label of Shared.label.list; track label) {
-        <div [class.active]="router.url === '/label/'+label.name" class="item is-label"
-          (click)="onNavItemClick()"
-          [title]="label.name"
-          [routerLink]="['/label', label.name]">
-          <span class="pic label" aria-hidden="true"></span>
-          <span class="text">{{label.name}}</span>
-          <span class="label-abbr" aria-hidden="true">{{compactLabel(label.name)}}</span>
-        </div>
-      }
-    </div>
+  <div id="sidebar-labels" class="sidenav-labels" [hidden]="!labelsExpanded || Shared.label.list.length === 0">
+    @for (label of Shared.label.list; track label) {
+      <div [class.active]="router.url === '/label/'+label.name" class="item is-label"
+        (click)="onNavItemClick()"
+        [title]="label.name"
+        [routerLink]="['/label', label.name]">
+        <span class="pic label" aria-hidden="true"></span>
+        <span class="text">{{label.name}}</span>
+        <span class="label-abbr" aria-hidden="true">{{compactLabel(label.name)}}</span>
+      </div>
+    }
   </div>
 
   <div class="sidenav-bottom">

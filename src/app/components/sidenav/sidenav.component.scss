@@ -4,14 +4,22 @@
   width: 280px;
   transition: width 0.08s;
   max-width: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 
-  // Desktop: the wrapper is `position: sticky; top: 94px`, so the drawer can
-  // never use more than the remaining viewport height. Bound the drawer there
-  // and let only the labels region scroll when it runs out of space.
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  // The desktop sidebar is fixed below the 94px app header.
   @media (min-width: 600px) {
     height: calc(100vh - 94px);
-    max-height: calc(100vh - 94px);
-    overflow: hidden;
+    height: calc(100dvh - 94px);
   }
 
   @media (max-width: 599px) {
@@ -23,6 +31,7 @@
 
       box-shadow: 0 0 16px rgba(0,0,0,0.5);
       height: 100vh;
+      height: 100dvh;
       overflow-y: auto;
       overscroll-behavior: contain;
       background-color: #202124;
@@ -69,6 +78,34 @@
 
       .edit-labels-btn {
         display: none;
+      }
+
+      .section-toggle {
+        flex-direction: column;
+        gap: 2px;
+        justify-content: center;
+        position: relative;
+        width: 100%;
+
+        .material-pic {
+          flex-basis: 16px;
+          font-size: 16px;
+          height: 16px;
+          margin: 0;
+          width: 16px;
+        }
+      }
+
+      .section-count {
+        display: none;
+      }
+
+      .section-chevron {
+        font-size: 14px;
+        margin: 0;
+        position: absolute;
+        right: 1px;
+        top: 1px;
       }
     }
 
@@ -277,14 +314,19 @@
     }
   }
 
-  // Layout: top + bottom sections stay fixed in size; the middle labels list
-  // grows and scrolls so a long label list can never push the bottom items
-  // (Edit labels / Archive / Trash / Users / Sign out) off the drawer.
+  // Keep every section at its natural height inside the one sidebar scroller.
   .sidenav-top,
   .sidenav-bottom,
+  .sidenav-binders,
+  .sidenav-labels,
   .install-section,
   .sidebar-branding {
     flex: 0 0 auto;
+  }
+
+  .sidenav-binders[hidden],
+  .sidenav-labels[hidden] {
+    display: none;
   }
 
   .sidenav-binders {
@@ -327,6 +369,36 @@
     // sidenav row.
     padding-left: 12px;
     text-transform: uppercase;
+
+    .section-toggle {
+      align-items: center;
+      background: none;
+      border: 0;
+      color: inherit;
+      cursor: pointer;
+      display: flex;
+      flex: 1 1 auto;
+      font: inherit;
+      height: 100%;
+      letter-spacing: inherit;
+      min-width: 0;
+      padding: 0;
+      text-align: left;
+      text-transform: inherit;
+
+      &:disabled { cursor: default; }
+    }
+
+    .section-count { opacity: 0.75; }
+
+    .section-chevron {
+      flex: 0 0 auto;
+      font-size: 18px;
+      margin-right: 4px;
+      transition: transform 0.15s ease;
+
+      &.collapsed { transform: rotate(-90deg); }
+    }
 
     .pic {
       background-color: #9aa0a6;
@@ -379,56 +451,6 @@
   // every other sidenav item's text column.
   .item.is-label .pic.label {
     visibility: hidden;
-  }
-
-  .sidenav-labels-wrap {
-    flex: 1 1 0;
-    min-height: 0;
-    overflow: hidden;
-    position: relative;
-
-    // Top + bottom edge fades cue the user that there's more content to scroll
-    // to. They only appear when there actually IS more content in that
-    // direction, courtesy of the .can-scroll-up / .can-scroll-down classes.
-    &::before,
-    &::after {
-      content: '';
-      pointer-events: none;
-      position: absolute;
-      left: 0;
-      right: 0;
-      height: 18px;
-      opacity: 0;
-      transition: opacity 0.18s ease;
-      z-index: 1;
-    }
-
-    &::before {
-      top: 0;
-      background: linear-gradient(to bottom, #202124 25%, rgba(32, 33, 36, 0));
-    }
-
-    &::after {
-      bottom: 0;
-      background: linear-gradient(to top, #202124 25%, rgba(32, 33, 36, 0));
-    }
-
-    &.can-scroll-up::before { opacity: 1; }
-    &.can-scroll-down::after { opacity: 1; }
-  }
-
-  .sidenav-labels {
-    height: 100%;
-    max-height: 100%;
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-
-    &::-webkit-scrollbar {
-      display: none;
-    }
   }
 
   .label-abbr {
@@ -531,6 +553,7 @@
     border-radius: 0 16px 16px 0;
     box-shadow: 0 0 16px rgba(0,0,0,0.5);
     height: 100vh;
+    height: 100dvh;
     left: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -1198,11 +1221,6 @@
 
 :host-context(.light-theme) {
   .main-sidebar {
-    .sidenav-labels-wrap {
-      &::before { background: linear-gradient(to bottom, #fff 25%, rgba(255, 255, 255, 0)); }
-      &::after  { background: linear-gradient(to top,    #fff 25%, rgba(255, 255, 255, 0)); }
-    }
-
     @media (max-width: 599px) {
       &:not(.close) {
         background-color: #fff;
