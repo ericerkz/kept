@@ -25,6 +25,7 @@ import { UserPreferencesService } from 'src/app/services/user-preferences.servic
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
 import { MAX_INDENT_LEVEL, descendantIndexes, maxIndentLevelAt, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
 import { environment } from 'src/environments/environment';
+import { createUuid } from 'src/app/utils/uuid';
 
 declare var Snackbar: any;
 type InputLengthI = { title?: number, body?: number, cb?: number }
@@ -572,7 +573,7 @@ export class InputComponent implements OnInit {
         this.labelsDirty = false
       }
     } else if (hasContent && this.canSaveNote) {
-      this.newNoteSyncId ||= `note-${crypto.randomUUID()}`
+      this.newNoteSyncId ||= `note-${createUuid()}`
       noteObj.syncId = this.newNoteSyncId
       id = await this.Shared.note.db.add(noteObj)
       if (!id || id === -1) {

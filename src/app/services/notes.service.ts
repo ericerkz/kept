@@ -39,6 +39,7 @@ import { ReminderService } from './reminder.service';
 import { OfflineStoreService } from './offline-store.service';
 import { OfflineSyncService } from './offline-sync.service';
 import { UserPreferencesService } from './user-preferences.service';
+import { createUuid } from '../utils/uuid';
 
 const KeptDownloads = registerPlugin<KeptDownloadsPlugin>('KeptDownloads');
 
@@ -652,12 +653,12 @@ export class NotesService {
   }
 
   async uploadAttachment(noteId: number, file: File | Blob, filename?: string) {
-    const syncId = `attachment-${crypto.randomUUID()}`;
+    const syncId = `attachment-${createUuid()}`;
     const note = await this.cachedOrLoadedNote(noteId);
     const resolvedName = filename || (file instanceof File ? file.name : 'attachment');
     const queueLocalAttachment = async () => {
       if (!this.offlineSync.partition || !note?.syncId) throw new Error('No offline note available for attachment upload.');
-      const blobKey = crypto.randomUUID();
+      const blobKey = createUuid();
       const localAttachment: NoteAttachmentI = {
         id: -Date.now(),
         syncId,

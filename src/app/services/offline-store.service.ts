@@ -4,6 +4,7 @@ import { environment } from 'src/environments/environment';
 import { NoteAttachmentI, NoteI } from '../interfaces/notes';
 import { ReminderI } from '../interfaces/reminder';
 import type { LocationSavedPlace } from './location-saved-places.service';
+import { createUuid } from '../utils/uuid';
 
 export type SyncResourceType = 'note' | 'reminder' | 'attachment';
 export type SyncMutationType =
@@ -69,7 +70,7 @@ export class OfflineStoreService {
     const key = 'kept_offline_device_id';
     let value = localStorage.getItem(key);
     if (!value) {
-      value = crypto.randomUUID();
+      value = createUuid();
       localStorage.setItem(key, value);
     }
     return value;
@@ -87,17 +88,17 @@ export class OfflineStoreService {
       physicalMs: this.lastStampPhysicalMs,
       logical: this.lastStampLogical,
       deviceId: this.deviceId(),
-      operationId: crypto.randomUUID()
+      operationId: createUuid()
     };
   }
 
   ensureNoteIdentity(note: NoteI) {
-    if (!note.syncId) note.syncId = `note-${crypto.randomUUID()}`;
+    if (!note.syncId) note.syncId = `note-${createUuid()}`;
     return note.syncId;
   }
 
   ensureReminderIdentity(reminder: Partial<ReminderI>) {
-    if (!reminder.syncId) reminder.syncId = `reminder-${crypto.randomUUID()}`;
+    if (!reminder.syncId) reminder.syncId = `reminder-${createUuid()}`;
     return reminder.syncId;
   }
 
