@@ -1,3 +1,5 @@
+import { OfflineSyncService } from 'src/app/services/offline-sync.service';
+import { NativeWorkspaceService } from 'src/app/services/native-workspace.service';
 import { createNoteHtmlContainer, sanitizeNoteHtml } from '../../utils/note-html';
 import { CheckboxI, NoteAttachmentI, NoteI, NoteImageI } from './../../interfaces/notes';
 import { AfterViewChecked, ChangeDetectorRef, Component, HostListener, NgZone, OnDestroy, OnInit, ViewChild, ElementRef, ViewChildren, QueryList } from '@angular/core';
@@ -31,9 +33,9 @@ type CapacitorAppPlugin = {
   ) => Promise<PluginListenerHandle>;
 };
 type KeptWidgetIntentsPlugin = {
-  getPendingOpenNoteId: () => Promise<{ noteId: number | null }>;
+  getPendingOpenNoteId: () => Promise<{ noteId: number | null; workspaceId?: string; generation?: string }>;
   acknowledgeOpenNoteId: () => Promise<void>;
-  getPendingCreateType: () => Promise<{ type: WidgetCreateType | null }>;
+  getPendingCreateType: () => Promise<{ type: WidgetCreateType | null; workspaceId?: string; generation?: string }>;
   acknowledgeCreateType: () => Promise<void>;
 };
 type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string }
@@ -55,7 +57,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   get nativePhoneLayout() {
     return isNativePhonePlatform()
   }
-  constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, public notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe, public noteLock: NoteLockService, public preferences: UserPreferencesService) { }
+  constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, public notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe, public noteLock: NoteLockService, public preferences: UserPreferencesService, private offlineSync: OfflineSyncService, private nativeWorkspace: NativeWorkspaceService) { }
 
   get notePreviewTextSizeClass() {
     return `preview-text-${this.preferences.value.notePreviewTextSize}`;
@@ -2744,11 +2746,13 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private async registerWidgetOpenHandlers() {
-    if (Capacitor.getPlatform() !== 'android') return
+    if (!Capacitor.isNativePlatform()) return
     try {
       this.widgetAppUrlOpenHandle = await CapacitorApp.addListener('appUrlOpen', event => {
-        const noteId = this.noteIdFromWidgetUrl(event?.url || '')
-        if (noteId) this.zone.run(() => this.openWidgetNote(noteId, true).catch(console.error))
+        this.zone.run(async () => {
+          const noteId = await this.noteIdFromWidgetUrl(event?.url || '');
+          if (noteId) await this.openWidgetNote(noteId,false).catch(console.error);
+        })
       })
       this.widgetAppStateHandle = await CapacitorApp.addListener('appStateChange', event => {
         if (event?.isActive) this.zone.run(() => this.schedulePendingWidgetNoteCheck())
@@ -2771,6 +2775,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private async openPendingWidgetNote() {
+    if (Capacitor.getPlatform() !== 'android') return
     if (this.pendingWidgetOpenInFlight) return
     this.pendingWidgetOpenInFlight = true
     try {
@@ -2781,6 +2786,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
         return
       }
       const result = await KeptWidgetIntents.getPendingOpenNoteId()
+      if (!await this.matchesNativeWorkspace(result)) return
       const noteId = Number(result?.noteId || 0)
       if (!Number.isFinite(noteId) || noteId <= 0) return
       await this.openWidgetNote(noteId, true)
@@ -2794,6 +2800,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   private async getPendingWidgetCreateType(): Promise<WidgetCreateType | null> {
     try {
       const result = await KeptWidgetIntents.getPendingCreateType()
+      if (!await this.matchesNativeWorkspace(result)) return null
       return result?.type === 'plain' || result?.type === 'checklist' || result?.type === 'drawing'
         ? result.type
         : null
@@ -2850,14 +2857,29 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private waitForAuth() {
-    if (this.auth.currentUser) return Promise.resolve()
+    if (this.auth.isLocal || this.auth.currentUser) return Promise.resolve()
     return firstValueFrom(this.auth.currentUser$.pipe(filter(user => !!user)))
   }
 
-  private noteIdFromWidgetUrl(url: string) {
-    const match = String(url || '').match(/^kept:\/\/note\/(\d+)(?:[/?#]|$)/i)
-    const noteId = Number(match?.[1] || 0)
-    return Number.isFinite(noteId) && noteId > 0 ? noteId : null
+  private async matchesNativeWorkspace(reference: {workspaceId?:string;generation?:string}) {
+    if (!reference.workspaceId && !reference.generation) return !this.auth.isLocal && !this.nativeWorkspace.capabilities$.value?.durableActions;
+    const workspace = await this.offlineSync.workspace();
+    return reference.workspaceId === workspace.id && reference.generation === workspace.generation;
+  }
+
+  private async noteIdFromWidgetUrl(url: string) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'kept:' || parsed.hostname !== 'note') return null;
+      const workspaceId = parsed.searchParams.get('workspace');
+      const generation = parsed.searchParams.get('generation');
+      if (workspaceId || generation) {
+        const workspace = await this.offlineSync.workspace();
+        if (workspaceId !== workspace.id || generation !== workspace.generation) return null;
+      } else if (this.auth.isLocal || this.nativeWorkspace.capabilities$.value?.durableActions) return null;
+      const noteId = Number(parsed.pathname.slice(1));
+      return Number.isSafeInteger(noteId) && noteId > 0 ? noteId : null;
+    } catch {return null;}
   }
 
   ngOnDestroy(): void {

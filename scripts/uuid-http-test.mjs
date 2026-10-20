@@ -37,7 +37,7 @@ try {
       await page.locator('app-input .placeholder:visible').click();
       const editor = page.locator('app-input .note-main:visible').last();
       const title = `UUID ${secure ? 'native' : 'HTTP fallback'}`;
-      const response = page.waitForResponse(r => r.url().endsWith('/api/notes') && r.request().method() === 'POST');
+      const response = page.waitForResponse(r => r.request().method() === 'POST' && (r.url().endsWith('/api/notes') || (r.url().endsWith('/api/sync/mutations') && r.request().postDataJSON()?.mutations?.some(mutation => mutation.type === 'note.upsert' && mutation.payload?.noteTitle === title))));
       await editor.getByRole('textbox', { name: 'Title', exact: true }).fill(title);
       await editor.locator('.note-body[contenteditable]').fill('Saved without changing the browser crypto API.');
       await editor.getByRole('button', { name: 'Close', exact: true }).click();

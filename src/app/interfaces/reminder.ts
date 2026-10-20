@@ -11,7 +11,11 @@ export interface ReminderI {
   id: number;
   syncId?: string;
   noteId: number | null;
-  userId: number;
+  userId?: number;
+  scheduleVersion?: number;
+  scheduleAnchorAtUtc?: string | null;
+  managedExternally?: boolean;
+  externalRepeatRule?: unknown;
   dueAtUtc: string | null;
   timezone: string;
   repeatRule: string | null;
@@ -56,7 +60,7 @@ export interface ReminderFiredPayload {
   // (so the in-page banner should NOT fire a duplicate Notification());
   // 'local' = fired by the in-page timer; Android's native alarm handles the
   // system notification, while iOS/web keep their existing page delivery path.
-  source?: 'sw-push' | 'local';
+  source?: 'sw-push' | 'local' | 'native';
 }
 
 export interface IcsFeedI {

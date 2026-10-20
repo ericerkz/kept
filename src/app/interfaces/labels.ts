@@ -1,4 +1,6 @@
 export interface LabelI {
+    syncId?: string
+    updatedAt?: string
     id?: number
     name: string
     added?: boolean

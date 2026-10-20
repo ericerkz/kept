@@ -9,7 +9,10 @@ import { UserManagementComponent } from './components/auth/user-management/user-
 import { SettingsComponent } from './components/settings/settings.component';
 import { AdminGuard, AuthGuard, LoginGuard, SetupGuard } from './services/auth.guard';
 
+import { WelcomeComponent } from './components/auth/welcome/welcome.component';
+
 const routes: Routes = [
+  { path: 'welcome', component: WelcomeComponent },
   { path: "setup", component: SetupComponent, canActivate: [SetupGuard] },
   { path: "login", component: LoginComponent, canActivate: [LoginGuard] },
   { path: "register", component: RegisterComponent, canActivate: [LoginGuard] },

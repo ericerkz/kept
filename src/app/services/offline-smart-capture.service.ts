@@ -1,3 +1,6 @@
+import { LabelsService } from './labels.service';
+import { AuthService } from './auth.service';
+import { sanitizeNoteHtml } from '../utils/note-html';
 import { Injectable } from '@angular/core';
 import {
   KeptAction,
@@ -13,20 +16,20 @@ import { ReminderService } from './reminder.service';
 const OFFLINE_ACTION_TYPES = new Set([
   'create_text_note',
   'create_todo_note',
-  'set_reminder'
+  'set_reminder', 'append_to_note', 'add_checklist_items', 'add_labels', 'archive_note', 'trash_note'
 ]);
 
 @Injectable({ providedIn: 'root' })
 export class OfflineSmartCaptureService {
   constructor(
     private notes: NotesService,
-    private reminders: ReminderService
+    private reminders: ReminderService, private labels: LabelsService, private auth: AuthService
   ) {}
 
   validate(transcript: string, inputPlan: KeptActionPlan): KeptPlanValidation {
     const normalizedPlan = this.normalizePlan(transcript, inputPlan);
     const errors: string[] = [];
-    const warnings = ['Smart Capture will save these changes on this device and sync them when you reconnect.'];
+    const warnings = [this.auth.isLocal ? 'Smart Capture will save these changes on this device.' : 'Smart Capture will save these changes on this device and sync them when you reconnect.'];
     let createdNoteAvailable = false;
 
     if (!normalizedPlan.actions.length) errors.push('At least one action is required.');
@@ -38,6 +41,7 @@ export class OfflineSmartCaptureService {
         return;
       }
 
+      if (['append_to_note','add_checklist_items','add_labels','archive_note','trash_note'].includes(action.type) && !Number.isSafeInteger(action.noteId)) errors.push(`${label}.noteId is required.`);
       if (action.type === 'create_text_note' && !this.actionTitle(action) && !this.actionText(action)) {
         errors.push(`${label}.title or text is required.`);
       }
@@ -138,6 +142,26 @@ export class OfflineSmartCaptureService {
           continue;
         }
 
+        if (['append_to_note','add_checklist_items','add_labels','archive_note','trash_note'].includes(action.type)) {
+          const note = await this.notes.get(action.noteId!);
+          if (!note || note.locked) throw new Error('Unlock the target note before updating it with Smart Capture.');
+          if (action.type === 'append_to_note') note.noteBody = `${note.noteBody || ''}<p>${sanitizeNoteHtml(this.actionText(action))}</p>`;
+          if (action.type === 'add_checklist_items') {
+            if (!note.isCbox) throw new Error('The target note is not a checklist.');
+            note.checkBoxes = [...(note.checkBoxes || []),...this.checklistItems(action).map((data,index)=>({id:Date.now()+index,data:sanitizeNoteHtml(data),done:false}))];
+          }
+          if (action.type === 'add_labels') {
+            await this.labels.load();
+            for (const name of (action as any).labels || []) {
+              let label = this.labels.labelsList$.value.find(item=>item.name.toLowerCase() === String(name).toLowerCase());
+              if (!label) { await this.labels.add({name:String(name)}); label = this.labels.labelsList$.value.find(item=>item.name.toLowerCase() === String(name).toLowerCase()); }
+              if (label && !(note.labels || []).some(item=>item.id === label!.id)) note.labels = [...(note.labels || []),{...label,added:true}];
+            }
+          }
+          if (action.type === 'archive_note') note.archived = true;
+          if (action.type === 'trash_note') { note.trashed = true; note.trashedAt = new Date().toISOString(); }
+          await this.notes.update(note,note.id!); result.updatedNoteIds.push(note.id!); result.executed.push({type:action.type,noteId:note.id}); continue;
+        }
         throw new Error(`${action.type} requires an internet connection.`);
       } catch (error: any) {
         result.ok = false;

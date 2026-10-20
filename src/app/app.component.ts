@@ -22,6 +22,9 @@ const CapacitorApp = registerPlugin<CapacitorAppPlugin>('App');
 @Component({
     selector: 'app-root',
     template: `
+      @if (storageError) {
+        <main role="alert" style="padding:24px"><h1>Device storage needs attention</h1><p>{{storageError}}</p><p>Your data has been preserved. Try reopening Kept or freeing device storage. Do not clear app data.</p></main>
+      }
       <router-outlet></router-outlet>
       <app-reminder-notification></app-reminder-notification>
       @if (notificationPromptVisible) {
@@ -108,6 +111,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private notificationPromptTimer?: number;
   private routerSubscription?: Subscription;
   notificationPromptVisible = false;
+  storageError = '';
 
   constructor(
     private push: PushNotificationService,
@@ -116,7 +120,7 @@ export class AppComponent implements OnInit, OnDestroy {
     private auth: AuthService,
     private ngZone: NgZone,
     private router: Router
-  ) {}
+  ) { void this.auth.workspace.ready.catch(error => this.ngZone.run(() => this.storageError = error instanceof Error ? error.message : 'Could not open device storage.')); }
 
   ngOnInit() {
     this.shared.initPwa();

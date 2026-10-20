@@ -77,7 +77,7 @@ export class ReminderNotificationComponent implements OnInit, OnDestroy {
 
   private showBrowserNotification(payload: ReminderFiredPayload) {
     // Push notifications are already displayed by the service worker.
-    if (payload.source === 'sw-push') return;
+    if (payload.source === 'sw-push' || payload.source === 'native') return;
 
     // Android's native alarm owns system delivery for local timer events.
     // The subscriber still updates the in-app banner and plays its sound.

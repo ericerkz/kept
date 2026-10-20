@@ -56,6 +56,9 @@ function harness(t, platform = 'web', initiallyOnline = true) {
   const queued = [];
   const store = {
     partition: id => `account:${id}`,
+    ensureServerWorkspace: async partition => ({id:partition,partition,generation:'test',status:'active',protocolVersion:1}),
+    patchWorkspace: async () => {},
+    reconcile: async (_workspace,input) => { for (const result of input.results || []) if (result.ok) { const entry=(input.sent || []).find(entry=>entry.operationId === result.operationId); if(entry) await store.removeOutbox([entry.key]); } },
     purgePartition: async () => {},
     getSyncState: async () => ({ cursor: 1, serverOffsetMs: 0 }),
     setSyncState: async () => {},
@@ -64,13 +67,14 @@ function harness(t, platform = 'web', initiallyOnline = true) {
     listOutbox: async () => [...queued],
     nextStamp: () => ({ operationId: `op-${++sequence}`, physicalMs: clock.now, logical: 0, deviceId: 'test' }),
     enqueue: async (partition, type, syncId, payload, lww) => queued.push({
-      key: lww.operationId, partition, type, syncId, payload, lww
+      key: lww.operationId, operationId:lww.operationId, partition, type, syncId, payload, lww
     }),
     removeOutbox: async keys => {
       for (let i = queued.length - 1; i >= 0; i--) if (keys.includes(queued[i].key)) queued.splice(i, 1);
     }
   };
   const auth = {
+    workspace:{ready:Promise.resolve()},
     currentUser$: new rx.BehaviorSubject(null),
     get currentUser() { return this.currentUser$.value; },
     authHeaders: () => ({})
@@ -238,7 +242,8 @@ test('initial bootstrap intent survives an outage and deferred load requests', a
   assert.equal(h.requests[0].url, '/api/sync/bootstrap');
   await h.service.syncNow({ bootstrapIfEmpty: true });
   let replaced = 0;
-  h.store.replaceSnapshot = async () => { replaced++; };
+  const reconcile = h.store.reconcile;
+  h.store.reconcile = async (...args) => { if(args[1].snapshot) replaced++; return reconcile(...args); };
   h.respond((_method, url) => rx.of(url.endsWith('/bootstrap')
     ? { notes: [], reminders: [], attachments: [], cursor: 1, serverTime: h.clock.now }
     : { changes: [], cursor: 1, hasMore: false, serverTime: h.clock.now }));
@@ -329,7 +334,7 @@ test('an offline event cannot disguise a local persistence error in an in-flight
   await h.login();
   h.navigator.onLine = false;
   h.emit('offline');
-  h.store.setSyncState = async () => { throw new Error('Storage unavailable'); };
+  h.store.reconcile = async () => { throw new Error('Storage unavailable'); };
   response.next({ changes: [], cursor: 2, hasMore: false });
   await settle();
   assert.equal(h.service.state$.value, 'error');

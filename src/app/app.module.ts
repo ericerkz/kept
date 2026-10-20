@@ -24,10 +24,12 @@ import { UpdateBannerComponent } from './components/update-banner/update-banner.
 import { MergeDialogComponent } from './components/merge-dialog/merge-dialog.component';
 import { AuthExpiredInterceptor } from './services/auth-expired.interceptor';
 import { AuthService } from './services/auth.service';
+import { WelcomeComponent } from './components/auth/welcome/welcome.component';
 import { ConnectionHeadersInterceptor } from './services/connection-headers.interceptor';
 
 @NgModule({ declarations: [
         AppComponent,
+        WelcomeComponent,
         MainComponent,
         NavComponent,
         NavbarComponent,

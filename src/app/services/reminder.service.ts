@@ -10,6 +10,8 @@ import { PushNotificationService } from './push-notification.service';
 import { OfflineStoreService } from './offline-store.service';
 import { OfflineSyncService } from './offline-sync.service';
 import { NoteI } from '../interfaces/notes';
+import { NativeWorkspaceService } from './native-workspace.service';
+import { createUuid } from '../utils/uuid';
 import { UserPreferencesService } from './user-preferences.service';
 
 type ReminderCreateData = {
@@ -136,6 +138,7 @@ export class ReminderService {
   private androidFocusHandler?: () => void;
   private inactiveNoteIds = new Set<number>();
   private displayedNotifications = new Map<number, Notification>();
+  private lifecycleWorkspace = '';
   private lifecycleUserId?: number;
   private readonly reminderTimerChunkMs = 24 * 60 * 60 * 1000;
 
@@ -145,17 +148,22 @@ export class ReminderService {
     private push: PushNotificationService,
     private offlineStore: OfflineStoreService,
     private offlineSync: OfflineSyncService,
-    private userPreferences: UserPreferencesService
+    private userPreferences: UserPreferencesService,
+    private nativeWorkspace: NativeWorkspaceService
   ) {
+    this.nativeWorkspace.occurrences$.subscribe(reminder => this.firedReminder$.next({reminderId:reminder.id,noteId:reminder.noteId,title:reminder.title,body:reminder.body,source:'native'}));
+    this.nativeWorkspace.capabilities$.subscribe(capabilities => { if (capabilities?.durableActions) void this.loadCachedReminders().catch(console.error); });
     this.offlineSync.cacheChanged$.subscribe(() => {
       this.loadCachedReminders().catch(console.error);
     });
-    this.auth.currentUser$.subscribe(user => {
-      if (user?.id !== this.lifecycleUserId) {
+    this.auth.accessChanges$.subscribe(user => {
+      const identity = `${this.offlineSync.partition}:${this.offlineSync.generation || ''}`;
+      if (identity !== this.lifecycleWorkspace || user?.id !== this.lifecycleUserId) {
+        this.lifecycleWorkspace = identity;
         this.inactiveNoteIds.clear();
         this.lifecycleUserId = user?.id;
       }
-      if (user) {
+      if (user || this.auth.isLocal) {
         this.loadCachedReminders().catch(console.error);
         this.load().catch(console.error);
       }
@@ -166,10 +174,12 @@ export class ReminderService {
   }
 
   async load() {
+    if (this.offlineSync.writesLocally) { await this.loadCachedReminders(); return; }
     try {
       const reminders = await firstValueFrom(
         this.http.get<ReminderI[]>(`${this.apiUrl}/reminders`, { headers: this.auth.authHeaders() })
       );
+      if (this.offlineSync.writesLocally) {await this.loadCachedReminders();return;}
       if (this.offlineSync.partition) {
         for (const reminder of reminders) await this.offlineStore.putReminder(this.offlineSync.partition, reminder);
       }
@@ -182,6 +192,26 @@ export class ReminderService {
   }
 
   async create(data: ReminderCreateData) {
+    if (this.offlineSync.writesLocally) {
+      if (this.auth.isLocal || this.nativeWorkspace.capabilities$.value?.durableActions) {
+        await this.nativeWorkspace.ready;
+        const repeat = this.parseRepeatRule(data.repeatRule);
+        if (isAndroid && repeat && repeat.type !== 'none' && !this.nativeWorkspace.capabilities$.value?.androidRecurringReminders) throw new Error('Update the Android app to use repeating reminders without a server.');
+        if (!await this.nativeWorkspace.requestReminderPermission()) throw new Error('Reminder permission was not granted.');
+      }
+      if (data.dueAtUtc && !Number.isFinite(Date.parse(data.dueAtUtc))) throw new Error('Choose a valid reminder date.');
+      const note = data.noteId ? await this.offlineStore.getNote(this.offlineSync.partition, data.noteId) : undefined;
+      if (data.noteId && !note) throw new Error('The reminder note no longer exists.');
+      const value = await this.offlineSync.commit('reminder.upsert', `reminder-${createUuid()}`, {
+        noteId: data.noteId || null, noteSyncId: note?.syncId, userId: this.auth.currentUser?.id,
+        dueAtUtc: data.dueAtUtc || null, timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+        repeatRule: this.serializeRepeatRule(data.repeatRule), status: 'pending',
+        title: data.title || null, body: data.body || null, imageUrl: data.imageUrl || null,
+        locationName: data.locationName || null, latitude: data.latitude ?? null, longitude: data.longitude ?? null,
+        radiusMeters: data.radiusMeters ?? null, locationTrigger: data.locationTrigger || 'arrive', scheduleVersion: 1, scheduleAnchorAtUtc: data.dueAtUtc || null
+      });
+      await this.load(); return value as unknown as ReminderI;
+    }
     if (data.noteId && data.noteId < 0 && this.offlineSync.partition) {
       const note = await this.offlineStore.getNote(this.offlineSync.partition, data.noteId);
       data = { ...data, noteSyncId: note?.syncId };
@@ -238,6 +268,19 @@ export class ReminderService {
   }
 
   async update(id: number, data: ReminderUpdateData) {
+    if (this.offlineSync.writesLocally) {
+      const previous = (await this.offlineStore.listReminders(this.offlineSync.partition)).find(item => item.id === id);
+      if (!previous?.syncId) throw new Error('This reminder is unavailable.');
+      const changedSchedule = ['dueAtUtc','timezone','locationName','latitude','longitude','radiusMeters','locationTrigger'].some(field=>(data as any)[field] !== undefined && (data as any)[field] !== (previous as any)[field]) || (data.repeatRule !== undefined && this.serializeRepeatRule(data.repeatRule) !== previous.repeatRule);
+      if (previous.managedExternally && changedSchedule && !window.confirm('This schedule is managed in Apple Reminders. Replace it with the schedule selected in Kept?')) return previous;
+      const value = await this.offlineSync.commit('reminder.upsert', previous.syncId, { ...previous, ...data,
+        repeatRule: data.repeatRule === undefined ? previous.repeatRule : this.serializeRepeatRule(data.repeatRule),
+        scheduleVersion: Number((previous as any).scheduleVersion || 1) + Number(changedSchedule),
+        managedExternally: changedSchedule ? false : previous.managedExternally,
+        scheduleAnchorAtUtc: changedSchedule ? data.dueAtUtc || previous.dueAtUtc : previous.scheduleAnchorAtUtc });
+      if (data.status === 'dismissed') {await this.nativeWorkspace.cancelReminders([previous.syncId]);this.cancelAndroidTimeReminder(id);}
+      await this.load(); return value as unknown as ReminderI;
+    }
     const payload: ReminderUpdateData = { ...data };
     if (Object.prototype.hasOwnProperty.call(data, 'repeatRule')) {
       payload.repeatRule = this.serializeRepeatRule(data.repeatRule);
@@ -263,6 +306,15 @@ export class ReminderService {
   }
 
   async delete(id: number) {
+    if (this.offlineSync.writesLocally) {
+      const value = (await this.offlineStore.listReminders(this.offlineSync.partition)).find(item => item.id === id);
+      if (value?.syncId) {
+        await this.offlineSync.commit('reminder.delete', value.syncId, value);
+        await this.nativeWorkspace.cancelReminders([value.syncId]);
+        this.cancelAndroidTimeReminder(id);
+      }
+      await this.load(); return;
+    }
     const existing = this.reminders$.value.find(reminder => reminder.id === id);
     this.cancelAndroidTimeReminder(id);
     if (existing?.syncId && this.offlineSync.partition) {
@@ -281,8 +333,9 @@ export class ReminderService {
 
   private async loadCachedReminders() {
     if (!this.offlineSync.partition) return;
-    const reminders = await this.offlineStore.listReminders(this.offlineSync.partition);
-    this.setReminders(reminders);
+    const partition = this.offlineSync.partition;
+    const reminders = await this.offlineStore.listReminders(partition);
+    if (partition === this.offlineSync.partition) this.setReminders(reminders);
   }
 
   getActiveForNote(noteId: number): ReminderI | undefined {
@@ -348,7 +401,10 @@ export class ReminderService {
 
     if (this.offlineSync.partition) {
       for (const reminder of next) {
-        if (changedIds.has(reminder.id)) await this.offlineStore.putReminder(this.offlineSync.partition, reminder);
+        if (changedIds.has(reminder.id)) {
+          if (this.offlineSync.writesLocally) await this.offlineSync.commit('reminder.upsert',reminder.syncId!,reminder);
+          else await this.offlineStore.putReminder(this.offlineSync.partition, reminder);
+        }
       }
     }
     this.setReminders(next);
@@ -381,6 +437,7 @@ export class ReminderService {
   async dismissFiredReminder(reminderId: number) {
     const reminder = this.reminders$.value.find(r => r.id === reminderId);
     this.cancelAndroidTimeReminder(reminderId);
+    if (reminder?.syncId) await this.nativeWorkspace.cancelReminders([reminder.syncId],true);
     if (this.isRepeatingRule(this.parseRepeatRule(reminder?.repeatRule))) {
       if (navigator.onLine) await this.load().catch(console.error);
       return reminder || null;
@@ -487,6 +544,10 @@ export class ReminderService {
   private setReminders(reminders: ReminderI[]) {
     this.reminders$.next(reminders);
     this.schedulePendingReminders(reminders);
+    if (this.auth.isLocal || this.nativeWorkspace.capabilities$.value?.durableActions) {
+      this.nativeWorkspace.syncReminders(reminders).catch(console.error);
+      return;
+    }
     this.syncAndroidGeofences(reminders);
     this.syncAndroidTimeReminders(reminders);
     this.processAndroidTriggeredEvents();
@@ -496,6 +557,7 @@ export class ReminderService {
     this.reminderTimers.forEach(timer => clearTimeout(timer));
     this.reminderTimers.clear();
 
+    if (this.auth.isLocal || this.nativeWorkspace.capabilities$.value?.durableActions) return;
     reminders
       .filter(reminder => reminder.status === 'pending' && reminder.dueAtUtc && !this.inactiveNoteIds.has(Number(reminder.noteId)))
       .forEach(reminder => {
@@ -585,6 +647,7 @@ export class ReminderService {
     this.reminderTimers.delete(reminderId);
     const reminder = this.reminders$.value.find(r => r.id === reminderId);
     if (!reminder || reminder.status !== 'pending') return;
+    if (this.auth.isLocal) return; // Native owns local occurrences and recurrence advancement.
     const repeat = this.parseRepeatRule(reminder.repeatRule);
     const nextDueAtUtc = repeat ? this.nextRepeatDueAt(reminder.dueAtUtc, repeat) : null;
 

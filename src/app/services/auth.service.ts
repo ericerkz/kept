@@ -1,8 +1,10 @@
+import { OfflineStoreService } from './offline-store.service';
 import { createNoteHtmlContainer, sanitizeNoteHtml } from '../utils/note-html';
 import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
 import { Injectable, NgZone, OnDestroy } from '@angular/core';
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
-import { firstValueFrom, BehaviorSubject, timeout } from 'rxjs';
+import { firstValueFrom, BehaviorSubject, timeout, merge, map } from 'rxjs';
+import { WorkspaceService } from './workspace.service';
 import { environment } from 'src/environments/environment';
 import { AuthSessionI, UserI, UserRole, UserTheme } from '../interfaces/users';
 
@@ -86,7 +88,8 @@ export class AuthService implements OnDestroy {
   private mediaCanonical = new Map<string, string>();
   private mediaRequests = new Map<string, Promise<string>>();
 
-  constructor(private http: HttpClient, private zone: NgZone) {
+  constructor(private http: HttpClient, private zone: NgZone, public workspace: WorkspaceService, private offlineStore: OfflineStoreService) {
+    this.workspace.local$.subscribe(() => this.zone.run(() => this.applyTheme()));
     this.systemThemeQuery?.addEventListener('change', this.systemThemeChanged);
     window.addEventListener('focus', this.systemThemeChanged);
     document.addEventListener('visibilitychange', this.themeVisibilityChanged);
@@ -128,17 +131,22 @@ export class AuthService implements OnDestroy {
     }
   }
 
+  get isLocal() { return this.workspace.isLocal; }
+
+  get accessChanges$() { return merge(this.currentUser$, this.workspace.local$).pipe(map(() => this.currentUser)); }
+
   get followsSystemTheme() {
+    if (this.isLocal) return this.workspace.local?.preferences.followSystemTheme !== false;
     return this.currentUser ? this.currentUser.followSystemTheme === true : true;
   }
 
   get effectiveTheme(): UserTheme {
     if (this.followsSystemTheme) return this.systemThemeQuery?.matches ? 'dark' : 'light';
-    return this.currentUser?.theme || 'light';
+    return (this.isLocal ? this.workspace.local?.preferences.theme : this.currentUser?.theme) || 'light';
   }
 
   get currentUser() {
-    return this.currentUser$.value;
+    return this.isLocal ? null : this.currentUser$.value;
   }
 
   get token() {
@@ -156,7 +164,8 @@ export class AuthService implements OnDestroy {
   }
 
   async initializeBrowserSession() {
-    if (!this.usesBrowserSession) return;
+    await this.workspace.ready;
+    if (this.isLocal || !this.usesBrowserSession) return;
     try {
       const result = await this.refreshBrowserSession();
       if (this.legacyBrowserToken && !result.authenticated) {
@@ -334,6 +343,7 @@ export class AuthService implements OnDestroy {
   }
 
   async hasUsers() {
+    if (this.isLocal) return false;
     const result = await firstValueFrom(this.http.get<{ hasUsers: boolean }>(`${this.apiUrl}/setup/status`));
     return result.hasUsers;
   }
@@ -492,6 +502,14 @@ export class AuthService implements OnDestroy {
   }
 
   async loadAccountPreferences() {
+    if (this.isLocal) return this.workspace.local!.preferences;
+    if (this.currentUser) {
+      const workspace = await this.offlineStore.ensureServerWorkspace(this.offlineStore.partition(this.currentUser.id));
+      if (workspace.protocolVersion === 2) {
+        const [preferences] = await this.offlineStore.listResources<any>('preferences',workspace.partition);
+        if (preferences) { this.applyWorkspacePreferences(preferences); return preferences; }
+      }
+    }
     const user = await firstValueFrom(this.http.get<UserI>(
       `${this.apiUrl}/users/me/preferences`,
       { headers: this.authHeaders() }
@@ -501,6 +519,15 @@ export class AuthService implements OnDestroy {
   }
 
   async updateAccountPreferences(patch: { theme?: UserTheme; followSystemTheme?: boolean; showPastReminders?: boolean }) {
+    if (this.isLocal) return this.workspace.updatePreferences(patch);
+    if (this.currentUser) {
+      const workspace = await this.offlineStore.ensureServerWorkspace(this.offlineStore.partition(this.currentUser.id));
+      if (workspace.protocolVersion === 2) {
+        await this.offlineStore.commitMutation(workspace,'preferences.patch','account-preferences',patch);
+        const value = {...this.currentUser,...patch}; this.mergeAccountPreferences(value);
+        return value;
+      }
+    }
     const user = await firstValueFrom(this.http.patch<UserI>(
       `${this.apiUrl}/users/me/preferences`,
       patch,
@@ -571,7 +598,13 @@ export class AuthService implements OnDestroy {
     ));
   }
 
-  private mergeAccountPreferences(user: UserI) {
+  applyWorkspacePreferences(preferences: Partial<UserI>) {
+    if (!this.currentUser) return;
+    if (['theme','followSystemTheme','showPastReminders'].every(key => (this.currentUser as any)[key] === (preferences as any)[key])) return;
+    this.mergeAccountPreferences({...this.currentUser,...preferences});
+  }
+
+  private mergeAccountPreferences(user: Partial<UserI>) {
     const current = this.currentUser;
     if (!current) return;
     const session = {
@@ -618,6 +651,7 @@ export class AuthService implements OnDestroy {
   }
 
   async logout() {
+    if (this.isLocal) { await this.workspace.selectServer(); return; }
     if (this.currentUser) {
       try {
         await firstValueFrom(this.http.post(`${this.apiUrl}/auth/logout`, {}, { headers: this.authHeaders() }));

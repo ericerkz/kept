@@ -15,6 +15,8 @@ const { WebSocket, WebSocketServer } = require('ws');
 const { generateSecret, verifySync, generateURI } = require('otplib');
 const qrcode = require('qrcode');
 const { sanitizeNoteHtml, sanitizeNoteContent, safeUrl } = require('./note-html');
+const { createWorkspaceSync } = require('./workspace-sync');
+const { createWorkspaceImport } = require('./workspace-import');
 const { createBrowserSessions } = require('./browser-session');
 const { authenticateRealtime } = require('./realtime-auth');
 const { initNativeClientSchema, occurrenceId } = require('./native-client');
@@ -957,6 +959,8 @@ async function init() {
   await initNativeClientSchema({ run, get, all });
   await initOAuthTables({ run, all });
   await browserSessions.init();
+  await workspaceSync.init();
+  await workspaceImport.init();
   const originalAdminUserId = await getAppSetting('originalAdminUserId', '');
   if (!originalAdminUserId) {
     const firstUser = await get('SELECT id FROM users ORDER BY id LIMIT 1');
@@ -1078,6 +1082,14 @@ const browserSessions = createBrowserSessions({
   ttlMs: SESSION_TTL_DAYS * 24 * 60 * 60 * 1000
 });
 
+const workspaceSync = createWorkspaceSync({ run, get, all, appendSyncChange, normalizeLwwStamp,
+  compareLwwStamp, serverLwwStamp, publicUser, noteSyncSnapshot, enrichReminderResponse,
+  parseLocationSavedPlacePayload, recordNoteSyncChange, updateNoteLabelReferencesForUser, withDatabaseTransaction, attachmentResponse, getAccessibleNote });
+
+const workspaceImport = createWorkspaceImport({ run,get,all,withDatabaseTransaction,dataDir,uploadDir,attachmentDir,
+  workspaceSync,serverLwwStamp,applyNote:applySyncNoteMutation,applyReminder:applySyncReminderMutation,
+  safeImageTypes:SAFE_IMAGE_TYPES,safeAttachmentExtension,safeDownloadName,recordAttachmentSyncChange,afterDatabaseCommit });
+
 function validateEmail(email) {
   if (!email) return true; // optional for admin-created users
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1120,6 +1132,7 @@ async function deleteOwnedFilesForUser(userId) {
 
 async function deleteUserAndOwnedData(userId) {
   await deleteOwnedFilesForUser(userId);
+  await workspaceImport.removeForUser(userId);
   await run('DELETE FROM users WHERE id = ?', [userId]);
 }
 
@@ -1218,7 +1231,7 @@ function appliedNoteLabels(labels) {
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    normalized.push({ id: label.id, name, added: true });
+    normalized.push({ id: label.id, ...(label.syncId ? {syncId:label.syncId} : {}), name, added: true });
   }
   return normalized;
 }
@@ -3774,6 +3787,7 @@ app.patch('/api/users/me/preferences', requireAuth, asyncRoute(async (req, res) 
     await run(`UPDATE users SET ${assignments.join(', ')} WHERE id = ?`, params);
   }
   const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+  await withDatabaseTransaction(() => workspaceSync.capture(req.user.id));
   res.json(publicUser(user));
 }));
 
@@ -4477,6 +4491,7 @@ app.get('/api/labels', requireAuth, asyncRoute(async (req, res) => {
 
 app.post('/api/labels/find-or-create', requireAuth, asyncRoute(async (req, res) => {
   const label = await findOrCreateLabelForUser(req.user.id, req.body.name);
+  await withDatabaseTransaction(() => workspaceSync.capture(req.user.id));
   res.status(200).json(label);
 }));
 
@@ -4484,6 +4499,7 @@ app.post('/api/labels', requireAuth, asyncRoute(async (req, res) => {
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Label name is required.' });
   const result = await run('INSERT INTO labels (name, userId) VALUES (?, ?)', [name, req.user.id]);
+  await withDatabaseTransaction(() => workspaceSync.capture(req.user.id));
   res.status(201).json({ id: result.id, name });
 }));
 
@@ -4501,6 +4517,7 @@ app.patch('/api/labels/:id', requireAuth, asyncRoute(async (req, res) => {
   await run('UPDATE labels SET name = ? WHERE id = ? AND userId = ?', [name, labelId, req.user.id]);
   const { recipientIds } = await updateNoteLabelReferencesForUser(req.user.id, labelId, name, { oldName: label.name });
   broadcastRealtime([...recipientIds], { type: 'notes-changed', action: 'labels-updated' });
+  await withDatabaseTransaction(() => workspaceSync.capture(req.user.id));
   res.json({ id: labelId, name });
 }));
 
@@ -4511,6 +4528,7 @@ app.delete('/api/labels/:id', requireAuth, asyncRoute(async (req, res) => {
   await run('DELETE FROM labels WHERE id = ? AND userId = ?', [labelId, req.user.id]);
   const { recipientIds } = await updateNoteLabelReferencesForUser(req.user.id, labelId, '', { oldName: label.name });
   broadcastRealtime([...recipientIds], { type: 'notes-changed', action: 'labels-updated' });
+  await withDatabaseTransaction(() => workspaceSync.capture(req.user.id));
   res.status(204).end();
 }));
 
@@ -4634,6 +4652,7 @@ app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single(
     result = await withDatabaseTransaction(async () => {
       const note = await getAccessibleNote(noteId, req.user.id);
       if (!note) return { status: 404, error: 'Note not found.' };
+      if (await get("SELECT syncId FROM workspace_tombstones WHERE userId = ? AND resourceType = 'attachment' AND syncId = ?", [req.user.id,syncId])) return {status:410,error:'This attachment was deleted.'};
       const receipt = await get(`SELECT * FROM native_upload_receipts
         WHERE userId = ? AND operationId = ? AND resourceType = 'attachment'`, [req.user.id, operationId]);
       if (receipt) {
@@ -4819,10 +4838,17 @@ async function syncSnapshotForUser(userId) {
 }
 
 app.get('/api/sync/bootstrap', requireAuth, asyncRoute(async (req, res) => {
-  res.json(await syncSnapshotForUser(req.user.id));
+  const snapshot = await withDatabaseTransaction(async () => {
+    const extra = Number(req.query.protocolVersion) === 2 ? await workspaceSync.resources(req.user.id) : {};
+    return { ...await syncSnapshotForUser(req.user.id), ...extra };
+  });
+  res.json(snapshot);
 }));
 
 app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
+  const payload = await withDatabaseTransaction(async () => {
+  const v2 = Number(req.query.protocolVersion) === 2;
+  if (v2) await workspaceSync.capture(req.user.id);
   const since = Math.max(0, Number(req.query.cursor || req.query.since || 0) || 0);
   const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 2000);
   const rows = await all(
@@ -4835,6 +4861,7 @@ app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
   const cursorRow = await get('SELECT COALESCE(MAX(sequence), 0) AS cursor FROM sync_changes WHERE userId = ?', [req.user.id]);
   const changes = [];
   for (const row of rows) {
+    if (!v2 && !['note','reminder','attachment'].includes(row.resourceType)) continue;
     const change = {
       sequence: row.sequence,
       resourceType: row.resourceType,
@@ -4859,13 +4886,16 @@ app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
     }
     changes.push(change);
   }
-  res.json({
+  return {
+    ...(v2 ? { protocolVersion: 2 } : {}),
     changes,
     cursor: rows.length ? Number(rows[rows.length - 1].sequence) : since,
     hasMore: rows.length === limit && Number(rows[rows.length - 1].sequence) < Number(cursorRow?.cursor || 0),
     serverCursor: Number(cursorRow?.cursor || 0),
     serverTime: Date.now()
+  };
   });
+  res.json(payload);
 }));
 
 async function applySyncNoteMutation(userId, mutation) {
@@ -4917,7 +4947,9 @@ async function applySyncNoteMutation(userId, mutation) {
   }
   const syncId = String(mutation.syncId || payload.syncId || payload.clientId || `note-${crypto.randomUUID()}`);
   const incomingStamp = normalizeLwwStamp(mutation.lww || payload);
-  const existing = await get('SELECT * FROM notes WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);
+  const existing = mutation.protocolVersion === 2
+    ? await get('SELECT * FROM notes WHERE syncId = ?', [syncId])
+    : await get('SELECT * FROM notes WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);
   if (existing && !(await getAccessibleNote(existing.id, userId))) return { ok: false, status: 403, error: 'Note not accessible.', syncId };
   if (existing && compareLwwStamp(incomingStamp, rowLwwStamp(existing)) < 0) {
     return { ok: true, skipped: true, resourceType: 'note', syncId, id: existing.id };
@@ -4943,6 +4975,15 @@ async function applySyncNoteMutation(userId, mutation) {
   }
 
   const noteData = canonicalizeNotePayload(payload);
+  if (mutation.protocolVersion === 2) {
+    for (const label of noteData.labels) {
+      if (label.syncId) {
+        const catalog = await get("SELECT resourceId FROM workspace_catalog WHERE userId = ? AND resourceType = 'label' AND syncId = ? AND deleted = 0", [userId,label.syncId]);
+        if (!catalog) return {ok:false,error:'A note label is waiting to synchronize.'};
+        label.id = catalog.resourceId;
+      }
+    }
+  }
   const now = new Date().toISOString();
   if (!existing) {
     const result = await run(
@@ -5071,7 +5112,7 @@ async function applySyncReminderMutation(userId, mutation) {
   const payload = mutation.payload || {};
   const syncId = String(mutation.syncId || payload.syncId || `reminder-${crypto.randomUUID()}`);
   const incomingStamp = normalizeLwwStamp(mutation.lww || payload);
-  let existing = await get('SELECT * FROM reminders WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);
+  let existing = mutation.protocolVersion === 2 ? await get('SELECT * FROM reminders WHERE syncId = ?', [syncId]) : await get('SELECT * FROM reminders WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);
   if (existing && existing.userId !== userId) return { ok: false, status: 403, error: 'Reminder not accessible.', syncId };
   if (existing && type !== 'reminder.delete' && !(await reminderIsVisibleToUser(existing, userId))) {
     return { ok: false, status: 404, error: 'The linked note is no longer accessible.', syncId };
@@ -5096,7 +5137,7 @@ async function applySyncReminderMutation(userId, mutation) {
     return { ok: true, resourceType: 'reminder', syncId, id: existing.id, deleted: true };
   }
   const normalized = normalizeReminderPayload(payload, existing || {});
-  if ((!normalized.noteId || normalized.noteId < 0) && payload.noteSyncId) {
+  if ((mutation.protocolVersion === 2 || !normalized.noteId || normalized.noteId < 0) && payload.noteSyncId) {
     const noteBySyncId = await get(
       `SELECT notes.id FROM notes
        LEFT JOIN note_collaborators nc ON nc.noteId = notes.id AND nc.userId = ?
@@ -5301,18 +5342,43 @@ async function executeSyncMutation(userId, mutation) {
   if (key) nativeOperationsInFlight.set(key, new Promise(resolve => { release = resolve; }));
   try {
     return await withDatabaseTransaction(async () => {
+      const executeCore = async () => {
       const type = String(mutation.type || '');
       let result;
       if (type === 'reminder.action') result = await applyReminderOccurrenceAction(userId, mutation.payload || {});
       else if (type.startsWith('note.')) result = await applySyncNoteMutation(userId, mutation);
+      else if (type === 'reminder.occurrence') result = await applyWorkspaceReminderOccurrence(userId,mutation);
       else if (type.startsWith('reminder.')) result = await applySyncReminderMutation(userId, mutation);
       else if (type.startsWith('attachment.')) result = await applySyncAttachmentMutation(userId, mutation);
       else result = { ok: false, status: 400, error: 'Unsupported mutation type.', type };
       return result;
+      };
+      return mutation.protocolVersion === 2 ? workspaceSync.apply(userId,mutation,executeCore) : executeCore();
     });
   } finally {
     if (key) { nativeOperationsInFlight.delete(key); release(); }
   }
+}
+
+async function applyWorkspaceReminderOccurrence(userId,mutation) {
+  const payload=mutation.payload || {};
+  const reminder=await get('SELECT * FROM reminders WHERE syncId = ? AND userId = ?', [mutation.syncId,userId]);
+  if (!reminder || !await reminderIsVisibleToUser(reminder,userId)) return {ok:false,error:'Reminder is not accessible.'};
+  const version=Number(reminder.scheduleVersion || 1);
+  if (Number(payload.scheduleVersion) !== version || reminder.status === 'dismissed') return {ok:true,skipped:true,id:reminder.id};
+  const due=normalizeReminderDueAt(payload.occurrenceDueAtUtc);
+  if (!due || !Number.isFinite(Date.parse(due)) || Date.parse(due) > Date.now() ||
+    occurrenceId({...reminder,dueAtUtc:due,scheduleVersion:version}) !== payload.occurrenceId ||
+    !isRepeatOccurrence(reminder.scheduleAnchorAtUtc || reminder.dueAtUtc,due,parseRepeatRule(reminder.repeatRule),reminder.timezone || 'UTC')) return {ok:false,error:'Invalid reminder occurrence.'};
+  await persistReminderOccurrence({...await enrichReminderResponse(reminder),dueAtUtc:due});
+  const next=nextRepeatDueAt(due,parseRepeatRule(reminder.repeatRule),reminder.timezone || 'UTC',Date.now(),reminder.scheduleAnchorAtUtc || due);
+  if ((next && Date.parse(next) > Date.parse(reminder.dueAtUtc || '')) || (!next && reminder.status === 'pending' && Date.parse(reminder.dueAtUtc) === Date.parse(due))) {
+    const stamp=serverLwwStamp();
+    await run(`UPDATE reminders SET dueAtUtc = ?,status = ?,updatedAt = ?,lwwPhysicalMs = ?,lwwLogical = ?,lwwDeviceId = ?,lwwOperationId = ?
+      WHERE id = ? AND userId = ?`, [next || due,next ? 'pending' : 'fired',new Date().toISOString(),stamp.physicalMs,stamp.logical,stamp.deviceId,stamp.operationId,reminder.id,userId]);
+    await recordReminderSyncChange(await get('SELECT * FROM reminders WHERE id = ?', [reminder.id]),'upsert');
+  }
+  return {ok:true,resourceType:'reminder',syncId:reminder.syncId,id:reminder.id};
 }
 
 async function persistReminderOccurrence(reminder) {
@@ -5398,17 +5464,23 @@ if (process.env.KEPT_TEST_MODE === '1') {
   }));
 }
 
+workspaceImport.mount(app,requireAuth,asyncRoute);
+
 app.post('/api/sync/mutations', requireAuth, asyncRoute(async (req, res) => {
-  const mutations = Array.isArray(req.body?.mutations) ? req.body.mutations : [];
+  const v2 = Number(req.body?.protocolVersion) === 2;
+  const mutations = Array.isArray(req.body?.mutations) ? req.body.mutations.map(mutation => ({ ...mutation, protocolVersion: v2 ? 2 : 1 })) : [];
+  // Legacy clients send their entire offline queue in a single request.
+  if (v2 && mutations.length > 500) return res.status(400).json({ error: 'Send at most 500 operations per request.' });
   if (!mutations.length) return res.json({ results: [], serverTime: Date.now() });
   const priority = {
+    'label.upsert': -3, 'binder.upsert': -2, 'savedPlace.upsert': -1,
     'note.upsert': 0,
     'note.view-state': 1,
     'note.delete': 2,
     'note.reorder': 3,
     'reminder.upsert': 4,
-    'reminder.delete': 5,
-    'attachment.delete': 6
+    'reminder.delete': 5, 'reminder.occurrence': 6,
+    'attachment.delete': 7
   };
   const ordered = mutations
     .map((mutation, index) => ({ mutation, index }))
@@ -5425,12 +5497,15 @@ app.post('/api/sync/mutations', requireAuth, asyncRoute(async (req, res) => {
       results[index] = { ok: false, status: 500, error: error.message || 'Sync mutation failed.', type: mutation.type };
     }
   }
-  const snapshot = await syncSnapshotForUser(req.user.id);
+  const snapshot = await withDatabaseTransaction(async () => {
+    const extra = v2 ? await workspaceSync.resources(req.user.id) : {};
+    return { ...await syncSnapshotForUser(req.user.id), ...extra };
+  });
   if (process.env.KEPT_TEST_MODE === '1' && req.get('x-kept-test-drop-response') === '1') {
     req.socket.destroy();
     return;
   }
-  res.json({ results, serverTime: Date.now(), snapshot });
+  res.json({ ...(v2 ? { protocolVersion: 2 } : {}), results, serverTime: Date.now(), snapshot });
 }));
 
 
@@ -7021,6 +7096,7 @@ app.post('/api/location-saved-places', requireAuth, asyncRoute(async (req, res) 
     [req.user.id, parsed.name, parsed.address, parsed.placeType, parsed.latitude, parsed.longitude, parsed.radiusMeters, parsed.locationTrigger, parsed.mapPreviewUrl, now, now]
   );
   const place = await get('SELECT * FROM location_saved_places WHERE id = ? AND userId = ?', [result.id, req.user.id]);
+  await withDatabaseTransaction(() => workspaceSync.capture(req.user.id));
   res.status(201).json(locationSavedPlaceResponse(place));
 }));
 
@@ -7037,6 +7113,7 @@ app.patch('/api/location-saved-places/:id', requireAuth, asyncRoute(async (req, 
     [parsed.name, parsed.address, parsed.placeType, parsed.latitude, parsed.longitude, parsed.radiusMeters, parsed.locationTrigger, parsed.mapPreviewUrl, now, place.id, req.user.id]
   );
   const updated = await get('SELECT * FROM location_saved_places WHERE id = ? AND userId = ?', [place.id, req.user.id]);
+  await withDatabaseTransaction(() => workspaceSync.capture(req.user.id));
   res.json(locationSavedPlaceResponse(updated));
 }));
 
@@ -7044,6 +7121,7 @@ app.delete('/api/location-saved-places/:id', requireAuth, asyncRoute(async (req,
   const place = await get('SELECT * FROM location_saved_places WHERE id = ? AND userId = ?', [Number(req.params.id), req.user.id]);
   if (!place) return res.status(404).json({ error: 'Saved place not found.' });
   await run('DELETE FROM location_saved_places WHERE id = ? AND userId = ?', [place.id, req.user.id]);
+  await withDatabaseTransaction(() => workspaceSync.capture(req.user.id));
   res.status(204).end();
 }));
 

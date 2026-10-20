@@ -267,7 +267,7 @@
           [class.alarm-active]="!!getActiveReminder()"
           (click)="alarmIconTapped($event)">
         </div>
-        <div #collaboratorMenuTtBtn class="colab H pop" [class.has-selection]="selectedCollaboratorIds.length"
+        <div *ngIf="!auth.isLocal" #collaboratorMenuTtBtn class="colab H pop" [class.has-selection]="selectedCollaboratorIds.length"
           data-pop="Collaborator" (click)="openCollaboratorMenu(collaboratorMenuTtBtn,collaboratorMenuTt)"></div>
         <div #colorMenuTtBtn class="color H pop" data-pop="Background Options"
           (click)="openTooltip(colorMenuTtBtn,colorMenuTt)">
@@ -310,7 +310,7 @@
         </div>
       }
       <div class="left-icons">
-        <div #collaboratorMenuTtBtnMobile class="mobile-icon colab" (click)="openCollaboratorMenu(collaboratorMenuTtBtnMobile,collaboratorMenuTt)" title="Collaborator">
+        <div *ngIf="!auth.isLocal" #collaboratorMenuTtBtnMobile class="mobile-icon colab" (click)="openCollaboratorMenu(collaboratorMenuTtBtnMobile,collaboratorMenuTt)" title="Collaborator">
           <div class="glyph colab"></div>
         </div>
         <div class="mobile-icon image" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)" title="Add image">

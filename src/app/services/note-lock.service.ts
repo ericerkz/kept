@@ -1,10 +1,13 @@
+import { OfflineSyncService } from './offline-sync.service';
 import { Injectable } from '@angular/core';
+import { WorkspaceService } from './workspace.service';
 import { NoteI, UpdateKeyI } from '../interfaces/notes';
 
 @Injectable({
   providedIn: 'root'
 })
 export class NoteLockService {
+  constructor(private workspace: WorkspaceService, private sync: OfflineSyncService) {}
   private readonly unlockPrefix = 'kept_unlocked_note:';
   private readonly unlockMs = 5 * 60 * 1000;
 
@@ -92,7 +95,8 @@ export class NoteLockService {
   }
 
   private noteKey(note: NoteI) {
-    return note.syncId || (note.id != null ? String(note.id) : '');
+    const key = note.syncId || (note.id != null ? String(note.id) : '');
+    return `${this.sync.partition}:${this.sync.generation || 'pending'}:${key}`;
   }
 
   private randomSalt() {

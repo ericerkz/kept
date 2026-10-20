@@ -11,7 +11,7 @@ export interface NoteSummary {
   labels: LabelI[];
   checklistPreview: { id?: number; data: string; done: boolean }[];
   updatedAt: string;
-  ownerUserId: number;
+  ownerUserId?: number;
   collaboratorUserIds: number[];
 }
 
@@ -99,7 +99,8 @@ export interface KeptActionPlan {
 }
 
 export interface KeptAIContext {
-  currentUser: UserI;
+  currentUser: UserI | null;
+  workspace?: {id:string;generation:string;mode:'local'};
   labels: LabelI[];
   users: ShareUserI[];
   recentNotes: NoteSummary[];

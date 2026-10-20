@@ -4,6 +4,9 @@ import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import { environment } from 'src/environments/environment';
 import { LabelI, UpdateKeyI } from './../interfaces/labels';
 import { AuthService } from './auth.service';
+import { OfflineStoreService } from './offline-store.service';
+import { OfflineSyncService } from './offline-sync.service';
+import { createUuid } from '../utils/uuid';
 
 @Injectable({
   providedIn: 'root'
@@ -12,9 +15,17 @@ export class LabelsService {
   private readonly apiUrl = `${environment.apiUrl}/labels`;
   labelsList$ = new BehaviorSubject<LabelI[]>([]);
 
-  constructor(private http: HttpClient, private auth: AuthService) { }
+  constructor(private http: HttpClient, private auth: AuthService, private store: OfflineStoreService, private sync: OfflineSyncService) {
+    this.sync.cacheChanged$.subscribe(() => { if (this.sync.writesLocally) this.load().catch(console.error); });
+    this.auth.accessChanges$.subscribe(() => { this.labelsList$.next([]); if (this.auth.isLocal) this.load().catch(console.error); });
+  }
 
   async load() {
+    if (this.sync.writesLocally) {
+      const partition = this.sync.partition;
+      const labels = await this.store.listResources<LabelI>('label',partition);
+      if (partition === this.sync.partition) this.labelsList$.next(this.uniqueLabels(labels)); return;
+    }
     try {
       const labels = await firstValueFrom(this.http.get<LabelI[]>(this.apiUrl, { headers: this.auth.authHeaders() }));
       this.labelsList$.next(this.uniqueLabels(labels));
@@ -34,6 +45,10 @@ export class LabelsService {
     const existing = this.labelsList$.value.find(label => label.name.toLowerCase() === name.toLowerCase());
     if (existing?.id != null) return existing.id;
 
+    if (this.sync.writesLocally) {
+      const value = await this.sync.commit('label.upsert', labelObj.syncId || `label-${createUuid()}`, { name });
+      await this.load(); return (value as any).id as number;
+    }
     if (!navigator.onLine) return this.addLocal(name);
 
     try {
@@ -47,6 +62,11 @@ export class LabelsService {
   }
 
   async delete(id: number) {
+    if (this.sync.writesLocally) {
+      const value = this.labelsList$.value.find(label => label.id === id);
+      if (value?.syncId) await this.sync.commit('label.delete', value.syncId, value);
+      await this.load(); return;
+    }
     try {
       await firstValueFrom(this.http.delete(`${this.apiUrl}/${id}`, { headers: this.auth.authHeaders() }));
       await this.load();
@@ -57,6 +77,14 @@ export class LabelsService {
   }
 
   async update(object: UpdateKeyI, id: number) {
+    if (this.sync.writesLocally) {
+      const value = this.labelsList$.value.find(label => label.id === id);
+      if (!value?.syncId) throw new Error('Label unavailable.');
+      const name = String(object.name ?? value.name).trim();
+      if (!name) throw new Error('Label name is required.');
+      await this.sync.commit('label.upsert', value.syncId, { ...value, name });
+      await this.load(); return;
+    }
     if (id !== -1) {
       try {
         await firstValueFrom(this.http.patch(`${this.apiUrl}/${id}`, object, { headers: this.auth.authHeaders() }));

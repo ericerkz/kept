@@ -1,12 +1,19 @@
 <app-navbar></app-navbar>
 <app-update-banner></app-update-banner>
+@if (auth.isLocal && backups.reminderDue) {
+  <aside role="status" class="offline-sync-state">
+    <a routerLink="/settings">Keep a backup of your device notes</a>
+    <button type="button" (click)="backups.dismissReminder()">Later</button>
+    <button type="button" (click)="backups.dismissReminder(true)">Don’t remind me</button>
+  </aside>
+}
 <section class="main-section" [class.native-phone-layout]="nativePhoneLayout"
     [class.sidebar-collapsed]="(Shared.sideBarCollapsed | async)">
     @if ((offlineSync.state$ | async); as syncState) {
-      @if (syncState !== 'saved') {
+      @if (auth.isLocal || syncState !== 'saved') {
         <div class="offline-sync-state" [class.is-error]="syncState === 'error'" role="status">
           <span class="material-symbols-outlined">{{ syncState === 'offline' ? 'cloud_off' : syncState === 'error' ? 'sync_problem' : 'sync' }}</span>
-          <span>{{ syncState === 'offline' ? 'Saved offline' : syncState === 'error' ? 'Sync needs attention' : 'Syncing' }}</span>
+          <span>{{ syncState === 'error' ? (auth.isLocal ? 'Save needs attention' : 'Sync needs attention') : auth.isLocal ? 'Saved on this device' : syncState === 'offline' ? 'Saved offline' : 'Syncing' }}</span>
         </div>
       }
     }

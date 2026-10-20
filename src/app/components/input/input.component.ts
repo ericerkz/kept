@@ -774,7 +774,7 @@ export class InputComponent implements OnInit {
   }
 
   private completedChecklistCollapseStorageKey(note: NoteI = this.noteToEdit) {
-    const userId = this.auth.currentUser?.id || 'anon'
+    const userId = this.auth.isLocal ? this.auth.workspace.local!.id : this.auth.currentUser?.id || 'anon'
     const server = environment.apiUrl || location.origin
     const noteKey = note?.syncId || note?.id
     return noteKey ? `kept_completed_checklist_collapsed:${server}:${userId}:${noteKey}` : ''

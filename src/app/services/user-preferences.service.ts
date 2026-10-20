@@ -25,7 +25,8 @@ export class UserPreferencesService {
   private loadedServerPreferenceToken = '';
 
   constructor(private auth: AuthService) {
-    this.auth.currentUser$.subscribe(user => {
+    this.auth.accessChanges$.subscribe(user => {
+      if (this.auth.isLocal) { this.preferences$.next(this.load()); this.apply({ showPastReminders: this.auth.workspace.local?.preferences.showPastReminders === true }); return; }
       if (!user) {
         this.loadedServerPreferenceToken = '';
         this.apply({ showPastReminders: false });
@@ -57,9 +58,11 @@ export class UserPreferencesService {
     }
   }
 
+  private get scopedStorageKey() { return this.auth?.isLocal ? `${this.storageKey}:${this.auth.workspace.local?.id || 'local'}` : this.storageKey; }
+
   private load(): UserPreferences {
     try {
-      const raw = localStorage.getItem(this.storageKey);
+      const raw = localStorage.getItem(this.scopedStorageKey);
       if (!raw) return { ...DEFAULT_PREFERENCES };
       const parsed = JSON.parse(raw) as Partial<UserPreferences>;
       return {
@@ -86,7 +89,7 @@ export class UserPreferencesService {
 
   private save(value: UserPreferences) {
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(value));
+      localStorage.setItem(this.scopedStorageKey, JSON.stringify(value));
     } catch {}
   }
 }

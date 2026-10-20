@@ -8,7 +8,10 @@ import { AuthService } from './auth.service';
 export class AuthGuard  {
   constructor(private auth: AuthService, private router: Router) { }
 
-  async canActivate(): Promise<boolean | UrlTree> {
+  async canActivate(route: ActivatedRouteSnapshot): Promise<boolean | UrlTree> {
+    await this.auth.workspace.ready;
+    if (this.auth.isLocal) return route.routeConfig?.path === 'shared' ? this.router.createUrlTree(['/']) : true;
+    if (this.auth.workspace.needsChoice) return this.router.createUrlTree(['/welcome']);
     if (this.auth.currentUser) return true;
     try {
       if (!await this.auth.hasUsers()) return this.router.createUrlTree(['/setup']);
@@ -26,6 +29,8 @@ export class SetupGuard  {
   constructor(private auth: AuthService, private router: Router) { }
 
   async canActivate(): Promise<boolean | UrlTree> {
+    await this.auth.workspace.ready;
+    if (this.auth.isLocal) return this.router.createUrlTree(['/']);
     try {
       if (!await this.auth.hasUsers()) return true;
     } catch {
@@ -42,6 +47,8 @@ export class LoginGuard  {
   constructor(private auth: AuthService, private router: Router) { }
 
   async canActivate(route: ActivatedRouteSnapshot): Promise<boolean | UrlTree> {
+    await this.auth.workspace.ready;
+    if (this.auth.isLocal) return this.router.createUrlTree(['/']);
     if (route.queryParamMap.has('oidc_code') || route.queryParamMap.has('oidc_error')) return true;
     if (this.auth.currentUser) {
       const oauthRequest = route.queryParamMap.get('oauth_request');

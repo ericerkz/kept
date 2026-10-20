@@ -17,6 +17,7 @@ export class AuthExpiredInterceptor implements HttpInterceptor {
       if (request.headers.has('Authorization') || (targetsKept && !!this.auth.currentUser)) this.auth.notifySessionExpired(error);
       return throwError(() => error);
     }));
+    if (targetsKept && this.auth.isLocal) return throwError(() => new Error('This operation requires a server connection.'));
     if (!targetsKept || !this.auth.usesBrowserSession) return send(req);
     req = req.clone({ withCredentials: true });
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return send(req);

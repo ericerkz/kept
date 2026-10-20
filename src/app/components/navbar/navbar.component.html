@@ -149,7 +149,10 @@
         @if (auth.isAdmin) {
           <a routerLink="/users" class="admin-link">Users</a>
         }
-          <div class="user-pic-container" (click)="toggleProfile($event)">
+          @if (auth.isLocal) {
+            <a routerLink="/settings" aria-label="Device settings"><span class="material-symbols-outlined">settings</span></a>
+          }
+          <div *ngIf="!auth.isLocal" class="user-pic-container" (click)="toggleProfile($event)">
             @if (auth.currentUser?.avatarDataUrl) {
               <img class="user-pic" [src]="auth.currentUser?.avatarDataUrl"
                 [alt]="auth.currentUser?.displayName || 'user-pic'"
@@ -162,7 +165,7 @@
               </div>
             }
           </div>
-          @if (isProfileOpen) {
+          @if (isProfileOpen && !auth.isLocal) {
             <div class="profile-menu" (click)="$event.stopPropagation()">
               <div class="profile-avatar-row">
                 <label class="profile-preview" aria-label="Change avatar">

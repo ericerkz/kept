@@ -1,3 +1,5 @@
+import { NativeWorkspaceService } from 'src/app/services/native-workspace.service';
+import { WorkspaceBackupService } from 'src/app/services/workspace-backup.service';
 import { Component, NgZone, OnDestroy, OnInit } from '@angular/core';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 import { Capacitor, registerPlugin } from '@capacitor/core';
@@ -10,6 +12,7 @@ import { ShareUserI } from 'src/app/interfaces/users';
 import { bgColors } from 'src/app/interfaces/tooltip';
 import { LocationSavedPlacesService, type LocationSavedPlace } from 'src/app/services/location-saved-places.service';
 import { androidSmartCaptureUiAllowed, isNativePhonePlatform } from 'src/app/utils/platform';
+import { AuthService } from 'src/app/services/auth.service';
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
 import { OfflineSmartCaptureService } from 'src/app/services/offline-smart-capture.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
@@ -164,6 +167,9 @@ export class MainComponent implements OnInit, OnDestroy {
 
   constructor(
     public Shared: SharedService,
+    public auth: AuthService,
+    public backups: WorkspaceBackupService,
+    private nativeWorkspace: NativeWorkspaceService,
     private ai: AiService,
     private notes: NotesService,
     private reminders: ReminderService,
@@ -357,9 +363,18 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureError = '';
     this.smartCaptureValidatedOffline = false;
     try {
-      if (!navigator.onLine) {
+      if (this.auth.isLocal || !navigator.onLine) {
         this.smartCaptureValidation = this.offlineSmartCapture.validate(this.smartCaptureTranscript, this.smartCapturePlan);
         this.smartCaptureValidatedOffline = true;
+        if (this.auth.isLocal) {
+          await this.nativeWorkspace.ready;
+          const supported = this.nativeWorkspace.capabilities$.value?.offlineCaptureActions || [];
+          const unavailable = this.smartCaptureValidation.normalizedPlan.actions.find(action=>!supported.includes(action.type));
+          if (unavailable) {
+            this.smartCaptureValidation.valid = false;this.smartCaptureValidation.ok = false;
+            this.smartCaptureValidation.errors.push(`This app version does not support ${unavailable.type} in device-only Smart Capture.`);
+          }
+        }
       } else {
         try {
           this.smartCaptureValidation = await this.ai.validatePlan(this.smartCaptureTranscript, this.smartCapturePlan);
@@ -429,7 +444,7 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartCaptureError = '';
     this.smartCaptureResult = null;
     try {
-      const executeOffline = this.smartCaptureValidatedOffline || !navigator.onLine;
+      const executeOffline = this.auth.isLocal || this.smartCaptureValidatedOffline || !navigator.onLine;
       this.smartCaptureResult = executeOffline
         ? await this.offlineSmartCapture.execute(preparedPlan, selectedActionIndexes)
         : await this.ai.executePlan(this.smartCaptureTranscript, preparedPlan, {
@@ -537,7 +552,7 @@ export class MainComponent implements OnInit, OnDestroy {
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           locale: navigator.language,
           schemaVersion: 1,
-          context: this.smartCaptureContext()
+          context: await this.smartCaptureContext()
         });
         if (!result?.actionPlan) {
           this.smartCaptureError = 'Smart Capture did not return an action plan.';
@@ -555,9 +570,7 @@ export class MainComponent implements OnInit, OnDestroy {
       const result = await plugin.processTextCommand({
         command,
         savedLocations,
-        context: {
-          savedLocations
-        }
+        context: await this.smartCaptureContext()
       });
       if (!result?.actionPlan) {
         this.smartCaptureError = 'Smart Capture did not return an action plan.';
@@ -601,10 +614,16 @@ export class MainComponent implements OnInit, OnDestroy {
     return this.isAndroidSmartCapture() ? KeptSmartCapture : this.keptIntelligencePlugin();
   }
 
-  private smartCaptureContext() {
-    return {
-      savedLocations: this.smartSavedLocationsContext()
-    };
+  private async smartCaptureContext() {
+    const workspace = await this.offlineSync.workspace();
+    const notes = this.Shared.note.all.filter(note=>!note.locked && !note.trashed).slice(0,100).map(note=>({
+      id:note.id,syncId:note.syncId,title:note.noteTitle,bodyPreview:String(note.noteBody || '').slice(0,1000),
+      type:note.isCbox ? 'todo' : 'text',checklistPreview:(note.checkBoxes || []).slice(0,30),labels:note.labels,updatedAt:note.updatedAt
+    }));
+    return {workspace:{id:workspace.id,generation:workspace.generation,revision:workspace.revision,mode:workspace.mode},
+      localMode:this.auth.isLocal,offline:this.auth.isLocal || !navigator.onLine,
+      savedLocations:this.smartSavedLocationsContext(),currentUser:this.auth.currentUser ? {id:this.auth.currentUser.id,username:this.auth.currentUser.username,displayName:this.auth.currentUser.displayName} : null,
+      recentNotes:notes,candidateNotes:notes,labels:this.Shared.label.list,users:[]};
   }
 
   isIosSmartCapture() {
@@ -639,7 +658,7 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   private async syncNativeConfirmedReminders(actions: KeptAction[]) {
-    if (!this.isIosSmartCapture()) return;
+    if (!this.isIosSmartCapture() || this.auth.isLocal) return;
     if (!actions.some(action => action.type === 'set_reminder')) return;
 
     const plugin = this.keptIntelligencePlugin();

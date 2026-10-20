@@ -1,3 +1,5 @@
+import { NotesService } from './notes.service';
+import { LabelsService } from './labels.service';
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -11,9 +13,15 @@ import { LabelI } from '../interfaces/labels';
 export class AiService {
   private readonly apiUrl = environment.apiUrl;
 
-  constructor(private http: HttpClient, private auth: AuthService) {}
+  constructor(private http: HttpClient, private auth: AuthService, private notes: NotesService, private labels: LabelsService) {}
 
   async getContext(query?: string, currentOpenNoteId?: number) {
+    if (this.auth.isLocal) {
+      const notes = await this.searchNotes(query || '');
+      await this.labels.load();
+      return {currentUser:null,workspace:{id:this.auth.workspace.local!.id,generation:this.auth.workspace.local!.generation,mode:'local'},
+        labels:this.labels.labelsList$.value,users:[],recentNotes:notes.slice(0,30),candidateNotes:notes.slice(0,30),currentOpenNote:notes.find(note=>note.id === currentOpenNoteId) || null} satisfies KeptAIContext;
+    }
     const params: Record<string, string> = {};
     if (query) params['query'] = query;
     if (currentOpenNoteId) params['currentOpenNoteId'] = String(currentOpenNoteId);
@@ -43,7 +51,15 @@ export class AiService {
     ));
   }
 
-  async searchNotes(q: string) {
+  async searchNotes(q: string): Promise<NoteSummary[]> {
+    if (this.auth.isLocal) {
+      const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+      return (await this.notes.getAll()).filter(note=>!note.trashed && !note.locked)
+        .filter(note=>words.every(word=>`${note.noteTitle} ${note.noteBody} ${(note.checkBoxes || []).map(box=>box.data).join(' ')}`.toLowerCase().includes(word)))
+        .sort((a,b)=>Date.parse(b.updatedAt || '')-Date.parse(a.updatedAt || ''))
+        .map(note=>({id:note.id!,title:note.noteTitle,bodyPreview:note.noteBody || '',type:note.isCbox ? 'todo' : note.images?.length ? 'drawing' : 'text',labels:note.labels,
+          checklistPreview:note.checkBoxes || [],updatedAt:note.updatedAt || '',collaboratorUserIds:[]}));
+    }
     return await firstValueFrom(this.http.get<NoteSummary[]>(`${this.apiUrl}/notes/search`, {
       headers: this.auth.authHeaders(),
       params: { q }
@@ -51,6 +67,7 @@ export class AiService {
   }
 
   async searchUsers(q: string) {
+    if (this.auth.isLocal) return [];
     return await firstValueFrom(this.http.get<ShareUserI[]>(`${this.apiUrl}/users/search`, {
       headers: this.auth.authHeaders(),
       params: { q }

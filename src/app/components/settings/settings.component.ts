@@ -1,3 +1,11 @@
+import { OfflineSyncService } from 'src/app/services/offline-sync.service';
+import { sanitizeNoteHtml } from 'src/app/utils/note-html';
+import { createUuid } from 'src/app/utils/uuid';
+import { WorkspaceBackupService, BACKUP_NOTICE } from 'src/app/services/workspace-backup.service';
+import { WorkspaceMigrationService } from 'src/app/services/workspace-migration.service';
+import { OfflineStoreService } from 'src/app/services/offline-store.service';
+import { NativeWorkspaceService } from 'src/app/services/native-workspace.service';
+import { Workspace } from 'src/app/interfaces/workspace';
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import * as JSZip from 'jszip';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -154,10 +162,66 @@ export class SettingsComponent implements OnInit, OnDestroy {
     private router: Router,
     public authService: AuthService,
     private push: PushNotificationService,
-    private preferences: UserPreferencesService
+    private preferences: UserPreferencesService,
+    public backups: WorkspaceBackupService,
+    public migration: WorkspaceMigrationService,
+    public nativeWorkspace: NativeWorkspaceService,
+    private offlineStore: OfflineStoreService,
+    public offlineSync: OfflineSyncService
   ) {}
 
+  storageUsed = '';
+  recoveryItems: any[] = [];
+  deviceWorkspaces: Workspace[] = [];
+  deviceBusy = false;
+  copyDevicePreferences = false;
+  stagingWorkspaces: Workspace[] = [];
+  readonly backupNotice = BACKUP_NOTICE;
+  async deviceTask(task: () => Promise<unknown>, message: string) {
+    this.deviceBusy = true; this.error = ''; this.success = '';
+    try { const result = await task(); this.success = result === false ? '' : message; await this.loadDeviceData(); }
+    catch (error) { this.error = error instanceof Error ? error.message : 'The device operation failed. Your notes have been preserved.'; }
+    finally { this.deviceBusy = false; }
+  }
+  backupDevice() { return this.deviceTask(() => this.backups.export(), 'Backup saved.'); }
+  restoreDevice() { return this.deviceTask(() => this.backups.restore(), 'Backup restored into a separate device workspace.'); }
+  moveDevice() { return this.deviceTask(() => this.migration.moveToServer(this.copyDevicePreferences), 'Transfer complete.'); }
+  async openDeviceWorkspace(workspace: Workspace) {
+    if (!confirm('Open this retained device copy? It will remain separate from any notes moved to your server.')) return;
+    await this.deviceTask(async () => {
+      const active = await this.offlineStore.patchWorkspace(workspace.id, {status:'active', ...(workspace.status === 'retained' ? {generation: createUuid(), migration: undefined} : {})});
+      await this.authService.workspace.activate(active);
+      await this.router.navigateByUrl('/');
+    }, 'Device workspace opened.');
+  }
+  canRecoverNote(item:any) {return item.operation?.type === 'note.upsert' || item.value?.kind === 'note.upsert';}
+  recoverNote(item:any) {
+    return this.deviceTask(async()=>{
+      if (item.value?.kind === 'note.upsert') await this.nativeWorkspace.recoverNote(item.value);
+      else {
+        const input=item.operation.payload;
+        await this.notesService.add({noteTitle:sanitizeNoteHtml(String(input.noteTitle || 'Recovered note')),noteBody:sanitizeNoteHtml(String(input.noteBody || '')),
+          checkBoxes:(input.checkBoxes || []).map((box:any)=>({...box,data:sanitizeNoteHtml(String(box.data || ''))})),images:input.images || [],
+          pinned:false,bgColor:input.bgColor || '',bgImage:input.bgImage || '',isCbox:!!input.isCbox,labels:[],archived:false,trashed:false,
+          locked:input.locked,lockSalt:input.lockSalt,lockHash:input.lockHash});
+      }
+      await this.offlineStore.resolveConflict(this.offlineSync.partition,item.key);
+    },'The retained edit was saved as a separate note.');
+  }
+  discardStaging(workspace: Workspace) {
+    if (confirm('Remove this incomplete backup or restore? Your saved notes will be kept.')) return this.deviceTask(()=>this.offlineStore.discardStaging(workspace.id),'Incomplete staging data removed.');
+    return Promise.resolve();
+  }
+  async loadDeviceData() {
+    const usage = await this.authService.workspace.storageUsage();
+    this.storageUsed = `${Math.round((usage.usage || 0) / 1048576)} MiB used${usage.quota ? ` of approximately ${Math.round(usage.quota / 1048576)} MiB available` : ''}`;
+    this.stagingWorkspaces = (await this.offlineStore.listWorkspaces()).filter(item=>item.status === 'staging');
+    this.deviceWorkspaces = (await this.offlineStore.listWorkspaces()).filter(item => item.mode === 'local' && item.status !== 'staging');
+    if (this.offlineSync.partition) this.recoveryItems = await this.offlineStore.listConflicts(this.offlineSync.partition);
+  }
+
   async ngOnInit() {
+    if (this.authService.workspace.canUseLocal || this.authService.currentUser) await this.loadDeviceData();
     const oidcLinkResult = this.route.snapshot.queryParamMap.get('oidc_link');
     const googleResult = this.route.snapshot.queryParamMap.get('google');
     const googleMessage = this.route.snapshot.queryParamMap.get('message');
@@ -283,6 +347,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   private async loadAll() {
+    if (this.authService.isLocal) return;
     this.isLoadingFeed = true;
     this.isLoadingGoogle = true;
 
@@ -510,7 +575,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
       switch (key) {
         case 'reminders':
-          await KeptReminders?.requestAccess();
+          if (this.authService.isLocal) await this.nativeWorkspace.requestReminderPermission();
+          else await KeptReminders?.requestAccess();
           break;
         case 'speechRecognition':
           await KeptIntelligence?.requestSpeechAccess();

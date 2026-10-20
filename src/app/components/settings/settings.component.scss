@@ -784,3 +784,8 @@ h1 { margin-bottom: 0; }
   .permission-desc { color: #5f6368; }
   .permission-granted { color: #1e8e3e; }
 }
+
+.device-data {
+  button {border:1px solid #9aa0a6;border-radius:6px;padding:10px 14px;margin:6px 8px 6px 0;background:transparent;color:inherit;}
+  label {display:block;margin:14px 0;}
+}

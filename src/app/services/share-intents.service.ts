@@ -1,3 +1,4 @@
+import { NativeWorkspaceService } from './native-workspace.service';
 import { Injectable, NgZone } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { AuthService } from './auth.service';
@@ -67,10 +68,13 @@ export class ShareIntentsService {
   constructor(
     private auth: AuthService,
     private notes: NotesService,
-    private zone: NgZone
+    private zone: NgZone,
+    private nativeWorkspace: NativeWorkspaceService
   ) {}
 
   async init() {
+    await this.nativeWorkspace.ready;
+    if (this.auth.isLocal || this.nativeWorkspace.capabilities$.value?.durableActions) return;
     const platform = Capacitor.getPlatform();
     const hasNativePlugin = !!(window as any).Capacitor?.Plugins?.KeptShareIntents;
     if (this.initialized || (platform !== 'ios' && platform !== 'android' && !hasNativePlugin)) return;

@@ -25,7 +25,9 @@
     "test:browser-session": "node --test server/browser-session.test.js server/url-credentials.test.js",
     "test:browser-session:ui": "node scripts/browser-session-test.mjs",
     "test:proxy-image": "node --test server/image-proxy.test.js",
-    "test:proxy-image:browser": "node scripts/proxy-image-browser-test.mjs"
+    "test:proxy-image:browser": "node scripts/proxy-image-browser-test.mjs",
+    "test:workspaces": "node --test scripts/workspace-store.test.cjs scripts/offline-sync-status.test.cjs server/workspace-sync.test.js",
+    "test:workspaces:browser": "node scripts/workspace-browser-test.mjs"
   },
   "private": true,
   "engines": {
@@ -43,14 +45,18 @@
     "@angular/router": "^21.2.12",
     "@capacitor/core": "^8.3.4",
     "@modelcontextprotocol/sdk": "^1.31.0",
+    "@noble/hashes": "2.4.0",
     "@popperjs/core": "^2.11.5",
     "@types/jszip": "^3.4.0",
+    "@zip.js/zip.js": "2.24.0",
     "adm-zip": "^0.5.16",
     "bricks.js": "^1.8.0",
     "concurrently": "^9.2.1",
     "cors": "^2.8.6",
+    "csrf-sync": "^4.2.1",
     "dompurify": "^3.4.17",
     "express": "^4.22.1",
+    "express-session": "^1.19.0",
     "jszip": "^3.10.1",
     "multer": "^2.1.1",
     "node-snackbar": "^0.1.16",
@@ -66,15 +72,14 @@
     "web-push": "^3.6.7",
     "ws": "^8.20.0",
     "zod": "^3.25.76",
-    "zone.js": "~0.15.1",
-    "csrf-sync": "^4.2.1",
-    "express-session": "^1.19.0"
+    "zone.js": "~0.15.1"
   },
   "devDependencies": {
     "@angular-devkit/build-angular": "^21.2.10",
     "@angular/cli": "~21.2.10",
     "@angular/compiler-cli": "^21.2.12",
     "@types/jasmine": "~4.0.0",
+    "fake-indexeddb": "6.2.4",
     "jasmine-core": "~4.1.0",
     "karma": "^6.4.4",
     "karma-chrome-launcher": "~3.1.0",

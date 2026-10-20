@@ -15,7 +15,7 @@
       <span class="material-pic material-symbols-outlined" aria-hidden="true">&#xe226;</span>
       <span class="text">Attachments</span>
     </div>
-    <div [class.active]="router.url === '/shared'" class="item" routerLink="/shared" (click)="onNavItemClick()">
+    <div [hidden]="auth.isLocal" [class.active]="router.url === '/shared'" class="item" routerLink="/shared" (click)="onNavItemClick()">
       <span class="pic col" aria-hidden="true"></span>
       <span class="text">Shared</span>
     </div>
@@ -104,10 +104,12 @@
       </span>
       <span class="text">{{auth.effectiveTheme === 'light' ? 'Use dark mode' : 'Use light mode'}}</span>
     </div>
+    @if (!auth.isLocal) {
     <div class="item" (click)="logout()">
       <span class="material-pic material-symbols-outlined" aria-hidden="true">logout</span>
       <span class="text">Sign out</span>
     </div>
+    }
   </div>
   @if (Shared.showInstallButton | async) {
     <div class="install-section">

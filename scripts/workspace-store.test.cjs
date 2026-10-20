@@ -1,0 +1,86 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {createStore}=require('../test-support/workspace-store.cjs');
+const local=()=>({id:'device',partition:'local:device',mode:'local',generation:'first',status:'active',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),preferences:{theme:'light',followSystemTheme:true,showPastReminders:false},nextId:1,revision:0});
+test('local identity, native receipt and blobs commit together; failed writes preserve previous data',async()=>{
+  const store=createStore(),workspace=local();await store.saveWorkspace(workspace);
+  const action={actionId:'native-1',workspaceId:workspace.id,generation:workspace.generation,sequence:1};
+  const note=await store.commitMutation(workspace,'note.upsert','stable',{noteTitle:'original'},{action,blobs:[{key:'media:image',value:new Blob(['image'])}]});
+  assert.equal(note.id,1);assert.equal((await store.listOutbox(workspace.partition)).length,0);
+  assert.equal((await store.commitMutation(workspace,'note.upsert','stable',{noteTitle:'replayed'},{action})).noteTitle,'original');
+  assert.equal((await store.getWorkspace(workspace.id)).revision,1);
+  assert.equal(await(await store.getBlob(workspace.partition,'media:image')).text(),'image');
+  const db=await store.open();const original=db.transaction.bind(db);
+  db.transaction=(...args)=>{const tx=original(...args); if(args[1]==='readwrite') queueMicrotask(()=>tx.abort());return tx;};
+  await assert.rejects(store.commitMutation(workspace,'note.upsert','stable',{noteTitle:'must abort'},{action:{...action,actionId:'native-2'}}));
+  db.transaction=original;
+  assert.equal((await store.listNotes(workspace.partition))[0].noteTitle,'original');
+  assert.equal(await store.hasReceipt(workspace.partition,'native-2'),false);
+  await assert.rejects(store.commitMutation({...workspace,generation:'obsolete'},'note.delete','stable',{}));
+  assert.equal((await store.listNotes(workspace.partition)).length,1);
+});
+test('acknowledging a sent edit preserves later edits and maps related IDs; tombstones and aborted pages are atomic',async()=>{
+  const store=createStore(),workspace=await store.ensureServerWorkspace('server|1');
+  await store.reconcile(workspace,{snapshot:{note:[{id:42,syncId:'note',noteTitle:'server'}]},cursor:4});
+  await store.commitMutation(workspace,'note.upsert','note',{noteTitle:'first edit'});
+  const [sent]=await store.listOutbox(workspace.partition);
+  await store.commitMutation(workspace,'note.upsert','note',{noteTitle:'later edit'});
+  await store.commitMutation(workspace,'reminder.upsert','reminder',{noteId:-1,noteSyncId:'note',dueAtUtc:'2030-01-01T00:00:00Z'});
+  await store.reconcile(workspace,{sent:[sent],results:[{operationId:sent.operationId,ok:true,canonical:{id:42,syncId:'note',noteTitle:'first edit'}}],snapshot:{note:[{id:42,syncId:'note',noteTitle:'stale snapshot'}]},cursor:5});
+  assert.equal((await store.listNotes(workspace.partition))[0].noteTitle,'later edit');
+  assert.equal((await store.listReminders(workspace.partition))[0].noteId,42);
+  assert.equal((await store.listOutbox(workspace.partition)).length,2);
+  const db=await store.open(),original=db.transaction.bind(db);
+  db.transaction=(...args)=>{const tx=original(...args);if(args[1]==='readwrite') queueMicrotask(()=>tx.abort());return tx;};
+  await assert.rejects(store.reconcile(workspace,{changes:[{sequence:6,resourceType:'note',resourceSyncId:'note',operation:'delete',payload:null}],cursor:6}));
+  db.transaction=original;
+  assert.equal((await store.getSyncState(workspace.partition)).cursor,5);
+  assert.equal((await store.listNotes(workspace.partition))[0].noteTitle,'later edit');
+  const remaining=await store.listOutbox(workspace.partition);
+  await store.reconcile(workspace,{sent:remaining,results:remaining.map(entry=>({operationId:entry.operationId,ok:true,canonical:null})),changes:[{sequence:6,resourceType:'note',resourceSyncId:'note',operation:'delete',payload:null}],cursor:6});
+  assert.equal((await store.listNotes(workspace.partition)).length,0);
+  await store.reconcile(workspace,{snapshot:{note:[{id:42,syncId:'note',noteTitle:'obsolete snapshot'}]},cursor:3});
+  assert.equal((await store.listNotes(workspace.partition)).length,0,'an older snapshot cannot resurrect a tombstone');
+  assert.equal((await store.getSyncState(workspace.partition)).cursor,6);
+});
+test('backup snapshots stay consistent while edits continue, and staging cleanup does not delete active workspaces',async()=>{
+  const store=createStore(),workspace=local();await store.saveWorkspace(workspace);
+  await store.commitMutation(workspace,'note.upsert','note',{noteTitle:'before'});
+  await store.commitMutation(workspace,'attachment.upsert','file',{noteId:1,noteSyncId:'note',originalName:'file.txt'},{blobs:[{key:'attachment:file',value:new Blob(['bytes'])}]});
+  await store.putBlob(workspace.partition,'media:deleted-image',new Blob(['deleted']));
+  const snapshot=await store.captureBackup(workspace);
+  await store.commitMutation(workspace,'note.upsert','note',{noteTitle:'after'});
+  let after,rows=[];
+  while(true){const page=await store.snapshotPage(snapshot.id,after);if(!page.length)break;rows.push(...page);after=page.at(-1).key;}
+  assert.equal(rows.find(row=>row.store==='notes').record.value.noteTitle,'before');
+  assert.equal(await rows.find(row=>row.store==='blobs').record.value.text(),'bytes');
+  assert.equal(rows.filter(row=>row.store==='blobs').length,1,'unreferenced/deleted media must not appear in a backup');
+  await store.discardStaging(snapshot.id);
+  assert.equal((await store.snapshotPage(snapshot.id)).length,0);
+  await assert.rejects(store.discardStaging(workspace.id));
+  assert.equal((await store.listNotes(workspace.partition))[0].noteTitle,'after');
+});
+
+test('native reminder occurrences keep the schedule version; external edits preserve locally changed fields',async()=>{
+ const store=createStore(),workspace=await store.ensureServerWorkspace('server|1');
+ await store.commitMutation(workspace,'reminder.upsert','reminder',{noteId:null,dueAtUtc:'2026-01-01T09:00:00.000Z',scheduleVersion:1,title:'Local title',body:'Old body',status:'pending'});
+ const action={actionId:'occurrence',workspaceId:workspace.id,generation:workspace.generation,sequence:1,kind:'reminder.occurrence',targetSyncId:'reminder',payload:{dueAtUtc:'2026-01-01T09:00:00.000Z',nextDueAtUtc:'2026-01-02T09:00:00.000Z',occurrenceId:'reminder@2026-01-01T09:00:00.000Z#v1',scheduleVersion:1}};
+ await store.commitMutation(workspace,'reminder.occurrence','reminder',{}, {action});
+ const occurrence=(await store.listOutbox(workspace.partition)).find(entry=>entry.type==='reminder.occurrence');
+ assert.equal(occurrence.payload.scheduleVersion,1);assert.equal(occurrence.payload.occurrenceDueAtUtc,action.payload.dueAtUtc);
+ const external={...action,actionId:'apple-edit',kind:'reminder.upsert',payload:{base:{title:'Old title',body:'Old body'},changes:{title:'Apple title',body:'Apple body'}}};
+ await store.commitMutation(workspace,'reminder.upsert','reminder',{title:'Apple title',body:'Apple body'},{action:external});
+ const [reminder]=await store.listReminders(workspace.partition);assert.equal(reminder.title,'Local title');assert.equal(reminder.body,'Apple body');
+ assert.equal((await store.listConflicts(workspace.partition)).length,1);
+});
+
+test('an additive schema upgrade preserves an existing outbox, cursor and blob',async()=>{
+ const {IDBFactory}=require('fake-indexeddb');const factory=new IDBFactory();
+ const old=await new Promise((resolve,reject)=>{const request=factory.open('kept-offline-v1',1);request.onupgradeneeded=()=>{for(const name of ['notes','reminders','attachments','savedPlaces','outbox','blobs','syncState']){const store=request.result.createObjectStore(name,{keyPath:'key'});store.createIndex('partition','partition');}};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+ await new Promise((resolve,reject)=>{const tx=old.transaction(['outbox','blobs','syncState'],'readwrite');tx.objectStore('outbox').put({key:'server|legacy',partition:'server',operationId:'legacy',type:'note.upsert',syncId:'note',createdAt:1,payload:{noteTitle:'Unsent'}});tx.objectStore('blobs').put({key:'server|file',partition:'server',value:new Blob(['original'])});tx.objectStore('syncState').put({key:'server',partition:'server',cursor:123,serverOffsetMs:0});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
+ old.close();const store=createStore(factory);
+ assert.equal((await store.listOutbox('server'))[0].operationId,'legacy');
+ assert.equal((await store.getSyncState('server')).cursor,123);
+ assert.equal(await(await store.getBlob('server','file')).text(),'original');
+ assert.equal((await store.open()).version,3);
+});

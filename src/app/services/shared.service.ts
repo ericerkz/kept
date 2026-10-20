@@ -8,6 +8,7 @@ import { bgColors, bgImages } from '../interfaces/tooltip';
 import { AuthService } from './auth.service';
 import { ReminderService } from './reminder.service';
 import { createPopper, type Placement } from '@popperjs/core';
+import { BindersService } from './binders.service';
 import { environment } from 'src/environments/environment';
 declare var Snackbar: any
 export type WidgetCreateType = 'plain' | 'checklist' | 'drawing'
@@ -35,7 +36,8 @@ export class SharedService {
     private Labels: LabelsService,
     private auth: AuthService,
     private reminders: ReminderService,
-    private ngZone: NgZone
+    private ngZone: NgZone,
+    private binders: BindersService
   ) {
     // Wire the result subscriptions once. Loads happen in response to
     // currentUser$ — that way a fresh login (or a session that arrives
@@ -64,8 +66,12 @@ export class SharedService {
       error: error => console.error(error)
     })
 
-    this.auth.currentUser$.subscribe(async user => {
-      if (user?.token) {
+    this.binders.items$.subscribe(() => this.refreshBinderList());
+    this.auth.accessChanges$.subscribe(async user => {
+      if (this.auth.isLocal) {
+        await this.Notes.load(); await this.Labels.load(); await this.binders.load(); return;
+      }
+      if (user) {
         // If this user has never had demos seeded server-side, do that
         // *before* the first notes load. That way the user lands on a
         // populated grid on first login — they shouldn't have to refresh
@@ -217,7 +223,7 @@ export class SharedService {
     const key = name.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
-    target.push({ id: label?.id, name });
+    target.push({ ...label, name });
   }
 
   private compareLabels(a: LabelI, b: LabelI) {
@@ -226,6 +232,7 @@ export class SharedService {
   }
 
   private binderStoragePartition() {
+    if (this.auth.isLocal) return `${this.binderStorageKey}:local:${this.auth.workspace.local?.id}`;
     const server = environment.apiUrl || location.origin;
     const userId = this.auth.currentUser?.id || 'anon';
     return `${this.binderStorageKey}:${server}:${userId}`;
@@ -255,7 +262,7 @@ export class SharedService {
 
   refreshBinderList() {
     const names = [
-      ...this.storedBinders(),
+      ...(this.binders.sync.writesLocally ? this.binders.items$.value.map(item => item.name) : this.storedBinders()),
       ...(this.note.all || []).map(note => note.binder || '').filter(Boolean)
     ];
     const unique: { name: string }[] = [];
@@ -554,6 +561,7 @@ export class SharedService {
     list: [] as { name: string }[],
     db: {
       add: async (name: string) => {
+        if (this.binders.sync.writesLocally) return this.binders.save(name);
         const clean = String(name || '').trim();
         if (!clean) return;
         const names = this.storedBinders();
@@ -563,6 +571,7 @@ export class SharedService {
         this.refreshBinderList();
       },
       update: async (oldName: string, newName: string) => {
+        if (this.binders.sync.writesLocally) return this.binders.save(newName, oldName);
         const oldClean = String(oldName || '').trim();
         const newClean = String(newName || '').trim();
         if (!oldClean || !newClean) return;
@@ -574,6 +583,7 @@ export class SharedService {
         this.refreshBinderList();
       },
       delete: async (name: string) => {
+        if (this.binders.sync.writesLocally) return this.binders.delete(name);
         const clean = String(name || '').trim();
         if (!clean) return;
         this.saveStoredBinders(this.storedBinders().filter(item => item.toLowerCase() !== clean.toLowerCase()));

@@ -306,7 +306,7 @@
             <div class="reminder-chip" [class.reminder-chip--past]="r.status === 'fired'"
               (mousedown)="$event.stopPropagation()" (click)="toggleReminderPicker(note, $event)">
               <img src="./assets/images/svg/clock.svg" alt="" width="12" height="12">
-              @if (r.dueAtUtc) {
+              @if (r.managedExternally) { Managed in Apple Reminders } @else if (r.dueAtUtc) {
                 {{formatReminderDate(r.dueAtUtc)}}
               } @else if (r.locationName) {
                 📍 {{ r.locationName }}
@@ -341,7 +341,7 @@
                    bottom of this file) so it escapes bricks.js's transformed
                    .note-container ancestor. -->
 
-              <div #collaboratorMenuTtBtn class="colab H pop" data-pop="Collaborator"
+              <div *ngIf="!auth.isLocal" #collaboratorMenuTtBtn class="colab H pop" data-pop="Collaborator"
                 (click)="openCollaboratorMenu(collaboratorMenuTtBtn,collaboratorMenuTt,note)"></div>
               <div #colorMenuTtBtn data-toolTipType="colorMenu" data-pop="Background Options"
                 (click)="openTooltip(colorMenuTtBtn,colorMenuTt,note)" class="color H pop">

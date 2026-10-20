@@ -14,8 +14,51 @@
     @if (error) { <div class="error global-msg">{{error}}</div> }
     @if (success) { <div class="success global-msg">{{success}}</div> }
 
+    @if (authService.workspace.canUseLocal) {
+      <div class="settings-group device-data">
+        <h2>Notes on this device</h2>
+        <p>{{storageUsed}}</p>
+        @if (authService.isLocal) {
+          @if (authService.workspace.local?.status === 'frozen') {<p role="status">Your notes are paused while Kept verifies a server transfer. Retry “Move my notes to a server” to finish safely. Your device copy is preserved.</p>}
+          <p>Your notes are stored on this device. Sharing, collaboration, web access, and account integrations need a server.</p>
+          <p>{{backupNotice}}</p>
+          <button type="button" [disabled]="deviceBusy" (click)="backupDevice()">Save a complete backup</button>
+          <button type="button" [disabled]="deviceBusy" (click)="restoreDevice()">Restore a backup</button>
+          <label><input type="checkbox" [(ngModel)]="copyDevicePreferences"> Use this device’s appearance and reminder display settings on the server</label>
+          <button type="button" [disabled]="deviceBusy" (click)="moveDevice()">Move my notes to a server</button>
+          <label><input type="checkbox" [checked]="!authService.workspace.local?.backupRemindersDisabled" (change)="backups.dismissReminder(!$any($event.target).checked)"> Remind me to back up my notes</label>
+          @if (backups.progress$ | async; as progress) { <p role="status">{{progress}}</p> }
+          @if (migration.progress$ | async; as progress) { <p role="status">{{progress}}</p> }
+          @if (nativeWorkspace.error$ | async; as message) { <p class="error">{{message}}</p> @if (isAndroid && message.includes('exact-alarm')) { <button type="button" (click)="nativeWorkspace.openExactAlarmSettings()">Enable precise reminders</button> } }
+
+        } @else {
+          <p>Connected notes are cached separately from device-only notes.</p>
+        }
+        @for (workspace of stagingWorkspaces; track workspace.id) {
+          <button type="button" [disabled]="deviceBusy" (click)="discardStaging(workspace)">Remove incomplete backup or restore from {{workspace.createdAt | date}}</button>
+        }
+        @for (workspace of deviceWorkspaces; track workspace.id) {
+          @if (workspace.id !== authService.workspace.local?.id) {
+            <button type="button" [disabled]="deviceBusy" (click)="openDeviceWorkspace(workspace)">Open device copy from {{workspace.createdAt | date}}</button>
+          }
+        }
+      </div>
+    }
+
+    @if (recoveryItems.length) {
+      <div class="settings-group">
+        <h2>Changes needing review</h2>
+        <p>These edits were retained because they conflicted with newer changes.</p>
+        @for (item of recoveryItems; track item.key) {
+          <details><summary>{{item.reason}}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{item.value || item.operation | json}}</pre>
+            @if (canRecoverNote(item)) {<button type="button" [disabled]="deviceBusy" (click)="recoverNote(item)">Save retained edit as a separate note</button>}
+          </details>
+        }
+      </div>
+    }
+
     <!-- ── Group: Data & Migration ──────────────────────────────────────── -->
-    <div class="settings-group">
+    <div class="settings-group" *ngIf="!authService.isLocal">
       <h2 class="group-title color-blue">
         <span class="material-symbols-outlined">cloud_download</span>
         Data & Migration
@@ -91,7 +134,7 @@
 
     </div>
 
-    <div class="settings-group">
+    <div class="settings-group" *ngIf="!authService.isLocal">
       <h2 class="group-title color-green">
         <span class="material-symbols-outlined">hub</span>
         External Access
@@ -210,7 +253,7 @@
     </div>
 
     <!-- ── Group: Security ──────────────────────────────────────────────── -->
-    <div class="settings-group">
+    <div class="settings-group" *ngIf="!authService.isLocal">
       <h2 class="group-title color-green">
         <span class="material-symbols-outlined">security</span>
         Security
@@ -385,7 +428,7 @@
     </div>
 
     <!-- ── Group: Reminders & Calendars ─────────────────────────────────── -->
-    <div class="settings-group">
+    <div class="settings-group" *ngIf="!authService.isLocal">
       <h2 class="group-title color-purple">
         <span class="material-symbols-outlined">calendar_month</span>
         Reminders & Calendars
@@ -697,7 +740,7 @@
     }
 
     <!-- ── Group: Advanced ──────────────────────────────────────────────── -->
-    <div class="settings-group">
+    <div class="settings-group" *ngIf="!authService.isLocal">
       <h2 class="group-title color-red">
         <span class="material-symbols-outlined">warning</span>
         Advanced

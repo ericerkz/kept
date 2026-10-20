@@ -1,3 +1,4 @@
+import { attachmentMimeType } from '../utils/attachments';
 import { Injectable } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
@@ -75,6 +76,7 @@ export class NotesService {
   private suppressNextReorderReloadUntil = 0;
   private optimisticNotes = new Map<number, NoteI>();
   private lastNonEmptyNotes: NoteI[] = [];
+  private visibleWorkspace = '';
   private iosReminderRefreshTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
@@ -88,9 +90,17 @@ export class NotesService {
     this.offlineSync.cacheChanged$.subscribe(() => {
       this.publishCachedNotes(this.searchQuery).catch(console.error);
     });
-    this.authSubscription = this.auth.currentUser$.subscribe(user => {
+    this.authSubscription = this.auth.accessChanges$.subscribe(user => {
+      const identity = `${this.offlineSync.partition}:${this.offlineSync.generation || ''}`;
+      if (identity !== this.visibleWorkspace) {
+        this.visibleWorkspace = identity;this.optimisticNotes.clear();this.joinedNotes.clear();this.lastNonEmptyNotes=[];
+        this.nextCursor=null;this.hasLoaded=false;this.notesList$.next(null);
+      }
       this.disconnectRealtime();
-      if (user) {
+      if (this.auth.isLocal) {
+        this.notesList$.next(null);
+        this.load().catch(console.error);
+      } else if (user) {
         this.connectRealtime(user.token);
         this.publishCachedNotes(this.searchQuery).catch(console.error);
       } else {
@@ -107,6 +117,14 @@ export class NotesService {
   }
 
   async load(searchQuery = this.searchQuery, options: NotesLoadOptions = {}) {
+    if (this.offlineSync.writesLocally) {
+      await this.auth.workspace.ready;
+      this.searchQuery = searchQuery;
+      await this.publishCachedNotes(searchQuery);
+      this.loading = false; this.loadError = false;
+      if (!this.auth.isLocal) void this.offlineSync.syncNow({ bootstrapIfEmpty: true }).catch(console.error);
+      return;
+    }
     if (this.isLoading) {
       this.pendingLoadQuery = searchQuery;
       return new Promise<void>(resolve => this.pendingLoadWaiters.push(resolve));
@@ -120,6 +138,7 @@ export class NotesService {
       const requestedQuery = searchQuery;
       const page = await this.loadCardPageWithRetry(requestedQuery, options.cacheBust);
       if (requestedQuery !== this.searchQuery) return;
+      if (this.offlineSync.writesLocally) {await this.publishCachedNotes(this.searchQuery);return;}
       this.nextCursor = page.nextCursor;
       this.hasLoaded = true;
       const notes = this.withOptimisticNotes(page.notes);
@@ -431,6 +450,12 @@ export class NotesService {
   }
 
   async add(noteObj: NoteI) {
+    if (this.offlineSync.writesLocally) {
+      const value = this.canonicalizeNoteMedia({ ...noteObj, id: undefined, isCardPreview: false, syncId: noteObj.syncId || `note-${createUuid()}` });
+      const saved = await this.offlineSync.commit('note.upsert', value.syncId, value);
+      await this.load();
+      return saved.id!;
+    }
     noteObj = this.canonicalizeNoteMedia(noteObj);
     const pendingNote: NoteI = {
       ...noteObj,
@@ -491,6 +516,15 @@ export class NotesService {
   }
 
   async update(object: NoteI, id: number) {
+    if (this.offlineSync.writesLocally) {
+      const existing = await this.offlineStore.getNote(this.offlineSync.partition, id);
+      if (!existing?.syncId) throw new Error('This note is unavailable on this device.');
+      const local = this.canonicalizeNoteMedia({ ...existing, ...object, id, isCardPreview: false });
+      await this.offlineSync.commit('note.upsert', existing.syncId, local);
+      await this.reminders.refreshNoteContent(local);
+      await this.load();
+      return;
+    }
     object = this.canonicalizeNoteMedia(object);
     if (id === -1) return;
     const existing = await this.cachedOrLoadedNote(id);
@@ -531,6 +565,7 @@ export class NotesService {
   }
 
   async updateKey(object: UpdateKeyI, id: number) {
+    if (this.offlineSync.writesLocally) return this.update(object as NoteI, id);
     object = this.canonicalizeNoteMedia(object);
     if (id === -1) return;
     const existing = await this.cachedOrLoadedNote(id);
@@ -592,6 +627,12 @@ export class NotesService {
   }
 
   async reorder(ids: number[]) {
+    if (this.offlineSync.writesLocally) {
+      const notes = await this.offlineStore.listNotes(this.offlineSync.partition);
+      const syncIds = ids.map(id => notes.find(note => note.id === id)?.syncId).filter(Boolean);
+      await this.offlineSync.commit('note.reorder', 'note-order', { syncIds });
+      await this.load(); return;
+    }
     if (!ids.length) return;
     try {
       this.suppressNextReorderReloadUntil = Date.now() + 5000;
@@ -628,6 +669,14 @@ export class NotesService {
   }
 
   async uploadImage(file: File) {
+    if (this.offlineSync.writesLocally) {
+      if (file.size > 10 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) throw new Error('Choose a PNG, JPEG, GIF or WebP image up to 10 MiB.');
+      const canonical = `/__kept_local_media/${createUuid()}`;
+      if (this.auth.isLocal) await this.offlineStore.putBlob(this.offlineSync.partition, `media:${canonical}`, file);
+      else await this.offlineSync.commit('image.upload', createUuid(), {url:canonical,filename:file.name}, {blobs:[{key:`media:${canonical}`,value:file}]});
+      return { url: await this.offlineStore.offlineMediaUrl(this.offlineSync.partition, canonical), name: file.name };
+    }
+
     const formData = new FormData();
     formData.append('image', file);
     if (!navigator.onLine || this.offlineSync.isConnectionDegraded()) {
@@ -653,6 +702,19 @@ export class NotesService {
   }
 
   async uploadAttachment(noteId: number, file: File | Blob, filename?: string) {
+    if (this.offlineSync.writesLocally) {
+      if (file.size > 25 * 1024 * 1024) throw new Error('Attachments must be 25 MiB or smaller.');
+      const note = await this.offlineStore.getNote(this.offlineSync.partition, noteId);
+      if (!note?.syncId) throw new Error('Save the note before adding an attachment.');
+      const resolvedName = filename || (file instanceof File ? file.name : 'attachment');
+      const stored = file.slice(0,file.size,attachmentMimeType(resolvedName,file.type));
+      const syncId = `attachment-${createUuid()}`;
+      const value = await this.offlineSync.commit('attachment.upsert', syncId, {
+        noteId, noteSyncId: note.syncId, originalName: resolvedName,
+        fileSize: stored.size, mimeType: stored.type, uploadedAt: new Date().toISOString()
+      }, { blobs: [{ key: `attachment:${syncId}`, value: stored }] });
+      await this.load(); return value as unknown as NoteAttachmentI;
+    }
     const syncId = `attachment-${createUuid()}`;
     const note = await this.cachedOrLoadedNote(noteId);
     const resolvedName = filename || (file instanceof File ? file.name : 'attachment');
@@ -710,6 +772,12 @@ export class NotesService {
   }
 
   async deleteAttachment(noteId: number, attachmentId: number) {
+    if (this.offlineSync.writesLocally) {
+      const rows = await this.offlineStore.listResources<NoteAttachmentI>('attachment', this.offlineSync.partition);
+      const value = rows.find(item => item.id === attachmentId && item.noteId === noteId);
+      if (value?.syncId) await this.offlineSync.commit('attachment.delete', value.syncId, value);
+      await this.load(); return;
+    }
     const note = await this.cachedOrLoadedNote(noteId);
     const attachment = note?.attachments?.find(item => item.id === attachmentId);
     if (attachment?.syncId && note && this.offlineSync.partition) {
@@ -731,10 +799,12 @@ export class NotesService {
   }
 
   async downloadAttachment(attachment: NoteAttachmentI) {
-    const blob = await firstValueFrom(this.http.get(`${environment.apiUrl}/attachments/${attachment.id}`, {
-      headers: this.auth.authHeaders(),
-      responseType: 'blob'
-    }));
+    const cached = await this.offlineStore.getBlob(this.offlineSync.partition, `attachment:${attachment.syncId}`);
+    const blob = cached || (this.auth.isLocal ? undefined : await firstValueFrom(this.http.get(`${environment.apiUrl}/attachments/${attachment.id}`, {
+      headers:this.auth.authHeaders(),responseType:'blob'
+    })));
+    if (blob && !cached && this.offlineSync.partition) await this.offlineStore.putBlob(this.offlineSync.partition, `attachment:${attachment.syncId}`,blob);
+    if (!blob) throw new Error('This attachment is not stored on this device.');
     const filename = attachment.originalName || 'attachment';
     if (await this.tryNativeDownload(blob, filename, attachment.mimeType)) return;
     this.browserDownloadBlob(blob, filename);
@@ -818,6 +888,11 @@ export class NotesService {
   }
 
   async get(id: number, options: { merge?: boolean } = {}) {
+    if (this.offlineSync.writesLocally) {
+      const note = await this.offlineStore.getNote(this.offlineSync.partition, id);
+      if (!note) throw new Error('This note has not been downloaded to this device.');
+      return this.hydrateOfflineNoteMedia(note);
+    }
     if (id !== -1) {
       if (id < 0 || !navigator.onLine) {
         const cached = this.offlineSync.partition ? await this.offlineStore.getNote(this.offlineSync.partition, id) : undefined;
@@ -941,6 +1016,7 @@ export class NotesService {
   }
 
   async getAll() {
+    if (this.offlineSync.writesLocally) return this.offlineStore.listNotes(this.offlineSync.partition);
     try {
       const notes = await firstValueFrom(this.http.get<NoteI[]>(this.apiUrl, { headers: this.auth.authHeaders() }));
       await this.prepareNoteImages(notes);
@@ -958,10 +1034,12 @@ export class NotesService {
   }
 
   async listShareUsers() {
+    if (this.auth.isLocal) return [];
     return await firstValueFrom(this.http.get<ShareUserI[]>(`${environment.apiUrl}/sharing/users`, { headers: this.auth.authHeaders() }));
   }
 
   async getCollaborators(id: number) {
+    if (this.auth.isLocal) return [];
     if (id !== -1) {
       return await firstValueFrom(this.http.get<ShareUserI[]>(`${this.apiUrl}/${id}/collaborators`, { headers: this.auth.authHeaders() }));
     } else return []
@@ -973,6 +1051,7 @@ export class NotesService {
   }
 
   async updateCollaborators(id: number, userIds: number[]) {
+    if (this.auth.isLocal) throw new Error('Connect to a server to share notes.');
     if (id !== -1) {
       const users = await firstValueFrom(this.http.put<ShareUserI[]>(
         `${this.apiUrl}/${id}/collaborators`,
@@ -986,6 +1065,7 @@ export class NotesService {
   }
 
   async updateViewState(id: number, state: { completedChecklistCollapsed?: boolean }) {
+    if (this.offlineSync.writesLocally) return this.updateKey(state, id);
     if (id < 0 || !navigator.onLine) return
     await firstValueFrom(this.http.patch(
       `${this.apiUrl}/${id}/view-state`,
@@ -1005,6 +1085,20 @@ export class NotesService {
   }
 
   async clone(id: number) {
+    if (this.offlineSync.writesLocally) {
+      const original = await this.get(id);
+      const attachments = original.attachments || [];
+      const copies = [];
+      for (const attachment of attachments) {
+        let blob = await this.offlineStore.getBlob(this.offlineSync.partition,`attachment:${attachment.syncId}`);
+        if (!blob && !this.auth.isLocal && navigator.onLine) blob = await firstValueFrom(this.http.get(`${environment.apiUrl}/attachments/${attachment.id}`,{headers:this.auth.authHeaders(),responseType:'blob'}));
+        if (!blob) throw new Error('Download this note’s attachments before making an offline copy.');
+        copies.push({attachment,blob});
+      }
+      const copyId = await this.add({ ...original, id: undefined, syncId: undefined, attachments: [], collaborators: [], noteTitle: original.noteTitle });
+      for (const {attachment,blob} of copies) await this.uploadAttachment(copyId,blob,attachment.originalName);
+      return;
+    }
     if (id !== -1) {
       try {
         await firstValueFrom(this.http.post(`${this.apiUrl}/${id}/clone`, {}, { headers: this.auth.authHeaders() }));
@@ -1035,6 +1129,7 @@ export class NotesService {
   private linkPreviewResolved = new Map<string, LinkPreviewData>();
 
   getLinkPreview(url: string): Promise<LinkPreviewData> {
+    if (this.auth.isLocal) return Promise.resolve({ title: url, description: null, image: null, url, domain: new URL(url).hostname });
     if (!this.preferences.value.richLinkPreviews) {
       return Promise.reject(new Error('Rich link previews are disabled.'));
     }
@@ -1125,6 +1220,12 @@ export class NotesService {
   }
 
   async delete(id: number) {
+    if (this.offlineSync.writesLocally) {
+      const value = await this.offlineStore.getNote(this.offlineSync.partition, id);
+      this.reminders.markNoteInactive(id);
+      if (value?.syncId) await this.offlineSync.commit('note.delete', value.syncId, value);
+      await this.load(); await this.reminders.load(); return;
+    }
     if (id !== -1) {
       const note = await this.cachedOrLoadedNote(id);
       this.reminders.markNoteInactive(id);
@@ -1149,8 +1250,12 @@ export class NotesService {
 
   private async publishCachedNotes(searchQuery: string) {
     if (!this.offlineSync.partition) return;
-    const cached = await this.offlineStore.listNotes(this.offlineSync.partition);
+    const partition = this.offlineSync.partition;
+    const generation = this.offlineSync.generation;
+    const cached = await this.offlineStore.listNotes(partition);
+    if (partition !== this.offlineSync.partition || generation !== this.offlineSync.generation) return;
     const hydrated = await Promise.all(cached.map(note => this.hydrateOfflineNoteMedia(note)));
+    if (partition !== this.offlineSync.partition || generation !== this.offlineSync.generation) return;
     hydrated.sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.sortOrder || 0) - Number(a.sortOrder || 0));
     this.nextCursor = null;
     this.hasLoaded = true;
@@ -1258,7 +1363,7 @@ export class NotesService {
       let offline = await this.offlineStore.offlineMediaUrl(this.offlineSync.partition, canonical);
       // A cached note can arrive before its media cache has been populated.
       // Native renderers must not briefly insert an unauthenticated HTTP URL.
-      if (offline === canonical && !this.auth.usesBrowserSession && navigator.onLine) {
+      if (!this.auth.isLocal && offline === canonical && !this.auth.usesBrowserSession && navigator.onLine) {
         try { offline = await this.auth.prepareImageUrl(canonical); } catch {}
       }
       if (offline !== canonical) replacements.set(canonical, offline);
