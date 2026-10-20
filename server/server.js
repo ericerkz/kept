@@ -14,7 +14,11 @@ const webPush = require('web-push');
 const { WebSocket, WebSocketServer } = require('ws');
 const { generateSecret, verifySync, generateURI } = require('otplib');
 const qrcode = require('qrcode');
+const { sanitizeNoteHtml, sanitizeNoteContent, safeUrl } = require('./note-html');
+const { createBrowserSessions } = require('./browser-session');
+const { authenticateRealtime } = require('./realtime-auth');
 const { initNativeClientSchema, occurrenceId } = require('./native-client');
+const { mountImageProxyRoutes } = require('./image-proxy');
 const { nextRepeatDueAt, isRepeatOccurrence } = require('./reminder-recurrence');
 const { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken } = require('./oauth-mcp');
 
@@ -392,6 +396,7 @@ async function init() {
       passwordHash TEXT NOT NULL,
       passwordSalt TEXT NOT NULL,
       theme TEXT NOT NULL DEFAULT 'light',
+      followSystemTheme INTEGER NOT NULL DEFAULT 1,
       avatarDataUrl TEXT,
       avatarPreset TEXT NOT NULL DEFAULT 'cat',
       showPastReminders INTEGER NOT NULL DEFAULT 0,
@@ -401,6 +406,10 @@ async function init() {
   const userColumns = await all('PRAGMA table_info(users)');
   if (!userColumns.some(column => column.name === 'theme')) {
     await run(`ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'light'`);
+  }
+  if (!userColumns.some(column => column.name === 'followSystemTheme')) {
+    // Existing accounts keep their saved appearance; new accounts opt in below.
+    await run(`ALTER TABLE users ADD COLUMN followSystemTheme INTEGER NOT NULL DEFAULT 0`);
   }
   if (!userColumns.some(column => column.name === 'avatarDataUrl')) {
     await run(`ALTER TABLE users ADD COLUMN avatarDataUrl TEXT`);
@@ -947,6 +956,7 @@ async function init() {
   `);
   await initNativeClientSchema({ run, get, all });
   await initOAuthTables({ run, all });
+  await browserSessions.init();
   const originalAdminUserId = await getAppSetting('originalAdminUserId', '');
   if (!originalAdminUserId) {
     const firstUser = await get('SELECT id FROM users ORDER BY id LIMIT 1');
@@ -965,6 +975,7 @@ function publicUser(user) {
     displayName: user.displayName,
     role: user.role,
     theme: user.theme || 'light',
+    followSystemTheme: !!user.followSystemTheme,
     avatarDataUrl: user.avatarDataUrl || '',
     avatarPreset: user.avatarPreset || 'cat',
     showPastReminders: !!user.showPastReminders,
@@ -1062,6 +1073,11 @@ async function createSession(user) {
   return { token, user: publicUser(user) };
 }
 
+const browserSessions = createBrowserSessions({
+  dataDir, run, get, resolveSessionFromToken, createSession, publicUser,
+  ttlMs: SESSION_TTL_DAYS * 24 * 60 * 60 * 1000
+});
+
 function validateEmail(email) {
   if (!email) return true; // optional for admin-created users
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1136,9 +1152,9 @@ async function createUser({ username, displayName, password, role, email, enable
 
   const hasTotp = !!totpSecret;
   const result = await run(
-    `INSERT INTO users (username, displayName, role, passwordHash, passwordSalt, theme, avatarPreset, email, enabled, totpSecret, totpEnabled, totpBackupCodes, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [cleanUsername, cleanDisplayName, role, passwordHash, passwordSalt, 'light', randomAvatarPreset(), cleanEmail, isEnabled, totpSecret || null, hasTotp ? 1 : 0, totpBackupCodes || null, createdAt]
+    `INSERT INTO users (username, displayName, role, passwordHash, passwordSalt, theme, followSystemTheme, avatarPreset, email, enabled, totpSecret, totpEnabled, totpBackupCodes, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [cleanUsername, cleanDisplayName, role, passwordHash, passwordSalt, 'light', 1, randomAvatarPreset(), cleanEmail, isEnabled, totpSecret || null, hasTotp ? 1 : 0, totpBackupCodes || null, createdAt]
   );
   return await get('SELECT * FROM users WHERE id = ?', [result.id]);
 }
@@ -1222,11 +1238,12 @@ function noteExtraFields(payload) {
 
 function canonicalizeNotePayload(payload) {
   const locked = !!payload.locked && !!payload.lockSalt && !!payload.lockHash;
+  const content = sanitizeNoteContent(payload);
   return {
-    ...payload,
+    ...content,
     extraFields: noteExtraFields(payload),
-    noteBody: canonicalizeNoteHtmlImages(payload.noteBody || ''),
-    images: canonicalizeNoteImages(payload.images || []),
+    noteBody: canonicalizeNoteHtmlImages(content.noteBody),
+    images: canonicalizeNoteImages(content.images),
     labels: appliedNoteLabels(payload.labels || []),
     binder: String(payload.binder || '').trim().slice(0, 80),
     locked,
@@ -1260,7 +1277,7 @@ function extractNoteImageFilenames(note) {
 
 function dbNoteToApi(row) {
   const pinned = row.userPinned !== undefined ? row.userPinned : row.pinned;
-  return {
+  return sanitizeNoteContent({
     ...parseJson(row.extraFields || '{}', {}),
     id: row.id,
     syncId: row.syncId,
@@ -1297,7 +1314,7 @@ function dbNoteToApi(row) {
     lastEditorUserId: row.lastEditorUserId || undefined,
     lastEditorDisplayName: row.lastEditorDisplayName || undefined,
     isDemo: Boolean(row.isDemo)
-  };
+  });
 }
 
 function serverLwwStamp() {
@@ -1569,13 +1586,13 @@ function dbNoteToCard(row, options = {}) {
   const parsedImages = parseJson(row.images || '[]', []);
   const images = Array.isArray(parsedImages) ? parsedImages.filter(Boolean) : [];
   const previewText = locked ? '' : notePreviewText(row);
-  return {
+  return sanitizeNoteContent({
     id: row.id,
     syncId: row.syncId,
     ownerUserId: row.ownerUserId,
     noteTitle: row.noteTitle,
     noteBody: locked ? '' : cardNoteBody(row, previewText),
-    searchText: includeSearchText ? cardSearchText(row) : undefined,
+    searchText: includeSearchText ? escapeHtml(plainText(cardSearchText(row))) : undefined,
     previewText,
     linkCount: locked ? 0 : noteLinkCount(row),
     pinned: Boolean(pinned),
@@ -1613,7 +1630,7 @@ function dbNoteToCard(row, options = {}) {
     lastEditorDisplayName: row.lastEditorDisplayName || undefined,
     isDemo: Boolean(row.isDemo),
     isCardPreview: true
-  };
+  });
 }
 
 function noteSummaryFromRow(row) {
@@ -2725,13 +2742,13 @@ function trackExternalAccessUse(access) {
 }
 
 async function requireAuth(req, res, next) {
+  if (Object.prototype.hasOwnProperty.call(req.query, 'token')) return sendAuthenticationRequired(req, res);
   const perfAuthStart = process.hrtime.bigint();
   try {
     const header = req.header('authorization') || '';
-    // Token must be in the Authorization header — querystring tokens leak via
-    // logs and Referer. (WebSocket and ICS feed endpoints intentionally do
-    // their own token handling.)
-    const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+    // An explicit header must never fall back to cookie authentication.
+    req.browserAuth = !header && !!req.session?.token;
+    const token = header ? (header.startsWith('Bearer ') ? header.slice(7) : '') : req.session?.token || '';
 
     if (!token) return sendAuthenticationRequired(req, res);
 
@@ -2772,53 +2789,7 @@ async function requireAuth(req, res, next) {
       const authMs = Number(process.hrtime.bigint() - perfAuthStart) / 1e6;
       console.log(`[KeptPerf:server] auth ${req.method} ${req.path} ${authMs.toFixed(1)}ms`);
     }
-    next();
-  } catch (error) {
-    next(error);
-  }
-}
-
-// For endpoints loaded as page assets (e.g. <img src="...">) where the
-// browser can't attach an Authorization header. Accepts the token via the
-// `token` query param in addition to the header.
-async function requireAuthOrQueryToken(req, res, next) {
-  try {
-    const header = req.header('authorization') || '';
-    let token = header.startsWith('Bearer ') ? header.slice(7) : '';
-    const tokenFromQuery = !token && !!req.query.token;
-    if (tokenFromQuery) token = String(req.query.token);
-    if (!token) return sendAuthenticationRequired(req, res);
-    if (tokenFromQuery && token.startsWith('kept_oauth_')) return sendAuthenticationRequired(req, res);
-    let session = await resolveSessionFromToken(token);
-    let mcpAccess = null;
-    if (!session) mcpAccess = await resolveMcpToken(token);
-    if (!session && !mcpAccess) return sendAuthenticationRequired(req, res);
-    if (mcpAccess && !isAllowedMcpApiRequest(req.method, req.originalUrl || req.path)) {
-      return res.status(403).json({ error: 'This endpoint is not available to external access tokens.' });
-    }
-    if (mcpAccess?.oauthClientId) {
-      if (!oauthTokenCanCallApi(mcpAccess, req)) {
-        return res.status(403).json({ error: 'This OAuth token was issued for a different protected resource.' });
-      }
-      const requiredScope = ['GET', 'HEAD'].includes(req.method) ? 'kept.read' : 'kept.write';
-      if (!hasOAuthScope(mcpAccess, requiredScope)) {
-        res.set('WWW-Authenticate', `Bearer error="insufficient_scope", scope="${requiredScope}"`);
-        return res.status(403).json({ error: `This OAuth token does not have the ${requiredScope} scope.` });
-      }
-    }
-    session = session || mcpAccess;
-    req.user = session;
-    req.token = token;
-    if (mcpAccess) {
-      req.mcpToken = mcpAccess.oauthClientId
-        ? { id: mcpAccess.oauthGrantId, type: 'oauth', prefix: mcpAccess.oauthClientId }
-        : { id: mcpAccess.mcpTokenId, type: 'mcp', prefix: mcpAccess.tokenPrefix };
-      req.mcpCapabilities = {
-        allowLockedNotes: !!mcpAccess.mcpAllowLockedNotes,
-        allowPermanentDelete: !!mcpAccess.mcpAllowPermanentDelete
-      };
-      trackExternalAccessUse(mcpAccess).catch(() => undefined);
-    }
+    if (req.browserAuth) return browserSessions.protect(req, res, next);
     next();
   } catch (error) {
     next(error);
@@ -3072,24 +3043,14 @@ async function broadcastPresenceUpdate(noteId) {
 }
 
 function setupRealtime() {
-  const wss = new WebSocketServer({ server, path: '/api/realtime' });
+  const wss = new WebSocketServer({ server, path: '/api/realtime', maxPayload: 64 * 1024 });
 
   wss.on('connection', async (socket, req) => {
+    // Malformed/oversized frames must not emit an unhandled process error.
+    socket.on('error', () => socket.terminate());
     try {
-      const url = new URL(req.url, `http://${req.headers.host}`);
-      const token = url.searchParams.get('token') || '';
-      const session = await get(
-        `SELECT users.* FROM sessions
-         JOIN users ON users.id = sessions.userId
-         WHERE sessions.token = ? AND users.enabled = 1
-           AND (sessions.expiresAt IS NULL OR sessions.expiresAt > ?)`,
-        [token, new Date().toISOString()]
-      );
-
-      if (!session) {
-        socket.close(1008, 'Authentication required.');
-        return;
-      }
+      const session = await authenticateRealtime(socket, req, { browserSessions, resolveSessionFromToken });
+      if (!session) return;
 
       addRealtimeClient(session.id, socket);
 
@@ -3541,18 +3502,18 @@ function startReminderScheduler() {
 //
 //   KEPT_CORS_ALLOW_ALL=1
 //     Send `Access-Control-Allow-Origin: *` to every request, no credential
-//     mode. Fine for personal/family self-hosted instances where you don't
-//     want to fight allowlist syntax. Authenticated calls still need a valid
-//     Bearer token (Kept doesn't use cookies), so an attacker site can't
-//     read user data — but it does expose the unauth endpoints (login,
+//     mode. Supports bearer-authenticated native/API clients. Browser cookie
+//     sessions require an explicit origin allowlist for cross-origin access.
+//     An attacker site cannot read cookie-authenticated responses, but this
+//     does expose the unauthenticated endpoints (login,
 //     register, setup status) to direct browser fetch from anywhere. See
 //     docker-compose.yml for the full security tradeoff.
 //
 //   KEPT_CORS_ORIGINS=https://app.example.com,https://kept.example.com
 //     Comma-separated allowlist. Kept also allows exact native-shell origins
 //     so the iOS/Android apps can connect while browser access stays pinned
-//     to your configured domains. Required if you ever switch Kept to
-//     cookie-based sessions.
+//     to your configured domains. Required for browser cookie sessions
+//     when serving the SPA on a separate origin within the same site.
 //
 // If both are set, the explicit allowlist wins.
 const corsAllowlist = String(process.env.KEPT_CORS_ORIGINS || '')
@@ -3585,9 +3546,15 @@ app.use('/api', (_req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '25mb' }));
+app.use(browserSessions.middleware);
+app.get('/api/auth/browser/session', asyncRoute(browserSessions.status));
+app.post('/api/auth/browser/adopt', browserSessions.protect, requireAuth, asyncRoute(async (req, res) => {
+  if (req.browserAuth || req.mcpToken) return res.status(400).json({ error: 'A local bearer session is required.' });
+  await browserSessions.finishLogin(req, res, req.user, { retireToken: req.token });
+}));
 
 mountOAuthAndMcpRoutes(app, {
-  get, all, run, asyncRoute, requireAuth, resolveSessionFromToken, createSession,
+  get, all, run, asyncRoute, requireAuth, createSession, browserSessions,
   oauthRegistrationLimiter, internalBaseUrl: `http://127.0.0.1:${port}`
 });
 
@@ -3666,7 +3633,7 @@ app.post('/api/setup/restore', setupLimiter, multer({ dest: path.join(dataDir, '
   }
 }));
 
-app.post('/api/auth/login', loginLimiter, asyncRoute(async (req, res) => {
+const login = asyncRoute(async (req, res) => {
   const username = normalizeUsername(req.body.username);
   const password = String(req.body.password || '');
   const user = await get('SELECT * FROM users WHERE username = ?', [username]);
@@ -3713,8 +3680,11 @@ app.post('/api/auth/login', loginLimiter, asyncRoute(async (req, res) => {
     clearTotpFailures(user.id);
   }
 
+  if (req.path === '/api/auth/browser/login') return browserSessions.finishLogin(req, res, user);
   res.json(await createSession(user));
-}));
+});
+app.post('/api/auth/login', loginLimiter, login);
+app.post('/api/auth/browser/login', loginLimiter, browserSessions.protect, login);
 
 app.get('/api/setup/2fa/generate', asyncRoute(async (req, res) => {
   const row = await get('SELECT COUNT(*) AS count FROM users');
@@ -3763,6 +3733,7 @@ app.delete('/api/auth/2fa/disable', requireAuth, asyncRoute(async (req, res) => 
 
 app.post('/api/auth/logout', requireAuth, asyncRoute(async (req, res) => {
   await run('DELETE FROM sessions WHERE token = ?', [req.token]);
+  await browserSessions.logout(req, res);
   res.status(204).end();
 }));
 
@@ -3778,6 +3749,18 @@ app.patch('/api/users/me/preferences', requireAuth, asyncRoute(async (req, res) 
     if (!['light', 'dark'].includes(req.body.theme)) return res.status(400).json({ error: 'Invalid theme.' });
     assignments.push('theme = ?');
     params.push(req.body.theme);
+    // Older clients only send theme when the user manually toggles appearance.
+    if (req.body.followSystemTheme === undefined) {
+      assignments.push('followSystemTheme = ?');
+      params.push(0);
+    }
+  }
+  if (req.body.followSystemTheme !== undefined) {
+    if (typeof req.body.followSystemTheme !== 'boolean') {
+      return res.status(400).json({ error: 'followSystemTheme must be a boolean.' });
+    }
+    assignments.push('followSystemTheme = ?');
+    params.push(req.body.followSystemTheme ? 1 : 0);
   }
   if (req.body.showPastReminders !== undefined) {
     if (typeof req.body.showPastReminders !== 'boolean') {
@@ -4261,10 +4244,11 @@ function resolveBackupFilePath(filename) {
   return resolved;
 }
 
-app.get('/api/admin/backup/download/:filename', requireAuthOrQueryToken, requireAdmin, (req, res) => {
+app.get('/api/admin/backup/download/:filename', requireAuth, requireAdmin, (req, res) => {
   const filePath = resolveBackupFilePath(req.params.filename);
   if (!filePath) return res.status(400).end();
   if (!fs.existsSync(filePath)) return res.status(404).end();
+  res.setHeader('Cache-Control', 'private, no-store');
   res.download(filePath);
 });
 
@@ -4602,7 +4586,7 @@ app.post('/api/uploads/images', requireAuth, upload.single('image'), asyncRoute(
   }
 }));
 
-app.get('/api/uploads/images/:filename', requireAuthOrQueryToken, asyncRoute(async (req, res) => {
+app.get('/api/uploads/images/:filename', requireAuth, asyncRoute(async (req, res) => {
   const filename = safeStoredImageFilename(req.params.filename);
   if (!filename) return res.status(400).send('Invalid image filename.');
 
@@ -4856,7 +4840,8 @@ app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
       resourceType: row.resourceType,
       resourceSyncId: row.resourceSyncId,
       operation: row.operation,
-      payload: parseJson(row.payload || 'null', null),
+      payload: row.resourceType === 'note' && row.operation !== 'delete'
+        ? sanitizeNoteContent(parseJson(row.payload || '{}', {})) : parseJson(row.payload || 'null', null),
       lww: {
         physicalMs: Number(row.lwwPhysicalMs || 0),
         logical: Number(row.lwwLogical || 0),
@@ -7885,66 +7870,7 @@ app.get('/api/link-preview', requireAuth, asyncRoute(async (req, res) => {
   }
 }));
 
-app.get('/api/proxy-image', requireAuthOrQueryToken, asyncRoute(async (req, res) => {
-  const { url } = req.query;
-  if (!url) return res.status(400).send('URL required');
-
-  async function doProxy(targetUrl, redirectsLeft = 3) {
-    let parsed;
-    try { parsed = new URL(targetUrl); }
-    catch { if (!res.headersSent) res.status(400).send('Invalid URL'); return; }
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      if (!res.headersSent) res.status(400).send('Invalid protocol');
-      return;
-    }
-
-    const transport = parsed.protocol === 'https:' ? https : http;
-    let requestOptions;
-    try {
-      requestOptions = await publicRequestOptions(targetUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Cache-Control': 'no-cache'
-        },
-        timeout: 10000
-      });
-    } catch {
-      if (!res.headersSent) res.status(400).send('Private network targets are blocked');
-      return;
-    }
-    const proxyReq = transport.get(targetUrl, requestOptions, (proxyRes) => {
-      if ([301, 302, 303, 307, 308].includes(proxyRes.statusCode) && proxyRes.headers.location && redirectsLeft > 0) {
-        proxyRes.resume();
-        return doProxy(absolutizeUrl(proxyRes.headers.location, targetUrl), redirectsLeft - 1);
-      }
-
-      if (proxyRes.statusCode >= 400) {
-        return res.status(proxyRes.statusCode).send('Upstream error');
-      }
-
-      const contentType = String(proxyRes.headers['content-type'] || 'image/jpeg').toLowerCase();
-      if (!contentType.startsWith('image/')) {
-        proxyRes.resume();
-        if (!res.headersSent) res.status(415).send('Not an image');
-        return;
-      }
-
-      res.writeHead(proxyRes.statusCode, {
-        'Content-Type': proxyRes.headers['content-type'] || 'image/jpeg',
-        'Cache-Control': 'public, max-age=86400'
-      });
-      proxyRes.pipe(res);
-    });
-    proxyReq.on('error', (err) => {
-      console.error('Proxy Image Error:', err.message, 'for URL:', targetUrl);
-      if (!res.headersSent) res.status(500).send('Proxy error');
-    });
-  }
-
-  await doProxy(url);
-}));
+mountImageProxyRoutes(app, { requireAuthOrQueryToken: requireAuth, asyncRoute, publicRequestOptions, absolutizeUrl });
 
 // ─── Google Takeout import ───────────────────────────────────────────────────
 
@@ -8261,11 +8187,12 @@ app.post('/api/import/google-takeout', requireAuth, googleTakeoutUpload, asyncRo
           if (note.annotations?.length) {
             const links = note.annotations
               .filter(a => a.url)
-              .map(a => `<a href="${a.url}" target="_blank" rel="noopener">${a.title || a.url}</a>`)
+              .map(a => `<a href="${escapeHtml(safeUrl(a.url))}" target="_blank" rel="noopener">${escapeHtml(a.title || a.url)}</a>`)
               .join('<br>');
             if (links) noteBody = noteBody ? `${noteBody}<br>${links}` : links;
           }
 
+          noteBody = sanitizeNoteHtml(noteBody);
           let isCbox = 0, checkBoxes = [];
           if (note.listContent?.length) {
             isCbox = 1;
@@ -8306,7 +8233,7 @@ app.post('/api/import/google-takeout', requireAuth, googleTakeoutUpload, asyncRo
           const updatedAt = note.userEditedTimestampUsec ? new Date(note.userEditedTimestampUsec / 1000).toISOString() : now;
 
           // Skip notes that look like a re-import of something already present.
-          const noteTitle = plainText(note.title || '') || '';
+          const noteTitle = escapeHtml(plainText(note.title || ''));
           const fingerprint = `${createdAt}|${noteTitle.slice(0, 200)}|${noteBody.slice(0, 200)}`;
           if (existingFingerprints.has(fingerprint)) { deduped++; continue; }
           existingFingerprints.add(fingerprint);
@@ -8371,8 +8298,12 @@ app.post('/api/import/google-takeout', requireAuth, googleTakeoutUpload, asyncRo
 }));
 
 if (fs.existsSync(staticDir)) {
-  app.use(express.static(staticDir));
+  const appCsp = "script-src 'self' https://cdn.jsdelivr.net/npm/node-snackbar@latest/dist/snackbar.min.js; script-src-attr 'none'; object-src 'none'; base-uri 'self'";
+  app.use(express.static(staticDir, { setHeaders: (res, filename) => {
+    if (filename.endsWith('.html')) res.setHeader('Content-Security-Policy', appCsp);
+  } }));
   app.get('*', (_req, res) => {
+    res.set('Content-Security-Policy', appCsp);
     res.sendFile(path.join(staticDir, 'index.html'));
   });
 }

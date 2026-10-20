@@ -1,3 +1,4 @@
+import { createNoteHtmlContainer, sanitizeNoteHtml } from '../utils/note-html';
 import { Pipe, PipeTransform } from '@angular/core';
 import { NoteI } from '../interfaces/notes';
 import { ReminderService } from '../services/reminder.service';
@@ -394,10 +395,10 @@ export class NotesToolsPipe implements PipeTransform {
     } else {
       let div = NotesToolsPipe.normalizeEl
       if (!div) {
-        div = document.createElement('div')
+        div = createNoteHtmlContainer()
         NotesToolsPipe.normalizeEl = div
       }
-      div.innerHTML = raw
+      div.innerHTML = sanitizeNoteHtml(raw)
       plain = div.textContent || (div as any).innerText || ''
     }
     return plain

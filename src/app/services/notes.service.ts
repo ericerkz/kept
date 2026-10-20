@@ -89,7 +89,7 @@ export class NotesService {
     });
     this.authSubscription = this.auth.currentUser$.subscribe(user => {
       this.disconnectRealtime();
-      if (user?.token) {
+      if (user) {
         this.connectRealtime(user.token);
         this.publishCachedNotes(this.searchQuery).catch(console.error);
       } else {
@@ -122,6 +122,7 @@ export class NotesService {
       this.nextCursor = page.nextCursor;
       this.hasLoaded = true;
       const notes = this.withOptimisticNotes(page.notes);
+      await this.prepareNoteImages(notes);
       this.publishNotes(notes);
       this.queueLinkPreviewPreload(notes);
       notes.forEach(note => this.cacheNoteMedia(note).catch(console.error));
@@ -201,6 +202,7 @@ export class NotesService {
       const current = this.notesList$.value || [];
       const seen = new Set(current.map(note => note.id).filter(Boolean));
       const merged = [...current, ...page.notes.filter(note => !note.id || !seen.has(note.id))];
+      await this.prepareNoteImages(page.notes);
       this.publishNotes(merged);
       this.queueLinkPreviewPreload(page.notes);
     } finally {
@@ -210,23 +212,13 @@ export class NotesService {
 
   private connectRealtime(token: string) {
     this.shouldReconnectRealtime = true;
-    const url = this.realtimeUrl(token);
-    console.log('[Kept WS] connecting to', url.replace(/token=[^&]+/, 'token=***'));
+    const url = this.realtimeUrl();
+    console.log('[Kept WS] connecting to', url);
     this.realtimeSocket = new WebSocket(url);
     const socket = this.realtimeSocket;
 
     this.realtimeSocket.onopen = () => {
       console.log('[Kept WS] connected');
-      // Replay any notes we'd previously asked to be present in. This covers
-      // (a) joinNote() calls issued while the socket was still handshaking,
-      // and (b) reconnects after a server restart or network blip.
-      for (const noteId of this.joinedNotes) {
-        try {
-          this.realtimeSocket!.send(JSON.stringify({ type: 'join-note', noteId }));
-        } catch {
-          // socket closed mid-replay; the next reconnect will retry.
-        }
-      }
     };
 
     this.realtimeSocket.onerror = (event) => {
@@ -236,6 +228,18 @@ export class NotesService {
     this.realtimeSocket.onmessage = event => {
       try {
         const message = JSON.parse(event.data);
+        if (message.type === 'auth-required') {
+          if (token && this.realtimeSocket === socket) socket.send(JSON.stringify({ type: 'authenticate', token }));
+          else socket.close();
+          return;
+        }
+        if (message.type === 'ready') {
+          // Replay joins after the server finishes authentication, including
+          // cookie lookup, so an early join cannot race the message handler.
+          for (const noteId of this.joinedNotes) {
+            this.realtimeSocket!.send(JSON.stringify({ type: 'join-note', noteId }));
+          }
+        }
         if (message.type === 'notes-changed') {
           if (message.action === 'access-revoked') {
             this.removeNoteFromListAndCache(Number(message.noteId), String(message.syncId || '')).catch(console.error);
@@ -263,7 +267,7 @@ export class NotesService {
     this.realtimeSocket.onclose = (event) => {
       console.warn('[Kept WS] closed', event.code, event.reason);
       if (this.realtimeSocket !== socket) return;
-      if (!this.shouldReconnectRealtime || !this.auth.token) return;
+      if (!this.shouldReconnectRealtime || !this.auth.currentUser) return;
       this.realtimeReconnect = setTimeout(() => this.connectRealtime(this.auth.token), 2000);
     };
   }
@@ -416,17 +420,17 @@ export class NotesService {
     this.realtimeSocket = undefined;
   }
 
-  private realtimeUrl(token: string) {
-    const encodedToken = encodeURIComponent(token);
+  private realtimeUrl() {
     if (environment.apiUrl.startsWith('http')) {
-      return `${environment.apiUrl.replace(/^http/, 'ws')}/realtime?token=${encodedToken}`;
+      return `${environment.apiUrl.replace(/^http/, 'ws')}/realtime`;
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}${environment.apiUrl}/realtime?token=${encodedToken}`;
+    return `${protocol}//${window.location.host}${environment.apiUrl}/realtime`;
   }
 
   async add(noteObj: NoteI) {
+    noteObj = this.canonicalizeNoteMedia(noteObj);
     const pendingNote: NoteI = {
       ...noteObj,
       sortOrder: noteObj.sortOrder ?? Date.now()
@@ -486,6 +490,7 @@ export class NotesService {
   }
 
   async update(object: NoteI, id: number) {
+    object = this.canonicalizeNoteMedia(object);
     if (id === -1) return;
     const existing = await this.cachedOrLoadedNote(id);
     const local = { ...existing, ...object, id, isCardPreview: false, updatedAt: new Date().toISOString(), lastEditorUserId: this.auth.currentUser?.id } as NoteI;
@@ -525,6 +530,7 @@ export class NotesService {
   }
 
   async updateKey(object: UpdateKeyI, id: number) {
+    object = this.canonicalizeNoteMedia(object);
     if (id === -1) return;
     const existing = await this.cachedOrLoadedNote(id);
     const local = { ...existing, ...object, id, isCardPreview: false, updatedAt: new Date().toISOString(), lastEditorUserId: this.auth.currentUser?.id } as NoteI;
@@ -636,6 +642,7 @@ export class NotesService {
         this.mediaUploadTimeoutMs
       );
       this.offlineSync.clearConnectionDegraded();
+      await this.auth.prepareImageUrl(uploaded.url);
       return uploaded;
     } catch (error) {
       if (!this.isOfflineError(error)) throw error;
@@ -737,10 +744,7 @@ export class NotesService {
   }
 
   async downloadImage(src: string, filename?: string) {
-    const imageUrl = this.auth.authenticatedImageUrl(src);
-    const response = await fetch(imageUrl);
-    if (!response.ok) throw new Error('Could not download image.');
-    const blob = await response.blob();
+    const blob = await this.auth.fetchMediaBlob(src);
     const resolvedFilename = this.imageDownloadFilename(filename, src, blob.type);
     if (await this.tryNativeDownload(blob, resolvedFilename, blob.type || 'image/png')) return;
     this.browserDownloadBlob(blob, resolvedFilename);
@@ -816,18 +820,19 @@ export class NotesService {
     if (id !== -1) {
       if (id < 0 || !navigator.onLine) {
         const cached = this.offlineSync.partition ? await this.offlineStore.getNote(this.offlineSync.partition, id) : undefined;
-        if (cached) return cached;
+        if (cached) return this.hydrateOfflineNoteMedia(cached);
       }
       try {
         const note = await firstValueFrom(this.http.get<NoteI>(`${this.apiUrl}/${id}`, { headers: this.auth.authHeaders() }));
         if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, note);
+        await this.prepareNoteImages([note]);
         await this.cacheNoteMedia(note);
         await this.reminders.refreshNoteContent(note);
         if (options.merge !== false) this.mergeNoteIntoList(note);
         return note;
       } catch (error) {
         const cached = this.offlineSync.partition ? await this.offlineStore.getNote(this.offlineSync.partition, id) : undefined;
-        if (cached) return cached;
+        if (cached) return this.hydrateOfflineNoteMedia(cached);
         throw error;
       }
     } else return {} as NoteI
@@ -937,6 +942,7 @@ export class NotesService {
   async getAll() {
     try {
       const notes = await firstValueFrom(this.http.get<NoteI[]>(this.apiUrl, { headers: this.auth.authHeaders() }));
+      await this.prepareNoteImages(notes);
       if (this.offlineSync.partition) {
         for (const note of notes) {
           await this.offlineStore.putNote(this.offlineSync.partition, note);
@@ -1184,7 +1190,9 @@ export class NotesService {
   }
 
   private isOfflineError(error: unknown) {
-    return !navigator.onLine || this.isRequestTimeout(error) || (error instanceof HttpErrorResponse && error.status === 0);
+    // iOS reports failed native requests as -1, even if onLine remains true.
+    return !navigator.onLine || this.isRequestTimeout(error) ||
+      (error instanceof HttpErrorResponse && [-1, 0].includes(error.status));
   }
 
   private async withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
@@ -1218,14 +1226,27 @@ export class NotesService {
     });
   }
 
+  private canonicalizeNoteMedia<T extends Partial<NoteI>>(note: T): T {
+    const result = { ...note };
+    if (typeof note.noteBody === 'string') result.noteBody = this.auth.canonicalImageHtml(note.noteBody);
+    if (Array.isArray(note.images)) result.images = note.images.map(image => ({ ...image, dataUrl: this.auth.canonicalImageUrl(image.dataUrl) }));
+    return result;
+  }
+
+  private async prepareNoteImages(notes: NoteI[]) {
+    if (this.auth.usesBrowserSession || !navigator.onLine) return;
+    const urls = new Set(notes.flatMap(note => this.noteImageUrls(note)));
+    await Promise.all([...urls].map(url => this.auth.prepareImageUrl(url).catch(() => undefined)));
+  }
+
   private async cacheNoteMedia(note: NoteI) {
     if (!this.offlineSync.partition || !navigator.onLine) return;
     const urls = this.noteImageUrls(note);
-    await Promise.all(urls.map(url => this.offlineStore.cacheMedia(
-      this.offlineSync.partition,
-      this.auth.canonicalImageUrl(url),
-      this.auth.authenticatedImageUrl(url)
-    )));
+    await Promise.all(urls.map(async url => {
+      try {
+        await this.offlineStore.cacheMedia(this.offlineSync.partition, this.auth.canonicalImageUrl(url), await this.auth.prepareImageUrl(url));
+      } catch { /* Missing media must not prevent notes from syncing. */ }
+    }));
   }
 
   private async hydrateOfflineNoteMedia(note: NoteI) {
@@ -1233,7 +1254,12 @@ export class NotesService {
     const replacements = new Map<string, string>();
     for (const url of this.noteImageUrls(note)) {
       const canonical = this.auth.canonicalImageUrl(url);
-      const offline = await this.offlineStore.offlineMediaUrl(this.offlineSync.partition, canonical);
+      let offline = await this.offlineStore.offlineMediaUrl(this.offlineSync.partition, canonical);
+      // A cached note can arrive before its media cache has been populated.
+      // Native renderers must not briefly insert an unauthenticated HTTP URL.
+      if (offline === canonical && !this.auth.usesBrowserSession && navigator.onLine) {
+        try { offline = await this.auth.prepareImageUrl(canonical); } catch {}
+      }
       if (offline !== canonical) replacements.set(canonical, offline);
     }
     if (!replacements.size) return note;

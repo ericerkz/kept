@@ -345,12 +345,17 @@ export class NavbarComponent implements OnInit {
   }
 
   toggleTheme() {
-    const nextTheme = this.auth.currentUser?.theme === 'light' ? 'dark' : 'light'
+    const nextTheme = this.auth.effectiveTheme === 'light' ? 'dark' : 'light'
     this.auth.updateTheme(nextTheme)
   }
 
   async logout() {
-    await this.auth.logout()
+    try {
+      await this.auth.logout()
+    } catch {
+      ;(window as any).Snackbar?.show({ text: 'Connect to the server to sign out.', duration: 4000 })
+      return
+    }
     this.router.navigateByUrl('/login')
   }
 

@@ -260,7 +260,7 @@ async function resolveClient(clientId, { get }) {
 }
 
 function mountOAuthAndMcpRoutes(app, dependencies) {
-  const { get, all, run, asyncRoute, requireAuth, resolveSessionFromToken, createSession, oauthRegistrationLimiter, internalBaseUrl } = dependencies;
+  const { get, all, run, asyncRoute, requireAuth, createSession, browserSessions, oauthRegistrationLimiter, internalBaseUrl } = dependencies;
   const urlencoded = express.urlencoded({ extended: false, limit: '32kb' });
 
   app.use('/oauth/authorize', (_req, res, next) => {
@@ -323,10 +323,9 @@ function mountOAuthAndMcpRoutes(app, dependencies) {
     ].join('');
     return htmlPage('Connect', `<h1>Connect ${escapeHtml(clientName)}?</h1><p>This client is requesting access to your Kept account.</p><ul class="scopes">${scopeItems}</ul><p>Locked notes and permanent deletion still follow your External Access settings.</p><p id="message"></p><div class="actions"><button id="cancel">Cancel</button><button class="primary" id="approve">Connect</button></div>`, `
 const requestId=${safeRequest};const message=document.getElementById('message');
-function session(){try{return JSON.parse(localStorage.getItem('gk_session')||'null')}catch{return null}}
-const current=session();if(!current?.token){location.href='/login?oauth_request='+encodeURIComponent(requestId)}
+const browserSession=fetch('/api/auth/browser/session').then(r=>r.json()).then(data=>{if(!data.authenticated)location.href='/login?oauth_request='+encodeURIComponent(requestId);return data});
 document.getElementById('cancel').onclick=()=>location.href='/oauth/authorize/cancel?request='+encodeURIComponent(requestId);
-document.getElementById('approve').onclick=async()=>{const button=document.getElementById('approve');button.disabled=true;message.textContent='Connecting...';try{const response=await fetch('/oauth/authorize/approve',{method:'POST',headers:{authorization:'Bearer '+session().token,'content-type':'application/json'},body:JSON.stringify({request:requestId})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not connect.');location.href=data.redirect}catch(error){message.className='error';message.textContent=error.message;button.disabled=false}};`);
+document.getElementById('approve').onclick=async()=>{const button=document.getElementById('approve');button.disabled=true;message.textContent='Connecting...';try{const current=await browserSession;const response=await fetch('/oauth/authorize/approve',{method:'POST',headers:{'x-csrf-token':current.csrfToken,'content-type':'application/json'},body:JSON.stringify({request:requestId})});const data=await response.json();if(!response.ok)throw new Error(data.error||'Could not connect.');location.href=data.redirect}catch(error){message.className='error';message.textContent=error.message;button.disabled=false}};`);
   }
 
   app.get('/oauth/authorize', asyncRoute(async (req, res) => {
@@ -363,10 +362,8 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     res.redirect(appendRedirect(pending.redirectUri, { error: 'access_denied', state: pending.state }));
   }));
 
-  app.post('/oauth/authorize/approve', asyncRoute(async (req, res) => {
-    const header = req.header('authorization') || '';
-    const sessionToken = header.startsWith('Bearer ') ? header.slice(7) : '';
-    const user = await resolveSessionFromToken(sessionToken);
+  app.post('/oauth/authorize/approve', requireAuth, asyncRoute(async (req, res) => {
+    const user = req.mcpToken ? null : req.user;
     if (!user) return res.status(401).json({ error: 'Please sign in to Kept first.' });
     const requestId = String(req.body?.request || '');
     const pending = await loadPending(requestId);
@@ -590,7 +587,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     res.redirect(target || `/login?${params.toString()}`);
   }));
 
-  app.post('/api/auth/oidc/exchange', asyncRoute(async (req, res) => {
+  const exchangeOidc = asyncRoute(async (req, res) => {
     const codeHash = sha256(req.body?.code);
     const record = await get('SELECT * FROM oidc_login_codes WHERE codeHash = ? AND usedAt IS NULL AND expiresAt > ?', [codeHash, new Date().toISOString()]);
     if (!record) return res.status(400).json({ error: 'This SSO sign-in expired. Please try again.' });
@@ -598,8 +595,11 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     if (!user) return res.status(403).json({ error: 'This Kept account is not enabled.' });
     const result = await run('UPDATE oidc_login_codes SET usedAt = ? WHERE codeHash = ? AND usedAt IS NULL', [new Date().toISOString(), codeHash]);
     if (!result.changes) return res.status(400).json({ error: 'This SSO sign-in was already used.' });
+    if (req.path === '/api/auth/browser/oidc/exchange') return browserSessions.finishLogin(req, res, user);
     res.json(await createSession(user));
-  }));
+  });
+  app.post('/api/auth/oidc/exchange', exchangeOidc);
+  app.post('/api/auth/browser/oidc/exchange', browserSessions.protect, exchangeOidc);
 
   app.all('/mcp', asyncRoute(async (req, res) => {
     const issuer = baseUrlFor(req);

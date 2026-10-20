@@ -1,3 +1,4 @@
+import { createNoteHtmlContainer, sanitizeNoteHtml } from '../../utils/note-html';
 import { CheckboxI, NoteAttachmentI, NoteI, NoteImageI } from './../../interfaces/notes';
 import { AfterViewChecked, ChangeDetectorRef, Component, HostListener, NgZone, OnDestroy, OnInit, ViewChild, ElementRef, ViewChildren, QueryList } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
@@ -305,8 +306,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private htmlPlainText(value?: string | null) {
-    const div = document.createElement('div')
-    div.innerHTML = String(value || '')
+    const div = createNoteHtmlContainer()
+    div.innerHTML = sanitizeNoteHtml(String(value || ''))
     return (div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim()
   }
 
@@ -340,8 +341,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private buildBodySegments(html: string): NoteBodyPreview {
-    const div = document.createElement('div')
-    div.innerHTML = html || ''
+    const div = createNoteHtmlContainer()
+    div.innerHTML = sanitizeNoteHtml(html || '')
     div.querySelectorAll('app-link-preview, .editor-link-previews, .editor-link-preview-slot, .lp-card').forEach(el => el.remove())
 
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
@@ -383,12 +384,12 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const urls: string[] = []
     const seenUrls = new Set<string>()
     const renderedUrls = new Set<string>()
-    let buffer = document.createElement('div')
+    let buffer = document.implementation.createHTMLDocument('').createElement('div')
 
     const flushBuffer = () => {
       const html = buffer.innerHTML.replace(/^(?:<br\s*\/?>|\s)+|(?:<br\s*\/?>|\s)+$/g, '')
       if (html) segments.push({ type: 'html', value: html })
-      buffer = document.createElement('div')
+      buffer = document.implementation.createHTMLDocument('').createElement('div')
     }
 
     const walk = (root: Node) => {
@@ -436,8 +437,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private hideLinksInHtml(html: string) {
-    const div = document.createElement('div')
-    div.innerHTML = html || ''
+    const div = createNoteHtmlContainer()
+    div.innerHTML = sanitizeNoteHtml(html || '')
     div.querySelectorAll('app-link-preview, .editor-link-previews, .editor-link-preview-slot, .lp-card').forEach(el => el.remove())
 
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
@@ -1272,6 +1273,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
     const target = event.target as HTMLElement | null
     if (!target) return false
+    // Drawer scrolling bubbles to these document-level touch listeners too.
+    if (target.closest('app-sidenav, .main-sidebar, .sidebar-backdrop')) return false
     return !target.closest('input, textarea, select, button, a, [contenteditable="true"], .reminder-date-dialog, .modal-container, .profile-menu, .filters-dropdown')
   }
 
@@ -2434,8 +2437,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private notePlainText(value?: string | null) {
-    const div = document.createElement('div')
-    div.innerHTML = value || ''
+    const div = createNoteHtmlContainer()
+    div.innerHTML = sanitizeNoteHtml(value || '')
     return (div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim()
   }
 
@@ -2847,8 +2850,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private waitForAuth() {
-    if (this.auth.currentUser?.token) return Promise.resolve()
-    return firstValueFrom(this.auth.currentUser$.pipe(filter(user => !!user?.token)))
+    if (this.auth.currentUser) return Promise.resolve()
+    return firstValueFrom(this.auth.currentUser$.pipe(filter(user => !!user)))
   }
 
   private noteIdFromWidgetUrl(url: string) {

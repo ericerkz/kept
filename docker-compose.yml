@@ -48,18 +48,18 @@ services:
       # - KEPT_SESSION_TTL_DAYS=30
 
       # ── CORS (cross-origin requests) ─────────────────────────────────────
-      # Kept uses Bearer tokens instead of cookies, so the default compose
-      # config allows browser API calls from any origin. This avoids remote
-      # clients/native shells failing when the app and API are not served from
-      # the exact same origin.
+      # Browser sessions use HttpOnly cookies; same-origin access needs no CORS.
+      # Native/API clients continue to use Bearer tokens. Wildcard mode supports
+      # those clients, but browser cookie requests to a separate SPA origin need
+      # the explicit allowlist below and a same-site API.
       #
       # Allow any origin (easy mode for personal self-hosting):
       - KEPT_CORS_ALLOW_ALL=1
       #
       # Tradeoff: any website can hit your unauth endpoints
       # (/api/setup/status, login, register) from a browser. Authenticated
-      # API calls still require a valid Bearer token, so user data is not
-      # exposed. Fine for most personal/family instances.
+      # native/API calls still require a valid Bearer token. Wildcard mode
+      # does not grant permission to read cookie-authenticated responses.
       #
       # To pin specific origins instead, comment out KEPT_CORS_ALLOW_ALL above
       # and uncomment KEPT_CORS_ORIGINS below. Comma-separated, no spaces, no
@@ -78,8 +78,9 @@ services:
       # If both KEPT_CORS_ALLOW_ALL and KEPT_CORS_ORIGINS are set, the
       # allowlist takes precedence.
       #
-      # Note: CORS does not control realtime presence/live collaboration.
-      # For those to work over the internet, your reverse proxy must support
+      # Cookie-authenticated realtime connections also check the browser origin
+      # against BASE_URL (or the request host) and KEPT_CORS_ORIGINS.
+      # For realtime to work, your reverse proxy must support
       # WebSocket upgrades and forward /api/realtime to this container.
 
       # VAPID keys for web push. Auto-generated into ./data/vapid.json on

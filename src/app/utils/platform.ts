@@ -44,7 +44,10 @@ export function isExpandedNativeFoldable(): boolean {
   const height = window.screen.height || window.innerHeight;
   const shortestSide = Math.min(width, height);
   const longestSide = Math.max(width, height);
-  return !!shortestSide && longestSide / shortestSide <= 1.28;
+  // iOS foldable phone layouts can be taller than Android book foldables.
+  // The notes grid separately checks that three readable columns will fit.
+  const maximumAspectRatio = platform === 'ios' ? 1.5 : 1.28;
+  return !!shortestSide && longestSide / shortestSide <= maximumAspectRatio;
 }
 
 export function isNativePhonePlatform(): boolean {

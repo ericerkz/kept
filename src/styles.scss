@@ -650,6 +650,7 @@ app-navbar .form:focus-within .pic {
 
 app-navbar .selection-navbar {
   align-items: center;
+  background: #2d2e30;
   display: flex;
   height: 48px;
   width: 100%;
@@ -677,31 +678,6 @@ app-navbar .selection-count {
   min-width: 170px;
 }
 
-@media (max-width: 599px) {
-  app-navbar .selection-count {
-    font-size: 1rem;
-    min-width: 0;
-    flex: 0 1 auto;
-    margin-right: 4px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  app-navbar .selection-icon {
-    height: 40px;
-    width: 40px;
-  }
-  app-navbar .selection-actions {
-    gap: 2px;
-  }
-  app-navbar .selection-close {
-    font-size: 26px;
-    height: 40px;
-    width: 32px;
-    margin: 0 2px;
-  }
-}
-
 app-navbar .selection-actions {
   align-items: center;
   display: flex;
@@ -718,6 +694,45 @@ app-navbar .selection-icon {
   padding: 0;
   position: relative;
   width: 48px;
+}
+
+@media (max-width: 599px) {
+  app-navbar .selection-count {
+    font-size: 1rem;
+    min-width: 0;
+    flex: 0 1 auto;
+    margin-right: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  app-navbar .selection-icon {
+    flex: 0 1 40px;
+    min-width: 32px;
+    height: 40px;
+    width: 40px;
+  }
+  app-navbar .selection-actions {
+    gap: 2px;
+    min-width: 0;
+  }
+  app-navbar .selection-close {
+    flex: 0 0 32px;
+    font-size: 26px;
+    height: 40px;
+    width: 32px;
+    margin: 0 2px;
+  }
+}
+
+@media (max-width: 399px) {
+  app-navbar .selection-count {
+    display: none;
+  }
+  app-navbar .selection-actions {
+    flex: 1;
+    justify-content: space-between;
+  }
 }
 
 app-navbar .selection-icon::after {
@@ -759,6 +774,10 @@ app-navbar .selection-icon.delete::after {
 app-navbar .selection-icon.more::after {
   -webkit-mask: url(/assets/images/svg/more.svg) center / contain no-repeat;
   mask: url(/assets/images/svg/more.svg) center / contain no-repeat;
+}
+
+body.light-theme app-navbar .selection-navbar {
+  background: #fff;
 }
 
 body.light-theme app-navbar .selection-close {

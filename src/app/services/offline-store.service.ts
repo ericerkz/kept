@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { Injectable } from '@angular/core';
 import { environment } from 'src/environments/environment';
 import { NoteAttachmentI, NoteI } from '../interfaces/notes';
@@ -310,7 +311,7 @@ export class OfflineStoreService {
   async cacheMedia(partition: string, canonicalUrl: string, requestUrl: string) {
     if (!canonicalUrl || canonicalUrl.startsWith('data:') || canonicalUrl.startsWith('blob:')) return;
     try {
-      const response = await fetch(requestUrl);
+      const response = await fetch(requestUrl, { credentials: Capacitor.isNativePlatform() ? 'same-origin' : 'include' });
       if (!response.ok) return;
       await this.putBlob(partition, `media:${canonicalUrl}`, await response.blob());
     } catch {}

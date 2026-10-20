@@ -13,7 +13,7 @@
     (click)="openCard($event)">
     
     @if (!failed && preview?.image && !imageError) {
-      <img class="lp-thumb" [src]="proxyUrl(preview!.image)" [alt]="preview?.title"
+      <img class="lp-thumb" [src]="thumbnailUrl" [alt]="preview?.title"
         (error)="imageError = true">
     } @else {
       <div class="lp-thumb-placeholder">

@@ -27,8 +27,10 @@
 //? placeholder  ---------------------
 .placeholder {
   .input {
-    padding: 21px 6px 11px 16px;
+    padding: 10px 6px 10px 16px;
     font-family: "Google Sans Light 2";
+    font-size: 1rem;
+    line-height: 24px;
     height: 46px;
     width: 100%;
     background-color: #202124;
@@ -50,7 +52,7 @@
   }
 
   %icons {
-    height: 46px;
+    height: 44px;
     position: absolute;
     top: 1px;
     width: 46px;
@@ -197,11 +199,16 @@
       }
     }
 
+    .note-title-container {
+      padding-top: 8px;
+      position: relative;
+    }
+
     //? title
     .note-title {
       color: inherit;
       padding: 10px 16px;
-      margin-top: 8px;
+      margin-top: 0;
       font-size: 1.35rem; // larger title like Keep mobile
       font-weight: 400;
 
@@ -217,9 +224,10 @@
       &.ph {
         color: rgba(255, 255, 255, 0.6);
         position: absolute;
+        top: 8px;
+        left: 0;
         width: 100%;
         pointer-events: none;
-        padding-left: 11px;
       }
 
       &:focus-visible {
@@ -1284,6 +1292,8 @@
 
 
 .close-btn {
+  background: transparent;
+  border: 0;
   margin-right: 15px;
   color: #dadce0;
   letter-spacing: 0.01785714em;
@@ -1296,8 +1306,13 @@
   border-radius: 4px;
   cursor: pointer;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background-color: rgba(154, 160, 166, 0.039);
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.38;
   }
 }
 
@@ -1340,7 +1355,7 @@
   .close-btn {
     color: #3c4043;
 
-    &:hover {
+    &:hover:not(:disabled) {
       background-color: rgba(60, 64, 67, 0.08);
     }
   }

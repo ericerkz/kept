@@ -1,4 +1,4 @@
-import { NgModule } from '@angular/core';
+import { APP_INITIALIZER, NgModule } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
 import { HTTP_INTERCEPTORS, provideHttpClient, withInterceptorsFromDi } from '@angular/common/http';
@@ -23,6 +23,7 @@ import { LinkPreviewComponent } from './components/link-preview/link-preview.com
 import { UpdateBannerComponent } from './components/update-banner/update-banner.component';
 import { MergeDialogComponent } from './components/merge-dialog/merge-dialog.component';
 import { AuthExpiredInterceptor } from './services/auth-expired.interceptor';
+import { AuthService } from './services/auth.service';
 import { ConnectionHeadersInterceptor } from './services/connection-headers.interceptor';
 
 @NgModule({ declarations: [
@@ -49,6 +50,7 @@ import { ConnectionHeadersInterceptor } from './services/connection-headers.inte
     bootstrap: [AppComponent], imports: [BrowserModule,
         FormsModule,
         AppRoutingModule], providers: [
+        { provide: APP_INITIALIZER, useFactory: (auth: AuthService) => () => auth.initializeBrowserSession(), deps: [AuthService], multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: ConnectionHeadersInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: AuthExpiredInterceptor, multi: true },
         provideHttpClient(withInterceptorsFromDi())

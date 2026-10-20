@@ -315,8 +315,9 @@ export class UserManagementComponent implements OnInit {
     } catch {}
   }
 
-  downloadBackup(filename: string) {
-    window.open(this.auth.getBackupDownloadUrl(filename), '_blank');
+  async downloadBackup(filename: string) {
+    try { await this.auth.downloadBackup(filename); }
+    catch (error) { this.auth.notifySessionExpired(error); }
   }
 
   formatSize(bytes: number) {

@@ -7,6 +7,7 @@ export interface UserI {
     displayName: string
     role: UserRole
     theme: UserTheme
+    followSystemTheme?: boolean
     avatarDataUrl: string
     avatarPreset: string
     showPastReminders?: boolean
@@ -25,6 +26,7 @@ export interface AuthSessionI {
     displayName: string
     role: UserRole
     theme: UserTheme
+    followSystemTheme?: boolean
     avatarDataUrl: string
     avatarPreset: string
     showPastReminders?: boolean

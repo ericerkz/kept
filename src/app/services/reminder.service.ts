@@ -1,3 +1,4 @@
+import { createNoteHtmlContainer, sanitizeNoteHtml } from '../utils/note-html';
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Capacitor, registerPlugin } from '@capacitor/core';
@@ -573,8 +574,8 @@ export class ReminderService {
 
   private plainText(value: string) {
     if (typeof document !== 'undefined') {
-      const div = document.createElement('div');
-      div.innerHTML = value;
+      const div = createNoteHtmlContainer();
+      div.innerHTML = sanitizeNoteHtml(value);
       return (div.textContent || '').replace(/\s+/g, ' ').trim();
     }
     return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();

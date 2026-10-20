@@ -122,6 +122,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   notificationPermissionsVisible = false;
   notificationPermission: NotificationPermission | 'unsupported' = 'unsupported';
   notificationPromptDismissed = false;
+  isSavingThemePreference = false;
   useTwentyFourHourTime = false;
   moveCompletedChecklistItemsToBottom = true;
   richLinkPreviews = true;
@@ -225,6 +226,19 @@ export class SettingsComponent implements OnInit, OnDestroy {
   toggleTwentyFourHourTime(event: Event) {
     this.useTwentyFourHourTime = (event.target as HTMLInputElement).checked;
     this.preferences.update({ useTwentyFourHourTime: this.useTwentyFourHourTime });
+  }
+
+  async toggleFollowSystemTheme(event: Event) {
+    const input = event.target as HTMLInputElement;
+    this.isSavingThemePreference = true;
+    try {
+      await this.authService.setFollowSystemTheme(input.checked);
+    } catch {
+      input.checked = this.authService.followsSystemTheme;
+      this.error = 'Could not save the appearance preference.';
+    } finally {
+      this.isSavingThemePreference = false;
+    }
   }
 
   toggleMoveCompletedChecklistItems(event: Event) {

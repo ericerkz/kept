@@ -100,7 +100,7 @@ export class PushNotificationService {
   }
 
   async ensureSubscribed() {
-    if (this.isRegistering || !this.auth.token) return;
+    if (this.isRegistering || !this.auth.currentUser) return;
     if (!this.isSupported()) return;
     // iOS only allows web push when the app is launched in standalone (PWA)
     // mode. Subscribing inside a Safari tab on iOS produces a registration

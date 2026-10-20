@@ -1,4 +1,6 @@
+import { createNoteHtmlContainer, sanitizeNoteHtml } from '../../utils/note-html';
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
 import { Subscription } from 'rxjs';
 import { ReminderFiredPayload } from 'src/app/interfaces/reminder';
 import { ReminderService } from 'src/app/services/reminder.service';
@@ -74,11 +76,12 @@ export class ReminderNotificationComponent implements OnInit, OnDestroy {
   }
 
   private showBrowserNotification(payload: ReminderFiredPayload) {
-    // The SW push handler already called showNotification() for push-fired
-    // events; skip the in-page duplicate. For locally-fired (timer) events
-    // we MUST surface the OS notification ourselves, otherwise desktop users
-    // see nothing when the page is in another tab.
+    // Push notifications are already displayed by the service worker.
     if (payload.source === 'sw-push') return;
+
+    // Android's native alarm owns system delivery for local timer events.
+    // The subscriber still updates the in-app banner and plays its sound.
+    if (payload.source === 'local' && Capacitor.getPlatform() === 'android') return;
 
     if (this.reminderService.isAndroidNativeNotificationAvailable()) {
       this.reminderService.postAndroidReminderNotification(payload).catch(error => {
@@ -115,8 +118,8 @@ export class ReminderNotificationComponent implements OnInit, OnDestroy {
   }
 
   private cleanText(value: string | null) {
-    const div = document.createElement('div');
-    div.innerHTML = value || '';
+    const div = createNoteHtmlContainer();
+    div.innerHTML = sanitizeNoteHtml(value || '');
     return (div.textContent || div.innerText || '').trim();
   }
 

@@ -305,10 +305,23 @@
       </h2>
 
       <p class="section-desc">
-        Adjust how Kept presents times, checklist rows, and links on this device.
+        Adjust Kept's appearance, times, checklist rows, and links.
       </p>
 
       <div class="preferences-list">
+        <div class="preference-row">
+          <div class="preference-info">
+            <span class="preference-label">Follow system appearance</span>
+            <span class="preference-desc">Match this device's light or dark appearance. Using the theme toggle turns this off.</span>
+          </div>
+          <label class="toggle-label">
+            <input type="checkbox" aria-label="Follow system appearance"
+              [checked]="authService.followsSystemTheme" [disabled]="isSavingThemePreference"
+              (change)="toggleFollowSystemTheme($event)">
+            <span class="toggle-text">{{authService.followsSystemTheme ? 'Enabled' : 'Disabled'}}</span>
+          </label>
+        </div>
+
         <div class="preference-row">
           <div class="preference-info">
             <span class="preference-label">24-hour time</span>

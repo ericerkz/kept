@@ -1,0 +1,10 @@
+[
+  "<img src=x onerror='window.__noteXss=1'>",
+  "<svg onload='window.__noteXss=1'><foreignObject><img src=x onerror='window.__noteXss=1'></foreignObject></svg>",
+  "<math><mtext><table><mglyph><style><!--</style><img title=\"--><img src=x onerror='window.__noteXss=1'>\">",
+  "<iframe srcdoc=\"<script>parent.__noteXss=1</script>\"></iframe><object data='javascript:window.__noteXss=1'></object>",
+  "<a href='java&#x73;cript:window.__noteXss=1'>bad link</a><img src='data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9ImFsZXJ0KDEpIi8+'>",
+  "<div style='position:fixed;background-image:url(https://example.invalid/leak)' onanimationstart='window.__noteXss=1'>text</div>",
+  "<form><input name=innerHTML><button formaction='javascript:window.__noteXss=1'>submit</button></form>",
+  "<span class='editor-link-preview-slot' data-original-html=\"&lt;img src=x onerror='window.__noteXss=1'&gt;\" data-url='https://example.test'>preview</span>"
+]

@@ -29,6 +29,7 @@ export class LinkPreviewComponent implements AfterViewInit, OnDestroy {
   failed = false;
   imageError = false;
   copied = false;
+  thumbnailUrl = '';
   private observer?: IntersectionObserver;
   private viewReady = false;
   private nearViewport = false;
@@ -67,16 +68,9 @@ export class LinkPreviewComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  proxyUrl(url: string | null | undefined) {
-    if (!url) return '';
-    if (url.startsWith('data:')) return url;
-    const token = this.auth.token;
-    const tokenPart = token ? `&token=${encodeURIComponent(token)}` : '';
-    return `${environment.apiUrl}/proxy-image?url=${encodeURIComponent(url)}${tokenPart}`;
-  }
-
   private resetPreview() {
     this.preview = null;
+    this.thumbnailUrl = '';
     this.loading = true;
     this.failed = false;
     this.imageError = false;
@@ -99,6 +93,15 @@ export class LinkPreviewComponent implements AfterViewInit, OnDestroy {
     try {
       const preview = await this.notesService.getLinkPreview(url);
       if (this.destroyed || this._url !== url) return; // Stale request
+      let thumbnailUrl = '';
+      if (preview.image) {
+        const target = preview.image.startsWith('data:') ? preview.image
+          : `${environment.apiUrl}/proxy-image?url=${encodeURIComponent(preview.image)}`;
+        try { thumbnailUrl = await this.auth.prepareImageUrl(target); }
+        catch { this.imageError = true; }
+      }
+      if (this.destroyed || this._url !== url) return;
+      this.thumbnailUrl = thumbnailUrl;
       this.preview = preview;
     } catch (err) {
       if (this.destroyed || this._url !== url) return;

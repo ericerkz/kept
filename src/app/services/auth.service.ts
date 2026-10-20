@@ -1,13 +1,19 @@
+import { createNoteHtmlContainer, sanitizeNoteHtml } from '../utils/note-html';
 import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
-import { Injectable } from '@angular/core';
-import { Capacitor } from '@capacitor/core';
-import { firstValueFrom, BehaviorSubject } from 'rxjs';
+import { Injectable, NgZone, OnDestroy } from '@angular/core';
+import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
+import { firstValueFrom, BehaviorSubject, timeout } from 'rxjs';
 import { environment } from 'src/environments/environment';
 import { AuthSessionI, UserI, UserRole, UserTheme } from '../interfaces/users';
 
 type LoginResponse = {
-  token: string
+  token?: string
+  csrfToken?: string
   user: UserI
+}
+
+type ThemeAppPlugin = {
+  addListener(event: 'resume' | 'appStateChange', callback: (state?: { isActive?: boolean }) => void): Promise<PluginListenerHandle>
 }
 
 export interface McpAccessSettings {
@@ -56,15 +62,79 @@ export interface OidcLinkStatus {
 @Injectable({
   providedIn: 'root'
 })
-export class AuthService {
+export class AuthService implements OnDestroy {
   private readonly sessionKey = 'gk_session';
   private readonly apiUrl = environment.apiUrl;
+  readonly usesBrowserSession = !Capacitor.isNativePlatform();
+  private readonly systemThemeQuery = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  private readonly systemThemeChanged = () => {
+    if (!this.destroyed && this.followsSystemTheme) this.zone.run(() => this.applyTheme());
+  };
+  private readonly themeVisibilityChanged = () => {
+    if (document.visibilityState === 'visible') this.systemThemeChanged();
+  };
+  private themeResumeHandles: PluginListenerHandle[] = [];
+  private destroyed = false;
+  private csrfToken = '';
+  private csrfRefresh?: Promise<unknown>;
+  private legacyBrowserToken = '';
   private lastSessionExpiredNoticeAt = 0;
   private suppressSessionExpiredUntil = 0;
   currentUser$ = new BehaviorSubject<AuthSessionI | null>(this.getStoredSession());
+  private mediaUrls = new Map<string, string>();
+  private mediaCanonical = new Map<string, string>();
+  private mediaRequests = new Map<string, Promise<string>>();
 
-  constructor(private http: HttpClient) {
-    this.applyTheme(this.currentUser?.theme || 'light');
+  constructor(private http: HttpClient, private zone: NgZone) {
+    this.systemThemeQuery?.addEventListener('change', this.systemThemeChanged);
+    window.addEventListener('focus', this.systemThemeChanged);
+    document.addEventListener('visibilitychange', this.themeVisibilityChanged);
+    void this.bindThemeResume();
+    let owner = this.token;
+    this.currentUser$.subscribe(() => {
+      this.applyTheme();
+      if (owner === this.token) return;
+      owner = this.token;
+      for (const url of this.mediaUrls.values()) URL.revokeObjectURL(url);
+      this.mediaUrls.clear();
+      this.mediaCanonical.clear();
+      this.mediaRequests.clear();
+    });
+  }
+
+  ngOnDestroy() {
+    this.destroyed = true;
+    this.systemThemeQuery?.removeEventListener('change', this.systemThemeChanged);
+    window.removeEventListener('focus', this.systemThemeChanged);
+    document.removeEventListener('visibilitychange', this.themeVisibilityChanged);
+    for (const handle of this.themeResumeHandles) void handle.remove();
+    this.themeResumeHandles = [];
+  }
+
+  private async bindThemeResume() {
+    if (!Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('App')) return;
+    const app = ((window as any).Capacitor?.Plugins?.App || registerPlugin<ThemeAppPlugin>('App')) as ThemeAppPlugin;
+    for (const event of ['resume', 'appStateChange'] as const) {
+      try {
+        const handle = await app.addListener(event, state => {
+          if (event === 'resume' || state?.isActive === true) this.systemThemeChanged();
+        });
+        if (this.destroyed) await handle.remove();
+        else this.themeResumeHandles.push(handle);
+      } catch (error) {
+        console.warn('Could not register theme resume listener', error);
+      }
+    }
+  }
+
+  get followsSystemTheme() {
+    return this.currentUser ? this.currentUser.followSystemTheme === true : true;
+  }
+
+  get effectiveTheme(): UserTheme {
+    if (this.followsSystemTheme) return this.systemThemeQuery?.matches ? 'dark' : 'light';
+    return this.currentUser?.theme || 'light';
   }
 
   get currentUser() {
@@ -80,7 +150,54 @@ export class AuthService {
   }
 
   authHeaders() {
-    return new HttpHeaders({ Authorization: `Bearer ${this.token}` });
+    return this.usesBrowserSession
+      ? new HttpHeaders(this.csrfToken ? { 'X-CSRF-Token': this.csrfToken } : {})
+      : new HttpHeaders({ Authorization: `Bearer ${this.token}` });
+  }
+
+  async initializeBrowserSession() {
+    if (!this.usesBrowserSession) return;
+    try {
+      const result = await this.refreshBrowserSession();
+      if (this.legacyBrowserToken && !result.authenticated) {
+        const adopted = await firstValueFrom(this.http.post<LoginResponse>(`${this.apiUrl}/auth/browser/adopt`, {}, {
+          headers: this.authHeaders().set('Authorization', `Bearer ${this.legacyBrowserToken}`)
+        }).pipe(timeout(10000)));
+        this.storeLoginResult(adopted);
+      } else if (result.user) {
+        this.storeLoginResult({ user: result.user, csrfToken: result.csrfToken });
+      } else {
+        localStorage.removeItem(this.sessionKey);
+        this.currentUser$.next(null);
+      }
+    } catch (error) {
+      // Keep nonsecret account metadata for the existing offline workspace.
+      // An expired/revoked legacy session still requires signing in again.
+      if (error instanceof HttpErrorResponse && error.status === 401) {
+        localStorage.removeItem(this.sessionKey);
+        this.currentUser$.next(null);
+      }
+    } finally {
+      this.legacyBrowserToken = '';
+    }
+  }
+
+  private async refreshBrowserSession() {
+    const result = await firstValueFrom(this.http.get<{
+      authenticated: boolean; user: UserI | null; csrfToken: string
+    }>(`${this.apiUrl}/auth/browser/session`).pipe(timeout(10000)));
+    this.csrfToken = result.csrfToken;
+    return result;
+  }
+
+  async ensureBrowserCsrf() {
+    if (!this.csrfToken) {
+      if (!this.csrfRefresh) {
+        this.csrfRefresh = this.refreshBrowserSession().finally(() => { this.csrfRefresh = undefined; });
+      }
+      await this.csrfRefresh;
+    }
+    return this.csrfToken;
   }
 
   isAuthExpiredError(error: unknown) {
@@ -109,6 +226,8 @@ export class AuthService {
 
   canonicalImageUrl(value: string) {
     const raw = String(value || '').trim();
+    const mediaCanonical = this.mediaCanonical.get(raw);
+    if (mediaCanonical) return mediaCanonical;
     const offlineMap = (window as typeof window & { __keptOfflineMediaCanonical?: Map<string, string> }).__keptOfflineMediaCanonical;
     const offlineCanonical = offlineMap?.get(raw);
     if (offlineCanonical) return offlineCanonical;
@@ -132,15 +251,73 @@ export class AuthService {
     if (offlineMap?.has(raw)) return raw;
     const canonical = this.canonicalImageUrl(value);
     if (!canonical.startsWith('/api/uploads/images/')) return canonical;
-    const token = this.token;
     const imageUrl = this.apiUrl.startsWith('http') ? `${this.apiUrl}${canonical.slice('/api'.length)}` : canonical;
-    if (!token) return imageUrl;
-    return `${imageUrl}?token=${encodeURIComponent(token)}`;
+    return this.mediaUrls.get(imageUrl) || imageUrl;
+  }
+
+  // Native image elements cannot attach Authorization headers. Fetch through
+  // HttpClient (including gateway headers) and display a local blob instead.
+  // Callers prepare images before inserting their HTML into a live document.
+  async prepareImageUrl(value: string): Promise<string> {
+    const url = this.authenticatedImageUrl(value);
+    if (this.usesBrowserSession || !this.isProtectedMediaUrl(url)) return url;
+    const existing = this.mediaUrls.get(url);
+    if (existing) return existing;
+    if (!this.mediaRequests.has(url)) {
+      const token = this.token;
+      const request = this.fetchMediaBlob(url).then(async blob => {
+        // A blob URL has the app's origin and does not retain the proxy's CSP.
+        // Rasterize proxy thumbnails so an SVG cannot become an executable
+        // document if someone opens its local rendering URL directly.
+        if (new URL(url, window.location.origin).pathname.endsWith('/proxy-image')) blob = await this.rasterizeThumbnail(blob);
+        if (!token || token !== this.token) throw new Error('Session changed while loading image.');
+        const objectUrl = URL.createObjectURL(blob);
+        this.mediaUrls.set(url, objectUrl);
+        this.mediaCanonical.set(objectUrl, this.canonicalImageUrl(url));
+        return objectUrl;
+      }).finally(() => { if (this.mediaRequests.get(url) === request) this.mediaRequests.delete(url); });
+      this.mediaRequests.set(url, request);
+    }
+    return this.mediaRequests.get(url)!;
+  }
+
+  private async rasterizeThumbnail(blob: Blob): Promise<Blob> {
+    const source = URL.createObjectURL(blob);
+    try {
+      const image = new Image();
+      image.src = source;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      // Bound the thumbnail allocation while retaining aspect ratio.
+      const scale = Math.min(1, 2048 / Math.max(image.naturalWidth, image.naturalHeight));
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      canvas.getContext('2d')!.drawImage(image, 0, 0, canvas.width, canvas.height);
+      return await new Promise<Blob>((resolve, reject) => canvas.toBlob(result => result ? resolve(result) : reject(new Error('Could not render thumbnail.')), 'image/png'));
+    } finally { URL.revokeObjectURL(source); }
+  }
+
+  private isProtectedMediaUrl(value: string) {
+    try {
+      const target = new URL(value, window.location.origin);
+      const base = new URL(this.apiUrl, window.location.origin);
+      return target.origin === base.origin &&
+        (target.pathname.startsWith(base.pathname + '/uploads/images/') || target.pathname === base.pathname + '/proxy-image');
+    } catch { return false; }
+  }
+
+  async fetchMediaBlob(value: string) {
+    const url = this.authenticatedImageUrl(value);
+    // Never send a Kept credential to an external image host.
+    return firstValueFrom(this.http.get(url, {
+      headers: this.isProtectedMediaUrl(url) ? this.authHeaders() : undefined,
+      responseType: 'blob'
+    }).pipe(timeout(15000)));
   }
 
   authenticatedImageHtml(html: string) {
-    const div = document.createElement('div');
-    div.innerHTML = html || '';
+    const div = createNoteHtmlContainer();
+    div.innerHTML = sanitizeNoteHtml(html || '');
     div.querySelectorAll<HTMLImageElement>('img[src]').forEach(img => {
       img.setAttribute('src', this.authenticatedImageUrl(img.getAttribute('src') || img.src));
     });
@@ -148,8 +325,8 @@ export class AuthService {
   }
 
   canonicalImageHtml(html: string) {
-    const div = document.createElement('div');
-    div.innerHTML = html || '';
+    const div = createNoteHtmlContainer();
+    div.innerHTML = sanitizeNoteHtml(html || '');
     div.querySelectorAll<HTMLImageElement>('img[src]').forEach(img => {
       img.setAttribute('src', this.canonicalImageUrl(img.getAttribute('src') || img.src));
     });
@@ -194,7 +371,6 @@ export class AuthService {
     }));
     localStorage.removeItem(this.sessionKey);
     this.currentUser$.next(null);
-    this.applyTheme('light');
   }
 
   async generateSetup2fa(username?: string) {
@@ -219,7 +395,9 @@ export class AuthService {
     try {
       const payload: any = { username, password };
       if (totpToken) payload.totpToken = totpToken;
-      result = await firstValueFrom(this.http.post<LoginResponse>(`${this.apiUrl}/auth/login`, payload));
+      if (this.usesBrowserSession) await this.refreshBrowserSession();
+      const route = this.usesBrowserSession ? 'browser/login' : 'login';
+      result = await firstValueFrom(this.http.post<LoginResponse>(`${this.apiUrl}/auth/${route}`, payload, { headers: this.authHeaders() }));
     } catch (error: any) {
       if (error?.error?.requires2FA) {
         throw { requires2FA: true };
@@ -248,7 +426,9 @@ export class AuthService {
   }
 
   async exchangeOidcCode(code: string) {
-    const result = await firstValueFrom(this.http.post<LoginResponse>(`${this.apiUrl}/auth/oidc/exchange`, { code }));
+    if (this.usesBrowserSession) await this.refreshBrowserSession();
+    const route = this.usesBrowserSession ? 'browser/oidc/exchange' : 'oidc/exchange';
+    const result = await firstValueFrom(this.http.post<LoginResponse>(`${this.apiUrl}/auth/${route}`, { code }, { headers: this.authHeaders() }));
     this.storeLoginResult(result);
   }
 
@@ -276,13 +456,15 @@ export class AuthService {
   }
 
   private storeLoginResult(result: LoginResponse) {
+    if (this.usesBrowserSession) this.csrfToken = result.csrfToken || this.csrfToken;
     const session: AuthSessionI = {
-      token: result.token,
+      token: this.usesBrowserSession ? '' : result.token || '',
       id: result.user.id!,
       username: result.user.username,
       displayName: result.user.displayName,
       role: result.user.role,
       theme: result.user.theme || 'light',
+      followSystemTheme: result.user.followSystemTheme === true,
       avatarDataUrl: result.user.avatarDataUrl || '',
       avatarPreset: result.user.avatarPreset || 'cat',
       showPastReminders: result.user.showPastReminders === true,
@@ -292,7 +474,6 @@ export class AuthService {
     };
     localStorage.setItem(this.sessionKey, JSON.stringify(session));
     this.currentUser$.next(session);
-    this.applyTheme(session.theme);
   }
 
   private nativeOidcReturnUrl() {
@@ -300,7 +481,14 @@ export class AuthService {
   }
 
   async updateTheme(theme: UserTheme) {
-    await this.updateAccountPreferences({ theme });
+    await this.updateAccountPreferences({ theme, followSystemTheme: false });
+  }
+
+  async setFollowSystemTheme(enabled: boolean) {
+    await this.updateAccountPreferences({
+      followSystemTheme: enabled,
+      ...(!enabled ? { theme: this.effectiveTheme } : {})
+    });
   }
 
   async loadAccountPreferences() {
@@ -312,7 +500,7 @@ export class AuthService {
     return user;
   }
 
-  async updateAccountPreferences(patch: { theme?: UserTheme; showPastReminders?: boolean }) {
+  async updateAccountPreferences(patch: { theme?: UserTheme; followSystemTheme?: boolean; showPastReminders?: boolean }) {
     const user = await firstValueFrom(this.http.patch<UserI>(
       `${this.apiUrl}/users/me/preferences`,
       patch,
@@ -389,11 +577,11 @@ export class AuthService {
     const session = {
       ...current,
       theme: user.theme || current.theme,
+      followSystemTheme: user.followSystemTheme ?? current.followSystemTheme ?? false,
       showPastReminders: user.showPastReminders === true
     };
     localStorage.setItem(this.sessionKey, JSON.stringify(session));
     this.currentUser$.next(session);
-    this.applyTheme(session.theme);
   }
 
   async updateProfile(displayName: string, avatarDataUrl: string, avatarPreset?: string) {
@@ -430,16 +618,15 @@ export class AuthService {
   }
 
   async logout() {
-    if (this.token) {
+    if (this.currentUser) {
       try {
         await firstValueFrom(this.http.post(`${this.apiUrl}/auth/logout`, {}, { headers: this.authHeaders() }));
-      } catch {
-        // Local logout should still succeed if the API is temporarily unavailable.
+      } catch (error) {
+        if (this.usesBrowserSession && !this.isAuthExpiredError(error)) throw error;
       }
     }
     localStorage.removeItem(this.sessionKey);
     this.currentUser$.next(null);
-    this.applyTheme('light');
   }
 
   async resetOwnPassword(currentPassword: string, newPassword: string) {
@@ -539,13 +726,25 @@ export class AuthService {
   }
 
 
-  getBackupDownloadUrl(filename: string) {
-    return `${this.apiUrl}/admin/backup/download/${encodeURIComponent(filename)}?token=${encodeURIComponent(this.token)}`;
+  async downloadBackup(filename: string) {
+    const blob = await firstValueFrom(this.http.get(`${this.apiUrl}/admin/backup/download/${encodeURIComponent(filename)}`, {
+      headers: this.authHeaders(), responseType: 'blob'
+    }));
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
 
-  private applyTheme(theme: UserTheme) {
+  private applyTheme() {
+    const theme = this.effectiveTheme;
     document.body.classList.toggle('light-theme', theme === 'light');
+    document.documentElement.style.colorScheme = theme;
   }
 
   private getStoredSession() {
@@ -553,7 +752,13 @@ export class AuthService {
     if (!stored) return null;
 
     try {
-      return JSON.parse(stored) as AuthSessionI;
+      const session = JSON.parse(stored) as AuthSessionI;
+      if (this.usesBrowserSession) {
+        this.legacyBrowserToken = session.token || '';
+        session.token = '';
+        localStorage.setItem(this.sessionKey, JSON.stringify(session));
+      }
+      return session;
     } catch {
       localStorage.removeItem(this.sessionKey);
       return null;

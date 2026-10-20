@@ -1,6 +1,8 @@
+import { createNoteHtmlContainer, sanitizeNoteHtml } from '../../utils/note-html';
 import { NoteI, CheckboxI, NoteImageI, NoteAttachmentI } from '../../interfaces/notes';
 import { Component, OnInit, ViewChild, ElementRef, ChangeDetectorRef, Input, HostBinding, HostListener } from '@angular/core';
 import { Router } from '@angular/router';
+import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 
 import { bgImages, bgColors } from 'src/app/interfaces/tooltip';
 import { SharedService, type WidgetCreateRequest } from 'src/app/services/shared.service';
@@ -31,6 +33,9 @@ type DrawingPoint = { x: number, y: number }
 type DrawingSelection = { x: number, y: number, w: number, h: number }
 type PlaceDialogView = 'choose' | 'manage' | 'add' | 'search'
 type PlaceListItem = LocationSavedPlace | { id: 'home-prompt' | 'work-prompt'; name: string; address: string; placeType: SavedPlaceType; prompt: true }
+type EditorAppPlugin = {
+  addListener(event: 'pause' | 'appStateChange', callback: (state: { isActive?: boolean }) => void): Promise<PluginListenerHandle>
+};
 @Component({
     selector: 'app-input',
     templateUrl: './input.component.html',
@@ -212,6 +217,7 @@ export class InputComponent implements OnInit {
   private cboxTouchIndentHandled = false;
   private cboxTouchStartIndent = 0;
   private pendingCboxFocusPoint?: { id: number, x: number, y: number };
+  private pendingCboxFocusRange?: Range;
   private cboxTextTouch?: { id: number, x: number, y: number, moved: boolean, wasFocused: boolean, disabledEditing: boolean };
   private lastCboxTouchToggleAt = 0;
   activePointers: Map<number, { x: number, y: number }> = new Map();
@@ -230,13 +236,17 @@ export class InputComponent implements OnInit {
   widgetCreateSubscription?: Subscription;
   closeMobileComposerSubscription?: Subscription;
   preferencesSubscription?: Subscription;
-  private coEditSaveInFlight = false;
-  private coEditSaveQueued = false;
+  private saveQueue: Promise<boolean | void> = Promise.resolve();
+  private editorGeneration = 0;
+  private newNoteId?: number;
+  private newNoteSyncId?: string;
+  private backgroundSaveHandles: PluginListenerHandle[] = [];
   private lastBodyRange?: Range
   private destroyed = false
   private editorPreviewGeneration = 0
   private editorLinkDecorationFrame?: number
   private saveBaselineSnapshot?: string
+  private lastExternalUpdateSnapshot?: string
   mobileComposeMode = false
   mobileNewNoteStarterDismissed = false
   lastEditedTime = ''
@@ -455,8 +465,8 @@ export class InputComponent implements OnInit {
   }
 
   private hasMeaningfulBody(value?: string | null) {
-    const div = document.createElement('div')
-    div.innerHTML = value || ''
+    const div = createNoteHtmlContainer()
+    div.innerHTML = sanitizeNoteHtml(value || '')
     return (div.textContent || div.innerText || '').replace(/\u00a0/g, ' ').trim().length > 0
       || !!div.querySelector('img, .editor-link-preview-slot')
   }
@@ -473,7 +483,7 @@ export class InputComponent implements OnInit {
     if (!this.noteBody || !html) return
     const body = this.noteBody.nativeElement
     if (!body.innerHTML) {
-      body.innerHTML = html
+      body.innerHTML = sanitizeNoteHtml(html)
       this.hydrateEditorLinkPreviews()
       this.hydrateInlineImageButtons()
       this.updateInputLength({ body: body.innerHTML.length })
@@ -482,15 +492,56 @@ export class InputComponent implements OnInit {
 
   //? note  -----------------------------------------------------
 
-  async saveNote(closeAfterSave = true): Promise<boolean | void> {
+  get canSaveNote(): boolean {
+    return this.isEditing || !!this.currentNoteId() || this.isDrawingNote || !!(
+      this.noteTitle?.nativeElement.textContent?.trim()
+      || this.noteBody?.nativeElement.textContent?.trim()
+      || this.noteBody?.nativeElement.querySelector('img')
+      || this.cboxPh?.nativeElement.textContent?.trim()
+      || this.checkBoxes.length || this.images.length
+      || this.attachments.length || this.pendingAttachmentFiles.length
+    )
+  }
+
+  saveNote(closeAfterSave = true): Promise<boolean | void> {
+    const generation = this.editorGeneration
+    // Close, background events and typing can all request a save together.
+    // Serialize them so a new note is created once and later saves update it.
+    const save = this.saveQueue.then(() => {
+      if (this.destroyed || generation !== this.editorGeneration) return
+      return this.persistNote(closeAfterSave)
+    }).catch(error => {
+      if (!this.auth.isAuthExpiredError(error)) {
+        console.error('Could not save note', error)
+        this.showNoteSaveError()
+      }
+      return false
+    })
+    this.saveQueue = save
+    return save
+  }
+
+  private currentNoteId(): number | undefined {
+    if (this.isEditing) return this.noteToEdit.id
+    // Offline sync replaces temporary negative IDs with server IDs.
+    return (this.newNoteSyncId && this.notesService.notesList$.value?.find(note => note.syncId === this.newNoteSyncId)?.id)
+      || this.newNoteId
+  }
+
+  private async persistNote(closeAfterSave: boolean): Promise<boolean | void> {
     if (closeAfterSave) this.cboxInput?.nativeElement.blur()
     if (this.isDrawingNote) this.syncDrawingImage()
-    if (this.isCbox.value && this.cboxPh?.nativeElement.innerHTML.trim()) {
+    if (closeAfterSave && this.isCbox.value && this.cboxPh?.nativeElement.innerHTML.trim()) {
       this.addCheckBoxFromPlaceholder()
     }
     const checkBoxesForSave = this.currentCheckBoxesForSave(closeAfterSave)
+    // Preserve any uncommitted checklist text without moving focus while autosaving.
+    const placeholderText = this.cboxPh?.nativeElement.innerHTML || ''
+    if (!closeAfterSave && this.isCbox.value && placeholderText.trim()) {
+      checkBoxesForSave.push({ id: Math.max(-1, ...checkBoxesForSave.map(cb => cb.id)) + 1, data: placeholderText, done: false, indentLevel: 0 })
+    }
     const labelsForSave = await this.labelsForSave()
-    let noteObj: NoteI = {
+    const noteObj: NoteI = {
       noteTitle: this.noteTitle.nativeElement.innerHTML,
       noteBody: this.noteBody?.nativeElement.innerHTML ? this.cleanEditorBodyForSave(this.noteBody.nativeElement.innerHTML) : '',
       pinned: this.notePin.nativeElement.dataset['pinned'] === "true", // converting string to bool,
@@ -507,74 +558,50 @@ export class InputComponent implements OnInit {
     const hasContent = !!(noteObj.noteTitle.length || noteObj.noteBody && noteObj.noteBody?.length || checkBoxesForSave.length || this.images.length || this.attachments.length || this.pendingAttachmentFiles.length || this.isDrawingNote)
     const pendingCollaboratorIds = [...this.selectedCollaboratorIds]
 
-    if (this.isEditing) {
+    let id = this.currentNoteId()
+    if (id) {
       const noteChanged = this.noteChangedForSave(noteObj)
-      const hasPendingReminderSave = !!(this.pendingReminderDate || this.pendingReminderLocation)
-      if (!noteChanged && !hasPendingReminderSave) {
-        if (closeAfterSave) this.Shared.closeModal.next(true)
-        return
-      }
-      if (!closeAfterSave && this.coEditSaveInFlight) {
-        this.coEditSaveQueued = true
-        return
-      }
-      if (!closeAfterSave) {
-        this.coEditSaveInFlight = true
-        try {
-          await this.notesService.update(noteObj, this.noteToEdit.id!)
+      if (noteChanged) {
+        const baselineBeforeSave = this.saveBaselineSnapshot
+        await this.notesService.update(noteObj, id)
+        // A collaborator update received during this request is already the
+        // editor's baseline; completing an older save must not replace it.
+        if (this.saveBaselineSnapshot === baselineBeforeSave) {
           this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
-          this.labelsDirty = false
-          this.flushPendingReminderSaves(this.noteToEdit.id!, noteObj)
-        } catch (error) {
-          if (this.auth.isAuthExpiredError(error)) return false
-          this.showNoteSaveError()
-          return false
-        } finally {
-          this.coEditSaveInFlight = false
-          if (this.coEditSaveQueued) {
-            this.coEditSaveQueued = false
-            this.saveNote(false)
-          }
         }
-      } else {
-        try {
-          await this.notesService.update(noteObj, this.noteToEdit.id!)
-        } catch (error) {
-          if (this.auth.isAuthExpiredError(error)) return false
-          this.showNoteSaveError()
-          return false
-        }
-        this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
         this.labelsDirty = false
-        this.updateLastEditedTime();
-        this.flushPendingReminderSaves(this.noteToEdit.id!, noteObj)
       }
-      if (closeAfterSave) this.Shared.closeModal.next(true)
-      return
+    } else if (hasContent && this.canSaveNote) {
+      this.newNoteSyncId ||= `note-${crypto.randomUUID()}`
+      noteObj.syncId = this.newNoteSyncId
+      id = await this.Shared.note.db.add(noteObj)
+      if (!id || id === -1) {
+        this.showNoteSaveError()
+        return false
+      }
+      this.newNoteId = id
+      this.saveBaselineSnapshot = this.noteSaveSnapshot(noteObj)
+      this.labelsDirty = false
     }
 
-    if (hasContent) {
-        let id: number
-        try {
-          id = await this.Shared.note.db.add(noteObj)
-        } catch (error) {
-          if (this.auth.isAuthExpiredError(error)) return false
-          throw error
-        }
-        if (!id || id === -1) {
-          if (closeAfterSave) this.showNoteSaveError()
-          return false
-        }
+    if (id) {
+      if (!this.isEditing) {
         await this.applyPendingCollaborators(id, pendingCollaboratorIds)
-        await this.uploadPendingAttachments(id)
-        this.flushPendingReminderSaves(id, noteObj)
-        if (this.isArchived) {
+      }
+      await this.uploadPendingAttachments(id)
+      this.flushPendingReminderSaves(id, noteObj)
+      if (closeAfterSave) {
+        if (!this.isEditing && this.isArchived) {
           this.Shared.snackBar({ action: 'archived', opposite: 'unarchived' }, { archived: false }, id)
         }
-        if (this.isTrashed) {
+        if (!this.isEditing && this.isTrashed) {
           this.Shared.snackBar({ action: 'trashed', opposite: 'untrashed' }, { trashed: false }, id)
         }
-        this.closeNote()
+        if (this.isEditing) {
+          this.updateLastEditedTime()
+          this.Shared.closeModal.next(true)
+        } else this.closeNote()
+      }
     }
   }
 
@@ -594,7 +621,7 @@ export class InputComponent implements OnInit {
   }
 
   private noteChangedForSave(noteObj: NoteI) {
-    if (!this.isEditing || !this.noteToEdit?.id) return true
+    if (!this.currentNoteId()) return true
     if (this.pendingAttachmentFiles.length) return true
     const baseline = this.saveBaselineSnapshot ?? this.noteSaveSnapshot(this.noteToEdit)
     return this.noteSaveSnapshot(noteObj) !== baseline
@@ -677,7 +704,7 @@ export class InputComponent implements OnInit {
 
   private async labelsForSave() {
     const selectedLabels = this.labels.filter(label => label.added)
-    if (!this.isEditing || !this.noteToEdit?.id || this.labelsDirty) return selectedLabels
+    if (!this.isEditing || !this.noteToEdit?.id || this.labelsDirty || !this.isSharedEditingNote()) return selectedLabels
 
     try {
       const fresh = await this.notesService.get(this.noteToEdit.id, { merge: false })
@@ -818,7 +845,7 @@ export class InputComponent implements OnInit {
 
     if (options.commit !== false) {
       this.pushCboxHistorySnapshot()
-      this.queueCoEditAutosave()
+      this.queueAutosave()
     }
     return true
   }
@@ -841,7 +868,7 @@ export class InputComponent implements OnInit {
     return true
   }
 
-  private applyCboxIndentFromTouch(rawDx: number, rawDy: number) {
+  private applyCboxIndentFromDrag(rawDx: number, rawDy: number) {
     if (this.draggedCboxId === undefined) return false
     const absDx = Math.abs(rawDx)
     const absDy = Math.abs(rawDy)
@@ -914,7 +941,7 @@ export class InputComponent implements OnInit {
     this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
     this.cboxHistoryRedoMode = this.canStepCboxHistory('redo')
     this.cd.detectChanges()
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   hasCheckedCboxItems() {
@@ -931,7 +958,7 @@ export class InputComponent implements OnInit {
     this.noteToEdit.checkBoxes = this.checkBoxes
     this.pushCboxHistorySnapshot()
     this.cd.detectChanges()
-    this.queueCoEditAutosave()
+    this.queueAutosave()
     if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
   }
 
@@ -949,16 +976,21 @@ export class InputComponent implements OnInit {
     this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
     this.pushCboxHistorySnapshot()
     this.cd.detectChanges()
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   private notePlainText(value?: string | null) {
-    const div = document.createElement('div')
-    div.innerHTML = value || ''
+    const div = createNoteHtmlContainer()
+    div.innerHTML = sanitizeNoteHtml(value || '')
     return (div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim()
   }
 
   reset() {
+    this.editorGeneration++
+    this.newNoteId = undefined
+    this.newNoteSyncId = undefined
+    this.saveBaselineSnapshot = undefined
+    this.lastExternalUpdateSnapshot = undefined
     this.noteTitle.nativeElement.innerHTML = ''
     if (this.noteBody) this.noteBody.nativeElement.innerHTML = ''
     this.notePin.nativeElement.dataset['pinned'] = 'false'
@@ -971,6 +1003,7 @@ export class InputComponent implements OnInit {
     this.updateTextColor('')
     //
     this.checkBoxes = []
+    this.pendingCboxFocusRange = undefined
     this.cboxSuggestionEligibleIds.clear()
     this.cboxSuggestionDraftValues.clear()
     this.dismissedCboxSuggestionIds.clear()
@@ -1164,7 +1197,7 @@ export class InputComponent implements OnInit {
     imageData.forEach(image => this.insertInlineImage(image))
     this.updateInputLength({ body: this.noteBody?.nativeElement.innerHTML.length || 0 })
     if (this.isEditing) await this.saveNote(false)
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   fileToImage(file: File, placement: NoteImageI['placement']): Promise<NoteImageI> {
@@ -1208,6 +1241,7 @@ export class InputComponent implements OnInit {
         ...this.pendingAttachmentFiles,
         ...files.filter(file => !existingKeys.has(`${file.name}:${file.size}:${file.lastModified}`))
       ]
+      this.queueAutosave()
       return
     }
 
@@ -1230,9 +1264,10 @@ export class InputComponent implements OnInit {
     this.isUploadingAttachment = true
     try {
       for (const file of this.pendingAttachmentFiles) {
-        await this.Shared.note.db.uploadAttachment(noteId, file)
+        const attachment = await this.Shared.note.db.uploadAttachment(noteId, file)
+        this.attachments = [attachment, ...this.attachments]
+        this.pendingAttachmentFiles = this.pendingAttachmentFiles.filter(item => item !== file)
       }
-      this.pendingAttachmentFiles = []
       await this.notesService.load()
     } catch (error: any) {
       this.showAttachmentMessage(error?.error?.error || 'The note was saved, but an attachment could not be uploaded.')
@@ -1250,9 +1285,10 @@ export class InputComponent implements OnInit {
   async deleteAttachment(attachment: NoteAttachmentI, event?: Event) {
     event?.preventDefault()
     event?.stopPropagation()
-    if (!this.noteToEdit.id) return
+    const noteId = this.currentNoteId()
+    if (!noteId) return
     try {
-      await this.Shared.note.db.deleteAttachment(this.noteToEdit.id, attachment.id)
+      await this.Shared.note.db.deleteAttachment(noteId, attachment.id)
       this.attachments = this.attachments.filter(item => item.id !== attachment.id)
       await this.notesService.load()
     } catch (error: any) {
@@ -1319,13 +1355,13 @@ export class InputComponent implements OnInit {
 
   moveImage(image: NoteImageI) {
     image.placement = image.placement === 'top' ? 'bottom' : 'top'
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   removeImage(imageId: string) {
     this.images = this.images.filter(image => image.id !== imageId)
     this.inputLength.next({ ...this.inputLength.value, body: (this.noteBody?.nativeElement.innerHTML.length || 0) + this.images.length })
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   private insertInlineImage(image: NoteImageI) {
@@ -1404,7 +1440,7 @@ export class InputComponent implements OnInit {
     if (next && next.tagName === 'DIV' && next.innerHTML.trim().toLowerCase() === '<br>') next.remove()
     const body = this.noteBody?.nativeElement
     if (body) this.onNoteBodyInput(body)
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   private moveInlineObjectToDrop(event: DragEvent) {
@@ -1506,14 +1542,14 @@ export class InputComponent implements OnInit {
     sel?.collapseToEnd()
   }
 
-  addCheckBox(data: string, insertAfterId?: number) {
+  addCheckBox(data: string, insertAfterId?: number, options: { done?: boolean } = {}) {
     this.syncCboxDomIntoModel()
     const numericIds = this.checkBoxes
       .map(c => Number(c.id))
       .filter(id => Number.isSafeInteger(id) && id >= 0)
     const maxId = numericIds.length ? Math.max(...numericIds) : -1
     const cb = {
-      done: false,
+      done: options.done ?? false,
       data: data,
       id: maxId + 1,
       indentLevel: 0
@@ -1532,7 +1568,7 @@ export class InputComponent implements OnInit {
     this.cboxSuggestionEligibleIds.add(cb.id)
     this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
     this.pushCboxHistorySnapshot()
-    this.queueCoEditAutosave()
+    this.queueAutosave()
     return cb
   }
 
@@ -1547,8 +1583,11 @@ export class InputComponent implements OnInit {
     if (this.cboxSuggestionBlurTimer) clearTimeout(this.cboxSuggestionBlurTimer)
     const focusedId = Number(el.dataset['cboxId'])
     this.activeCboxSuggestionRowId = Number.isFinite(focusedId) ? focusedId : undefined
+    const focusRange = this.pendingCboxFocusRange
+    this.pendingCboxFocusRange = undefined
     this.rememberTextHistoryTarget(el)
     setTimeout(() => {
+      if (document.activeElement !== el) return
       const id = Number(el.dataset['cboxId'])
       const pending = this.pendingCboxFocusPoint
       if (pending && pending.id === id) {
@@ -1558,6 +1597,11 @@ export class InputComponent implements OnInit {
       }
       const range = document.createRange()
       const sel = window.getSelection()
+      if (focusRange && el.contains(focusRange.commonAncestorContainer)) {
+        sel?.removeAllRanges()
+        sel?.addRange(focusRange)
+        return
+      }
       range.selectNodeContents(el)
       range.collapse(false)
       sel?.removeAllRanges()
@@ -1640,7 +1684,7 @@ export class InputComponent implements OnInit {
     })
   }
 
-  private placeCboxCaretAtPoint(el: HTMLDivElement, x: number, y: number) {
+  private cboxCaretRangeAtPoint(el: HTMLDivElement, x: number, y: number) {
     const doc = document as Document & {
       caretRangeFromPoint?: (x: number, y: number) => Range | null,
       caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node, offset: number } | null
@@ -1660,6 +1704,11 @@ export class InputComponent implements OnInit {
     } else {
       range.collapse(true)
     }
+    return range
+  }
+
+  private placeCboxCaretAtPoint(el: HTMLDivElement, x: number, y: number) {
+    const range = this.cboxCaretRangeAtPoint(el, x, y)
     const sel = window.getSelection()
     sel?.removeAllRanges()
     sel?.addRange(range)
@@ -1671,7 +1720,7 @@ export class InputComponent implements OnInit {
     this.dismissedCboxSuggestionIds.delete(id)
     this.lastCboxTextInputAt = Date.now()
     this.cboxHistoryRedoMode = false
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   completedCboxSuggestions(id: number) {
@@ -1768,7 +1817,7 @@ export class InputComponent implements OnInit {
     this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
     this.pushCboxHistorySnapshot()
     this.cd.detectChanges()
-    this.queueCoEditAutosave()
+    this.queueAutosave()
 
     requestAnimationFrame(() => {
       const restoredEl = document.querySelector(`[data-cbox-id="${completedId}"]`) as HTMLDivElement | null
@@ -1781,6 +1830,7 @@ export class InputComponent implements OnInit {
   }
 
   cBoxKeyDown($event: KeyboardEvent, id: number) {
+    if ($event.isComposing || $event.keyCode === 229) return
     let target = $event.target as HTMLDivElement
     const suggestions = this.completedCboxSuggestions(id)
     if ($event.key === 'Escape' && suggestions.length) {
@@ -1800,36 +1850,161 @@ export class InputComponent implements OnInit {
     }
     if ($event.key === 'Enter') {
       $event.preventDefault()
-      // Insert the new row immediately after the row Enter was hit in,
-      // not at the end of the list — matches Google Keep's behavior.
-      const newCb = this.addCheckBox('', id)
-      this.cd.detectChanges()
-      const newEl = document.querySelector(`[data-cbox-id="${newCb.id}"]`) as HTMLDivElement
-      newEl?.focus()
+      this.splitCboxAtSelection(id, target)
+      return
+    }
+    if (($event.key === 'ArrowUp' || $event.key === 'ArrowDown') &&
+      !$event.shiftKey && !$event.ctrlKey && !$event.metaKey && !$event.altKey) {
+      if (this.moveCboxCaretVertically(target, $event.key === 'ArrowDown' ? 1 : -1)) $event.preventDefault()
+      return
     }
     if ($event.key === 'Backspace') {
-      const sel = window.getSelection()
-      const isAtStart = sel?.anchorOffset === 0 && sel?.focusOffset === 0
-      if (isAtStart) {
-        $event.preventDefault()
-        const idx = this.checkBoxes.findIndex(cb => cb.id === id)
-        if (idx > 0) {
-          const prevCb = this.checkBoxes[idx - 1]
-          const prevEl = document.querySelector(`[data-cbox-id="${prevCb.id}"]`) as HTMLDivElement
-          this.cboxTools(id).remove()
-          this.cd.detectChanges()
-          prevEl?.focus()
-          const range = document.createRange()
-          const sel = window.getSelection()
-          range.selectNodeContents(prevEl)
-          range.collapse(false)
-          sel?.removeAllRanges()
-          sel?.addRange(range)
-        } else {
-          this.cboxTools(id).remove()
-        }
-      }
+      if (this.joinCboxAtStart(id, target)) $event.preventDefault()
     }
+  }
+
+  cboxBeforeInput(event: InputEvent, id: number) {
+    // Mobile keyboards may send beforeinput without a usable keydown.
+    if (event.isComposing) return
+    if (event.inputType === 'deleteContentBackward') {
+      if (this.joinCboxAtStart(id, event.currentTarget as HTMLDivElement)) event.preventDefault()
+      return
+    }
+    if (!['insertParagraph', 'insertLineBreak'].includes(event.inputType)) return
+    event.preventDefault()
+    this.splitCboxAtSelection(id, event.currentTarget as HTMLDivElement)
+  }
+
+  private visibleCboxInputs() {
+    return Array.from(this.noteContainer.nativeElement.querySelectorAll<HTMLDivElement>('[data-cbox-id]'))
+      .filter(el => el.getClientRects().length > 0)
+  }
+
+  private focusCboxAtRange(el: HTMLDivElement, range: Range) {
+    this.pendingCboxFocusRange = range.cloneRange()
+    el.focus()
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    this.pendingCboxFocusRange = undefined
+  }
+
+  private joinCboxAtStart(id: number, target: HTMLDivElement) {
+    const selection = window.getSelection()
+    if (!selection?.isCollapsed || !selection.rangeCount) return false
+    const caret = selection.getRangeAt(0)
+    if (!target.contains(caret.startContainer)) return false
+    const prefix = document.createRange()
+    prefix.selectNodeContents(target)
+    prefix.setEnd(caret.startContainer, caret.startOffset)
+    const content = prefix.cloneContents()
+    if (content.textContent || content.querySelector('br, img')) return false
+
+    const inputs = this.visibleCboxInputs()
+    const previous = inputs[inputs.indexOf(target) - 1]
+    // There is no row to join into above the first visible item.
+    if (!previous) return true
+    this.syncCboxDomIntoModel()
+    this.pushCboxHistorySnapshot()
+    const previousId = Number(previous.dataset['cboxId'])
+    const previousRow = this.checkBoxes.find(cb => cb.id === previousId)
+    if (!previousRow) return true
+    const offset = previous.textContent?.length || 0
+    if (!previous.textContent && !previous.querySelector('img')) previous.replaceChildren()
+    if (target.textContent || target.querySelector('img')) {
+      previous.append(...Array.from(target.cloneNode(true).childNodes))
+    }
+    previousRow.data = previous.innerHTML
+    this.cboxSuggestionDraftValues.set(previousId, previousRow.data)
+    this.cboxTools(id).remove()
+    this.noteToEdit.checkBoxes = this.checkBoxes
+    this.cd.detectChanges()
+
+    // The binding may have rebuilt the rich text, so find the join in the new DOM.
+    const range = document.createRange()
+    range.selectNodeContents(previous)
+    range.collapse(false)
+    const walker = document.createTreeWalker(previous, NodeFilter.SHOW_TEXT)
+    let remaining = offset
+    let text: Node | null
+    while ((text = walker.nextNode())) {
+      if (remaining <= (text.textContent?.length || 0)) {
+        range.setStart(text, remaining)
+        range.collapse(true)
+        break
+      }
+      remaining -= text.textContent?.length || 0
+    }
+    this.focusCboxAtRange(previous, range)
+    return true
+  }
+
+  private moveCboxCaretVertically(target: HTMLDivElement, direction: number) {
+    const selection = window.getSelection()
+    if (!selection?.isCollapsed || !selection.rangeCount) return false
+    const caret = selection.getRangeAt(0)
+    if (!target.contains(caret.startContainer)) return false
+    const contents = document.createRange()
+    contents.selectNodeContents(target)
+    const lines = Array.from(contents.getClientRects()).filter(rect => rect.height > 0)
+    const caretRect = caret.getClientRects()[0] || target.getBoundingClientRect()
+    if (lines.length) {
+      const firstTop = Math.min(...lines.map(rect => rect.top))
+      const lastBottom = Math.max(...lines.map(rect => rect.bottom))
+      // Let the browser navigate within a row that wraps onto several lines.
+      if (direction < 0 && caretRect.top > firstTop + caretRect.height / 2) return false
+      if (direction > 0 && caretRect.bottom < lastBottom - caretRect.height / 2) return false
+    }
+    const inputs = this.visibleCboxInputs()
+    const next = inputs[inputs.indexOf(target) + direction]
+    if (!next) return false
+    contents.selectNodeContents(next)
+    const nextLines = Array.from(contents.getClientRects()).filter(rect => rect.height > 0)
+    const line = direction > 0 ? nextLines[0] : nextLines[nextLines.length - 1]
+    const bounds = next.getBoundingClientRect()
+    const x = Math.max(bounds.left + 1, Math.min(caretRect.left, bounds.right - 1))
+    const y = line ? (line.top + line.bottom) / 2 : bounds.top + bounds.height / 2
+    this.focusCboxAtRange(next, this.cboxCaretRangeAtPoint(next, x, y))
+    return true
+  }
+
+  private splitCboxAtSelection(id: number, target: HTMLDivElement) {
+    this.syncCboxDomIntoModel()
+    const current = this.checkBoxes.find(cb => cb.id === id)
+    if (!current) return
+    this.pushCboxHistorySnapshot()
+
+    const selection = window.getSelection()
+    let range = selection?.rangeCount ? selection.getRangeAt(0) : undefined
+    if (!range || !target.contains(range.startContainer) || !target.contains(range.endContainer)) {
+      range = document.createRange()
+      range.selectNodeContents(target)
+      range.collapse(false)
+    }
+    const before = document.createRange()
+    before.selectNodeContents(target)
+    before.setEnd(range.startContainer, range.startOffset)
+    const after = document.createRange()
+    after.selectNodeContents(target)
+    after.setStart(range.endContainer, range.endOffset)
+    const html = (part: Range) => {
+      const container = document.createElement('div')
+      container.append(part.cloneContents())
+      return container.textContent || container.querySelector('br, img') ? container.innerHTML : ''
+    }
+    const beforeHtml = html(before)
+    const afterHtml = html(after)
+    target.innerHTML = beforeHtml
+    current.data = beforeHtml
+    this.cboxSuggestionDraftValues.set(id, beforeHtml)
+    const next = this.addCheckBox(afterHtml, id, { done: current.done })
+    this.cd.detectChanges()
+    const nextEl = this.noteContainer.nativeElement.querySelector<HTMLDivElement>(`[data-cbox-id="${next.id}"]`)
+    if (!nextEl) return
+    const caret = document.createRange()
+    caret.selectNodeContents(nextEl)
+    caret.collapse(true)
+    this.focusCboxAtRange(nextEl, caret)
   }
 
 
@@ -1845,6 +2020,10 @@ export class InputComponent implements OnInit {
     this.syncCboxDomIntoModel()
     this.draggedCboxId = id
     this.cboxDragOrderChanged = false
+    this.cboxTouchIndentHandled = false
+    this.cboxTouchStartX = event.clientX
+    this.cboxTouchStartY = event.clientY
+    this.cboxTouchStartIndent = this.checkboxIndentLevel(this.checkBoxes.find(cb => cb.id === id))
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move'
       const row = event.currentTarget as HTMLElement
@@ -1858,18 +2037,43 @@ export class InputComponent implements OnInit {
     this.dismissMobileNewNoteStarters()
     const saveHtml = this.cleanEditorBodyForSave(body.innerHTML)
     this.updateInputLength({ body: saveHtml.length })
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   onNoteTitleInput() {
     this.dismissMobileNewNoteStarters()
     this.updateInputLength({ title: this.noteTitle.nativeElement.innerHTML.length })
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
-  private queueCoEditAutosave() {
-    if (!this.isEditing || !this.noteToEdit.id || !this.isSharedEditingNote()) return
+  private queueAutosave() {
+    if (this.destroyed || this.noteMain?.nativeElement.hidden) return
     this.autoSaveSubject.next()
+  }
+
+  private flushAutosave = () => {
+    if (this.destroyed || !this.noteMain || this.noteMain.nativeElement.hidden) return
+    if (this.currentNoteId() || this.canSaveNote) void this.saveNote(false)
+  }
+
+  private visibilitySave = () => {
+    if (document.visibilityState === 'hidden') this.flushAutosave()
+  }
+
+  private async bindBackgroundSave() {
+    if (!Capacitor.isNativePlatform()) return
+    const app = ((window as any).Capacitor?.Plugins?.App || registerPlugin<EditorAppPlugin>('App')) as EditorAppPlugin
+    for (const event of ['pause', 'appStateChange'] as const) {
+      try {
+        const handle = await app.addListener(event, state => {
+          if (event === 'pause' || state.isActive === false) this.zone.run(this.flushAutosave)
+        })
+        if (this.destroyed) await handle.remove()
+        else this.backgroundSaveHandles.push(handle)
+      } catch (error) {
+        console.warn('Could not register note background save', error)
+      }
+    }
   }
 
   private isSharedEditingNote() {
@@ -1883,8 +2087,8 @@ export class InputComponent implements OnInit {
 
   private extractUrlsFromHtml(html: string) {
     const urls = new Set<string>()
-    const div = document.createElement('div')
-    div.innerHTML = html || ''
+    const div = createNoteHtmlContainer()
+    div.innerHTML = sanitizeNoteHtml(html || '')
 
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
       const href = anchor.href || anchor.getAttribute('href') || ''
@@ -1900,8 +2104,8 @@ export class InputComponent implements OnInit {
 
   private decorateLinksForEditor(html: string) {
     if (!this.preferences.value.richLinkPreviews) return this.auth.authenticatedImageHtml(html || '')
-    const div = document.createElement('div')
-    div.innerHTML = this.auth.authenticatedImageHtml(html || '')
+    const div = createNoteHtmlContainer()
+    div.innerHTML = sanitizeNoteHtml(this.auth.authenticatedImageHtml(html || ''))
     this.removePreviewMarkup(div)
 
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
@@ -1952,15 +2156,15 @@ export class InputComponent implements OnInit {
   }
 
   private cleanEditorBodyForSave(html: string) {
-    const div = document.createElement('div')
-    div.innerHTML = this.auth.canonicalImageHtml(html || '')
+    const div = createNoteHtmlContainer()
+    div.innerHTML = sanitizeNoteHtml(this.auth.canonicalImageHtml(html || ''))
     this.removePreviewMarkup(div)
     // Strip editor-only chrome (e.g. the inline image delete button) that lives
     // inside the editable body but has no business being persisted.
     div.querySelectorAll('[data-inline-image-tool]').forEach(el => el.remove())
     div.querySelectorAll<HTMLElement>('.editor-link-preview-slot').forEach(marker => {
       const template = document.createElement('template')
-      template.innerHTML = marker.dataset['originalHtml'] || marker.dataset['url'] || ''
+      template.innerHTML = sanitizeNoteHtml(marker.dataset['originalHtml'] || marker.dataset['url'] || '')
       marker.replaceWith(template.content)
     })
     return div.innerHTML
@@ -1977,7 +2181,7 @@ export class InputComponent implements OnInit {
     const body = this.noteBody?.nativeElement
     if (!body || this.destroyed) return
     this.editorPreviewGeneration++
-    body.innerHTML = this.decorateLinksForEditor(this.cleanEditorBodyForSave(body.innerHTML))
+    body.innerHTML = sanitizeNoteHtml(this.decorateLinksForEditor(this.cleanEditorBodyForSave(body.innerHTML)))
     this.hydrateEditorLinkPreviews()
   }
 
@@ -2235,7 +2439,7 @@ export class InputComponent implements OnInit {
         title: this.noteTitle?.nativeElement.innerHTML.length || 0,
         body: this.noteBody?.nativeElement.innerHTML.length || 0
       })
-      this.queueCoEditAutosave()
+      this.queueAutosave()
     }, 0)
   }
 
@@ -2254,13 +2458,13 @@ export class InputComponent implements OnInit {
       title: this.noteTitle?.nativeElement.innerHTML.length || 0,
       body: this.noteBody?.nativeElement.innerHTML.length || 0
     })
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   togglePinned() {
     const pinned = this.notePin.nativeElement.dataset['pinned'] === 'true'
     this.notePin.nativeElement.dataset['pinned'] = pinned ? 'false' : 'true'
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   openDrawingNote(event?: Event) {
@@ -2472,7 +2676,7 @@ export class InputComponent implements OnInit {
     this.drawingCanvas?.nativeElement.releasePointerCapture(event.pointerId)
     this.pushDrawingHistory()
     this.syncDrawingImage()
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   startDrawingResize(handle: string, event: PointerEvent) {
@@ -2614,7 +2818,7 @@ export class InputComponent implements OnInit {
       this.movingSelection = undefined
       this.pushDrawingHistory()
       this.syncDrawingImage()
-      this.queueCoEditAutosave()
+      this.queueAutosave()
       return
     }
     if (!this.drawingSelection || Math.abs(this.drawingSelection.w) < 4 || Math.abs(this.drawingSelection.h) < 4) {
@@ -2683,7 +2887,7 @@ export class InputComponent implements OnInit {
     this.drawingHistoryIndex--
     this.restoreDrawingHistory()
     this.syncDrawingImage()
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   redoDrawing() {
@@ -2691,7 +2895,7 @@ export class InputComponent implements OnInit {
     this.drawingHistoryIndex++
     this.restoreDrawingHistory()
     this.syncDrawingImage()
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   private restoreDrawingHistory() {
@@ -2717,14 +2921,14 @@ export class InputComponent implements OnInit {
   newDrawing() {
     this.clearDrawingCanvas()
     this.showDrawingMoreMenu = false
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   deleteCurrentDrawing() {
     this.clearDrawingCanvas()
     this.images = this.images.filter(image => image.id !== 'drawing')
     this.showDrawingMoreMenu = false
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   private clearDrawingCanvas() {
@@ -2816,7 +3020,7 @@ export class InputComponent implements OnInit {
     this.drawingBackground = background
     this.showDrawingBackgroundMenu = false
     this.syncDrawingImage()
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   private drawingBackgroundFromImage(image?: NoteImageI) {
@@ -2856,6 +3060,10 @@ export class InputComponent implements OnInit {
 
   cboxDrag(event: DragEvent) {
     this.moveCboxDragImage(event)
+    // Outdenting can take the pointer left of the row's drop target.
+    if (event.clientX !== 0 || event.clientY !== 0) {
+      this.applyCboxIndentFromDrag(event.clientX - this.cboxTouchStartX, event.clientY - this.cboxTouchStartY)
+    }
   }
 
   cboxDragOver(id: number, isDone: boolean, event: DragEvent) {
@@ -2864,8 +3072,10 @@ export class InputComponent implements OnInit {
     if (!draggedCb || !this.cboxSectionMatches(draggedCb, isDone)) return
     event.preventDefault()
     event.stopPropagation()
+    event.stopPropagation()
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
     this.moveCboxDragImage(event)
+    if (this.applyCboxIndentFromDrag(event.clientX - this.cboxTouchStartX, event.clientY - this.cboxTouchStartY)) return
     this.reorderCboxAround(id, isDone, event.clientY)
   }
 
@@ -2914,7 +3124,7 @@ export class InputComponent implements OnInit {
     event.preventDefault()
     event.stopPropagation()
     this.moveCboxDragImageToPoint(touch.clientX, touch.clientY)
-    if (this.applyCboxIndentFromTouch(rawDx, rawDy)) return
+    if (this.applyCboxIndentFromDrag(rawDx, rawDy)) return
     const row = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('[data-cbox-row-id]') as HTMLElement | null
     const id = Number(row?.dataset['cboxRowId'])
     if (Number.isNaN(id)) return
@@ -2982,10 +3192,8 @@ export class InputComponent implements OnInit {
   private persistCboxDragOrder() {
     if (!this.cboxDragOrderChanged) return
     this.pushCboxHistorySnapshot()
-    if (!this.isEditing || !this.noteToEdit.id) return
     this.noteToEdit.checkBoxes = this.checkBoxes
-    this.saveBaselineSnapshot = this.noteSaveSnapshot({ ...this.noteToEdit, checkBoxes: this.checkBoxes })
-    this.notesService.updateKey({ checkBoxes: this.checkBoxes }, this.noteToEdit.id)
+    this.queueAutosave()
   }
 
   private clearCboxDragState() {
@@ -3090,19 +3298,19 @@ export class InputComponent implements OnInit {
         if (this.activeCboxSuggestionRowId === id) this.activeCboxSuggestionRowId = undefined
         this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
         this.pushCboxHistorySnapshot()
-        this.queueCoEditAutosave()
+        this.queueAutosave()
       },
       check: () => {
         if (!this.toggleCboxDoneWithChildren(id)) return
         this.pushCboxHistorySnapshot()
-        this.queueCoEditAutosave()
+        this.queueAutosave()
       },
       update: (el: HTMLDivElement) => {
         const i = this.checkBoxes.findIndex(x => x.id === id)
         if (i < 0) return
         let elValue = el?.innerHTML
         this.checkBoxes[i].data = elValue
-        this.queueCoEditAutosave()
+        this.queueAutosave()
       }
     }
     return actions
@@ -3126,7 +3334,7 @@ export class InputComponent implements OnInit {
 
   innerData(note: NoteI) {
     this.notePhClick()
-    this.noteTitle.nativeElement.innerHTML = note.noteTitle
+    this.noteTitle.nativeElement.innerHTML = sanitizeNoteHtml(note.noteTitle)
     this.images = (note.images || []).map(image => ({ ...image, dataUrl: this.auth.authenticatedImageUrl(image.dataUrl) }))
     this.attachments = note.attachments || []
     this.isDrawingNote = this.images.some(image => image.id === 'drawing')
@@ -3154,6 +3362,7 @@ export class InputComponent implements OnInit {
     this.isTrashed = note.trashed
     this.binderName = note.binder || ''
     this.saveBaselineSnapshot = this.noteSaveSnapshot(note)
+    this.lastExternalUpdateSnapshot = JSON.stringify([note.updatedAt, this.noteSaveSnapshot(note)])
     //
     this.inputLength.next({ title: note.noteTitle.length, body: (note.noteBody ? note.noteBody?.length : 0) + this.images.length + this.attachments.length, cb: note.checkBoxes?.length! })
     note.labels.forEach(noteLabel => {
@@ -3163,7 +3372,7 @@ export class InputComponent implements OnInit {
     this.labelsDirty = false
     // Force the templates to materialize before we touch the body element.
     this.cd.detectChanges()
-    if (this.noteBody) this.noteBody.nativeElement.innerHTML = this.decorateLinksForEditor(note.noteBody || '')
+    if (this.noteBody) this.noteBody.nativeElement.innerHTML = sanitizeNoteHtml(this.decorateLinksForEditor(note.noteBody || ''))
     this.hydrateEditorLinkPreviews()
     this.hydrateInlineImageButtons()
     if (this.isDrawingNote) this.setupDrawingCanvas()
@@ -3334,6 +3543,7 @@ export class InputComponent implements OnInit {
   toggleLabel(label: LabelI) {
     label.added = !label.added
     this.labelsDirty = true
+    this.queueAutosave()
   }
 
   async addBinderFromMenu(input: HTMLInputElement) {
@@ -3358,6 +3568,7 @@ export class InputComponent implements OnInit {
 
   selectBinder(name: string, tooltipEl?: HTMLDivElement) {
     this.binderName = String(name || '').trim()
+    this.queueAutosave()
     if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
   }
 
@@ -3495,11 +3706,11 @@ export class InputComponent implements OnInit {
       this.noteMain.nativeElement.style.backgroundColor = data
       this.noteMain.nativeElement.style.borderColor = data
       this.updateTextColor(data)
-      this.queueCoEditAutosave()
+      this.queueAutosave()
     },
     bgImage: (data: bgImages) => {
       this.applyBackgroundImage(data)
-      this.queueCoEditAutosave()
+      this.queueAutosave()
     }
   }
 
@@ -3569,6 +3780,10 @@ export class InputComponent implements OnInit {
 
   saveNoteSubscription?: Subscription
   ngAfterViewInit() {
+    this.autoSaveSubscription = this.autoSaveSubject.pipe(debounceTime(550)).subscribe(this.flushAutosave)
+    document.addEventListener('visibilitychange', this.visibilitySave)
+    window.addEventListener('pagehide', this.flushAutosave)
+    void this.bindBackgroundSave()
     document.addEventListener('selectionchange', this.textSelectionChangeHandler)
     window.addEventListener('resize', this.textSelectionRepositionHandler)
     document.addEventListener('scroll', this.textSelectionRepositionHandler, true)
@@ -3587,11 +3802,6 @@ export class InputComponent implements OnInit {
       this.coEditSubscription = this.notesService.activeEditors$.subscribe(data => {
         if (data && data.noteId === this.noteToEdit.id) {
           this.activeEditors = (data.editors || []).filter((e: any) => e.id !== this.auth.currentUser?.id);
-        }
-      });
-      this.autoSaveSubscription = this.autoSaveSubject.pipe(debounceTime(550)).subscribe(() => {
-        if (this.isSharedEditingNote()) {
-          this.saveNote(false);
         }
       });
       this.notesListSubscription = this.notesService.notesList$.subscribe(notes => {
@@ -3718,6 +3928,10 @@ export class InputComponent implements OnInit {
 
   ngOnDestroy() {
     this.destroyed = true;
+    document.removeEventListener('visibilitychange', this.visibilitySave)
+    window.removeEventListener('pagehide', this.flushAutosave)
+    for (const handle of this.backgroundSaveHandles) void handle.remove()
+    this.backgroundSaveHandles = []
     this.editorPreviewGeneration++;
     if (this.editorLinkDecorationFrame) {
       cancelAnimationFrame(this.editorLinkDecorationFrame);
@@ -3744,6 +3958,12 @@ export class InputComponent implements OnInit {
   }
 
   applyExternalUpdate(note: NoteI) {
+    const externalSnapshot = JSON.stringify([note.updatedAt, this.noteSaveSnapshot(note)]);
+    // List/cache refreshes can publish the same saved note more than once.
+    // Reapplying it would replace text typed since we first received it.
+    if (externalSnapshot === this.lastExternalUpdateSnapshot) return;
+    this.lastExternalUpdateSnapshot = externalSnapshot;
+    const baseline: NoteI = JSON.parse(this.saveBaselineSnapshot ?? this.noteSaveSnapshot(this.noteToEdit));
     if (this.noteTitle?.nativeElement && this.noteTitle.nativeElement.innerHTML !== note.noteTitle) {
       this.updateHtmlWithCursorPreservation(this.noteTitle.nativeElement, note.noteTitle);
     }
@@ -3771,6 +3991,19 @@ export class InputComponent implements OnInit {
     this.isHybridNote = !!note.isCbox && this.hasMeaningfulBody(note.noteBody);
     this.isCbox.next(note.isCbox);
     this.cd.detectChanges();
+    // Received content is already saved. Advance only the fields applied above,
+    // keeping pending local metadata changes distinguishable from the baseline.
+    this.saveBaselineSnapshot = this.noteSaveSnapshot({
+      ...baseline,
+      noteTitle: this.noteTitle.nativeElement.innerHTML,
+      noteBody: nextBody === undefined ? baseline.noteBody : this.cleanEditorBodyForSave(this.noteBody?.nativeElement.innerHTML ?? nextBody),
+      bgColor: this.noteMain.nativeElement.style.backgroundColor,
+      bgImage: this.noteMain.nativeElement.style.backgroundImage || this.noteContainer.nativeElement.style.backgroundImage,
+      checkBoxes: this.cboxDragImage ? baseline.checkBoxes : this.currentCheckBoxesForSave(false),
+      images: this.images,
+      isCbox: this.isCbox.value,
+      labels: this.labelsDirty ? baseline.labels : note.labels
+    });
   }
 
   updateHtmlWithCursorPreservation(element: HTMLElement, newHtml: string) {
@@ -3786,7 +4019,7 @@ export class InputComponent implements OnInit {
       savedOffset = preSelectionRange.toString().length;
     }
     
-    element.innerHTML = newHtml;
+    element.innerHTML = sanitizeNoteHtml(newHtml);
     
     if (hasFocus && selection) {
       let charIndex = 0;
@@ -3821,7 +4054,7 @@ export class InputComponent implements OnInit {
 
   deleteImage(image: any) {
     this.images = this.images.filter(img => img.id !== image.id)
-    this.queueCoEditAutosave()
+    this.queueAutosave()
   }
 
   getActiveReminder() {

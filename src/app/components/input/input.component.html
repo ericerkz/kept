@@ -182,9 +182,11 @@
         }
       </div>
 
-      <div [hidden]="noteTitle.innerHTML.length" class="note-title ph"> Title</div>
-      <div #noteTitle (input)="onNoteTitleInput()" (paste)="pasteEvent($event)" (focus)="rememberTextHistoryTarget(noteTitle)"
-        class="note-title" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
+      <div class="note-title-container">
+        <div [hidden]="!!noteTitle.textContent?.trim()" class="note-title ph" aria-hidden="true">Title</div>
+        <div #noteTitle (input)="onNoteTitleInput()" (paste)="pasteEvent($event)" (focus)="rememberTextHistoryTarget(noteTitle)"
+          class="note-title" contenteditable="true" role="textbox" aria-label="Title" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
+        </div>
       </div>
       <ng-container [ngTemplateOutlet]="imagesTemplate" [ngTemplateOutletContext]="{ placement: 'top' }">
       </ng-container>
@@ -289,7 +291,7 @@
           <button type="button" class="dc-confirm" (click)="confirmPendingDate()">Pick time →</button>
         </div>
       }
-      <div class="close-btn" (click)="saveNote()"> Close </div>
+      <button type="button" class="close-btn" [disabled]="!canSaveNote" (click)="saveNote()">Close</button>
     </div>
 
     <!--? Mobile Bottom Bar -->
@@ -842,7 +844,8 @@
           (click)="toggleCboxDone(cb.id, $event)"></div>
         <div class="cbox-note-container">
           <div #cboxInput [attr.data-cbox-last]="last" [attr.data-cbox-id]="cb.id" [class.cbox-done]="cb.done"
-            (input)="onCboxInput(cb.id, cboxInput)" (blur)="cboxTools(cb.id).update(cboxInput); cboxInputBlur(cb.id)" (keydown)="cBoxKeyDown($event,cb.id)"
+            (input)="onCboxInput(cb.id, cboxInput)" (beforeinput)="cboxBeforeInput($event, cb.id)"
+            (blur)="cboxTools(cb.id).update(cboxInput); cboxInputBlur(cb.id)" (keydown)="cBoxKeyDown($event,cb.id)"
             (touchstart)="cboxTextTouchStart($event, cb.id, cboxInput)" (touchmove)="cboxTextTouchMove($event, cb.id, cboxInput)"
             (touchcancel)="cboxTextTouchCancel(cb.id, cboxInput)"
             (focus)="cboxInputFocus($event)" (touchend)="focusCboxFromTouch($event, cb.id, cboxInput)"

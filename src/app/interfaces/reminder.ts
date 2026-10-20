@@ -54,7 +54,8 @@ export interface ReminderFiredPayload {
   imageUrl?: string | null;
   // 'sw-push' = the service-worker push handler already called showNotification
   // (so the in-page banner should NOT fire a duplicate Notification());
-  // 'local' = fired by the in-page timer, the page must surface the OS notification.
+  // 'local' = fired by the in-page timer; Android's native alarm handles the
+  // system notification, while iOS/web keep their existing page delivery path.
   source?: 'sw-push' | 'local';
 }
 

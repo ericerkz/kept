@@ -90,6 +90,11 @@ async function integrationTest() {
 
   try {
     await waitForServer();
+    const protectedProxy = await fetch(`${base}/proxy-image`);
+    assert.equal(protectedProxy.status, 401);
+    assert.equal(protectedProxy.headers.get('x-content-type-options'), 'nosniff');
+    assert.match(protectedProxy.headers.get('content-security-policy'), /^sandbox;/);
+    assert.equal(protectedProxy.headers.get('cache-control'), 'private, no-store');
     await request('/setup/admin', null, { username: 'owner', password: 'test-password-123', displayName: 'Owner' });
     const owner = await request('/auth/login', null, { username: 'owner', password: 'test-password-123' });
     await request('/users', owner.token, { username: 'editor', password: 'test-password-456', displayName: 'Editor' });

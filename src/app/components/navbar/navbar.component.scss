@@ -1,5 +1,7 @@
 .main-container {
   padding: 8px 8px;
+  // Native shells can reserve camera space without shifting the notes below.
+  padding-right: calc(8px + var(--kept-cutout-right, 0px));
   box-shadow: inset 0 -1px 0 0 #5f6368;
   position: sticky;
   top: 0;
@@ -895,6 +897,7 @@
 @media (max-width: 599px) {
   .main-container {
     padding: 8px 12px;
+    padding-right: calc(12px + var(--kept-cutout-right, 0px));
     background: transparent;
     box-shadow: none;
     position: fixed;

@@ -136,10 +136,10 @@
             [attr.data-pop]="Shared.noteViewType.value === 'list' ? 'Grid view' : 'List view'"
             (click)="view()"></div>
           <button class="theme-toggle H pop" type="button"
-            [attr.data-pop]="auth.currentUser?.theme === 'light' ? 'Use dark theme' : 'Use light theme'"
-            [attr.aria-label]="auth.currentUser?.theme === 'light' ? 'Use dark theme' : 'Use light theme'"
+            [attr.data-pop]="auth.effectiveTheme === 'light' ? 'Use dark theme' : 'Use light theme'"
+            [attr.aria-label]="auth.effectiveTheme === 'light' ? 'Use dark theme' : 'Use light theme'"
             (click)="toggleTheme()">
-            <span class="theme-emoji">{{auth.currentUser?.theme === 'light' ? '🌙' : '☀️'}}</span>
+            <span class="theme-emoji">{{auth.effectiveTheme === 'light' ? '🌙' : '☀️'}}</span>
           </button>
         </div>
       </div>

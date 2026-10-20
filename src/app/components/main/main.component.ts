@@ -1070,12 +1070,27 @@ export class MainComponent implements OnInit, OnDestroy {
   proposalColor(action: KeptAction, _index: number) {
     const anyAction = action as any;
     if (anyAction.bgColor) return anyAction.bgColor;
+    // A proposal that updates an existing note shows that note's own colour so it's obvious
+    // which note is being changed.
+    const existingColor = this.existingNoteProposalColor(action);
+    if (existingColor) return existingColor;
     const key = this.smartProposalColorKey(action, _index);
     const existing = this.smartProposalColorCache.get(key);
     if (existing) return existing;
     const color = this.smartProposalColors[Math.floor(Math.random() * this.smartProposalColors.length)];
     this.smartProposalColorCache.set(key, color);
     return color;
+  }
+
+  private existingNoteProposalColor(action: KeptAction) {
+    const targetsExistingNote = ['append_to_note', 'add_checklist_items', 'add_labels', 'set_reminder', 'share_note', 'archive_note', 'trash_note'];
+    if (!targetsExistingNote.includes(action.type)) return null;
+    const noteId = this.numericNoteId((action as any).noteId);
+    if (!noteId) return null;
+    const note = (this.notes.notesList$.value || []).find(item => item.id === noteId);
+    if (!note) return null;
+    // Notes without a colour are plain white/default.
+    return note.bgColor || '#ffffff';
   }
 
   private ensureSmartProposalColors(plan: KeptActionPlan) {
