@@ -13,8 +13,15 @@
 
     @if (error) { <div class="error global-msg">{{error}}</div> }
     @if (success) { <div class="success global-msg">{{success}}</div> }
-
     @if (authService.workspace.canUseLocal) {
+      @if (nativeWorkspace.error$ | async; as message) {
+        <div class="error global-msg">{{message}}
+          @if (isAndroid && message.includes('exact-alarm')) { <button type="button" class="btn-secondary btn-permission" (click)="nativeWorkspace.openExactAlarmSettings()">Enable precise reminders</button> }
+        </div>
+      }
+    }
+
+    @if (authService.workspace.canUseLocal && authService.isLocal) {
       <div class="settings-group device-data">
         <h2 class="group-title color-blue"><span class="material-symbols-outlined" aria-hidden="true">devices</span>Notes on this device</h2>
         <p class="section-desc">{{storageUsed}}</p>
@@ -41,13 +48,6 @@
           <label class="toggle-label backup-reminder-toggle"><input type="checkbox" [checked]="!authService.workspace.local?.backupRemindersDisabled" (change)="backups.dismissReminder(!$any($event.target).checked)"><span class="toggle-text">Remind me to back up my notes</span></label>
           @if (backups.progress$ | async; as progress) { <p role="status">{{progress}}</p> }
           @if (migration.progress$ | async; as progress) { <p role="status">{{progress}}</p> }
-        } @else {
-          <p>Connected notes are cached separately from device-only notes.</p>
-        }
-        @if (nativeWorkspace.error$ | async; as message) { <p class="error">{{message}}</p> @if (isAndroid && message.includes('exact-alarm')) { <button type="button" (click)="nativeWorkspace.openExactAlarmSettings()">Enable precise reminders</button> } }
-        @if (isAndroid && (nativeWorkspace.locationPermissionRequired$ | async)) {
-          <p role="status">Location reminders need background location access. In Android settings, choose Permissions → Location → Allow all the time.</p>
-          <button type="button" (click)="nativeWorkspace.openBackgroundLocationSettings()">Allow background location</button>
         }
         @for (workspace of stagingWorkspaces; track workspace.id) {
           <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="discardStaging(workspace)">Remove incomplete backup or restore from {{workspace.createdAt | date}}</button>
@@ -650,6 +650,11 @@
       <p class="section-desc">
         Manage the permissions Kept needs for reminders, voice capture, and location-based features.
       </p>
+
+      @if (isAndroid && (nativeWorkspace.locationPermissionRequired$ | async)) {
+        <p role="status">Location reminders need background location access. In Android settings, choose Permissions → Location → Allow all the time.</p>
+        <button type="button" class="btn-secondary btn-permission" (click)="nativeWorkspace.openBackgroundLocationSettings()">Allow background location</button>
+      }
 
       @if (notificationPermissionsVisible) {
         <div class="permissions-list notification-permissions-list">
