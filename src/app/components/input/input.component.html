@@ -456,14 +456,14 @@
   <input #customTimeInp type="text" class="timepicker-ui-input rp-hidden-time" autocomplete="off" readonly [(ngModel)]="customTime"
     aria-hidden="true" tabindex="-1">
   @if (showReminderLocationDialog && !getActiveReminder() && keptPlugins.supportsNativeLocationReminders) {
-    <div class="reminder-date-dialog reminder-place-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
+    <div class="reminder-date-dialog reminder-place-dialog" [class.location-map-open]="showLocationMap" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
       role="dialog" aria-label="Set location reminder">
       <div class="rd-place-header">
         <button type="button" class="rd-place-back" aria-label="Back"
           (click)="backFromPlaceDialog()">
           <span class="material-symbols-outlined">chevron_left</span>
         </button>
-        <h2>{{ placeDialogView === 'manage' ? 'Saved places' : (placeDialogView === 'add' ? 'Add saved place' : 'Place') }}</h2>
+        <h2>{{ showLocationMap ? 'Choose on map' : placeDialogView === 'manage' ? 'Saved places' : (placeDialogView === 'add' ? 'Add saved place' : 'Place') }}</h2>
       </div>
 
       @if (placeDialogView === 'choose') {
@@ -472,6 +472,7 @@
           <input type="text" placeholder="Search for a place"
             name="locationPhrase" [(ngModel)]="locationPhrase" enterkeyhint="search" />
         </form>
+        <button type="button" class="rd-map-button" (click)="openLocationMap()"><span class="material-symbols-outlined" aria-hidden="true">map</span>Choose on map</button>
         <div class="rd-place-section-title">
           <span>Saved Places</span>
           <button type="button" (click)="openManagePlaces()">Manage</button>
@@ -552,53 +553,37 @@
           <input type="text" placeholder="Search for a place"
             name="locationPhrase" [(ngModel)]="locationPhrase" enterkeyhint="search" />
         </form>
-        @switch (locationState) {
-          @case ('idle') {
-            <div class="rd-place-map" aria-label="Map preview placeholder">
-              <span class="material-symbols-outlined">location_on</span>
-              <span>map preview</span>
-            </div>
-          }
-          @case ('resolved') {
-            <div class="rd-place-map" [class.has-map]="locationMapPreview" aria-label="Map preview">
-              @if (locationMapPreview) {
-                <img [src]="locationMapPreview" alt="" />
-              } @else {
-                <span class="material-symbols-outlined">location_on</span>
-                <span>map preview</span>
-              }
-            </div>
-          }
-          @case ('ambiguous') {
-            <div class="rd-place-map" aria-hidden="true">
-              <span class="material-symbols-outlined">location_on</span>
-              <span>map preview</span>
-            </div>
-            <p class="rd-location-message">Multiple places found. Pick one:</p>
-            <div class="rd-location-candidates">
-              @for (c of candidates; track c.displayName) {
-                <button type="button" class="rd-location-candidate" (click)="selectCandidate(c)">
-                  {{ c.displayName }}
-                </button>
-              }
-            </div>
-          }
-          @case ('permission') {
-            <div class="rd-place-map" aria-hidden="true">
-              <span class="material-symbols-outlined">location_on</span>
-              <span>map preview</span>
-            </div>
-            <p class="rd-location-message">{{ permissionReason }}</p>
-          }
-          @case ('notFound') {
-            <div class="rd-place-map" aria-hidden="true">
-              <span class="material-symbols-outlined">location_on</span>
-              <span>map preview</span>
-            </div>
-            <p class="rd-location-message">Place not found. Try a different search.</p>
-          }
+        @if (showLocationMap) {
+          <app-location-map-picker [center]="locationMapCenter"
+            [initialRadius]="placeDialogView === 'add' ? addPlaceRadiusMeters : resolvedLocation?.radiusMeters || 120"
+            [locating]="currentLocationLoading" [locationError]="locationMapError"
+            (locate)="locateLocationMap()" (locationPicked)="selectMapLocation($event)" (cancelled)="closeLocationMap()"></app-location-map-picker>
+        } @else {
+          <button type="button" class="rd-map-button" (click)="openLocationMap()"><span class="material-symbols-outlined" aria-hidden="true">map</span>{{resolvedLocation ? 'Adjust pin on map' : 'Choose on map'}}</button>
+          <div class="rd-place-map" [class.has-map]="locationMapPreview" aria-label="Map preview">
+            @if (locationMapPreview) { <img [src]="locationMapPreview" alt="" /> }
+            @else { <span class="material-symbols-outlined" aria-hidden="true">location_on</span><span>map preview</span> }
+          </div>
         }
+        @if (locationState === 'ambiguous') {
+          <p class="rd-location-message">Multiple places found. Pick one:</p>
+          <div class="rd-location-candidates">
+            @for (c of candidates; track c.displayName) {
+              <button type="button" class="rd-location-candidate" (click)="selectCandidate(c)">{{ c.displayName }}</button>
+            }
+          </div>
+        }
+        @if (locationState === 'permission') { <p class="rd-location-message">{{ permissionReason }}</p> }
+        @if (locationState === 'notFound') { <p class="rd-location-message">Place not found. Try a different search or choose on the map.</p> }
 
+        @if (!showLocationMap) {
+        @if (placeDialogView === 'search' && resolvedLocation?.source === 'mapPin') {
+          <label class="rd-place-field"><span>Name</span><div>
+            <span class="material-symbols-outlined" aria-hidden="true">location_on</span>
+            <input type="text" placeholder="e.g. Parking spot" name="mapPinName" [(ngModel)]="mapPinName" />
+          </div></label>
+          <p class="rd-location-message">{{resolvedLocation?.latitude?.toFixed(5)}}, {{resolvedLocation?.longitude?.toFixed(5)}}</p>
+        }
         @if (placeDialogView === 'add') {
           <label class="rd-place-field">
             <span>Name</span>
@@ -645,13 +630,14 @@
               {{ addPlaceSaving ? 'Saving...' : 'Save place' }}
             </button>
           } @else if (resolvedLocation) {
-            <button type="button" class="rd-place-save" (click)="confirmLocationReminder()">Find place</button>
+            <button type="button" class="rd-place-save" (click)="confirmLocationReminder()">Set reminder</button>
           } @else {
             <button type="button" class="rd-place-save" (click)="resolveLocation('search')" [disabled]="resolving || !locationPhrase.trim()">
               {{ resolving ? 'Searching...' : 'Find place' }}
             </button>
           }
         </div>
+        }
       }
     </div>
   }
@@ -665,7 +651,7 @@
       <h2>Allow background location reminders</h2>
       @if (androidLocationEducationMode === 'foreground') {
         <p>Kept collects, transmits, and stores location data, including saved places and reminder coordinates, to enable location-based reminders in the background when the app is closed or not in use.</p>
-        <p>This data is used only for reminder features and is stored on your Kept server.</p>
+        <p>This data is used only for reminder features and is stored {{ auth.isLocal ? 'on this device' : 'on your Kept server' }}.</p>
       } @else {
         <p>Kept needs background location access to enable location reminders when the app is closed or not in use.</p>
         <p>On the next Android screen, choose <strong>Permissions</strong> &gt; <strong>Location</strong> &gt; <strong>Allow all the time</strong>.</p>

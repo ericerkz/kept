@@ -26,6 +26,7 @@ import { AuthExpiredInterceptor } from './services/auth-expired.interceptor';
 import { AuthService } from './services/auth.service';
 import { WelcomeComponent } from './components/auth/welcome/welcome.component';
 import { ConnectionHeadersInterceptor } from './services/connection-headers.interceptor';
+import { LocationMapPickerComponent } from './components/location-map-picker/location-map-picker.component';
 
 @NgModule({ declarations: [
         AppComponent,
@@ -35,6 +36,7 @@ import { ConnectionHeadersInterceptor } from './services/connection-headers.inte
         NavbarComponent,
         NotesComponent,
         InputComponent,
+        LocationMapPickerComponent,
         ph,
         CboxSortPipe,
         CboxDonePipe,

@@ -26,6 +26,7 @@ import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
 import { MAX_INDENT_LEVEL, descendantIndexes, maxIndentLevelAt, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
 import { environment } from 'src/environments/environment';
 import { createUuid } from 'src/app/utils/uuid';
+import type { LocationPin } from '../location-map-picker/location-map-picker.component';
 
 declare var Snackbar: any;
 type InputLengthI = { title?: number, body?: number, cb?: number }
@@ -145,6 +146,12 @@ export class InputComponent implements OnInit {
   locationPhrase = ''
   resolvedLocation: ResolvedLocation | null = null
   locationMapPreview = ''
+  showLocationMap = false
+  locationMapCenter: { latitude: number; longitude: number } | null = null
+  locationMapError = ''
+  mapPinName = ''
+  private locationMapRequest = 0
+  private locationSearchRequest = 0
   candidates: ResolvedLocation[] = []
   resolving = false
   permissionReason = ''
@@ -167,7 +174,7 @@ export class InputComponent implements OnInit {
   currentLocationLoading = false
   private placeSwipeStartPoint?: { id: number; x: number; y: number }
   private pendingAndroidLocationReminder: { location: ResolvedLocation; trigger: LocationTrigger } | null = null
-  private pendingAndroidLocationSearch: { view: PlaceDialogView } | null = null
+  private pendingAndroidLocationSearch: { view: PlaceDialogView; map?: boolean } | null = null
   private androidBackgroundLocationResumeHandler?: () => void
   private androidBackgroundLocationFocusHandler?: () => void
   private androidBackgroundLocationResumeRunning = false
@@ -4580,6 +4587,7 @@ export class InputComponent implements OnInit {
   }
 
   backFromPlaceDialog() {
+    if (this.showLocationMap) { this.closeLocationMap(); return }
     if (this.placeDialogView !== 'choose') {
       this.openPlaceChooser()
       return
@@ -4670,15 +4678,56 @@ export class InputComponent implements OnInit {
     this.locationTrigger = 'arrive'
   }
 
+  openLocationMap() {
+    if (this.placeDialogView === 'choose') this.openSearchPlace()
+    this.locationMapCenter = this.resolvedLocation || this.currentLocation || this.savedPlaces[0] || null
+    this.locationMapError = ''
+    this.locationMapRequest++
+    this.showLocationMap = true
+  }
+
+  closeLocationMap() {
+    this.locationMapRequest++
+    this.showLocationMap = false
+  }
+
+  selectMapLocation(pin: LocationPin) {
+    if (!Number.isFinite(pin.latitude) || Math.abs(pin.latitude) > 90 || !Number.isFinite(pin.longitude) || Math.abs(pin.longitude) > 180) return
+    this.locationSearchRequest++
+    this.resolving = false
+    this.mapPinName = this.resolvedLocation?.source === 'mapPin' ? this.mapPinName : ''
+    this.resolvedLocation = { ...pin, displayName: this.mapPinName.trim() || 'Map pin', confidence: 'high', source: 'mapPin' }
+    this.locationState = 'resolved'
+    this.locationPhrase = ''
+    this.addPlaceRadiusMeters = pin.radiusMeters
+    this.closeLocationMap()
+    void this.hydrateLocationMapPreview(this.resolvedLocation)
+  }
+
+  async locateLocationMap() {
+    if (!this.showLocationMap || this.currentLocationLoading) return
+    const request = this.locationMapRequest
+    this.locationMapError = ''
+    if (!await this.ensureAndroidForegroundLocationDisclosureForSearch(this.placeDialogView, true)) return
+    if (!navigator.geolocation) { this.locationMapError = 'Current location is unavailable. You can still choose a spot on the map.'; return }
+    const found = await this.readCurrentLocation(true)
+    if (!this.showLocationMap || request !== this.locationMapRequest) return
+    if (found) this.locationMapCenter = this.currentLocation
+    else this.locationMapError = 'Could not get your location. Check location access, or choose a spot on the map.'
+    this.cd.detectChanges()
+  }
+
   async resolveLocation(view: PlaceDialogView = this.placeDialogView) {
     const phrase = this.locationPhrase.trim()
     if (!phrase) return
+    const request = ++this.locationSearchRequest
     this.resolving = true
     this.locationState = 'idle'
     try {
       if (!await this.ensureAndroidForegroundLocationDisclosureForSearch(view)) return
       await this.loadCurrentLocation()
       const result = await this.keptPlugins.resolveLocation(phrase, this.savedPlaces, this.currentLocation)
+      if (request !== this.locationSearchRequest || !this.showReminderLocationDialog) return
       if (!result) {
         this.permissionReason = 'Location search is not available in this version of the app.'
         this.locationState = 'permission'
@@ -4706,8 +4755,12 @@ export class InputComponent implements OnInit {
           this.locationState = 'permission'
           break
       }
+    } catch {
+      if (request !== this.locationSearchRequest) return
+      this.permissionReason = 'Place search could not complete. Try again or choose a spot on the map.'
+      this.locationState = 'permission'
     } finally {
-      this.resolving = false
+      if (request === this.locationSearchRequest) this.resolving = false
     }
   }
 
@@ -4722,6 +4775,9 @@ export class InputComponent implements OnInit {
   }
 
   resetLocationState() {
+    this.locationSearchRequest++
+    this.closeLocationMap()
+    this.mapPinName = ''
     this.locationState = 'idle'
     this.locationPhrase = ''
     this.resolvedLocation = null
@@ -4757,6 +4813,7 @@ export class InputComponent implements OnInit {
 
   async confirmLocationReminder(location = this.resolvedLocation, trigger = this.locationTrigger) {
     if (!location) return
+    if (location.source === 'mapPin') location = { ...location, displayName: this.mapPinName.trim() || 'Map pin' }
     await this.prepareLocationReminder(location, trigger)
   }
 
@@ -4799,10 +4856,10 @@ export class InputComponent implements OnInit {
     return true
   }
 
-  private async ensureAndroidForegroundLocationDisclosureForSearch(view: PlaceDialogView) {
+  private async ensureAndroidForegroundLocationDisclosureForSearch(view: PlaceDialogView, map = false) {
     const status = await this.reminderService.getAndroidLocationPermissionStatus()
     if (!status || status.foregroundGranted) return true
-    this.pendingAndroidLocationSearch = { view }
+    this.pendingAndroidLocationSearch = { view, map }
     this.pendingAndroidLocationReminder = null
     this.androidLocationEducationMode = 'foreground'
     this.androidBackgroundLocationMessage = ''
@@ -4833,7 +4890,8 @@ export class InputComponent implements OnInit {
       this.pendingAndroidLocationSearch = null
       this.showAndroidBackgroundLocationEducation = false
       this.androidBackgroundLocationMessage = ''
-      this.resolveLocation(pendingSearch.view)
+      if (pendingSearch.map) void this.locateLocationMap()
+      else this.resolveLocation(pendingSearch.view)
       return
     }
 
@@ -4973,7 +5031,7 @@ export class InputComponent implements OnInit {
     try {
       await this.savedPlacesService.create({
         name: this.addPlaceName.trim(),
-        address: location.displayName,
+        address: location.source === 'mapPin' ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}` : location.displayName,
         placeType: this.addPlaceType,
         latitude: location.latitude,
         longitude: location.longitude,
@@ -5055,9 +5113,9 @@ export class InputComponent implements OnInit {
     return this.readCurrentLocation()
   }
 
-  private readCurrentLocation() {
+  private readCurrentLocation(precise = false) {
     this.currentLocationLoading = true
-    return new Promise<void>(resolve => {
+    return new Promise<boolean>(resolve => {
       navigator.geolocation.getCurrentPosition(
         position => {
           this.currentLocation = {
@@ -5066,14 +5124,14 @@ export class InputComponent implements OnInit {
           }
           this.currentLocationLoading = false
           this.cd.detectChanges()
-          resolve()
+          resolve(true)
         },
         () => {
           this.currentLocationLoading = false
           this.cd.detectChanges()
-          resolve()
+          resolve(false)
         },
-        { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 4000 }
+        { enableHighAccuracy: precise, maximumAge: precise ? 0 : 5 * 60 * 1000, timeout: precise ? 10000 : 4000 }
       )
     })
   }
@@ -5097,8 +5155,10 @@ export class InputComponent implements OnInit {
   }
 
   private async hydrateLocationMapPreview(location: ResolvedLocation) {
+    if (this.showLocationMap) { this.locationMapCenter = location; return }
     try {
-      this.locationMapPreview = await this.keptPlugins.locationMapPreview(location) || ''
+      const preview = await this.keptPlugins.locationMapPreview(location) || ''
+      if (this.resolvedLocation === location) this.locationMapPreview = preview
     } catch {
       this.locationMapPreview = ''
     } finally {

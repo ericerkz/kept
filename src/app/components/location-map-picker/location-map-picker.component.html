@@ -1,0 +1,28 @@
+<p class="map-help">Move the map under the pin, or tap a spot. Pinch to zoom.</p>
+<div class="map-shell">
+  <div #mapHost class="map-canvas" role="region" aria-label="Choose a reminder location on the map"></div>
+  <span class="map-pin material-symbols-outlined" aria-hidden="true">location_on</span>
+</div>
+@if (loading) { <p role="status">Opening map…</p> }
+@if (error) { <p role="alert">{{error}}</p> }
+@if (tileError) {
+  <p role="status">Map imagery could not load. Check your connection. <button type="button" class="map-link" (click)="reloadTiles()">Try again</button></p>
+}
+<button type="button" class="map-locate" [disabled]="locating || loading || !!error" (click)="locate.emit()">
+  <span class="material-symbols-outlined" aria-hidden="true">my_location</span>{{locating ? 'Finding your location…' : 'Use my current location'}}
+</button>
+@if (locationError) { <p role="status">{{locationError}}</p> }
+@if (selected) { <p class="map-coordinates">{{selected.latitude.toFixed(5)}}, {{selected.longitude.toFixed(5)}}</p> }
+<fieldset>
+  <legend>Reminder radius</legend>
+  <div class="map-radii">
+    @for (value of radii; track value) {
+      <button type="button" [class.active]="radius === value" [attr.aria-pressed]="radius === value" (click)="setRadius(value)">{{value >= 1000 ? '1 km' : value + ' m'}}</button>
+    }
+  </div>
+</fieldset>
+<p class="map-help">The circle shows the reminder area. Alerts depend on your device’s location accuracy.</p>
+<div class="map-actions">
+  <button type="button" (click)="cancelled.emit()">Cancel</button>
+  <button type="button" class="map-confirm" [disabled]="!selected || loading || !!error || locating" (click)="confirm()">Use this location</button>
+</div>

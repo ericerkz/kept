@@ -37,12 +37,14 @@
               }
             ],
             "styles": [
+              "node_modules/leaflet/dist/leaflet.css",
               {
                 "input": "src/styles.scss"
               }
             ],
             "allowedCommonJsDependencies": [
-              "jszip"
+              "jszip",
+              "leaflet"
             ]
           },
 

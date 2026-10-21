@@ -2563,6 +2563,22 @@ body.light-theme .reminder-date-dialog {
     }
   }
 
+  .rd-map-button {
+    align-items: center;
+    background: #e8f0fe;
+    border: 1px solid #d2e3fc;
+    border-radius: 12px;
+    color: #1a73e8;
+    cursor: pointer;
+    display: flex;
+    font-size: 14px;
+    font-weight: 500;
+    gap: 8px;
+    justify-content: center;
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+
   .rd-place-map {
     align-items: center;
     background:
@@ -2978,6 +2994,13 @@ body.light-theme .reminder-date-dialog {
       opacity: 0.58;
     }
   }
+}
+
+.reminder-date-dialog.reminder-place-dialog.location-map-open {
+  max-height: calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  top: 50%;
 }
 
 @media (max-width: 660px), (max-height: 500px) and (orientation: landscape) {

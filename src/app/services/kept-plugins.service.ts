@@ -8,7 +8,7 @@ export interface ResolvedLocation {
   longitude: number;
   radiusMeters: number;
   confidence: 'high' | 'medium' | 'low';
-  source: 'savedLocation' | 'geocoder' | 'localSearch';
+  source: 'savedLocation' | 'geocoder' | 'localSearch' | 'mapPin';
 }
 
 export type LocationMapPreviewResponse =
