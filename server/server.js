@@ -1184,7 +1184,7 @@ const PRIVATE_IMAGE_PREFIX = '/api/uploads/images/';
 
 function safeStoredImageFilename(filename) {
   const clean = String(filename || '').trim();
-  if (!/^[0-9]+-[a-f0-9]{24}\.(png|jpe?g|gif|webp)$/i.test(clean)) return '';
+  if (!/^(?:[0-9]+-[a-f0-9]{24}|import-[a-f0-9]{64})\.(png|jpe?g|gif|webp)$/i.test(clean)) return '';
   return clean;
 }
 

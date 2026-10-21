@@ -19,9 +19,32 @@ test('local identity, native receipt and blobs commit together; failed writes pr
   await assert.rejects(store.commitMutation({...workspace,generation:'obsolete'},'note.delete','stable',{}));
   assert.equal((await store.listNotes(workspace.partition)).length,1);
 });
+test('new notes sort above existing and manually ordered notes without moving edited notes',async()=>{
+ const {IDBFactory}=require('fake-indexeddb');const database=new IDBFactory();
+ const store=createStore(database),workspace={...local(),demoNotesSeeded:false};await store.saveWorkspace(workspace);
+ await store.seedLocalDemoNotes(workspace);
+ const pinned=await store.commitMutation(workspace,'note.upsert','pinned',{noteTitle:'Pinned',pinned:true,sortOrder:Date.now()+100});
+ const older=await store.commitMutation(workspace,'note.upsert','older',{noteTitle:'Older',pinned:false});
+ const newer=await store.commitMutation(workspace,'note.upsert','newer',{noteTitle:'Newer',pinned:false});
+ assert.ok(newer.sortOrder>older.sortOrder);
+ const demos=(await store.listNotes(workspace.partition)).filter(note=>note.isDemo);
+ assert.ok(demos.every(note=>older.sortOrder>note.sortOrder));
+ const order=async()=>Array.from(await store.listNotes(workspace.partition)).filter(note=>!note.isDemo).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||b.sortOrder-a.sortOrder).map(note=>note.syncId);
+ assert.deepEqual(await order(),['pinned','newer','older']);
+ await store.commitMutation(workspace,'note.upsert','older',{id:older.id,noteTitle:'Edited older note'});
+ assert.deepEqual(await order(),['pinned','newer','older'],'editing does not move a note');
+ await store.commitMutation(workspace,'note.reorder','note-order',{syncIds:['older','newer']});
+ const capture={actionId:'native-capture',workspaceId:workspace.id,generation:workspace.generation,sequence:1,kind:'note.upsert',targetSyncId:'captured',payload:{noteTitle:'Captured'}};
+ const captured=await store.commitMutation(workspace,'note.upsert','captured',{noteTitle:'Captured',pinned:false},{action:capture});
+ assert.deepEqual(await order(),['pinned','captured','older','newer']);
+ assert.equal((await store.getNote(workspace.partition,pinned.id)).pinned,true);
+ const saved=await createStore(database).getNote(workspace.partition,captured.id);assert.equal(saved.sortOrder,captured.sortOrder,'sort order survives reopening storage');
+});
 test('acknowledging a sent edit preserves later edits and maps related IDs; tombstones and aborted pages are atomic',async()=>{
   const store=createStore(),workspace=await store.ensureServerWorkspace('server|1');
-  await store.reconcile(workspace,{snapshot:{note:[{id:42,syncId:'note',noteTitle:'server'}]},cursor:4});
+  await store.reconcile(workspace,{snapshot:{note:[{id:42,syncId:'note',noteTitle:'server',labels:[{id:5,syncId:'label',name:'Old name',added:true}]}],label:[{id:5,syncId:'label',name:'Current name'}]},cursor:4});
+  const appliedLabel=(await store.listNotes(workspace.partition))[0].labels[0];
+  assert.equal(appliedLabel.name,'Current name');assert.equal(appliedLabel.added,true,'catalog refreshes preserve the note’s applied Label flag');
   await store.commitMutation(workspace,'note.upsert','note',{noteTitle:'first edit'});
   const [sent]=await store.listOutbox(workspace.partition);
   await store.commitMutation(workspace,'note.upsert','note',{noteTitle:'later edit'});

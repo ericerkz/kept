@@ -25,9 +25,10 @@
     "test:note-html:ui": "node scripts/note-html-ui-test.mjs",
     "test:browser-session": "node --test server/browser-session.test.js server/url-credentials.test.js",
     "test:browser-session:ui": "node scripts/browser-session-test.mjs",
+    "test:note-history": "node scripts/note-history-test.mjs",
     "test:proxy-image": "node --test server/image-proxy.test.js",
     "test:proxy-image:browser": "node scripts/proxy-image-browser-test.mjs",
-    "test:workspaces": "node --test scripts/workspace-store.test.cjs scripts/native-workspace.test.cjs scripts/offline-sync-status.test.cjs server/workspace-sync.test.js",
+    "test:workspaces": "node --test scripts/workspace-store.test.cjs scripts/native-workspace.test.cjs scripts/workspace-migration.test.cjs scripts/offline-sync-status.test.cjs server/workspace-sync.test.js",
     "test:workspaces:browser": "node scripts/workspace-browser-test.mjs"
   },
   "private": true,

@@ -3369,6 +3369,9 @@ export class InputComponent implements OnInit {
     note.labels.forEach(noteLabel => {
       let label = this.labels.find(x => x.name === noteLabel.name)
       if (label) label.added = noteLabel.added
+      // A note URL can open before the shared Label catalog has loaded.
+      // Keep the note's own Labels rather than saving an empty selection.
+      else this.labels.push({ ...noteLabel })
     })
     this.labelsDirty = false
     // Force the templates to materialize before we touch the body element.

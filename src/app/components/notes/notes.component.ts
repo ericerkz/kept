@@ -23,6 +23,7 @@ import { NoteLockService } from 'src/app/services/note-lock.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
 import { descendantIndexes, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
+import type { InputComponent } from '../input/input.component';
 
 declare var Snackbar: any;
 type PluginListenerHandle = { remove: () => Promise<void> | void };
@@ -42,6 +43,7 @@ type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: s
 type NoteBodyPreview = { segments: NoteBodySegment[]; urls: string[] }
 type NoteMeta = { rawBody: string; title: string; bgKey: string; urls: string[]; linkOnly: boolean; textColor: string; displayBody: string; bodySegments: NoteBodySegment[]; hiddenLinkCount: number; visibleUrls: string[] }
 type PullRefreshState = 'idle' | 'pulling' | 'ready' | 'refreshing'
+type NoteHistoryEntry = { baseUrl: string; workspaceId: string; generation: string }
 
 const CapacitorApp = registerPlugin<CapacitorAppPlugin>('App');
 const KeptWidgetIntents = registerPlugin<KeptWidgetIntentsPlugin>('KeptWidgetIntents');
@@ -75,6 +77,13 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   @ViewChild("mainContainer") mainContainer!: ElementRef<HTMLInputElement>
   @ViewChild("modalContainer") modalContainer!: ElementRef<HTMLInputElement>
   @ViewChild("modal") modal!: ElementRef<HTMLInputElement>
+  @ViewChild('noteEditor') private noteEditor?: InputComponent
+  private modalClosePromise?: Promise<void>
+  private noteNavigationReady = false
+  private noteNavigationRunning = false
+  private noteNavigationAgain = false
+  private noteHistoryEntry?: NoteHistoryEntry
+  private destroyed = false
   @ViewChild('overviewImageInput') overviewImageInput?: ElementRef<HTMLInputElement>
   @ViewChild('globalReminderTime') globalReminderTime?: ElementRef<HTMLInputElement>
   @ViewChild('loadMoreSentinel') loadMoreSentinel?: ElementRef<HTMLDivElement>
@@ -760,17 +769,19 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   //? modal  -----------------------------------------------------------
 
-  async openModal(clickedNote: HTMLDivElement | null, noteData: NoteI, openImagePicker = false) {
+  async openModal(clickedNote: HTMLDivElement | null, noteData: NoteI, openImagePicker = false, trackHistory = true) {
     if (this.suppressNextOpen) {
       this.suppressNextOpen = false
-      return
+      return false
     }
     if (clickedNote && this.Shared.selectedNoteIds.value.length) {
       this.Shared.toggleNoteSelection(noteData.id!)
-      return
+      return false
     }
     const canOpen = await this.noteLock.ensureUnlocked(noteData)
-    if (!canOpen) return
+    if (!canOpen) return false
+    if (this.modalClosePromise) await this.modalClosePromise
+    if (this.destroyed) return false
     this.openImagePickerOnModal = openImagePicker
     this.Shared.note.id = noteData.id!
     this.clickedNoteEl = clickedNote || undefined
@@ -784,6 +795,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.prepareModalOpenAnimation(source)
     clickedNote?.classList.add('hide')
     document.addEventListener('mousedown', this.mouseDownEvent)
+    if (trackHistory) await this.openNoteHistory(noteData.id!)
+    return true
   }
 
   mouseDownEvent = (event: Event) => {
@@ -865,8 +878,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     return ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)
   }
 
-  closeModal() {
-    if (this.modalClosing) return
+  closeModal(updateHistory = true): Promise<void> {
+    if (this.modalClosing) return this.modalClosePromise || Promise.resolve()
     this.modalClosing = true
     this.suppressScrollPagination()
     document.removeEventListener('mousedown', this.mouseDownEvent)
@@ -878,7 +891,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.clickedNoteEl?.classList.remove('hide')
       }, isMobileModal ? 90 : 200)
     }
-    setTimeout(() => {
+    this.modalClosePromise = new Promise(resolve => setTimeout(() => {
       modalContainer.style.display = 'none'
       this.openImagePickerOnModal = false
       this.modal.nativeElement.removeAttribute('style')
@@ -887,7 +900,100 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.schedulePostModalPaginationCheck()
       this.suppressScrollPagination()
       this.modalClosing = false
-    }, isMobileModal ? 180 : 400)
+      this.modalClosePromise = undefined
+      resolve()
+    }, isMobileModal ? 180 : 400))
+    if (updateHistory) {
+      const tree = this.router.parseUrl(this.router.url)
+      if (Number(tree.queryParams['note']) === this.clickedNoteData?.id) {
+        if (window.history.state?.keptNoteNavigation) window.history.back()
+        else void this.removeNoteFromUrl().catch(console.error)
+      }
+    }
+    return this.modalClosePromise
+  }
+
+  private noteUrl(noteId?: number) {
+    const tree = this.router.parseUrl(this.router.url)
+    delete tree.queryParams['note']
+    if (noteId !== undefined) tree.queryParams['note'] = String(noteId)
+    return this.router.serializeUrl(tree)
+  }
+
+  private removeNoteFromUrl() {
+    return this.router.navigateByUrl(this.noteUrl(), { replaceUrl: true })
+  }
+
+  private async openNoteHistory(noteId: number) {
+    const workspace = await this.offlineSync.workspace()
+    const entry = window.history.state?.keptNoteNavigation
+    if (Number(this.router.parseUrl(this.router.url).queryParams['note']) === noteId &&
+        entry?.workspaceId === workspace.id && entry?.generation === workspace.generation) { this.noteHistoryEntry = entry; return }
+    const baseUrl = this.noteUrl()
+    const noteUrl = this.noteUrl(noteId)
+    // A directly opened note URL also needs a grid entry beneath it.
+    if (Number(this.router.parseUrl(this.router.url).queryParams['note']) === noteId) await this.router.navigateByUrl(baseUrl, { replaceUrl: true })
+    this.noteHistoryEntry = { baseUrl, workspaceId: workspace.id, generation: workspace.generation }
+    await this.router.navigateByUrl(noteUrl, { state: { keptNoteNavigation: this.noteHistoryEntry } })
+  }
+
+  private async syncNoteNavigation() {
+    if (!this.noteNavigationReady || this.destroyed) return
+    this.noteNavigationAgain = true
+    if (this.noteNavigationRunning) return
+    this.noteNavigationRunning = true
+    try {
+      do {
+        this.noteNavigationAgain = false
+        await this.applyNoteNavigation()
+      } while (this.noteNavigationAgain && !this.destroyed)
+    } finally { this.noteNavigationRunning = false }
+  }
+
+  private async applyNoteNavigation() {
+    if (this.modalClosePromise) await this.modalClosePromise
+    if (this.destroyed) return
+    const requestedUrl = this.router.url
+    const rawId = this.router.parseUrl(requestedUrl).queryParams['note']
+    const noteId = Number(rawId)
+    const validId = !Array.isArray(rawId) && Number.isSafeInteger(noteId) && noteId !== 0 && noteId !== -1
+    const open = this.modalContainer.nativeElement.style.display === 'block'
+    if (open && validId && this.clickedNoteData?.id === noteId) return
+    if (open) {
+      const saved = await this.noteEditor?.saveNote(false)
+      if (saved === false) {
+        // Restoring the editor URL must work even when IndexedDB writes fail.
+        await this.router.navigateByUrl(this.noteUrl(this.clickedNoteData.id!), { state: { keptNoteNavigation: this.noteHistoryEntry } })
+        return
+      }
+      await this.closeModal(false)
+    }
+    if (this.destroyed || this.router.url !== requestedUrl) return
+    if (!validId) {
+      if (rawId !== undefined) await this.removeNoteFromUrl()
+      return
+    }
+    await this.waitForAuth()
+    const workspace = await this.offlineSync.workspace()
+    if (this.destroyed || this.router.url !== requestedUrl) return
+    const entry = window.history.state?.keptNoteNavigation
+    if (entry && (entry.workspaceId !== workspace.id || entry.generation !== workspace.generation)) {
+      this.showMessage('This note belongs to a different account or device library.')
+      await this.removeNoteFromUrl()
+      return
+    }
+    if (!entry) { await this.openNoteHistory(noteId); return }
+    this.noteHistoryEntry = entry
+    try {
+      const note = await this.notesService.get(noteId, { merge: false })
+      if (this.destroyed || this.router.url !== requestedUrl || this.offlineSync.partition !== workspace.partition || this.offlineSync.generation !== workspace.generation) return
+      if (!await this.openModal(null, note, false, false)) await this.removeNoteFromUrl()
+    } catch (error) {
+      if (this.destroyed || this.router.url !== requestedUrl) return
+      console.error('Could not open the note from its URL', error)
+      this.showMessage('This note is unavailable.')
+      await this.removeNoteFromUrl()
+    }
   }
 
   private suppressScrollPagination(durationMs = 1200) {
@@ -2711,6 +2817,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
           const currentUrl = url.urlAfterRedirects || url.url
           this.syncCurrentPage(currentUrl)
           this.Shared.clearNoteSelection()
+          void this.syncNoteNavigation().catch(console.error)
         }
         else if (url instanceof ActivationEnd && url.snapshot.params['name']) {
           if (url.snapshot.routeConfig?.path === 'binder/:name') this.currentPage.binder = url.snapshot.params['name']
@@ -2722,6 +2829,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   ngAfterViewInit() {
+    this.noteNavigationReady = true
+    void this.syncNoteNavigation().catch(console.error)
     if ('ResizeObserver' in window) {
       this.noteCardResizeObserver = new ResizeObserver(entries => {
         if (!entries.some(entry => entry.contentRect.height > 0)) return
@@ -2883,6 +2992,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true
     window.removeEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
     this.unregisterPullToRefresh()
     this.widgetAppUrlOpenHandle?.remove()

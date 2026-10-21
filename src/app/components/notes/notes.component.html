@@ -125,7 +125,7 @@
 <div #modalContainer class="modal-container" [class.native-phone-modal]="nativePhoneLayout">
   <div #modal class="modal">
     @if (modalContainer.style.display == 'block') {
-      <app-input [noteToEdit]="clickedNoteData" [isEditing]="true" [autoOpenImagePicker]="openImagePickerOnModal">
+      <app-input #noteEditor [noteToEdit]="clickedNoteData" [isEditing]="true" [autoOpenImagePicker]="openImagePickerOnModal">
       </app-input>
     }
   </div>

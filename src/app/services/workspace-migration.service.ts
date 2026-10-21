@@ -8,6 +8,7 @@ import { RESOURCE_STORES, ResourceType, Workspace } from '../interfaces/workspac
 import { NativeWorkspaceService } from './native-workspace.service';
 import { OfflineStoreService } from './offline-store.service';
 import { WorkspaceService } from './workspace.service';
+import { canonicalJson } from '../../../shared/canonical-json';
 
 type Connection = {connectionId: string; url: string; accountId: number; token: string; headers?: Record<string,string>};
 @Injectable({providedIn: 'root'})
@@ -46,6 +47,7 @@ export class WorkspaceMigrationService {
       const connection = await this.native.plugin.prepareServerConnection();
       const capability = await this.request(connection,'/capabilities');
       if (capability.version !== 1 || capability.syncProtocol !== 2) throw new Error('Update your Kept server before moving device notes.');
+      if (capability.recordChecksum !== 'canonical-json-v1') throw new Error('Update your Kept server before moving device notes. This server needs the migration checksum fix.');
       const job = await this.request(connection,'','POST',{sourceId:source.id,generation:source.generation});
       await this.store.patchWorkspace(source.id,{migration:{importId:job.id,server:connection.url,state:'uploading'}});
       if (job.state !== 'complete') {
@@ -108,7 +110,7 @@ export class WorkspaceMigrationService {
         key = `record:${type}:${row.record.syncId}`;
         payload = {type,value:row.record.value};
         if (type === 'attachment') attachments.set(row.record.syncId,row.record.value);
-        digest = bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(payload))));
+        digest = bytesToHex(sha256(new TextEncoder().encode(canonicalJson(payload))));
       } else {
         const blob: Blob = row.record.value;
         key=`blob:${row.record.blobKey}`;
@@ -121,7 +123,7 @@ export class WorkspaceMigrationService {
       }
       manifest.push({key,digest});
       if (kind === 'record') {
-        if (saved.get(key)?.digest !== digest) await this.request(connection,`/${jobId}/items`,'PUT',{key,kind,digest,payload});
+        if (saved.get(key)?.digest !== digest) await this.request(connection,`/${jobId}/items`,'PUT',{key,kind,digest,payload,digestFormat:'canonical-json-v1'});
       } else {
         const blob: Blob=row.record.value;
         let offset=saved.get(key)?.digest === digest ? saved.get(key).offset || 0 : 0;
@@ -138,8 +140,8 @@ export class WorkspaceMigrationService {
     }
     const key = 'record:preferences:account-preferences';
     const payload = {type:'preferences',value:{syncId:'account-preferences',...snapshot.preferences}};
-    const digest = bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(payload))));
-    if (saved.get(key)?.digest !== digest) await this.request(connection,`/${jobId}/items`,'PUT',{key,kind:'record',payload,digest});
+    const digest = bytesToHex(sha256(new TextEncoder().encode(canonicalJson(payload))));
+    if (saved.get(key)?.digest !== digest) await this.request(connection,`/${jobId}/items`,'PUT',{key,kind:'record',payload,digest,digestFormat:'canonical-json-v1'});
     manifest.push({key,digest});
     return manifest;
   }

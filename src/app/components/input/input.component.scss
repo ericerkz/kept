@@ -1229,6 +1229,23 @@
   @include mobile-compose-layout;
 }
 
+// Fullscreen editors also run at unfolded widths, beyond the phone media query.
+// Their menus are siblings of the editor surface and must sit above it.
+:host(.mobile-active) [data-tooltip="true"][data-is-tooltip-open="true"] {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: translate(-50%, -50%) !important;
+  width: 90% !important;
+  max-width: 320px !important;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 2100 !important;
+}
+
 @media (min-width: 661px) {
   :host(.native-phone-layout) .mobile-compose-mode {
     .note-main > .note-container,

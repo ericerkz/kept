@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { canonicalJson } = require('../shared/canonical-json');
 
 // Imports are private to their authenticated owner. No live notes are changed
 // until a sealed, verified job is committed in one SQLite transaction.
@@ -36,7 +37,7 @@ function createWorkspaceImport(d) {
   }
   function mount(app, requireAuth, asyncRoute) {
     const route = fn => asyncRoute(async (req,res) => { try { await fn(req,res); } catch (error) { if (error.status) return res.status(error.status).json({error:error.message}); throw error; } });
-    app.get('/api/workspace-import/capabilities',requireAuth,route(async (_req,res) => res.json({version:1,syncProtocol:2,chunkBytes:262144})));
+    app.get('/api/workspace-import/capabilities',requireAuth,route(async (_req,res) => res.json({version:1,syncProtocol:2,chunkBytes:262144,recordChecksum:'canonical-json-v1'})));
     app.post('/api/workspace-import',requireAuth,route(async (req,res) => {
       const { sourceId,generation } = req.body || {};
       if (![sourceId,generation].every(value => typeof value === 'string' && /^[a-zA-Z0-9._:-]{1,160}$/.test(value))) throw fail('Invalid source workspace.');
@@ -53,11 +54,12 @@ function createWorkspaceImport(d) {
       await transaction(async () => {
         const value = await job(req.user.id,req.params.id);
         if (value.state !== 'uploading') throw fail('This transfer is sealed.',409);
-        const { key,kind,digest,payload,offset,base64 } = req.body || {};
+        const { key,kind,digest,payload,offset,base64,digestFormat } = req.body || {};
         if (typeof key !== 'string' || key.length > 2048 || !/^[a-f0-9]{64}$/.test(digest || '') || !['record','blob'].includes(kind)) throw fail('Invalid transfer item.');
         if (kind === 'record') {
           if (!payload || !['note','reminder','attachment','label','binder','savedPlace','preferences'].includes(payload.type) || typeof payload.value?.syncId !== 'string' || !payload.value.syncId || payload.value.syncId.length > 160 || (payload.type !== 'preferences' && (!Number.isSafeInteger(payload.value.id) || payload.value.id <= 0))) throw fail('Invalid transfer record.');
-          if (hash(JSON.stringify(payload)) !== digest) throw fail('Record checksum failed.');
+          if (digestFormat !== undefined && digestFormat !== 'canonical-json-v1') throw fail('Unsupported record checksum format.');
+          if (hash(digestFormat === 'canonical-json-v1' ? canonicalJson(payload) : JSON.stringify(payload)) !== digest) throw fail('Record checksum failed.');
           await run('INSERT OR REPLACE INTO workspace_import_items(jobId,key,kind,digest,payload) VALUES(?,?,?,?,?)', [value.id,key,kind,digest,JSON.stringify(payload)]);
           return res.json({saved:true});
         }

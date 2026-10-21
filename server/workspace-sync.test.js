@@ -54,7 +54,12 @@ test('protocol v2 catalog replay, ownership, tombstones, v1 compatibility and re
   async function record(type,value){const key=`record:${type}:${value.syncId}`,payload={type,value},digest=hash(JSON.stringify(payload));await request(`/workspace-import/${job.id}/items`,{key,kind:'record',payload,digest},'PUT');manifest.push({key,digest});}
   await record('label',{id:1,syncId:'source-label',name:'Personal'});
   await record('binder',{id:2,syncId:'source-binder',name:'Empty imported binder'});
-  await record('note',{id:before[0].id,syncId:'source-note',noteTitle:'Imported <script>alert(1)</script>',noteBody:'<p>Local</p><script>alert(1)</script>',binder:'Empty imported binder',checkBoxes:[{id:55,data:'item',done:false,indentLevel:2}],isCbox:true,labels:[{id:1,syncId:'source-label',name:'Personal',added:true}],locked:true,lockSalt:'salt',lockHash:'hash'});
+  const imageSource='/__kept_local_media/migration-photo';
+  const imageBytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/C8kAAAAASUVORK5CYII=','base64');
+  await record('note',{id:before[0].id,syncId:'source-note',noteTitle:'Imported <script>alert(1)</script>',noteBody:`<p>Local</p><img src="${imageSource}" alt="Photo"><script>alert(1)</script>`,images:[{id:'photo',dataUrl:imageSource,name:'photo.png',placement:'top'}],binder:'Empty imported binder',checkBoxes:[{id:55,data:'item',done:false,indentLevel:2}],isCbox:true,labels:[{id:1,syncId:'source-label',name:'Personal',added:true}],locked:true,lockSalt:'salt',lockHash:'hash'});
+  const imageKey=`blob:media:${imageSource}`,imageDigest=hash(imageBytes);
+  await request(`/workspace-import/${job.id}/items`,{key:imageKey,kind:'blob',digest:imageDigest,payload:{blobKey:`media:${imageSource}`,size:imageBytes.length,mimeType:'image/png',name:'photo.png'},offset:0,base64:imageBytes.toString('base64')},'PUT');
+  manifest.push({key:imageKey,digest:imageDigest});
   await record('reminder',{id:3,syncId:'source-reminder',noteId:before[0].id,dueAtUtc:'2030-01-01T12:00:00Z',timezone:'UTC',title:'Reminder',status:'pending'});
   const bytes=Buffer.from('Portable attachment');const key='blob:attachment:source-file',payload={blobKey:'attachment:source-file',size:bytes.length,mimeType:'text/plain',name:'file.txt'},digest=hash(bytes);
   const chunk={key,kind:'blob',payload,digest,offset:0,base64:bytes.subarray(0,8).toString('base64')};
@@ -71,6 +76,24 @@ test('protocol v2 catalog replay, ownership, tombstones, v1 compatibility and re
   const imported=await request(`/notes/${result.mappings.notes[before[0].id].id}`);
   assert.equal(imported.checkBoxes[0].indentLevel,2);assert.equal(imported.locked,true);assert.equal(imported.labels[0].id,result.mappings.labels[1].id);
   assert.equal(imported.noteBody.includes('<script'),false);assert.equal(imported.attachments.length,1);
+  const imageUrl=imported.images[0].dataUrl;
+  assert.match(imageUrl,/^\/api\/uploads\/images\/import-[a-f0-9]{64}\.png$/);
+  assert.equal(imported.noteBody.includes(imageUrl),true);assert.equal(imported.noteBody.includes(imageSource),false);
+  const image=await fetch(fixture.origin+imageUrl,{headers:{Authorization:`Bearer ${token}`}});
+  assert.equal(image.status,200,'a verified import must expose its image through the authenticated image endpoint');
+  assert.equal(image.headers.get('content-type'),'image/png');
+  assert.deepEqual(Buffer.from(await image.arrayBuffer()),imageBytes);
+  assert.equal((await fetch(fixture.origin+imageUrl)).status,401);
+  assert.equal((await fetch(fixture.origin+imageUrl,{headers:{Authorization:`Bearer ${otherToken}`}})).status,404);
+  assert.equal((await fixture.sql('SELECT noteId FROM note_images WHERE storedFilename = ?',[imageUrl.split('/').at(-1)]))[0].noteId,imported.id);
+  await request(`/notes/${imported.id}/collaborators`,{userIds:[other.id]},'PUT');
+  assert.equal((await fetch(fixture.origin+imageUrl,{headers:{Authorization:`Bearer ${otherToken}`}})).status,200);
+  // Earlier imports left the image unlinked because the filename was rejected.
+  await fixture.sql('UPDATE note_images SET noteId = NULL WHERE storedFilename = ?',[imageUrl.split('/').at(-1)]);
+  assert.equal((await fetch(fixture.origin+imageUrl,{headers:{Authorization:`Bearer ${token}`}})).status,200,'existing imported files are readable without re-importing');
+  for (const filename of [`import-${'a'.repeat(63)}.png`,`import-${'g'.repeat(64)}.png`,`import-${'a'.repeat(64)}.svg`]) {
+    assert.equal((await fetch(fixture.origin+`/api/uploads/images/${filename}`,{headers:{Authorization:`Bearer ${token}`}})).status,400);
+  }
   const file=await fetch(fixture.origin+`/api/attachments/${imported.attachments[0].id}`,{headers:{Authorization:`Bearer ${token}`}});
   assert.equal(file.status,200);assert.equal(await file.text(),bytes.toString());
   assert.equal(other.id>0,true);

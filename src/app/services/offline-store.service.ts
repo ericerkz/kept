@@ -586,6 +586,10 @@ export class OfflineStoreService {
         const store = tx.objectStore(RESOURCE_STORES[resource]);
         const key = this.resourceKey(partition, syncId);
         const previous = await this.request<StoredResource<any> | undefined>(store.get(key));
+        if (type === 'note.upsert' && !previous && payload['sortOrder'] == null) {
+          const notes = await this.request<StoredResource<NoteI>[]>(store.index('partition').getAll(partition));
+          payload['sortOrder'] = notes.reduce((highest, note) => Math.max(highest, Number(note.value.sortOrder) || 0), stamp.physicalMs) + 1;
+        }
         if (action && previous) {
           if (action.kind === 'checklist.set') {
             const box = previous.value.checkBoxes?.find((box:any)=>box.id === action.payload['checkboxId']);
@@ -810,7 +814,10 @@ export class OfflineStoreService {
       const labels = await this.request<StoredResource<any>[]>(tx.objectStore('labels').index('partition').getAll(partition));
       for (const row of notes) {
         row.value.attachments = attachmentRows.filter(item => item.value.noteId === row.value.id || item.value.noteSyncId === row.syncId).map(item => ({...item.value,noteId:row.value.id}));
-        row.value.labels = (row.value.labels || []).map((label:any) => labels.find(item => item.syncId === label.syncId)?.value || label);
+        row.value.labels = (row.value.labels || []).map((label:any) => {
+          const catalog = labels.find(item => item.syncId === label.syncId);
+          return catalog ? { ...label, ...catalog.value, added: label.added } : label;
+        });
         tx.objectStore('notes').put(row);
       }
       for (const op of pending.filter(op => op.type === 'note.reorder')) {
