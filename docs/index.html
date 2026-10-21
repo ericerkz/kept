@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kept - Modern Self-Hosted Notes</title>
+  <title>Kept - Offline Mobile and Self-Hosted Notes</title>
+  <meta name="description" content="Use Kept offline on iOS and Android without a server, or self-host for web access, sharing, and sync across devices.">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -67,8 +68,8 @@
         
         <div class="hero">
           <img src="assets/images/keep2x.png" alt="Kept logo">
-          <h1>Your self-hosted sticky notes</h1>
-          <p>Get the speed, simplicity, and visual ease of your favorite note-taking apps—while keeping full control of your own data.</p>
+          <h1>Your notes, on your device or your server</h1>
+          <p>Keep the speed, simplicity, and colorful notes you love. Use Kept offline on iOS and Android without a server, or connect to your own server for web access, sharing, and sync across devices.</p>
           <div class="hero-actions">
             <a href="#quick-start" class="btn btn-primary">Get Started</a>
             <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer" class="app-store-badge app-store-badge--compact" aria-label="Download Kept Notes on the App Store">
@@ -120,13 +121,18 @@
             </div>
 
             <div class="feature-box">
-              <h3>🍎 Native iOS Companion</h3>
-              <p><a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer">Kept Notes on the App Store</a> connects to your self-hosted server and adds native Apple Reminders integration, quick share, and Apple Intelligence-powered Smart Capture for local, private AI-assisted note creation and modification.</p>
+              <h3>📴 Offline Mobile Notes</h3>
+              <p>Use device-only notes on iOS and Android or connect to a server for syncing across devices. The choice is yours. Connected apps also save edits offline and sync when the server is reachable again. <a href="#offline-mobile">Learn about offline mode</a>.</p>
+            </div>
+
+            <div class="feature-box">
+              <h3>🍎 Native iOS App</h3>
+              <p><a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer">Kept Notes on the App Store</a> works on your device or with your self-hosted server, with native Apple Reminders integration, quick share, and Apple Intelligence-powered Smart Capture on supported devices.</p>
             </div>
 
             <div class="feature-box">
               <h3>🤖 Native Android App</h3>
-              <p><a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer">Kept Notes on Google Play</a> connects to your self-hosted server and adds native Android location reminders, saved places, quick share, home screen widgets, and on-device Smart Capture support.</p>
+              <p><a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer">Kept Notes on Google Play</a> works on your device or with your self-hosted server, with native reminders, saved places, quick share, home screen widgets, and on-device Smart Capture on supported devices.</p>
             </div>
 
             <div class="feature-box">
@@ -146,7 +152,7 @@
 
             <div class="feature-box">
               <h3>💾 Backups Without Drama</h3>
-              <p>Schedule automatic daily, weekly, or monthly backups, or make one on demand before you poke at the server and pretend that was always the plan.</p>
+              <p>Save and restore a complete device library from the native apps. On a server, schedule daily, weekly, or monthly backups, or create one on demand.</p>
             </div>
 
             <div class="feature-box">
@@ -174,7 +180,9 @@
 
         <section id="quick-start">
           <h2>🚀 How to Install</h2>
-          <p>The easiest and most reliable way to run Kept is using the published Docker image, <code>ghcr.io/ericerkz/kept:latest</code>. It keeps everything self-contained and takes just a few minutes.</p>
+          <p>Just want notes on your phone or tablet? Install a <a href="#pwa-mobile">native iOS or Android app</a> and choose <strong>Use on this device</strong>. You do not need to set up a server.</p>
+          <h3>Set up a Kept server</h3>
+          <p>For web access, sharing, and access across devices, run your own Kept server using the published Docker image, <code>ghcr.io/ericerkz/kept:latest</code>.</p>
           
           <pre><code>git clone https://github.com/ericerkz/kept.git
 cd kept
@@ -316,11 +324,16 @@ KEPT_OIDC_NAME=Google</code></pre>
 
         <section id="pwa-mobile">
           <h2>Install on iOS and Android</h2>
-          <p>Kept can be installed from the browser as a Progressive Web App. Once it is running from a real HTTPS address, reminder push notifications work on desktop browsers, Android, and iOS home-screen installs. Location-based reminders require the native iOS or Android app.</p>
+          <p>Choose a native app to use Kept on your device or connect to your own server. You can also install the server's web app as a Progressive Web App.</p>
+
+          <h3 id="offline-mobile">Use Kept locally without a server</h3>
+          <p>With the 1.9 native iOS and Android apps, choose <strong>Use on this device</strong> on the welcome screen to start without a server or Kept account. Create and organize notes, checklists, images, drawings, attachments, labels, and reminders on the device.</p>
+          <p>Sharing, collaboration, web access, access across devices, and server integrations still require a Kept server. If you want those later, choose <strong>Settings → Notes on this device → Move my notes to a server</strong>. This seamlessly transfers your entire local library to your Kept server, including images and attachments.</p>
+          <p>Device-only libraries can be saved with <strong>Save a complete backup</strong> and restored on an iOS or Android device with <strong>Restore a backup</strong>. Keep a backup outside the app: deleting the app or losing the device can mean losing its local notes.</p>
 
           <div class="app-store-callout">
             <h3>Native iPhone and iPad app</h3>
-            <p><a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer">Kept Notes is available on the App Store</a> as a companion app for your self-hosted Kept server. It adds native Apple Reminders integration, quick share from other apps, and Apple Intelligence-powered Smart Capture, so you can create, update, share, label, archive, and trash notes from natural language while keeping AI processing local and private on supported devices.</p>
+            <p><a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer">Kept Notes is available on the App Store</a> for iPhone and iPad. Use device-only mode or connect to your self-hosted server. The app includes native Apple Reminders integration, quick share from other apps, and Apple Intelligence-powered Smart Capture for private, on-device note creation and updates on supported devices.</p>
             <p>The app has a nominal one-time cost. That helps cover the charge required to distribute Kept through the App Store.</p>
             <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer" class="app-store-badge" aria-label="Download Kept Notes on the App Store">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.05 12.4c-.03-3.05 2.49-4.52 2.6-4.59-1.42-2.08-3.63-2.36-4.41-2.39-1.88-.19-3.67 1.1-4.62 1.1-.96 0-2.44-1.07-4.01-1.04-2.06.03-3.96 1.2-5.02 3.04-2.14 3.72-.55 9.23 1.54 12.24 1.02 1.48 2.24 3.15 3.84 3.09 1.54-.06 2.12-.99 3.98-.99s2.38.99 4.01.96c1.65-.03 2.7-1.51 3.71-3 1.17-1.71 1.65-3.37 1.68-3.45-.04-.02-3.26-1.25-3.3-4.97ZM14.01 3.44c.85-1.03 1.42-2.46 1.26-3.88-1.22.05-2.7.81-3.58 1.84-.78.91-1.47 2.37-1.28 3.76 1.36.1 2.75-.69 3.6-1.72Z"/></svg>
@@ -330,19 +343,20 @@ KEPT_OIDC_NAME=Google</code></pre>
 
           <div class="app-store-callout">
             <h3>Native Android app</h3>
-            <p><a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer">Kept Notes is available on Google Play</a> as a companion app for your self-hosted Kept server. It adds native Android location reminders with arrival/departure triggers, saved places, quick share from other apps, home screen widgets for recent notes, pinned notes, filtered labels/binders, quick note creation, and a single selected note, plus on-device Smart Capture on supported devices.</p>
+            <p><a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer">Kept Notes is available on Google Play</a> with device-only mode and optional self-hosted server access. It includes native time and location reminders, saved places, quick share from other apps, home screen widgets for browsing and capturing notes, and on-device Smart Capture on supported devices.</p>
             <a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer" class="app-store-badge" aria-label="Get Kept Notes on Google Play">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3.6 1.62c-.37.2-.6.58-.6 1.07v18.62c0 .49.23.87.6 1.07l10.56-10.38L3.6 1.62Zm12.01 8.95 2.68-2.63L5.55.52l10.06 10.05Zm0 2.86L5.55 23.48l12.74-7.42-2.68-2.63Zm1.43-1.43 3.38 3.32c.78-.43.78-1.53 0-1.96l-3.38-1.36Zm0 0 3.38-1.36c.78-.43.78-1.53 0-1.96l-3.38 3.32Z"/></svg>
               <span><small>Get it on</small>Google Play</span>
             </a>
           </div>
 
-          <h3>Before you install</h3>
+          <h3>PWA setup (requires a server)</h3>
+          <p>The browser-installed PWA connects to a Kept server. Device-only mode is available in the native apps. Location-based reminders also require a native app.</p>
           <ul>
             <li>Put Kept behind a public <code>https://</code> domain. Mobile push will not work from plain HTTP or a raw local network address. Need help with certificates? See the Apache or Nginx Let's Encrypt tutorials linked above in the <a href="#reverse-proxy">Reverse proxy</a> section.</li>
           </ul>
 
-          <h3>iPhone or iPad</h3>
+          <h3>Install the PWA on iPhone or iPad</h3>
           <ol>
             <li>Open your Kept URL in Safari.</li>
             <li>Tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>.</li>
@@ -351,14 +365,14 @@ KEPT_OIDC_NAME=Google</code></pre>
           </ol>
           <p>iOS only allows web push for installed home-screen web apps, so the Safari tab is just for installing.</p>
 
-          <h3>Android</h3>
+          <h3>Install the PWA on Android</h3>
           <ol>
             <li>Open your Kept URL in Chrome or another browser with PWA support.</li>
             <li>Use the browser menu and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
             <li>Open Kept from the installed app icon and allow notifications when prompted.</li>
           </ol>
 
-          <h3>If notifications do not arrive</h3>
+          <h3>If PWA notifications do not arrive</h3>
           <ul>
             <li>Check that the installed app is using your HTTPS domain.</li>
             <li>Confirm notifications are allowed in the browser or OS settings.</li>
@@ -369,22 +383,23 @@ KEPT_OIDC_NAME=Google</code></pre>
 
         <section id="backups">
           <h2>💾 Peace of mind with Backups</h2>
-          <p>We know how important your notes are, so Kept makes protecting them simple.</p>
+          <p>For device-only notes, use <strong>Settings → Notes on this device → Save a complete backup</strong>. The backup includes your notes, images, attachments, reminders, and preferences. Use <strong>Restore a backup</strong> in either native app to restore the library on a device. Optional backup reminders are in-app prompts; backups are saved when you choose to create them.</p>
+          <p>For self-hosted servers:</p>
           <ul>
             <li><strong>Automated Schedules:</strong> Set Kept to automatically back up your data daily, weekly, or monthly. You never have to think about it.</li>
             <li><strong>One-Click Restore:</strong> If you ever need to set up a new server or recover your data, you can upload your backup file during setup to restore everything instantly.</li>
           </ul>
-          <p>Your data is safely stored in a single folder (<code>./data</code>), making it extremely easy to copy, move, or sync to your personal cloud storage.</p>
+          <p>Server data is stored in a single folder (<code>./data</code>), making it easy to copy, move, or back up to your own storage.</p>
         </section>
 
         <section id="privacy">
           <h2>Privacy Policy</h2>
-          <p>Short version: Kept is self-hosted. Your notes, and all data, live on the server you choose.</p>
+          <p>Short version: your Kept library lives on your device in device-only mode, or on the server you choose in connected mode.</p>
           <ul>
-            <li><strong>What Kept stores:</strong> Your notes, uploads, reminders, account details, and settings live in your Kept instance.</li>
-            <li><strong>Location data:</strong> If you use location-based reminders or saved places, Kept may access your device location and store the places, coordinates, reminder radius, and arrive/leave preference needed to make those reminders work. This data is used only for Kept reminder features and is stored on your Kept server.</li>
-            <li><strong>Who controls it:</strong> Whoever runs the server controls that data. If that is you, it is your stuff on your machine.</li>
-            <li><strong>Third-party services:</strong> Calendar syncing only happens if you turn it on and connect Google Calendar or CalDAV yourself.</li>
+            <li><strong>What Kept stores:</strong> Device-only notes, images, attachments, reminders, and settings are stored on your device. Connected libraries and account details are stored on your Kept server, with downloaded notes also kept on your device for offline use.</li>
+            <li><strong>Location data:</strong> If you use location-based reminders or saved places, Kept may access your device location and store the places, coordinates, reminder radius, and arrive/leave preference needed to make those reminders work. These are stored with your device-only library or on your Kept server, depending on the mode you use.</li>
+            <li><strong>Who controls it:</strong> You control your device-only library. Whoever runs a connected Kept server controls the data stored there.</li>
+            <li><strong>Third-party services:</strong> Apple Reminders integration follows the Reminders account and sync settings on your device. Google Calendar and CalDAV connections are optional server features.</li>
             <li><strong>Moving your data:</strong> You can back it up, export it, delete it, or move it somewhere else.</li>
             <li><strong>This docs site:</strong> This page has no accounts, forms, cookies, ads, or analytics scripts. Your web host may still keep normal server logs.</li>
           </ul>

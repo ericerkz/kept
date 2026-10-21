@@ -5,11 +5,11 @@
 
 # Kept
 
-### Self-hosted notes with a Google Keep-style feel
+### Google Keep-style notes, on your device or your server
 
 </div>
 
-Kept is a self-hosted notes app built for quick capture: text notes, checklists, images, drawings, links, attachments, labels, colors, and reminders. It aims to keep the lightweight feel of Google Keep while storing your data on your own server.
+Kept is a notes app built for quick capture: text notes, checklists, images, drawings, links, attachments, labels, colors, and reminders. Use the native iOS or Android app entirely on your device without setting up a server, or connect to your own Kept server for web access, sharing, and access across devices.
 
 <p>
   <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473">
@@ -49,15 +49,34 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Quick share to Kept from the native iOS and Android share sheets.
 - Android home screen widgets for recent notes, pinned notes, specific labels/binders, quick note creation, and a single selected note.
 - Real-time collaborative sharing of notes between users on the same instance.
-- Offline note viewing/editing with automatic sync when the client reconnects.
+- Device-only mode in the native iOS and Android apps, with no server or account required.
+- Offline viewing/editing of downloaded notes in server mode, with automatic sync when the server is reachable again.
+- Complete device backups, restore on another mobile device, and a local-to-server transfer when you want to self-host.
 - Google Keep Takeout data import.
 - Built-in database backups and restore flow.
 - Local user accounts, optional 2FA, and user management.
 - Local and remote MCP server options for authenticated agent access without direct database access.
 - OAuth 2.1 access for scoped third-party API integrations and remote MCP clients.
 - Optional OpenID Connect (OIDC) single sign-on alongside Kept's local accounts.
+- Device-only notes on iOS and Android or Server-connected for syncing across devices - the choice is yours.
 
-## Install With Docker
+## Use Kept Locally Without a Server
+
+With the 1.9 native iOS and Android apps, you can start using Kept without Docker, a server, or a Kept account:
+
+1. Install the native app using the App Store or Google Play links above.
+2. Choose **Use on this device** on the welcome screen.
+3. Create and organize your notes offline.
+
+Device-only mode keeps your notes, checklists, images, drawings, attachments, labels, and reminders on the device. Sharing, collaboration, web access, access across devices, and server integrations still require a Kept server.
+
+In **Settings → Notes on this device**, use **Save a complete backup** to save your library, or **Restore a backup** to restore it on an iOS or Android device. Save backups somewhere outside the app: deleting the app or losing the device can mean losing its local notes.
+
+If you decide to self-host later, choose **Move my notes to a server** in the same section. This seamlessly transfers your entire local library to your Kept server, including images and attachments.
+
+
+
+## Install a Server With Docker
 
 Requirements:
 
@@ -78,7 +97,7 @@ Kept stores its database, uploads, attachments, and generated server data in `./
 
 ## Easy Hosted Setup
 
-If you do not want to set up Docker or manage a server yourself, Railway can create a ready-to-use Kept instance for you in a few clicks.
+If you want web access, sharing, or access across devices without setting up Docker or managing a server yourself, Railway can create a ready-to-use Kept instance for you in a few clicks. For mobile use on a single device, you can use device-only mode without a server instead.
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/kept-notes)
 
@@ -95,27 +114,29 @@ Railway is one convenient way to deploy Kept quickly. Kept remains self-hostable
 
 ## Native iOS App
 
-[Kept Notes is available on the App Store](https://apps.apple.com/ca/app/kept-notes/id6768974473). It connects to your self-hosted Kept server and adds native iPhone/iPad integration:
+[Kept Notes is available on the App Store](https://apps.apple.com/ca/app/kept-notes/id6768974473). Use it on your iPhone or iPad without a server, or connect to your self-hosted Kept server:
 
+- Device-only notes, complete backups and restore, and offline editing with automatic sync when connected to a server.
 - Apple Reminders support.
 - Location reminders with arrival/departure settings, and the ability to save locations
 - Quick share into Kept from the iOS share sheet.
 - On-device Smart Capture using Apple Intelligence.
-- A native app shell around your Kept instance.
+- Move device-only notes to a Kept server later.
 
 ## Native Android App
 
-[Kept Notes is available on Google Play](https://play.google.com/store/apps/details?id=xyz.keepitkept.app). It connects to your self-hosted Kept server and adds native Android integration:
+[Kept Notes is available on Google Play](https://play.google.com/store/apps/details?id=xyz.keepitkept.app). Use it without a server, or connect to your self-hosted Kept server:
 
+- Device-only notes, complete backups and restore, and offline editing with automatic sync when connected to a server.
 - Location reminders with arrival/departure settings, background geofencing, and saved places.
 - Quick share into Kept from the Android share sheet.
 - Home screen widgets for recent notes, pinned notes, filtered labels/binders, quick note creation, and a single selected note.
 - On-device Smart Capture using Android's native Gemini Nano when available, or Kept's local Gemma fallback model on Android devices that need it.
-- A native app shell around your Kept instance.
+- Move device-only notes to a Kept server later.
 
 ## PWA / Mobile Browser
 
-The Kept web app can also be installed as a PWA on iOS and Android. For push notifications and reliable mobile installs, Kept needs to be served from a secure `https://` URL. Location-based reminders require the native iOS or Android app.
+The Kept web app can also be installed as a PWA on iOS and Android. PWA use requires a Kept server; device-only mode is available in the native apps. For push notifications and reliable mobile installs, serve Kept from a secure `https://` URL. Location-based reminders require the native iOS or Android app.
 
 The short setup guide is on the [Kept website](https://www.keepitkept.xyz/#pwa-mobile).
 
@@ -215,7 +236,9 @@ The callback URL to register with your identity provider is `https://your-kept.e
 
 ## Backups And Restore
 
-Kept can create consistent SQLite backups while the app is running. Admin users can schedule daily, weekly, or monthly backups from User Management, or create one manually.
+For device-only notes, use **Settings → Notes on this device → Save a complete backup** in the native app. The backup includes notes, images, attachments, reminders, and device preferences. Use **Restore a backup** in either native app to restore that library on a device. Backup reminders are optional in-app prompts; they do not create backups automatically.
+
+For self-hosted servers, Kept can create consistent SQLite backups while the app is running. Admin users can schedule daily, weekly, or monthly backups from User Management, or create one manually.
 
 To restore from a backup during setup:
 
