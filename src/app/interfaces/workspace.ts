@@ -17,6 +17,8 @@ export interface Workspace {
   preferences: WorkspacePreferences;
   nextId: number;
   revision: number;
+  // Only freshly created libraries opt in; restored/older libraries never seed.
+  demoNotesSeeded?: boolean;
   lastBackupAt?: number;
   backupReminderDismissedAt?: number;
   backupRemindersDisabled?: boolean;

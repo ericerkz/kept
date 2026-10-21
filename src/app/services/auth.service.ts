@@ -5,6 +5,7 @@ import { Injectable, NgZone, OnDestroy } from '@angular/core';
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import { firstValueFrom, BehaviorSubject, timeout, merge, map } from 'rxjs';
 import { WorkspaceService } from './workspace.service';
+import type { KeptWorkspacePlugin } from './native-workspace.service';
 import { environment } from 'src/environments/environment';
 import { AuthSessionI, UserI, UserRole, UserTheme } from '../interfaces/users';
 
@@ -650,8 +651,9 @@ export class AuthService implements OnDestroy {
     return user;
   }
 
-  async logout() {
-    if (this.isLocal) { await this.workspace.selectServer(); return; }
+  // Returns true when a native sign-out has started a full page replacement.
+  async logout(): Promise<boolean> {
+    if (this.isLocal) { await this.workspace.selectServer(); return false; }
     if (this.currentUser) {
       try {
         await firstValueFrom(this.http.post(`${this.apiUrl}/auth/logout`, {}, { headers: this.authHeaders() }));
@@ -661,6 +663,16 @@ export class AuthService implements OnDestroy {
     }
     localStorage.removeItem(this.sessionKey);
     this.currentUser$.next(null);
+    if (!Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('KeptWorkspace')) return false;
+    try {
+      await registerPlugin<Pick<KeptWorkspacePlugin, 'forgetServer'>>('KeptWorkspace').forgetServer();
+    } catch (error) {
+      // Older native bridges retain their existing sign-in screen behavior.
+      if ((error as { code?: string })?.code === 'UNIMPLEMENTED') return false;
+      throw Object.assign(new Error('Signed out, but could not reset the server connection. Please try signing out again.'), { name: 'KeptServerResetError' });
+    }
+    window.location.replace('/');
+    return true;
   }
 
   async resetOwnPassword(currentPassword: string, newPassword: string) {

@@ -4,7 +4,7 @@ import { NotesService } from './notes.service';
 import { BehaviorSubject, Subject } from 'rxjs';
 import { LabelsService } from './labels.service';
 import { LabelI, LabelModelI } from '../interfaces/labels';
-import { bgColors, bgImages } from '../interfaces/tooltip';
+import { createDemoNotes, demoWelcomeText } from '../utils/demo-notes';
 import { AuthService } from './auth.service';
 import { ReminderService } from './reminder.service';
 import { createPopper, type Placement } from '@popperjs/core';
@@ -69,7 +69,12 @@ export class SharedService {
     this.binders.items$.subscribe(() => this.refreshBinderList());
     this.auth.accessChanges$.subscribe(async user => {
       if (this.auth.isLocal) {
-        await this.Notes.load(); await this.Labels.load(); await this.binders.load(); return;
+        try {
+          await this.auth.workspace.seedDemoNotes();
+          if (!this.auth.isLocal) return;
+          await this.Notes.load(); await this.Labels.load(); await this.binders.load();
+        } catch (error) { console.error('Could not load the device library', error); }
+        return;
       }
       if (user) {
         // If this user has never had demos seeded server-side, do that
@@ -410,135 +415,33 @@ export class SharedService {
   private async createExampleNotes() {
     if (this.creatingExamples || !this.auth.currentUser) return;
     this.creatingExamples = true;
-    // Mark server-side immediately so a re-entrant load doesn't double-seed.
-    // (We mark before creating; if the inserts fail mid-way the user can
-    // delete demos manually — never spam them with duplicates.)
+    // Mark before creating so re-entrant loads cannot seed duplicates.
     try { await this.auth.markDemoNotesCreated(); } catch {}
-
     try {
-      // 1. Link Card (Pinned!)
-      await this.Notes.add({
-        noteTitle: 'Saved Links 🔗',
-        noteBody: 'You can save links in Kept and they\'ll automatically generate a full preview for you! Check out the project here: https://github.com/ericerkz/kept',
-        bgColor: bgColors.sky,
-        pinned: true, archived: false, trashed: false, isCbox: false, labels: [],
-        isDemo: true
-      } as any);
-
-      // 2. Todo Card
-      await this.Notes.add({
-        noteTitle: 'My Cozy Day Plan (Checklist!) ☁️',
-        noteBody: 'Look! You can make sweet little checklists to keep track of your day. Just like this one! ✨',
-        isCbox: true,
-        checkBoxes: [
-          { data: 'Sip some Oat milk latte ☕', done: true, id: 1 },
-          { data: 'Watch newest season of Aggretusko 🤘', done: true, id: 2 },
-          { data: 'Migrate off Google Keep', done: false, id: 3 }
-        ],
-        bgColor: bgColors.creamsicle,
-        pinned: false, archived: false, trashed: false, labels: [],
-        isDemo: true
-      } as any);
-
-      // 3. Label Card — create the actual label record first so it shows up
-      // in the sidenav, label menu, and editor (the editor only renders
-      // labels whose name matches an entry in the user's labels list).
-      let sweetThoughtsLabelId: number | undefined;
-      try {
-        sweetThoughtsLabelId = await this.Labels.add({ name: 'Sweet Thoughts' } as LabelI);
-      } catch {
-        // Non-fatal — the note will still be created without a usable label.
-      }
-      await this.Notes.add({
-        noteTitle: 'Everything in its place! 🎀',
-        noteBody: 'Keep things tidy and sweet with labels. This one is for your most special thoughts! ✨',
-        bgColor: bgColors.lavender,
-        labels: sweetThoughtsLabelId
-          ? [{ id: sweetThoughtsLabelId, name: 'Sweet Thoughts', added: true }]
-          : [{ name: 'Sweet Thoughts', added: true }],
-        pinned: false, archived: false, trashed: false, isCbox: false,
-        isDemo: true
-      } as any);
-
-      // 4. Drawing Demo Card
-      await this.Notes.add({
-        noteTitle: 'Doodle Corner (Canvas Note!) 🖍️',
-        noteBody: 'Click the paint icon to start your first masterpiece. You can even draw lists like this one! ✨',
-        bgColor: bgColors.mint,
-        images: [{
-          id: 'drawing', // Using the reserved 'drawing' ID to trigger canvas-note behavior
-          dataUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDQwMCA0MDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPGcgc3Ryb2tlPSIjMjAyMTI0IiBzdHJva2Utd2lkdGg9IjQiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+CiAgICA8IS0tIEJyZWFkIC0tPgogICAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwgMCkiPgogICAgICA8cGF0aCBkPSJNIDUwIDYwIGMgMCAyMCAwIDQwIDUgNjAgbSAtNSAtNjAgYyAyMCAwIDMwIDUgMzAgMjAgYyAwIDEwIC0xMCAxNSAtMzAgMTUgYyAyMCAwIDM1IDUgMzUgMjUgYyAwIDE1IC0xNSAyMCAtMzUgMjAiIC8+CiAgICAgIDxwYXRoIGQ9Ik0gOTUgOTAgbCAwIDMwIG0gMCAtMjAgYyAxMCAtMTAgMjAgLTUgMjAgNSIgLz4KICAgICAgPHBhdGggZD0iTSAxMjUgMTEwIGwgMzAgMCBjIDAgLTIwIC0zMCAtMjAgLTMwIDAgYyAwIDIwIDMwIDIwIDMwIDEwIiAvPgogICAgICA8cGF0aCBkPSJNIDE2NSAxMTAgYyAwIC0yMCAzMCAtMjAgMzAgMCBsIDAgMjAgbSAwIC0yMCBjIC0zMCAwIC0zMCAyMCAwIDIwIiAvPgogICAgICA8cGF0aCBkPSJNIDIyNSA2MCBsIDAgNjAgYyAwIDE1IC0yMCAxNSAtMjAgMCBjIDAgLTE1IDIwIC0xNSAyMCAwIiAvPgogICAgICA8cGF0aCBkPSJNIDQwIDEwNSBjIDQwIC01LCAxMjAgNSwgMjAwIDAiIHN0cm9rZS13aWR0aD0iMyIgb3BhY2l0eT0iMC43IiAvPgogICAgPC9nPgogICAgPCEtLSBFZ2dzIC0tPgogICAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCwgMTAwKSI+CiAgICAgIDxwYXRoIGQ9Ik0gNTAgMTEwIGwgMzAgMCBjIDAgLTIwIC0zMCAtMjAgLTMwIDAgYyAwIDIwIDMwIDIwIDMwIDEwIiAvPgogICAgICA8cGF0aCBkPSJNIDk1IDExMCBjIDAgMTUgLTIwIDE1IC0yMCAwIGMgMCAtMTUgMjAgLTE1IDIwIDAgbCAwIDIwIGMgMCAxMCAtMjAgMTAgLTIwIDAiIC8+CiAgICAgIDxwYXRoIGQ9Ik0gMTMwIDExMCBjIDAgMTUgLTIwIDE1IC0yMCAwIGMgMCAtMTUgMjAgLTE1IDIwIDAgbCAwIDIwIGMgMCAxNSAtMzAgMTUgLTMwIDAiIC8+CiAgICAgIDxwYXRoIGQ9Ik0gMTY1IDExMCBjIDAgMTAgMzAgMTAgMzAgMjAgYyAwIDEwIC0zMCAxMCAtMzAgMjAiIC8+CiAgICAgIDxwYXRoIGQ9Ik0gNDAgMTIwIGMgNDAgNSwgMTAwIC01LCAxNjAgMyIgc3Ryb2tlLXdpZHRoPSIzIiBvcGFjaXR5PSIwLjciIC8+CiAgICA8L2c+CiAgICA8IS0tIEhlYXJ0IChSaWdodCBTaWRlLCBUaWx0ZWQgLSBGaXhlZCBQYXRoKSAtLT4KICAgIDxwYXRoIGQ9Ik0zMzQsMTAzIGMtOCwtMTYgLTMyLC0xNiAtMzIsMCBjMCwxNiAxNiwzMiAzMiw0OCBjMTYsLTE2IDMyLC0zMiAzMiwtNDggYzAsLTE2IC0yNCwtMTYgLTMyLDAiIGZpbGw9IiNmOGJiZDAiIHN0cm9rZT0iI2YwNjI5MiIgc3Ryb2tlLXdpZHRoPSIyLjUiIC8+CiAgPC9nPgo8L3N2Zz4=',
-          name: 'Handwritten List|bg:rules',
-          placement: 'top'
-        }],
-        pinned: false, archived: false, trashed: false, isCbox: false, labels: [],
-        isDemo: true
-      } as any);
-
-      // 5. Image Card
-      await this.Notes.add({
-        noteTitle: 'Our Icon (In-Situ Images!) ✨',
-        noteBody: 'This card shows how you can add beautiful images directly to your notes. <div class="inline-note-image-wrap" contenteditable="false"><img class="inline-note-image" src="/assets/images/keep2x.png" alt="logo"></div> It\'s the perfect way to save your favorite memories right in the middle of your text! 🥰',
-        bgColor: bgColors.cornflower,
-        pinned: false, archived: false, trashed: false, isCbox: false, labels: [],
-        isDemo: true
-      } as any);
-
-      // 6. Reminder Card — also showcases the per-note background-image
-      // option via the "romantic" hearts illustration.
-      const noteId = await this.Notes.add({
-        noteTitle: 'A Little Nudge... ⏰',
-        noteBody: 'Set a reminder and we\'ll handle the whole "remembering-things" stuff - with push notifications across all devices. If you have a preferred calendar for that stuff, you can set them up to sync to that, too.<br><br>Bonus: this card uses a background image — try the palette icon in the toolbar to set your own.',
-        bgColor: bgColors.flamingo,
-        bgImage: `url(${bgImages.romantic})`,
-        pinned: false, archived: false, trashed: false, isCbox: false, labels: [],
-        isDemo: true
-      } as any);
-
-      if (noteId && noteId !== -1) {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(9, 0, 0, 0);
-        await this.reminders.create({
-          noteId,
-          dueAtUtc: tomorrow.toISOString(),
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          title: 'A Little Nudge... ⏰',
-          body: 'Kept will handle the whole "remembering-things" stuff with push notifications across all devices.'
-        });
-      }
-
-      // 7. Attachment Card — demonstrates the file-attachment feature with a
-      // tiny welcome .txt file generated client-side and uploaded through
-      // the regular attachment endpoint.
-      const attachmentNoteId = await this.Notes.add({
-        noteTitle: 'Files Welcome 📎',
-        noteBody: 'Need to keep a PDF, doc, or zip alongside your notes? Drop in any file up to 25 MB with the paperclip icon. Files download with their original names — perfect for receipts, manuals, or that ZIP you keep losing track of. 📂',
-        bgColor: bgColors.peach,
-        pinned: false, archived: false, trashed: false, isCbox: false, labels: [],
-        isDemo: true
-      } as any);
-
-      if (attachmentNoteId && attachmentNoteId !== -1) {
-        const welcomeText =
-          'Welcome to Kept!\n' +
-          '================\n\n' +
-          'This little file is here to show off how attachments work.\n' +
-          'You can drop in PDFs, Office docs, ZIPs, plain text, and more —\n' +
-          'up to 25 MB each. Files keep their original names on download,\n' +
-          'so receipts, manuals, and anything else you want to keep next\n' +
-          'to a note are just a click away.\n\n' +
-          '— Kept ✨\n';
-        const file = new Blob([welcomeText], { type: 'text/plain' });
-        try {
-          await this.Notes.uploadAttachment(attachmentNoteId, file, 'welcome.txt');
-        } catch (e) {
-          console.warn('Could not attach demo welcome.txt', e);
+      let label: LabelI = { name: 'Sweet Thoughts' };
+      try { label.id = await this.Labels.add(label); } catch {}
+      for (const [index, note] of createDemoNotes(label).entries()) {
+        const noteId = await this.Notes.add(note);
+        if (!noteId || noteId === -1) continue;
+        if (index === 5) {
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          tomorrow.setHours(9, 0, 0, 0);
+          await this.reminders.create({
+            noteId, dueAtUtc: tomorrow.toISOString(),
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            title: note.noteTitle,
+            body: 'Kept will handle the whole "remembering-things" stuff with push notifications across all devices.'
+          });
+        }
+        if (index === 6) {
+          try {
+            await this.Notes.uploadAttachment(noteId, new Blob([demoWelcomeText], { type: 'text/plain' }), 'welcome.txt');
+          } catch (error) { console.warn('Could not attach demo welcome.txt', error); }
         }
       }
-
-    } catch (e) {
-      console.error('Failed to create example notes', e);
+    } catch (error) {
+      console.error('Failed to create example notes', error);
     } finally {
       this.creatingExamples = false;
     }

@@ -5,6 +5,7 @@ import { NoteAttachmentI, NoteI } from '../interfaces/notes';
 import { ReminderI } from '../interfaces/reminder';
 import type { LocationSavedPlace } from './location-saved-places.service';
 import { createUuid } from '../utils/uuid';
+import { createDemoNotes, demoWelcomeText } from '../utils/demo-notes';
 import { CatalogItem, MutationOutcome, NativeAction, ResourceChange, ResourceType, RESOURCE_STORES, Workspace } from '../interfaces/workspace';
 
 export type SyncResourceType = ResourceType;
@@ -369,6 +370,44 @@ export class OfflineStoreService {
       const value = { ...previous, ...(typeof patch === 'function' ? patch(previous) : patch), id: previous.id, partition: previous.partition, updatedAt: new Date().toISOString() };
       store.put(value);
       return value;
+    });
+  }
+
+  /** Seed a new device library and its marker together, including sample media. */
+  async seedLocalDemoNotes(workspace: Workspace) {
+    return this.atomic(['workspaces', 'notes', 'labels', 'attachments', 'blobs'], async tx => {
+      const metadata = tx.objectStore('workspaces');
+      const current = await this.request<Workspace | undefined>(metadata.get(workspace.id));
+      if (!current || current.mode !== 'local' || current.status !== 'active' ||
+          current.generation !== workspace.generation || current.demoNotesSeeded !== false) return;
+      const notes = tx.objectStore('notes');
+      const existing = await this.request<number>(notes.index('partition').count(current.partition));
+      const now = new Date().toISOString();
+      // Never add starter content to an existing, restored or imported library.
+      if (current.revision === 0 && existing === 0) {
+        const label = { id: current.nextId++, syncId: `label-${createUuid()}`, name: 'Sweet Thoughts', updatedAt: now };
+        tx.objectStore('labels').put({ key: this.resourceKey(current.partition, label.syncId), partition: current.partition, syncId: label.syncId, value: label });
+        const demos = createDemoNotes(label);
+        for (const [index, demo] of demos.entries()) {
+          const syncId = `note-${createUuid()}`;
+          const value = { ...demo, id: current.nextId++, syncId, createdAt: now, updatedAt: now, sortOrder: Date.now() + index };
+          notes.put({ key: this.resourceKey(current.partition, syncId), partition: current.partition, syncId, value });
+          if (index === demos.length - 1) {
+            const attachmentSyncId = `attachment-${createUuid()}`;
+            const file = new Blob([demoWelcomeText], { type: 'text/plain' });
+            const attachment = { id: current.nextId++, syncId: attachmentSyncId, noteId: value.id,
+              noteSyncId: syncId, originalName: 'welcome.txt', fileSize: file.size, mimeType: file.type, uploadedAt: now };
+            tx.objectStore('attachments').put({ key: this.resourceKey(current.partition, attachmentSyncId), partition: current.partition, syncId: attachmentSyncId, value: attachment });
+            tx.objectStore('blobs').put({ key: `${current.partition}|attachment:${attachmentSyncId}`, partition: current.partition, blobKey: `attachment:${attachmentSyncId}`, value: file });
+          }
+        }
+        // The reminder demo stays instructional: setup must not request permission.
+        current.revision++;
+      }
+      current.demoNotesSeeded = true;
+      current.updatedAt = now;
+      metadata.put(current);
+      return current;
     });
   }
 

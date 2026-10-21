@@ -84,3 +84,69 @@ test('an additive schema upgrade preserves an existing outbox, cursor and blob',
  assert.equal(await(await store.getBlob('server','file')).text(),'original');
  assert.equal((await store.open()).version,3);
 });
+
+test('fresh local libraries seed once, preserve sample files and can trash all demos together',async()=>{
+ const {IDBFactory}=require('fake-indexeddb');const database=new IDBFactory();
+ const store=createStore(database),workspace={...local(),demoNotesSeeded:false};await store.saveWorkspace(workspace);
+ await Promise.all([store.seedLocalDemoNotes(workspace),store.seedLocalDemoNotes(workspace)]);
+ const demos=await store.listNotes(workspace.partition);
+ assert.equal(demos.length,7);assert.equal(demos.every(note=>note.isDemo),true);
+ assert.equal((await store.getWorkspace(workspace.id)).demoNotesSeeded,true);
+ const [label]=await store.listResources('label',workspace.partition);
+ assert.equal(demos.find(note=>note.labels.length).labels[0].syncId,label.syncId);
+ const [attachment]=await store.listResources('attachment',workspace.partition);
+ assert.equal(attachment.originalName,'welcome.txt');
+ assert.match(await(await store.getBlob(workspace.partition,`attachment:${attachment.syncId}`)).text(),/Welcome to Kept!/);
+ assert.ok(demos.some(note=>note.images.some(image=>image.id==='drawing')));
+ assert.equal((await store.listReminders(workspace.partition)).length,0,'setup does not schedule an alarm or request reminder permission');
+ assert.equal((await store.listOutbox(workspace.partition)).length,0);
+ const personal=await store.commitMutation(workspace,'note.upsert','personal',{noteTitle:'Keep my own note',pinned:false,labels:[]});
+ // Exercise the same SharedService trash action used by the editor/menu.
+ const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript');
+ const {BehaviorSubject,Subject}=require('rxjs');
+ const exports={};let prompted=0;
+ const source=ts.transpileModule(fs.readFileSync('src/app/services/shared.service.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText;
+ vm.runInNewContext(source,{exports,console,localStorage:{getItem:()=>null},confirm:()=>{prompted++;return true;},Snackbar:{show:()=>{}},require(name){
+  if(name==='@angular/core')return{Injectable:()=>target=>target};
+  if(name==='rxjs')return{BehaviorSubject,Subject};
+  if(name==='@popperjs/core')return{};
+  if(name.endsWith('/environment'))return{environment:{apiUrl:'/api'}};
+  if(name.endsWith('/demo-notes'))return{};
+  throw Error(`Unexpected shared-service dependency: ${name}`);
+ }});
+ const notes={notesList$:new BehaviorSubject(await store.listNotes(workspace.partition)),updateKey:async(patch,id)=>{
+  const note=(await store.listNotes(workspace.partition)).find(item=>item.id===id);
+  await store.commitMutation(workspace,'note.upsert',note.syncId,{...note,...patch});
+  notes.notesList$.next((await store.listNotes(workspace.partition)).filter(item=>!item.trashed));
+ }};
+ const shared=new exports.SharedService(notes,{labelsList$:new BehaviorSubject([])},{isLocal:true,workspace:{local:workspace},accessChanges$:new Subject()}, {},{run:fn=>fn()}, {items$:new BehaviorSubject([]),sync:{writesLocally:true}});
+ shared.note.id=demos[0].id;await shared.note.db.trash();
+ assert.equal(prompted,1);
+ const after=await store.listNotes(workspace.partition);
+ assert.equal(after.filter(note=>note.isDemo&&note.trashed).length,7);
+ assert.equal(after.find(note=>note.id===personal.id).trashed,undefined);
+ await createStore(database).seedLocalDemoNotes(workspace);
+ assert.equal((await store.listNotes(workspace.partition)).length,8,'reopening or trashing demos never reseeds');
+});
+
+test('interrupted demo seeding rolls back notes, files and marker together',async()=>{
+ const store=createStore(),workspace={...local(),demoNotesSeeded:false};await store.saveWorkspace(workspace);
+ const db=await store.open(),original=db.transaction.bind(db);
+ db.transaction=(...args)=>{const tx=original(...args);if(args[1]==='readwrite')queueMicrotask(()=>tx.abort());return tx;};
+ await assert.rejects(store.seedLocalDemoNotes(workspace));db.transaction=original;
+ assert.equal((await store.getWorkspace(workspace.id)).demoNotesSeeded,false);
+ assert.equal((await store.listNotes(workspace.partition)).length,0);
+ assert.equal((await store.listResources('label',workspace.partition)).length,0);
+ assert.equal((await store.listResources('attachment',workspace.partition)).length,0);
+ await store.seedLocalDemoNotes(workspace);assert.equal((await store.listNotes(workspace.partition)).length,7);
+});
+
+test('restored, staged, imported, existing and obsolete workspaces never receive demos',async()=>{
+ for(const patch of [{demoNotesSeeded:true},{status:'staging',demoNotesSeeded:true},{demoNotesSeeded:undefined},{mode:'server',demoNotesSeeded:false},{revision:1,demoNotesSeeded:false}]){
+  const store=createStore(),workspace={...local(),...patch};await store.saveWorkspace(workspace);
+  await store.seedLocalDemoNotes(workspace);assert.equal((await store.listNotes(workspace.partition)).length,0);
+ }
+ const store=createStore(),workspace={...local(),demoNotesSeeded:false};await store.saveWorkspace(workspace);
+ await store.seedLocalDemoNotes({...workspace,generation:'old'});
+ assert.equal((await store.listNotes(workspace.partition)).length,0);
+});

@@ -41,6 +41,7 @@ export class WorkspaceService {
     const workspace: Workspace = {
       id, partition: `local:${id}`, mode: 'local', generation: createUuid(), status,
       createdAt: now, updatedAt: now, nextId: 1, revision: 0,
+      demoNotesSeeded: status !== 'active',
       preferences: { theme: 'light', followSystemTheme: true, showPastReminders: false }
     };
     await this.store.saveWorkspace(workspace);
@@ -54,6 +55,15 @@ export class WorkspaceService {
     localStorage.setItem(this.selectionKey, workspace.id);
     this.local$.next(workspace);
     window.dispatchEvent(new CustomEvent('kept-workspace-changed', { detail: { id: workspace.id, generation: workspace.generation } }));
+  }
+
+  async seedDemoNotes() {
+    await this.ready;
+    const workspace = this.local;
+    if (!workspace || workspace.demoNotesSeeded !== false) return;
+    const seeded = await this.store.seedLocalDemoNotes(workspace);
+    if (seeded && this.local?.id === workspace.id && this.local.generation === workspace.generation &&
+        this.local.demoNotesSeeded !== seeded.demoNotesSeeded) this.local$.next(seeded);
   }
 
   async refresh() {

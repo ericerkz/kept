@@ -351,9 +351,10 @@ export class NavbarComponent implements OnInit {
 
   async logout() {
     try {
-      await this.auth.logout()
-    } catch {
-      ;(window as any).Snackbar?.show({ text: 'Connect to the server to sign out.', duration: 4000 })
+      if (await this.auth.logout()) return
+    } catch (error) {
+      const text = error instanceof Error && error.name === 'KeptServerResetError' ? error.message : 'Connect to the server to sign out.'
+      ;(window as any).Snackbar?.show({ text, duration: 4000 })
       return
     }
     this.router.navigateByUrl('/login')

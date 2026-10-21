@@ -12,6 +12,7 @@
     "test:uuid": "node --test src/app/utils/uuid.test.ts",
     "test:uuid:http": "node scripts/uuid-http-test.mjs",
     "test:native": "node server/native-client.test.js",
+    "test:native-signout": "node --test scripts/native-signout.test.cjs",
     "test:reminders": "node --test server/reminder-recurrence.test.js",
     "mcp": "node mcp/index.mjs",
     "test:mcp": "node --test mcp/*.test.mjs",

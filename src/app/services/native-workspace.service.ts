@@ -17,6 +17,7 @@ export interface KeptWorkspacePlugin {
   getCapabilities(): Promise<NativeCapabilities>;
   activateWorkspace(input: {workspace: Workspace; activation: number}): Promise<void>;
   chooseServer(): Promise<void>;
+  forgetServer(): Promise<void>;
   prepareServerConnection(): Promise<{ connectionId: string; url: string; accountId: number; token: string; headers?: Record<string,string> }>;
   activateServer(input: { connectionId: string; sourceWorkspaceId: string; sourceGeneration: string }): Promise<void>;
   listActions(input: { limit: number; workspaceId: string }): Promise<{ actions: NativeAction[] }>;
