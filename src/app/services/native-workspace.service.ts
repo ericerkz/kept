@@ -23,6 +23,7 @@ export interface KeptWorkspacePlugin {
   listActions(input: { limit: number; workspaceId: string }): Promise<{ actions: NativeAction[] }>;
   acknowledgeActions(input: { actionIds: string[] }): Promise<void>;
   quarantineActions(input: { actionIds: string[]; reason: string }): Promise<void>;
+  // Benign native rejections use code STALE_SNAPSHOT or INACTIVE_WORKSPACE.
   publishSnapshot(input: { workspace: Workspace; revision: number; page: number; complete: boolean; notes: unknown[] }): Promise<void>;
   syncReminders(input: { workspace: Workspace; reminders: unknown[]; projectionRevision: number }): Promise<{ exact?: boolean; skipped?: Array<{ id: string; reason: string }> }>;
   cancelReminders(input: { workspaceId: string; generation: string; reminderSyncIds?: string[]; dismissOnly?: boolean }): Promise<void>;
@@ -43,6 +44,7 @@ export class NativeWorkspaceService {
   private activation = 0;
   private activationIdentity = '';
   readonly error$ = new BehaviorSubject('');
+  readonly locationPermissionRequired$ = new BehaviorSubject(false);
   readonly ready: Promise<void>;
   private tail = Promise.resolve();
   private revisionPublished = '';
@@ -58,7 +60,7 @@ export class NativeWorkspaceService {
       const app = registerPlugin<{ addListener(name: string, callback: () => void): Promise<unknown> }>('App');
       void app.addListener('resume', () => void this.flush().catch(error => this.report(error))).catch(() => undefined);
     }
-    this.auth.accessChanges$.subscribe(() => { this.revisionPublished = ''; void this.flush().catch(error => this.report(error)); });
+    this.auth.accessChanges$.subscribe(() => { this.revisionPublished = ''; this.locationPermissionRequired$.next(false); void this.flush().catch(error => this.report(error)); });
     this.sync.cacheChanged$.subscribe(() => { void this.flush().catch(error => this.report(error)); });
   }
 
@@ -225,21 +227,32 @@ export class NativeWorkspaceService {
   async publish(workspace?: Workspace) {
     workspace ||= await this.sync.workspace();
     if (!this.plugin || !this.capabilities$.value?.workspaceSnapshots) return;
-    const currentMeta = await this.store.getWorkspace(workspace.id);
-    if (!currentMeta || currentMeta.generation !== workspace.generation || currentMeta.status !== 'active') return;
-    const projection = await this.store.nativeProjection(workspace);
-    const current = projection.workspace;
-    const key = `${current.id}:${current.generation}:${current.revision}`;
-    if (key === this.revisionPublished) return;
-    const notes = projection.notes;
-    for (let offset = 0; offset < Math.max(notes.length, 1); offset += 50) {
-      if (this.sync.partition !== workspace.partition) return;
-      await this.plugin.publishSnapshot({ workspace: current, revision: current.revision, page: offset / 50,
-        complete: offset + 50 >= notes.length, notes: notes.slice(offset, offset + 50).map(note => note.locked
-          ? { id: note.id, syncId: note.syncId, locked: true, archived: note.archived, trashed: note.trashed }
-          : { ...note, images: [], attachments: [] }) });
+    let current = workspace;
+    try {
+      const currentMeta = await this.store.getWorkspace(workspace.id);
+      if (!currentMeta || currentMeta.generation !== workspace.generation || currentMeta.status !== 'active') return;
+      const projection = await this.store.nativeProjection(workspace);
+      current = projection.workspace;
+      const key = `${current.id}:${current.generation}:${current.revision}`;
+      if (key === this.revisionPublished) return;
+      const notes = projection.notes;
+      for (let offset = 0; offset < Math.max(notes.length, 1); offset += 50) {
+        if (this.sync.partition !== workspace.partition) return;
+        await this.plugin.publishSnapshot({ workspace: current, revision: current.revision, page: offset / 50,
+          complete: offset + 50 >= notes.length, notes: notes.slice(offset, offset + 50).map(note => note.locked
+            ? { id: note.id, syncId: note.syncId, locked: true, archived: note.archived, trashed: note.trashed }
+            : { ...note, images: [], attachments: [] }) });
+      }
+      this.revisionPublished = key;
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'STALE_SNAPSHOT' || code === 'INACTIVE_WORKSPACE') return;
+      // A newer edit, generation or workspace may win while native awaits a page.
+      if (this.sync.partition !== current.partition || this.sync.generation !== current.generation) return;
+      const latest = await this.store.getWorkspace(current.id);
+      if (!latest || latest.generation !== current.generation || latest.status !== 'active' || latest.revision > current.revision) return;
+      throw error;
     }
-    this.revisionPublished = key;
   }
 
   private async ensureActive(workspace: Workspace) {
@@ -265,6 +278,8 @@ export class NativeWorkspaceService {
       scheduleAnchor: reminder.scheduleAnchorAtUtc || reminder.dueAtUtc,
       deepLink: `kept://note/${reminder.noteId}?workspace=${encodeURIComponent(workspace.id)}&generation=${workspace.generation}`
     })) });
+    if (this.sync.partition !== workspace.partition || this.sync.generation !== workspace.generation) return result;
+    this.zone.run(() => this.locationPermissionRequired$.next((result.skipped || []).some(skipped => skipped.reason === 'locationPermissionRequired')));
     for (const skipped of result.skipped || []) if (skipped.reason === 'invalid') this.report(new Error(`Invalid native reminder: ${skipped.id}`));
     if (result.exact === false) this.report(new Error('Android exact-alarm permission is off. Reminder delivery may be delayed. Enable precise reminders in Android settings.'));
     return result;
@@ -287,6 +302,13 @@ export class NativeWorkspaceService {
 
   async openExactAlarmSettings() {
     if (Capacitor.getPlatform() === 'android') await registerPlugin<{openExactAlarmSettings():Promise<void>}>('KeptTimeReminders').openExactAlarmSettings();
+  }
+
+  async openBackgroundLocationSettings() {
+    if (Capacitor.getPlatform() !== 'android') return;
+    try {
+      await registerPlugin<{openBackgroundLocationSettings():Promise<void>}>('KeptGeofence').openBackgroundLocationSettings();
+    } catch (error) { this.report(error); }
   }
 
   async requestReminderPermission() {

@@ -122,11 +122,18 @@ async function integrationTest() {
     assert.ok((await uploadImage(Buffer.from('different-image-bytes'), 'native-image-retry', 409)).error);
 
     const note = await request('/notes', owner.token, {
-      syncId: 'native-shared', noteTitle: 'Original', noteBody: '<b>Rich</b>', checkBoxes: [], images: [], labels: [],
+      syncId: 'native-shared', noteTitle: 'Original', noteBody: '<b>Rich</b>',
+      checkBoxes: Array.from({ length: 10 }, (_, index) => ({ id: index + 101, data: `Widget row ${index + 1}`, done: false })), images: [], labels: [],
       futureMetadata: { schema: 7, flags: ['keep-me'] }, clientExtension: 'preserved'
     });
     assert.deepEqual(note.futureMetadata, { schema: 7, flags: ['keep-me'] });
     const fetched = await request(`/notes/${note.id}`, owner.token);
+    assert.equal(fetched.syncId, 'native-shared');
+    assert.deepEqual(fetched.checkBoxes.map(item => item.id), Array.from({ length: 10 }, (_, index) => index + 101));
+    const cards = await request('/notes?view=card', owner.token);
+    const card = cards.notes.find(item => item.id === note.id);
+    assert.equal(card.syncId, fetched.syncId);
+    assert.deepEqual(card.checkBoxes.map(item => item.id), fetched.checkBoxes.slice(0, 8).map(item => item.id));
     const { futureMetadata: _futureMetadata, clientExtension: _clientExtension, ...oldClientPayload } = fetched;
     const mutate = (token, mutations) => request('/sync/mutations', token, { mutations });
     const olderClientSave = await mutate(owner.token, [{ type: 'note.upsert', syncId: note.syncId, payload: oldClientPayload }]);

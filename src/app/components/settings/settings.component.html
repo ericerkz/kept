@@ -37,10 +37,13 @@
           <label><input type="checkbox" [checked]="!authService.workspace.local?.backupRemindersDisabled" (change)="backups.dismissReminder(!$any($event.target).checked)"> Remind me to back up my notes</label>
           @if (backups.progress$ | async; as progress) { <p role="status">{{progress}}</p> }
           @if (migration.progress$ | async; as progress) { <p role="status">{{progress}}</p> }
-          @if (nativeWorkspace.error$ | async; as message) { <p class="error">{{message}}</p> @if (isAndroid && message.includes('exact-alarm')) { <button type="button" (click)="nativeWorkspace.openExactAlarmSettings()">Enable precise reminders</button> } }
-
         } @else {
           <p>Connected notes are cached separately from device-only notes.</p>
+        }
+        @if (nativeWorkspace.error$ | async; as message) { <p class="error">{{message}}</p> @if (isAndroid && message.includes('exact-alarm')) { <button type="button" (click)="nativeWorkspace.openExactAlarmSettings()">Enable precise reminders</button> } }
+        @if (isAndroid && (nativeWorkspace.locationPermissionRequired$ | async)) {
+          <p role="status">Location reminders need background location access. In Android settings, choose Permissions → Location → Allow all the time.</p>
+          <button type="button" (click)="nativeWorkspace.openBackgroundLocationSettings()">Allow background location</button>
         }
         @for (workspace of stagingWorkspaces; track workspace.id) {
           <button type="button" [disabled]="deviceBusy" (click)="discardStaging(workspace)">Remove incomplete backup or restore from {{workspace.createdAt | date}}</button>
