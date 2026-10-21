@@ -16,25 +16,29 @@
 
     @if (authService.workspace.canUseLocal) {
       <div class="settings-group device-data">
-        <h2>Notes on this device</h2>
-        <p>{{storageUsed}}</p>
+        <h2 class="group-title color-blue"><span class="material-symbols-outlined" aria-hidden="true">devices</span>Notes on this device</h2>
+        <p class="section-desc">{{storageUsed}}</p>
         @if (authService.isLocal) {
           @if (authService.workspace.local?.status === 'frozen') {<p role="status">Your notes are paused while Kept verifies a server transfer. Retry “Move my notes to a server” to finish safely. Your device copy is preserved.</p>}
-          <p>Your notes are stored on this device. Sharing, collaboration, web access, and account integrations need a server.</p>
-          <p>{{backupNotice}}</p>
-          <button type="button" [disabled]="deviceBusy" (click)="backupDevice()">Save a complete backup</button>
-          <button type="button" [disabled]="deviceBusy" (click)="restoreDevice()">Restore a backup</button>
-          <button type="button" [disabled]="deviceBusy" (click)="movePromptOpen = true">Move my notes to a server</button>
+          <p class="section-desc">Your notes are stored on this device. Sharing, collaboration, web access, and account integrations need a server.</p>
+          <p class="section-desc">{{backupNotice}}</p>
+          <div class="device-actions">
+            <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="backupDevice()"><span class="material-symbols-outlined" aria-hidden="true">download</span>Save a complete backup</button>
+            <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="restoreDevice()"><span class="material-symbols-outlined" aria-hidden="true">restore</span>Restore a backup</button>
+            <button type="button" class="btn-primary device-move" [disabled]="deviceBusy" (click)="movePromptOpen = true"><span class="material-symbols-outlined" aria-hidden="true">cloud_upload</span>Move my notes to a server</button>
+          </div>
           @if (movePromptOpen) {
             <div class="move-prompt" role="dialog" aria-labelledby="move-prompt-title">
               <p id="move-prompt-title"><strong>Which settings should your server account use?</strong></p>
               <label><input type="radio" name="movePreferences" [value]="false" [(ngModel)]="copyDevicePreferences"> Keep my server settings</label>
               <label><input type="radio" name="movePreferences" [value]="true" [(ngModel)]="copyDevicePreferences"> Use this device’s appearance and reminder display settings</label>
-              <button type="button" [disabled]="deviceBusy" (click)="confirmMove()">Continue</button>
-              <button type="button" (click)="movePromptOpen = false">Cancel</button>
+              <div class="device-actions">
+                <button type="button" class="btn-primary" [disabled]="deviceBusy" (click)="confirmMove()">Continue</button>
+                <button type="button" class="btn-secondary" (click)="movePromptOpen = false">Cancel</button>
+              </div>
             </div>
           }
-          <label><input type="checkbox" [checked]="!authService.workspace.local?.backupRemindersDisabled" (change)="backups.dismissReminder(!$any($event.target).checked)"> Remind me to back up my notes</label>
+          <label class="toggle-label backup-reminder-toggle"><input type="checkbox" [checked]="!authService.workspace.local?.backupRemindersDisabled" (change)="backups.dismissReminder(!$any($event.target).checked)"><span class="toggle-text">Remind me to back up my notes</span></label>
           @if (backups.progress$ | async; as progress) { <p role="status">{{progress}}</p> }
           @if (migration.progress$ | async; as progress) { <p role="status">{{progress}}</p> }
         } @else {
@@ -46,12 +50,7 @@
           <button type="button" (click)="nativeWorkspace.openBackgroundLocationSettings()">Allow background location</button>
         }
         @for (workspace of stagingWorkspaces; track workspace.id) {
-          <button type="button" [disabled]="deviceBusy" (click)="discardStaging(workspace)">Remove incomplete backup or restore from {{workspace.createdAt | date}}</button>
-        }
-        @for (workspace of deviceWorkspaces; track workspace.id) {
-          @if (workspace.id !== authService.workspace.local?.id) {
-            <button type="button" [disabled]="deviceBusy" (click)="openDeviceWorkspace(workspace)">Open device copy from {{workspace.createdAt | date}}</button>
-          }
+          <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="discardStaging(workspace)">Remove incomplete backup or restore from {{workspace.createdAt | date}}</button>
         }
       </div>
     }

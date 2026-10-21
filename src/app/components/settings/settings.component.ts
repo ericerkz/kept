@@ -1,6 +1,5 @@
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
 import { sanitizeNoteHtml } from 'src/app/utils/note-html';
-import { createUuid } from 'src/app/utils/uuid';
 import { WorkspaceBackupService, BACKUP_NOTICE } from 'src/app/services/workspace-backup.service';
 import { WorkspaceMigrationService } from 'src/app/services/workspace-migration.service';
 import { OfflineStoreService } from 'src/app/services/offline-store.service';
@@ -172,7 +171,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   storageUsed = '';
   recoveryItems: any[] = [];
-  deviceWorkspaces: Workspace[] = [];
   deviceBusy = false;
   copyDevicePreferences = false;
   movePromptOpen = false;
@@ -188,14 +186,6 @@ export class SettingsComponent implements OnInit, OnDestroy {
   restoreDevice() { return this.deviceTask(() => this.backups.restore(), 'Backup restored into a separate device workspace.'); }
   moveDevice() { return this.deviceTask(() => this.migration.moveToServer(this.copyDevicePreferences), 'Transfer complete.'); }
   confirmMove() { this.movePromptOpen = false; return this.moveDevice(); }
-  async openDeviceWorkspace(workspace: Workspace) {
-    if (!confirm('Open this retained device copy? It will remain separate from any notes moved to your server.')) return;
-    await this.deviceTask(async () => {
-      const active = await this.offlineStore.patchWorkspace(workspace.id, {status:'active', ...(workspace.status === 'retained' ? {generation: createUuid(), migration: undefined} : {})});
-      await this.authService.workspace.activate(active);
-      await this.router.navigateByUrl('/');
-    }, 'Device workspace opened.');
-  }
   canRecoverNote(item:any) {return item.operation?.type === 'note.upsert' || item.value?.kind === 'note.upsert';}
   recoverNote(item:any) {
     return this.deviceTask(async()=>{
@@ -216,9 +206,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
   async loadDeviceData() {
     const usage = await this.authService.workspace.storageUsage();
-    this.storageUsed = `${Math.round((usage.usage || 0) / 1048576)} MiB used${usage.quota ? ` of approximately ${Math.round(usage.quota / 1048576)} MiB available` : ''}`;
+    this.storageUsed = `${Math.round((usage.usage || 0) / 1048576)} MiB used`;
     this.stagingWorkspaces = (await this.offlineStore.listWorkspaces()).filter(item=>item.status === 'staging');
-    this.deviceWorkspaces = (await this.offlineStore.listWorkspaces()).filter(item => item.mode === 'local' && item.status !== 'staging');
     if (this.offlineSync.partition) this.recoveryItems = await this.offlineStore.listConflicts(this.offlineSync.partition);
   }
 

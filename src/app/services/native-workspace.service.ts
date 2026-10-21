@@ -47,6 +47,7 @@ export class NativeWorkspaceService {
   readonly locationPermissionRequired$ = new BehaviorSubject(false);
   readonly ready: Promise<void>;
   private tail = Promise.resolve();
+  private reminderTail = Promise.resolve();
   private revisionPublished = '';
   readonly plugin = Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('KeptWorkspace')
     ? registerPlugin<KeptWorkspacePlugin>('KeptWorkspace') : null;
@@ -267,12 +268,27 @@ export class NativeWorkspaceService {
     catch (error) { this.activationIdentity = ''; throw error; }
   }
 
-  async syncReminders(reminders: ReminderI[]) {
+  syncReminders(reminders: ReminderI[]) {
+    // Keep cancellation and replacement in order when edits/resume overlap.
+    const operation = this.reminderTail.then(() => this.syncRemindersNow(reminders));
+    this.reminderTail = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  private async syncRemindersNow(reminders: ReminderI[]) {
     await this.ready;
     if (!this.plugin || !this.capabilities$.value) return;
-    const workspace = await this.sync.workspace();
+    const projection = await this.store.nativeProjection(await this.sync.workspace());
+    const workspace = projection.workspace;
+    if (this.sync.partition !== workspace.partition || this.sync.generation !== workspace.generation) return;
+    // Read all stored notes, not the current overview page (which omits Trash).
+    const inactiveIds = new Set(projection.notes.filter(note => note.trashed || note.archived).map(note => note.id));
+    const suppressed = reminders.filter(reminder => reminder.noteId !== null && inactiveIds.has(reminder.noteId));
+    const eligible = reminders.filter(reminder => reminder.noteId === null || !inactiveIds.has(reminder.noteId));
     await this.ensureActive(workspace);
-    const result = await this.plugin.syncReminders({ workspace, projectionRevision: workspace.revision, reminders: reminders.map(reminder => ({
+    const suppressedSyncIds = suppressed.map(reminder => reminder.syncId).filter((id): id is string => !!id);
+    if (suppressedSyncIds.length) await this.plugin.cancelReminders({ workspaceId: workspace.id, generation: workspace.generation, reminderSyncIds: suppressedSyncIds });
+    const result = await this.plugin.syncReminders({ workspace, projectionRevision: workspace.revision, reminders: eligible.map(reminder => ({
       ...reminder, workspaceId: workspace.id, generation: workspace.generation,
       reminderSyncId: reminder.syncId, scheduleVersion: (reminder as any).scheduleVersion || 1,
       scheduleAnchor: reminder.scheduleAnchorAtUtc || reminder.dueAtUtc,

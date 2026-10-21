@@ -786,6 +786,64 @@ h1 { margin-bottom: 0; }
 }
 
 .device-data {
-  button {border:1px solid #9aa0a6;border-radius:6px;padding:10px 14px;margin:6px 8px 6px 0;background:transparent;color:inherit;}
-  label {display:block;margin:14px 0;}
+  button {
+    align-items: center;
+    background: transparent;
+    border: 1px solid #5f6368;
+    border-radius: 6px;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    font: 500 14px 'Google Sans', Roboto, Arial, sans-serif;
+    gap: 8px;
+    justify-content: center;
+    line-height: 1.4;
+    min-height: 44px;
+    padding: 12px 16px;
+
+    &:disabled { cursor: not-allowed; opacity: .55; }
+    &:focus-visible { outline: 2px solid #8ab4f8; outline-offset: 3px; }
+    .material-symbols-outlined { flex-shrink: 0; font-size: 22px; }
+  }
+
+  .btn-primary {
+    background: #8ab4f8;
+    border-color: transparent;
+    color: #202124;
+
+    &:hover:not(:disabled) { background: #aecbfa; }
+  }
+
+  .device-actions {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 20px 0;
+  }
+
+  .device-move { grid-column: 1 / -1; }
+  .backup-reminder-toggle { margin: 18px 0 0; }
+  .move-prompt {
+    border: 1px solid #5f6368;
+    border-radius: 6px;
+    padding: 16px;
+
+    label { display: block; font-size: 14px; margin: 14px 0; }
+    .device-actions { margin-bottom: 0; }
+  }
+}
+
+:host-context(.light-theme) .device-data {
+  button:focus-visible { outline-color: #1a73e8; }
+  .move-prompt { border-color: #dadce0; }
+  .btn-primary {
+    background: #1a73e8;
+    color: #fff;
+
+    &:hover:not(:disabled) { background: #1765cc; }
+  }
+}
+
+@media (max-width: 520px) {
+  .device-data .device-actions { grid-template-columns: minmax(0, 1fr); }
 }

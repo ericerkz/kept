@@ -2,12 +2,12 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),rx=require('rxjs');
 const source=ts.transpileModule(fs.readFileSync('src/app/services/native-workspace.service.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText;
-function harness() {
+function harness(platform = 'android') {
  const values=new Map(),exports={},settings=[];
  const window=new EventTarget(),document=Object.assign(new EventTarget(),{visibilityState:'visible'});
  vm.runInNewContext(source,{exports,console,window,document,Error,Date,Promise,localStorage:{getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value)},require(name){
   if(name==='@angular/core')return{Injectable:()=>target=>target};
-  if(name==='@capacitor/core')return{Capacitor:{isNativePlatform:()=>false,getPlatform:()=> 'android'},registerPlugin:name=>({openBackgroundLocationSettings:async()=>settings.push(name)})};
+  if(name==='@capacitor/core')return{Capacitor:{isNativePlatform:()=>false,getPlatform:()=>platform},registerPlugin:name=>({openBackgroundLocationSettings:async()=>settings.push(name)})};
   if(name==='rxjs')return rx;
   if(name==='@noble/hashes/sha2.js'||name==='@noble/hashes/utils.js'||name.endsWith('/uuid')||name.endsWith('/note-html')||name.endsWith('/attachments'))return{};
   throw Error(`Unexpected native-workspace dependency: ${name}`);
@@ -57,4 +57,53 @@ test('snapshot rejection is harmless when newer edits or workspace switches win 
 test('current snapshot storage failures remain visible instead of being swallowed',async()=>{
  const h=harness();h.native.plugin.publishSnapshot=async()=>{throw Error('Native storage is full');};
  await assert.rejects(h.native.publish(h.workspace),/Native storage is full/);
+});
+
+test('device reminders are suppressed in Trash/archive, preserved in storage and rescheduled on restore',async()=>{
+ const {createStore}=require('../test-support/workspace-store.cjs');
+ for(const platform of ['ios','android']) {
+  const h=harness(platform),store=createStore();
+  Object.assign(h.workspace,{mode:'local',nextId:1,createdAt:new Date().toISOString(),preferences:{}});
+  await store.saveWorkspace(h.workspace);
+  h.store.nativeProjection=workspace=>store.nativeProjection(workspace);
+  h.sync.workspace=()=>store.getWorkspace(h.workspace.id);
+  const note=await store.commitMutation(h.workspace,'note.upsert','note',{noteTitle:'Reminder note',trashed:false,archived:false});
+  const other=await store.commitMutation(h.workspace,'note.upsert','other',{noteTitle:'Unrelated note'});
+  for(const [syncId,fields] of [['time',{dueAtUtc:'2030-01-01T12:00:00Z',repeatRule:'{"type":"daily"}'}],['location',{locationName:'Home',latitude:1,longitude:2}]]) {
+   await store.commitMutation(h.workspace,'reminder.upsert',syncId,{noteId:note.id,status:'pending',...fields});
+  }
+  await store.commitMutation(h.workspace,'reminder.upsert','other-reminder',{noteId:other.id,status:'pending'});
+  await store.commitMutation(h.workspace,'reminder.upsert','standalone',{noteId:null,status:'pending'});
+  const reminders=await store.listReminders(h.workspace.partition),scheduled=new Set(),cancelled=[];
+  h.native.plugin.syncReminders=async({reminders})=>{scheduled.clear();for(const reminder of reminders)scheduled.add(reminder.reminderSyncId);return{};};
+  h.native.plugin.cancelReminders=async input=>{cancelled.push(input);for(const id of input.reminderSyncIds)scheduled.delete(id);};
+  await h.native.syncReminders(reminders);assert.equal(scheduled.size,4);
+  for(const inactive of [{trashed:true,archived:false},{trashed:false,archived:true}]) {
+   await store.commitMutation(h.workspace,'note.upsert','note',{...note,...inactive});
+   // The original reminder list still includes the now-hidden note's reminders.
+   await h.native.syncReminders(reminders);
+   assert.deepEqual([...scheduled].sort(),['other-reminder','standalone']);
+   assert.deepEqual(cancelled.at(-1).reminderSyncIds.sort(),['location','time']);
+   assert.equal(cancelled.at(-1).workspaceId,h.workspace.id);assert.equal(cancelled.at(-1).generation,h.workspace.generation);
+   assert.notEqual(cancelled.at(-1).dismissOnly,true,'future schedules must be cancelled too');
+   assert.deepEqual(await store.listReminders(h.workspace.partition),reminders,'suppression must not delete or complete reminders');
+   await store.commitMutation(h.workspace,'note.upsert','note',{...note,trashed:false,archived:false});
+   await h.native.syncReminders(reminders);assert.equal(scheduled.size,4,'restore makes the unchanged reminders eligible again');
+  }
+  // Reopening starts from persisted lifecycle state, with no overview callback.
+  await store.commitMutation(h.workspace,'note.upsert','note',{...note,trashed:true});
+  const reopened=harness(platform);reopened.store.nativeProjection=workspace=>store.nativeProjection(workspace);reopened.sync.workspace=h.sync.workspace;reopened.native.plugin=h.native.plugin;
+  await reopened.native.syncReminders(await store.listReminders(h.workspace.partition));
+  assert.deepEqual([...scheduled].sort(),['other-reminder','standalone']);
+ }
+});
+
+test('overlapping native reminder syncs serialize cancellation and recover after a failure',async()=>{
+ const h=harness();let release,started,active=0,maximum=0,calls=0;
+ const entered=new Promise(resolve=>started=resolve),blocked=new Promise(resolve=>release=resolve);
+ h.native.plugin.syncReminders=async()=>{calls++;maximum=Math.max(maximum,++active);try{if(calls===1){started();await blocked;throw Error('Transient native failure');}return{};}finally{active--;}};
+ const first=h.native.syncReminders([]);await entered;
+ const second=h.native.syncReminders([]);await Promise.resolve();assert.equal(calls,1);
+ const rejected=assert.rejects(first,/Transient native failure/);release();await rejected;await second;
+ assert.equal(maximum,1);assert.equal(calls,2);
 });
