@@ -65,6 +65,7 @@ export interface SetReminderAction extends BaseAction {
 export interface ShareNoteAction extends BaseAction {
   type: 'share_note';
   noteId: number;
+  noteTitle?: string;
   userIds: number[];
 }
 

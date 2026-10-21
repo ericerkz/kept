@@ -1274,8 +1274,10 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   shareRecipientsForAction(index: number) {
+    const action = this.smartCapturePlan?.actions?.[index];
     const userIds = this.connectedShareActionIndexes(index)
       .flatMap(shareIndex => this.actionUserIds(this.smartCapturePlan?.actions?.[shareIndex] as any));
+    if (action?.type === 'share_note') userIds.push(...this.actionUserIds(action));
     return [...new Set(userIds)]
       .map(userId => this.smartShareUsers.find(user => user.id === userId) || {
         id: userId,
@@ -1358,10 +1360,15 @@ export class MainComponent implements OnInit, OnDestroy {
     if (action.type === 'add_checklist_items') return 'Add checklist items';
     if (action.type === 'add_labels') return 'Add labels';
     if (action.type === 'set_reminder') return 'Set reminder';
-    if (action.type === 'share_note') return 'Share note';
+    if (action.type === 'share_note') return this.shareNoteTitle(action) || 'Share note';
     if (action.type === 'archive_note') return 'Archive note';
     if (action.type === 'trash_note') return 'Move note to trash';
     return this.actionTitle(action);
+  }
+
+  private shareNoteTitle(action: KeptAction) {
+    const title = (action as any).noteTitle;
+    return typeof title === 'string' ? title.trim() : '';
   }
 
   smartReminderHasTrigger(action: any) {
@@ -1399,7 +1406,7 @@ export class MainComponent implements OnInit, OnDestroy {
     if (action.type === 'append_to_note') return anyAction.text || '';
     if (action.type === 'add_labels') return (anyAction.labels || []).join(', ');
     if (action.type === 'set_reminder') return this.smartReminderSummary(anyAction);
-    if (action.type === 'share_note') return `${(anyAction.userIds || []).length} collaborator(s)`;
+    if (action.type === 'share_note') return this.shareNoteTitle(action) ? '' : `${this.actionUserIds(action).length} collaborator(s)`;
     if (action.type === 'archive_note') return 'This note will move out of the main notes view.';
     if (action.type === 'trash_note') return 'This note will move to trash.';
     return '';
@@ -1415,7 +1422,7 @@ export class MainComponent implements OnInit, OnDestroy {
     const anyAction = action as any;
     if (action.type === 'add_labels') return `${(anyAction.labels || []).length} label(s)`;
     if (action.type === 'set_reminder' && anyAction.timezone) return anyAction.timezone;
-    if (action.type === 'share_note') return 'Shared note';
+    if (action.type === 'share_note') return this.shareNoteTitle(action) ? '' : 'Shared note';
     return this.actionMeta(action);
   }
 
