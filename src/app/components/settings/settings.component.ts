@@ -175,6 +175,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   deviceWorkspaces: Workspace[] = [];
   deviceBusy = false;
   copyDevicePreferences = false;
+  movePromptOpen = false;
   stagingWorkspaces: Workspace[] = [];
   readonly backupNotice = BACKUP_NOTICE;
   async deviceTask(task: () => Promise<unknown>, message: string) {
@@ -186,6 +187,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   backupDevice() { return this.deviceTask(() => this.backups.export(), 'Backup saved.'); }
   restoreDevice() { return this.deviceTask(() => this.backups.restore(), 'Backup restored into a separate device workspace.'); }
   moveDevice() { return this.deviceTask(() => this.migration.moveToServer(this.copyDevicePreferences), 'Transfer complete.'); }
+  confirmMove() { this.movePromptOpen = false; return this.moveDevice(); }
   async openDeviceWorkspace(workspace: Workspace) {
     if (!confirm('Open this retained device copy? It will remain separate from any notes moved to your server.')) return;
     await this.deviceTask(async () => {

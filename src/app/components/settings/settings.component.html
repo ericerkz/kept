@@ -24,8 +24,16 @@
           <p>{{backupNotice}}</p>
           <button type="button" [disabled]="deviceBusy" (click)="backupDevice()">Save a complete backup</button>
           <button type="button" [disabled]="deviceBusy" (click)="restoreDevice()">Restore a backup</button>
-          <label><input type="checkbox" [(ngModel)]="copyDevicePreferences"> Use this device’s appearance and reminder display settings on the server</label>
-          <button type="button" [disabled]="deviceBusy" (click)="moveDevice()">Move my notes to a server</button>
+          <button type="button" [disabled]="deviceBusy" (click)="movePromptOpen = true">Move my notes to a server</button>
+          @if (movePromptOpen) {
+            <div class="move-prompt" role="dialog" aria-labelledby="move-prompt-title">
+              <p id="move-prompt-title"><strong>Which settings should your server account use?</strong></p>
+              <label><input type="radio" name="movePreferences" [value]="false" [(ngModel)]="copyDevicePreferences"> Keep my server settings</label>
+              <label><input type="radio" name="movePreferences" [value]="true" [(ngModel)]="copyDevicePreferences"> Use this device’s appearance and reminder display settings</label>
+              <button type="button" [disabled]="deviceBusy" (click)="confirmMove()">Continue</button>
+              <button type="button" (click)="movePromptOpen = false">Cancel</button>
+            </div>
+          }
           <label><input type="checkbox" [checked]="!authService.workspace.local?.backupRemindersDisabled" (change)="backups.dismissReminder(!$any($event.target).checked)"> Remind me to back up my notes</label>
           @if (backups.progress$ | async; as progress) { <p role="status">{{progress}}</p> }
           @if (migration.progress$ | async; as progress) { <p role="status">{{progress}}</p> }

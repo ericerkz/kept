@@ -6,16 +6,53 @@ import { WorkspaceService } from '../../../services/workspace.service';
 @Component({
   selector: 'app-welcome', standalone: false,
   styleUrls: ['../auth-shared.scss'],
-  template: `<main class="auth-page"><section class="auth-panel">
+  styles: [`
+    .welcome-panel { max-width: 460px; }
+    .welcome-panel > p { color: #bdc1c6; font-family: Roboto, Arial, sans-serif; line-height: 1.5; margin: 0 0 24px; }
+    .welcome-options { display: flex; flex-direction: column; gap: 14px; }
+    .welcome-option {
+      align-items: center; background: transparent; border: 1.5px solid #5f6368; border-radius: 16px; color: inherit;
+      cursor: pointer; display: flex; font: inherit; gap: 16px; min-height: 92px; padding: 18px 18px; text-align: left; width: 100%;
+      transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+    }
+    .welcome-option:active { transform: scale(.985); }
+    .welcome-option:disabled { cursor: default; opacity: .6; }
+    .welcome-option .lead {
+      align-items: center; border-radius: 14px; display: inline-flex; flex: 0 0 52px; height: 52px; justify-content: center; width: 52px;
+    }
+    .welcome-option .lead .material-symbols-outlined { font-size: 28px; }
+    .welcome-option .text { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+    .welcome-option strong { font-family: "Google Sans", Roboto, Arial, sans-serif; font-size: 18px; font-weight: 600; line-height: 1.25; }
+    .welcome-option small { font-family: Roboto, Arial, sans-serif; font-size: 13.5px; line-height: 1.4; opacity: .82; }
+    .welcome-option .chevron { flex: 0 0 auto; opacity: .7; }
+    .welcome-option.primary { background: #feefc3; border-color: #feefc3; box-shadow: 0 6px 18px rgb(251 188 4 / 28%); color: #202124; }
+    .welcome-option.primary .lead { background: #fbbc04; color: #202124; }
+    .welcome-option.secondary { border-color: #8ab4f8; color: #8ab4f8; }
+    .welcome-option.secondary .lead { background: rgb(138 180 248 / 16%); color: #8ab4f8; }
+    .welcome-option.secondary small { color: #bdc1c6; }
+    :host-context(.light-theme) .welcome-option.secondary { border-color: #1a73e8; color: #1a73e8; }
+    :host-context(.light-theme) .welcome-option.secondary .lead { background: rgb(26 115 232 / 12%); color: #1a73e8; }
+    :host-context(.light-theme) .welcome-option.secondary small { color: #5f6368; }
+  `],
+  template: `<main class="auth-page"><section class="auth-panel welcome-panel">
     <div class="brand-row"><img src="assets/images/keep2x.fw.png" width="49" alt="Kept"><span>Kept</span></div>
     <h1>Your notes, your way</h1>
     <p>Keep your notes on this device, or connect to your own Kept server.</p>
     @if (error) { <p class="error" role="alert">{{error}}</p> }
-    @if (workspace.canUseLocal) {
-      <button type="button" class="btn-primary" [disabled]="busy" (click)="useLocal()">Use on this device</button>
-      <p>No account or server needed. Notes stay on this device. You can back them up or move them to a server later.</p>
-    }
-    <button type="button" class="btn-secondary" [disabled]="busy" (click)="connect()">Connect to a server</button>
+    <div class="welcome-options">
+      @if (workspace.canUseLocal) {
+        <button type="button" class="welcome-option primary" aria-label="Use on this device" [disabled]="busy" (click)="useLocal()">
+          <span class="lead"><span class="material-symbols-outlined" aria-hidden="true">smartphone</span></span>
+          <span class="text"><strong>Use on this device</strong><small>No account or server needed. Notes stay on this device. Back them up or move them to a server later.</small></span>
+          <span class="material-symbols-outlined chevron" aria-hidden="true">chevron_right</span>
+        </button>
+      }
+      <button type="button" class="welcome-option secondary" aria-label="Have a server? Connect to a server" [disabled]="busy" (click)="connect()">
+        <span class="lead"><span class="material-symbols-outlined" aria-hidden="true">dns</span></span>
+        <span class="text"><strong>Have a server?</strong><small>Connect to your own Kept server to sync, share and use your notes anywhere.</small></span>
+        <span class="material-symbols-outlined chevron" aria-hidden="true">chevron_right</span>
+      </button>
+    </div>
   </section></main>`
 })
 export class WelcomeComponent {

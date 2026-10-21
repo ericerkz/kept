@@ -90,7 +90,8 @@ try {
  const api=[];page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/'))api.push(request.url());});
  await page.goto(fixture.origin,{waitUntil:'domcontentloaded'});
  await page.locator('app-notes').waitFor();
- await page.getByText('Saved on this device',{exact:true}).waitFor();
+ // The permanent "Saved on this device" pill is hidden in local mode; only error states show.
+ assert.equal(await page.getByText('Saved on this device',{exact:true}).count(),0);
  await page.locator('app-input .placeholder:visible').click();
  const editor=page.locator('app-input .note-main:visible').last();
  await editor.getByRole('textbox',{name:'Title',exact:true}).fill('Created with no account');
@@ -117,7 +118,7 @@ try {
    await first.goto(fixture.origin,{waitUntil:'domcontentloaded'});
    await first.getByRole('button',{name:'Use on this device',exact:true}).click();
    await first.locator('app-notes').waitFor();
-   await first.getByText('Saved on this device',{exact:true}).waitFor();
+   assert.equal(await first.getByText('Saved on this device',{exact:true}).count(),0);
    assert.deepEqual(calls,[]);console.log(`PASS ${platform} first-install emulation: welcome → device workspace, no account/server request`);
    await fresh.close();
  }
