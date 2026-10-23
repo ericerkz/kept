@@ -17,6 +17,7 @@ import { SetupComponent } from './components/auth/setup/setup.component';
 import { LoginComponent } from './components/auth/login/login.component';
 import { UserManagementComponent } from './components/auth/user-management/user-management.component';
 import { RegisterComponent } from './components/auth/register/register.component';
+import { InviteAcceptComponent } from './components/auth/invite-accept/invite-accept.component';
 import { SettingsComponent } from './components/settings/settings.component';
 import { ReminderNotificationComponent } from './components/reminder/reminder-notification.component';
 import { LinkPreviewComponent } from './components/link-preview/link-preview.component';
@@ -45,6 +46,7 @@ import { LocationMapPickerComponent } from './components/location-map-picker/loc
         LoginComponent,
         UserManagementComponent,
         RegisterComponent,
+        InviteAcceptComponent,
         SettingsComponent,
         ReminderNotificationComponent,
         LinkPreviewComponent,

@@ -753,6 +753,39 @@ export class AuthService implements OnDestroy {
     ));
   }
 
+  async getInviteSettings() {
+    return await firstValueFrom(this.http.get<{ smtpConfigured: boolean, inviteByEmailEnabled: boolean }>(
+      `${this.apiUrl}/settings/invites`,
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async saveInviteSettings(settings: { inviteByEmailEnabled: boolean }) {
+    return await firstValueFrom(this.http.patch<{ smtpConfigured: boolean, inviteByEmailEnabled: boolean }>(
+      `${this.apiUrl}/settings/invites`,
+      settings,
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async inviteUser(email: string, role: 'admin' | 'user') {
+    return await firstValueFrom(this.http.post<{ email: string, expiresAt: string }>(
+      `${this.apiUrl}/users/invite`,
+      { email, role },
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async getInvite(token: string) {
+    return await firstValueFrom(this.http.get<{ email: string, role: string }>(`${this.apiUrl}/invites/${token}`));
+  }
+
+  async acceptInvite(token: string, data: { username: string, displayName: string, password: string }) {
+    const result = await firstValueFrom(this.http.post<LoginResponse>(`${this.apiUrl}/invites/${token}/accept`, data));
+    this.storeLoginResult(result);
+    return result;
+  }
+
   async restoreFromBackup(file: File) {
     const formData = new FormData();
     formData.append('backup', file);

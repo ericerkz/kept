@@ -23,6 +23,7 @@ const { initNativeClientSchema, occurrenceId } = require('./native-client');
 const { mountImageProxyRoutes } = require('./image-proxy');
 const { nextRepeatDueAt, isRepeatOccurrence } = require('./reminder-recurrence');
 const { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken } = require('./oauth-mcp');
+const mailer = require('./mailer');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -1054,6 +1055,19 @@ async function init() {
       executedPlanJson TEXT,
       status TEXT NOT NULL,
       createdAt TEXT NOT NULL
+    )
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS user_invites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+      tokenHash TEXT NOT NULL UNIQUE,
+      invitedByUserId INTEGER NOT NULL,
+      createdAt TEXT NOT NULL,
+      expiresAt TEXT NOT NULL,
+      acceptedAt TEXT,
+      acceptedUserId INTEGER
     )
   `);
   await initNativeClientSchema({ run, get, all });
@@ -2796,6 +2810,8 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, key: 'login'
 const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, key: 'register' });
 const setupLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, key: 'setup' });
 const oauthRegistrationLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 30, key: 'oauth-register' });
+const inviteLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, key: 'invite' });
+const inviteAcceptLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, key: 'invite-accept' });
 
 const totpFailures = new Map(); // userId -> { count, lockedUntil }
 function checkTotpLock(userId) {
@@ -4326,6 +4342,99 @@ app.patch('/api/settings/registration', requireAuth, requireAdmin, asyncRoute(as
     selfRegistrationEnabled: selfRegistrationEnabled === 'true',
     requireApproval: requireApproval === 'true'
   });
+}));
+
+// ─── Invite a user by email ─────────────────────────────────────────────
+// Generic, optional, off by default: needs an admin to explicitly enable
+// it (inviteByEmailEnabled), and that toggle only appears at all when
+// KEPT_SMTP_* has actually been configured - see server/mailer.js. With
+// neither set, this entire feature is invisible; nothing about it is
+// specific to any managed-hosting provider.
+app.get('/api/settings/invites', requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
+  const inviteByEmailEnabled = await getAppSetting('inviteByEmailEnabled', 'false');
+  res.json({
+    smtpConfigured: mailer.isConfigured(),
+    inviteByEmailEnabled: mailer.isConfigured() && inviteByEmailEnabled === 'true'
+  });
+}));
+
+app.patch('/api/settings/invites', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  if (!mailer.isConfigured()) {
+    return res.status(400).json({ error: 'No email server is configured for this instance.' });
+  }
+  if (req.body.inviteByEmailEnabled !== undefined) {
+    await setAppSetting('inviteByEmailEnabled', String(!!req.body.inviteByEmailEnabled));
+  }
+  const inviteByEmailEnabled = await getAppSetting('inviteByEmailEnabled', 'false');
+  res.json({ smtpConfigured: true, inviteByEmailEnabled: inviteByEmailEnabled === 'true' });
+}));
+
+app.post('/api/users/invite', requireAuth, requireAdmin, inviteLimiter, asyncRoute(async (req, res) => {
+  const enabled = await getAppSetting('inviteByEmailEnabled', 'false');
+  if (!mailer.isConfigured() || enabled !== 'true') {
+    return res.status(403).json({ error: 'Inviting users by email is not enabled on this server.' });
+  }
+  const email = String(req.body.email || '').trim();
+  if (!validateEmail(email) || !email) {
+    return res.status(400).json({ error: 'A valid email address is required.' });
+  }
+  const role = req.body.role === 'admin' ? 'admin' : 'user';
+
+  const token = randomHex(32);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  await run(
+    'INSERT INTO user_invites (email, role, tokenHash, invitedByUserId, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?)',
+    [email, role, mcpTokenHash(token), req.user.id, now.toISOString(), expiresAt]
+  );
+
+  const baseUrl = String(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+  const acceptUrl = `${baseUrl}/invite/${token}`;
+  await mailer.sendMail({
+    to: email,
+    subject: `You're invited to a Kept server`,
+    text: `${req.user.displayName || req.user.username} invited you to their Kept notes server.\n\n` +
+      `Set up your account: ${acceptUrl}\n\n` +
+      `Server address: ${baseUrl}\n\n` +
+      `This invitation expires in 7 days. If you weren't expecting this, you can ignore this email.`
+  });
+
+  res.status(201).json({ email, expiresAt });
+}));
+
+app.get('/api/invites/:token', asyncRoute(async (req, res) => {
+  const invite = await get(
+    'SELECT * FROM user_invites WHERE tokenHash = ?',
+    [mcpTokenHash(String(req.params.token || ''))]
+  );
+  if (!invite || invite.acceptedAt) return res.status(404).json({ error: 'This invitation is no longer valid.' });
+  if (new Date(invite.expiresAt).getTime() < Date.now()) return res.status(410).json({ error: 'This invitation has expired.' });
+  res.json({ email: invite.email, role: invite.role });
+}));
+
+app.post('/api/invites/:token/accept', inviteAcceptLimiter, asyncRoute(async (req, res) => {
+  const invite = await get(
+    'SELECT * FROM user_invites WHERE tokenHash = ?',
+    [mcpTokenHash(String(req.params.token || ''))]
+  );
+  if (!invite || invite.acceptedAt) return res.status(404).json({ error: 'This invitation is no longer valid.' });
+  if (new Date(invite.expiresAt).getTime() < Date.now()) return res.status(410).json({ error: 'This invitation has expired.' });
+
+  const { username, displayName, password } = req.body;
+  let user;
+  try {
+    user = await createUser({ username, displayName, password, email: invite.email, role: invite.role });
+  } catch (e) {
+    if (e.message && e.message.includes('UNIQUE constraint failed')) {
+      return res.status(409).json({ error: 'That username is already taken.' });
+    }
+    return res.status(e.status || 500).json({ error: e.message || 'Could not create account.' });
+  }
+  await run('UPDATE user_invites SET acceptedAt = ?, acceptedUserId = ? WHERE id = ?',
+    [new Date().toISOString(), user.id, invite.id]);
+
+  const session = await createSession(user);
+  res.status(201).json(session);
 }));
 
 app.get('/api/admin/backup/status', requireAuth, requireAdmin, asyncRoute(async (_req, res) => {

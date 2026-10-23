@@ -31,6 +31,18 @@ export class UserManagementComponent implements OnInit {
   requireApproval = true;
   isSavingRegistration = false;
 
+  // Invite by email - hidden entirely unless an email server is
+  // configured (KEPT_SMTP_*), and the actual "invite" form only shows
+  // once this admin has explicitly flipped the toggle on for this instance.
+  smtpConfigured = false;
+  inviteByEmailEnabled = false;
+  isSavingInviteSetting = false;
+  inviteEmail = '';
+  inviteRole: UserRole = 'user';
+  isSendingInvite = false;
+  inviteError = '';
+  inviteSuccess = '';
+
   // Per-user password reset state
   resetPasswordUserId: number | null = null;
   resetPasswordValue = '';
@@ -212,6 +224,43 @@ export class UserManagementComponent implements OnInit {
     this.isSavingRegistration = false;
   }
 
+  async loadInviteSettings() {
+    try {
+      const settings = await this.auth.getInviteSettings();
+      this.smtpConfigured = settings.smtpConfigured;
+      this.inviteByEmailEnabled = settings.inviteByEmailEnabled;
+    } catch {}
+  }
+
+  async toggleInviteByEmail() {
+    this.isSavingInviteSetting = true;
+    try {
+      const result = await this.auth.saveInviteSettings({ inviteByEmailEnabled: this.inviteByEmailEnabled });
+      this.inviteByEmailEnabled = result.inviteByEmailEnabled;
+    } catch (error) {
+      this.inviteByEmailEnabled = !this.inviteByEmailEnabled; // revert the optimistic toggle
+      this.inviteError = this.getErrorMessage(error, 'Could not update this setting.');
+    } finally {
+      this.isSavingInviteSetting = false;
+    }
+  }
+
+  async sendInvite() {
+    this.inviteError = '';
+    this.inviteSuccess = '';
+    this.isSendingInvite = true;
+    try {
+      await this.auth.inviteUser(this.inviteEmail, this.inviteRole);
+      this.inviteSuccess = `Invitation sent to ${this.inviteEmail}.`;
+      this.inviteEmail = '';
+      this.inviteRole = 'user';
+    } catch (error) {
+      this.inviteError = this.getErrorMessage(error, 'Could not send the invitation.');
+    } finally {
+      this.isSendingInvite = false;
+    }
+  }
+
   async loadBackupStatus() {
     try {
       const status = await this.auth.getBackupStatus();
@@ -346,6 +395,7 @@ export class UserManagementComponent implements OnInit {
   ngOnInit(): void {
     this.loadUsers();
     this.loadRegistrationSettings();
+    this.loadInviteSettings();
     this.loadVersionInfo();
     this.loadManagedHosting();
     this.loadBackupStatus().then(() => {

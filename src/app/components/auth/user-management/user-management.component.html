@@ -97,6 +97,54 @@
       </section>
     </div>
 
+    <!-- ── Group: Invite by email ──────────────────────────────────────────
+         Hidden entirely unless an email server is configured for this
+         instance; the invite form itself only shows once the toggle below
+         is on. -->
+    @if (smtpConfigured) {
+      <div class="settings-group">
+        <h2 class="group-title color-green">
+          <span class="material-symbols-outlined">mail</span>
+          Invite by email
+        </h2>
+
+        <section class="settings-section">
+          <div class="reg-toggles">
+            <label class="reg-toggle">
+              <input type="checkbox" [(ngModel)]="inviteByEmailEnabled" [disabled]="isSavingInviteSetting" (change)="toggleInviteByEmail()">
+              <div>
+                <strong>Allow inviting new users by email</strong>
+                <small>Lets you send someone a link to set up their own username and password, instead of choosing one for them.</small>
+              </div>
+            </label>
+          </div>
+
+          @if (inviteByEmailEnabled) {
+            @if (inviteError) { <div class="error global-msg" style="margin-top: 16px;">{{inviteError}}</div> }
+            @if (inviteSuccess) { <div class="success global-msg" style="margin-top: 16px;">{{inviteSuccess}}</div> }
+            <form (ngSubmit)="sendInvite()" #inviteFormRef="ngForm" class="auth-form user-form" style="margin-top: 16px;">
+              <label>
+                <span>Email</span>
+                <input name="inviteEmail" [(ngModel)]="inviteEmail" autocomplete="off" type="email" required placeholder="friend&#64;example.com">
+              </label>
+              <label>
+                <span>Role</span>
+                <select name="inviteRole" [(ngModel)]="inviteRole">
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+              <div class="form-actions">
+                <button type="submit" [disabled]="inviteFormRef.invalid || isSendingInvite">
+                  {{isSendingInvite ? 'Sending…' : 'Send invitation'}}
+                </button>
+              </div>
+            </form>
+          }
+        </section>
+      </div>
+    }
+
     <!-- ── Group: Existing users ────────────────────────────────────────── -->
     <div class="settings-group">
       <h2 class="group-title color-purple">

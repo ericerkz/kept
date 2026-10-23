@@ -4,6 +4,7 @@ import { RouterModule, Routes } from '@angular/router';
 import { MainComponent } from './components/main/main.component';
 import { LoginComponent } from './components/auth/login/login.component';
 import { RegisterComponent } from './components/auth/register/register.component';
+import { InviteAcceptComponent } from './components/auth/invite-accept/invite-accept.component';
 import { SetupComponent } from './components/auth/setup/setup.component';
 import { UserManagementComponent } from './components/auth/user-management/user-management.component';
 import { SettingsComponent } from './components/settings/settings.component';
@@ -16,6 +17,7 @@ const routes: Routes = [
   { path: "setup", component: SetupComponent, canActivate: [SetupGuard] },
   { path: "login", component: LoginComponent, canActivate: [LoginGuard] },
   { path: "register", component: RegisterComponent, canActivate: [LoginGuard] },
+  { path: "invite/:token", component: InviteAcceptComponent, canActivate: [LoginGuard] },
   { path: "users", component: UserManagementComponent, canActivate: [AdminGuard] },
   { path: "settings", component: SettingsComponent, canActivate: [AuthGuard] },
   { path: "", component: MainComponent, canActivate: [AuthGuard] },

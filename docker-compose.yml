@@ -95,6 +95,19 @@ services:
       # directly over LAN/SSH or raise proxy body-size/timeouts if needed.
       # - KEPT_TAKEOUT_UPLOAD_MAX=5GB
 
+      # ── Invite users by email (optional) ────────────────────────────────
+      # Admins can always create accounts directly. Setting this lets an
+      # admin additionally turn on "Invite by email" in User Management, so
+      # new users set their own username/password via an emailed link.
+      # Leave KEPT_SMTP_HOST unset and no invite-by-email UI appears at all.
+      # See README.md#inviting-users-by-email-optional for details.
+      # - KEPT_SMTP_HOST=
+      # - KEPT_SMTP_PORT=587
+      # - KEPT_SMTP_SECURE=0
+      # - KEPT_SMTP_USER=
+      # - KEPT_SMTP_PASS=
+      # - KEPT_SMTP_FROM=Kept <no-reply@example.com>
+
       # ── Managed hosting (only relevant if you host Kept FOR someone else) ──
       # Generic, provider-agnostic primitives. Leave all of these unset for
       # ordinary self-hosting; nothing below changes default behavior.

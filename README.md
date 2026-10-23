@@ -274,6 +274,18 @@ Useful environment variables are documented in `docker-compose.yml`. The common 
 - `KEPT_ALLOW_RESTORE`: temporarily enables restore from backup during setup.
 - `VAPID_SUBJECT`: optional public URL/contact identity for web push. Kept auto-generates VAPID keys if you do not set them; only set this if push notifications need a more explicit public origin.
 
+### Inviting users by email (optional)
+
+Admins can always create accounts directly from User Management. If you'd rather send someone a link they set their own username/password from, configure an SMTP relay and an admin can turn on "Invite by email" in User Management — the option is hidden entirely until SMTP is configured, and off by default even then.
+
+- `KEPT_SMTP_HOST`: SMTP server hostname. Leaving this unset disables invite-by-email entirely; no UI for it appears anywhere.
+- `KEPT_SMTP_PORT`: SMTP port. Defaults to `587`.
+- `KEPT_SMTP_SECURE`: set to `1` for implicit TLS (typically port `465`). Defaults to STARTTLS.
+- `KEPT_SMTP_USER` / `KEPT_SMTP_PASS`: optional SMTP credentials.
+- `KEPT_SMTP_FROM`: the `From` address on invite emails. Defaults to `Kept <no-reply@example.com>`.
+
+This works with any SMTP relay — a personal email account's SMTP, or any transactional-email provider's free tier — nothing here is tied to a specific vendor.
+
 ### Managed hosting (optional)
 
 These are for anyone *hosting Kept on someone else's behalf* (a managed-hosting provider). They are independent, generic primitives — none of them are specific to any one provider — and are all optional; if you self-host for yourself, leave them unset and nothing changes. See [docs/managed-hosting.md](docs/managed-hosting.md) for the full rationale.
