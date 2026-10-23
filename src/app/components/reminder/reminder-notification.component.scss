@@ -57,6 +57,7 @@
   gap: 8px;
 }
 
+.rn-open,
 .rn-snooze,
 .rn-dismiss {
   border: none;
@@ -68,6 +69,7 @@
   padding: 6px 12px;
 }
 
+.rn-open,
 .rn-snooze {
   background: transparent;
   color: #fbbc04;
@@ -92,6 +94,16 @@
   .rn-title { color: #202124; }
   .rn-body  { color: #5f6368; }
 
+  .rn-open,
   .rn-snooze { color: #1a73e8; &:hover { background: rgba(26, 115, 232, 0.08); } }
   .rn-dismiss { background: #1a73e8; color: #fff; &:hover { background: #1557b0; } }
+}
+
+@media (max-width: 600px) {
+  .rn-banner { flex-wrap: wrap; }
+  .rn-actions {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }

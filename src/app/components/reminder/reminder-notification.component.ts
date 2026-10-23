@@ -75,6 +75,13 @@ export class ReminderNotificationComponent implements OnInit, OnDestroy {
     this.notification = null;
   }
 
+  async openNote(payload = this.notification) {
+    if (!payload) return;
+    const opened = await this.reminderService.openReminderNote(payload.noteId);
+    // Opening is navigation, not dismissal or completion of the reminder.
+    if (opened && this.notification === payload) this.notification = null;
+  }
+
   private showBrowserNotification(payload: ReminderFiredPayload) {
     // Push notifications are already displayed by the service worker.
     if (payload.source === 'sw-push' || payload.source === 'native') return;
@@ -110,6 +117,12 @@ export class ReminderNotificationComponent implements OnInit, OnDestroy {
           noteId: payload.noteId
         }
       });
+      notification.onclick = async () => {
+        window.focus();
+        try { await this.openNote(payload); }
+        catch (error) { console.error('Could not open the reminder note', error); }
+        notification.close();
+      };
       this.reminderService.trackDisplayedNotification(payload.reminderId, notification);
     } catch {
       // iOS Safari throws if Notification() is constructed in a page context;

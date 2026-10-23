@@ -1,4 +1,4 @@
-@let pageNotes = Shared.note.all | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value;
+@let pageNotes = Shared.note.all | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value:Shared.composerDraftSyncId;
 @if (pullRefreshState !== 'idle') {
   <div class="pull-refresh-indicator"
     [class.native-phone]="nativePhoneLayout"
@@ -17,12 +17,12 @@
     [class.grid-view]="Shared.noteViewType.value === 'grid'"
     [class.list-view]="Shared.noteViewType.value === 'list'"
     [ngClass]="notePreviewTextSizeClass">
-    <div class="pb-80" [hidden]="!(Shared.note.pinned | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value).length">
+    <div class="pb-80" [hidden]="!(Shared.note.pinned | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value:Shared.composerDraftSyncId).length">
       <p #title _title>pinned</p>
       <ng-container [ngTemplateOutlet]="noteTemplate" [ngTemplateOutletContext]="{notes:Shared.note.pinned}">
       </ng-container>
     </div>
-    <div [hidden]="!(Shared.note.unpinned | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value).length">
+    <div [hidden]="!(Shared.note.unpinned | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value:Shared.composerDraftSyncId).length">
       <p #title _title>other</p>
       <ng-container [ngTemplateOutlet]="noteTemplate" [ngTemplateOutletContext]="{notes:Shared.note.unpinned}">
       </ng-container>
@@ -134,7 +134,7 @@
 <!--*  note template -->
 <ng-template #noteTemplate let-notes="notes">
   <div #noteEl class="notes-layout" [class.list-layout]="Shared.noteViewType.value === 'list'">
-    @let filteredNotes = notes | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value;
+    @let filteredNotes = notes | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value:Shared.composerDraftSyncId;
     @for (note of visibleNotes(filteredNotes); track note.id) {
       <div #noteEL class="note-container"
         [attr.data-note-ink]="note.bgColor || hasRealBgImage(note.bgImage) ? noteTextColor(note) : null"

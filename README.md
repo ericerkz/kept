@@ -269,10 +269,16 @@ Useful environment variables are documented in `docker-compose.yml`. The common 
 - `KEPT_OIDC_SCOPES`: scopes requested from the provider. Defaults to `openid profile email`.
 - `KEPT_SESSION_TTL_DAYS`: login session lifetime. Defaults to 30 days.
 - `KEPT_CORS_ALLOW_ALL` / `KEPT_CORS_ORIGINS`: CORS behavior for remote clients and native shells. Native app WebView origins are allowed automatically when using `KEPT_CORS_ORIGINS`.
+- `KEPT_CALDAV_ALLOWED_PRIVATE_ORIGINS`: optional comma-separated origins for trusted CalDAV services on private networks, for example `http://calendar:5232,https://calendar.home:8443`.
+- `KEPT_PUSH_ALLOWED_PRIVATE_ORIGINS`: optional comma-separated HTTPS origins for custom private web-push services. Standard browser push providers need no exception.
 - `KEPT_TAKEOUT_UPLOAD_MAX`: Google Takeout ZIP upload cap. Defaults to `5GB`; only affects Takeout imports.
 - `PUID` / `PGID`: run the container as a specific Linux user/group.
 - `KEPT_ALLOW_RESTORE`: temporarily enables restore from backup during setup.
 - `VAPID_SUBJECT`: optional public URL/contact identity for web push. Kept auto-generates VAPID keys if you do not set them; only set this if push notifications need a more explicit public origin.
+
+CalDAV and web-push delivery block private, loopback, link-local, and reserved destinations by default, including for previously saved integrations. If your calendar or custom push service is internal, add only its exact origin (scheme, hostname/IP, and port) to the corresponding setting above and restart Kept. Paths, wildcards, and credentials are not accepted in these settings. An exception lets accounts on the instance reach that service; only list services you trust. CalDAV supports HTTP and HTTPS; push delivery requires HTTPS, and HTTPS certificate checks remain enabled. Use the final CalDAV URL, since redirects are not followed.
+
+These settings govern outgoing integration requests, not the address used to access Kept. They do not require an HTTP/LAN Kept installation to change its own URL or reverse-proxy setup.
 
 ### Inviting users by email (optional)
 

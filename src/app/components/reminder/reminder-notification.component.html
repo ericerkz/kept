@@ -8,6 +8,9 @@
       }
     </div>
     <div class="rn-actions">
+      @if (notification.noteId) {
+        <button type="button" class="rn-open" (click)="openNote()">Open note</button>
+      }
       <button type="button" class="rn-snooze" (click)="snooze()">Snooze 10 min</button>
       <button type="button" class="rn-dismiss" (click)="dismiss()">Dismiss</button>
     </div>

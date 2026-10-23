@@ -24,6 +24,8 @@ const { mountImageProxyRoutes } = require('./image-proxy');
 const { nextRepeatDueAt, isRepeatOccurrence } = require('./reminder-recurrence');
 const { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken } = require('./oauth-mcp');
 const mailer = require('./mailer');
+const { createIntegrationRequests } = require('./integration-requests');
+const integrationRequests = createIntegrationRequests();
 
 const app = express();
 app.set('trust proxy', 1);
@@ -764,6 +766,13 @@ async function init() {
     FROM mcp_unlock_challenges
   `);
   await run('DELETE FROM external_unlock_challenges WHERE expiresAt <= ?', [new Date().toISOString()]);
+  await run(`CREATE TABLE IF NOT EXISTS external_unlock_limits (
+    userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    noteId INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    windowStartMs INTEGER NOT NULL,
+    failedAttempts INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (userId, noteId)
+  )`);
   const firstUser = await get('SELECT id FROM users ORDER BY role = "admin" DESC, id LIMIT 1');
   if (firstUser) {
     await run('UPDATE notes SET ownerUserId = ? WHERE ownerUserId IS NULL', [firstUser.id]);
@@ -2941,6 +2950,7 @@ async function requireAuth(req, res, next) {
     req.user = session;
     req.token = token;
     if (mcpAccess) {
+      res.set('Cache-Control', 'private, no-store');
       req.mcpToken = mcpAccess.oauthClientId
         ? { id: mcpAccess.oauthGrantId, type: 'oauth', prefix: mcpAccess.oauthClientId }
         : { id: mcpAccess.mcpTokenId, type: 'mcp', prefix: mcpAccess.tokenPrefix };
@@ -3305,34 +3315,7 @@ function buildVCalendar(reminder) {
 }
 
 function caldavRequest(settings, reminderId, method, body) {
-  const https = require('https');
-  const http = require('http');
-  let base = settings.calendarUrl;
-  if (!base.endsWith('/')) base += '/';
-  const url = new URL(`${base}kept-reminder-${reminderId}.ics`);
-  const proto = url.protocol === 'https:' ? https : http;
-  const auth = Buffer.from(`${settings.username}:${settings.password}`).toString('base64');
-  const bodyBuf = body ? Buffer.from(body, 'utf8') : null;
-  return new Promise((resolve, reject) => {
-    const req = proto.request({
-      hostname: url.hostname,
-      port: url.port || (url.protocol === 'https:' ? 443 : 80),
-      path: url.pathname,
-      method,
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        ...(bodyBuf ? { 'Content-Type': 'text/calendar; charset=utf-8', 'Content-Length': bodyBuf.length } : {})
-      }
-    }, res => {
-      res.resume();
-      if (res.statusCode < 500) resolve(res.statusCode);
-      else reject(new Error(`CalDAV ${method} failed: HTTP ${res.statusCode}`));
-    });
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('Connection timed out.')); });
-    req.on('error', reject);
-    if (bodyBuf) req.write(bodyBuf);
-    req.end();
-  });
+  return integrationRequests.caldavRequest(settings, reminderId, method, body).then(result => result.status);
 }
 
 async function pushReminderToCaldav(settings, reminder) {
@@ -3353,7 +3336,7 @@ function buildReminderPushPayload(reminder) {
     imageUrl: reminder.imageUrl || null,
     icon: '/assets/images/keep2x.png',
     deepLink: reminder.deepLink || (reminder.noteId ? `kept://note/${reminder.noteId}` : null),
-    url: '/'
+    url: Number.isSafeInteger(reminder.noteId) && reminder.noteId > 0 ? `/?note=${reminder.noteId}` : '/'
   });
 }
 
@@ -3366,7 +3349,7 @@ async function sendReminderPush(reminder) {
 
   await Promise.all(subscriptions.map(async row => {
     try {
-      await webPush.sendNotification(JSON.parse(row.subscription), payload);
+      await integrationRequests.sendWebPush(JSON.parse(row.subscription), payload, webPush);
     } catch (error) {
       const sub = JSON.parse(row.subscription);
       const endpoint = sub.endpoint || '';
@@ -3387,27 +3370,7 @@ async function sendReminderPush(reminder) {
 }
 
 function testCaldavConnection(settings) {
-  const https = require('https');
-  const http = require('http');
-  const url = new URL(settings.calendarUrl);
-  const proto = url.protocol === 'https:' ? https : http;
-  const auth = Buffer.from(`${settings.username}:${settings.password}`).toString('base64');
-  return new Promise((resolve, reject) => {
-    const req = proto.request({
-      hostname: url.hostname,
-      port: url.port || (url.protocol === 'https:' ? 443 : 80),
-      path: url.pathname,
-      method: 'PROPFIND',
-      headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/xml', 'Depth': '0' }
-    }, res => {
-      res.resume();
-      if (res.statusCode < 500) resolve({ status: res.statusCode });
-      else reject(new Error(`HTTP ${res.statusCode}`));
-    });
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('Connection timed out.')); });
-    req.on('error', reject);
-    req.end();
-  });
+  return integrationRequests.caldavRequest(settings, null, 'PROPFIND', null);
 }
 
 // ─── ICS feed helpers ─────────────────────────────────────────────────────
@@ -4666,8 +4629,21 @@ async function mcpNoteIsUnlocked(req, noteId) {
   return !!row;
 }
 
+const EXTERNAL_LOCKED_NOTE_METADATA = new Set([
+  'id', 'syncId', 'ownerUserId', 'noteTitle', 'title', 'pinned', 'bgColor',
+  'isCbox', 'labels', 'binder', 'locked', 'completedChecklistCollapsed',
+  'archived', 'trashed', 'trashedAt', 'sortOrder', 'createdAt', 'updatedAt',
+  'collaborators', 'ownerDisplayName', 'ownerUsername', 'ownerAvatarPreset',
+  'lastEditorUserId', 'lastEditorDisplayName', 'isDemo', 'isCardPreview',
+  'ownerOnline', 'type', 'collaboratorUserIds'
+]);
+
 function mcpNoteResponse(note, includeLockedContent) {
-  const result = { ...note };
+  // A locked response is an explicit metadata projection. Extra client fields
+  // can contain content too, so clearing only noteBody is not sufficient.
+  const result = note.locked && !includeLockedContent
+    ? Object.fromEntries(Object.entries(note).filter(([key]) => EXTERNAL_LOCKED_NOTE_METADATA.has(key)))
+    : { ...note };
   delete result.lockSalt;
   delete result.lockHash;
   delete result.ownerAvatarDataUrl;
@@ -4680,6 +4656,13 @@ function mcpNoteResponse(note, includeLockedContent) {
     result.checkBoxes = [];
     result.images = [];
     result.attachments = [];
+    result.bgImage = '';
+    result.previewText = '';
+    result.bodyPreview = '';
+    result.checklistPreview = [];
+    result.linkCount = 0;
+    result.attachmentCount = 0;
+    result.hasMoreImages = false;
     result.hasAttachments = false;
     result.lockedContentAvailable = false;
   } else if (result.locked) {
@@ -4687,6 +4670,31 @@ function mcpNoteResponse(note, includeLockedContent) {
   }
   return result;
 }
+
+async function externalNoteAccessAllowed(req, note) {
+  return !req.mcpToken || !note.locked || await mcpNoteIsUnlocked(req, note.id);
+}
+
+// Shared by all tokens for this account/note and persisted across restarts.
+// Call inside withDatabaseTransaction so simultaneous requests cannot bypass it.
+async function externalUnlockBudget(userId, noteId) {
+  const now = Date.now();
+  await run(`INSERT INTO external_unlock_limits (userId, noteId, windowStartMs)
+    VALUES (?, ?, ?) ON CONFLICT(userId, noteId) DO UPDATE SET
+      windowStartMs = excluded.windowStartMs, failedAttempts = 0
+    WHERE external_unlock_limits.windowStartMs <= ?`,
+  [userId, noteId, now, now - 15 * 60 * 1000]);
+  return get('SELECT * FROM external_unlock_limits WHERE userId = ? AND noteId = ?', [userId, noteId]);
+}
+
+function sendExternalUnlockLimit(res, budget) {
+  const retryAfter = Math.max(1, Math.ceil((budget.windowStartMs + 15 * 60 * 1000 - Date.now()) / 1000));
+  const minutes = Math.ceil(retryAfter / 60);
+  res.set('Retry-After', String(retryAfter));
+  return res.status(429).send(`Too many incorrect passcodes. Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`);
+}
+
+const externalUnlockLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, key: 'external-unlock' });
 
 app.get('/api/oauth/me', requireAuth, (req, res) => {
   res.json({
@@ -4720,12 +4728,18 @@ app.post('/api/mcp/locked-notes/:noteId/unlock', requireAuth, asyncRoute(async (
   const challenge = randomHex(32);
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + 10 * 60 * 1000).toISOString();
-  await run(
-    `INSERT INTO external_unlock_challenges
-     (token, principalType, principalId, userId, noteId, approved, createdAt, expiresAt)
-     VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
-    [challenge, req.mcpToken.type, req.mcpToken.id, req.user.id, noteId, createdAt.toISOString(), expiresAt]
-  );
+  const limited = await withDatabaseTransaction(async () => {
+    const budget = await externalUnlockBudget(req.user.id, noteId);
+    if (budget.failedAttempts >= 5) return budget;
+    await run(
+      `INSERT INTO external_unlock_challenges
+       (token, principalType, principalId, userId, noteId, approved, createdAt, expiresAt)
+       VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+      [challenge, req.mcpToken.type, req.mcpToken.id, req.user.id, noteId, createdAt.toISOString(), expiresAt]
+    );
+    return null;
+  });
+  if (limited) return sendExternalUnlockLimit(res, limited);
   const publicOrigin = String(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
   res.status(201).json({
     unlocked: false,
@@ -4740,6 +4754,7 @@ app.get('/api/mcp/locked-notes/:noteId/unlock', requireAuth, asyncRoute(async (r
 }));
 
 app.get('/api/mcp/unlock/:challenge', asyncRoute(async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
   const challenge = await get(
     `SELECT c.*, n.noteTitle FROM external_unlock_challenges c
      JOIN notes n ON n.id = c.noteId
@@ -4748,30 +4763,45 @@ app.get('/api/mcp/unlock/:challenge', asyncRoute(async (req, res) => {
   );
   if (!challenge) return res.status(404).send('This unlock request is invalid or has expired.');
   if (challenge.approved) return res.send('This note is already unlocked for external access. You can close this page.');
+  const budget = await get('SELECT * FROM external_unlock_limits WHERE userId = ? AND noteId = ?', [challenge.userId, challenge.noteId]);
+  if (budget?.failedAttempts >= 5 && budget.windowStartMs + 15 * 60 * 1000 > Date.now()) {
+    return sendExternalUnlockLimit(res, budget);
+  }
   const safeTitle = escapeHtml(plainText(challenge.noteTitle || '') || 'Locked note');
   res.type('html').send(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unlock Kept note</title><style>body{background:#202124;color:#e8eaed;font:16px system-ui;margin:0;padding:32px}main{max-width:420px;margin:10vh auto}input,button{box-sizing:border-box;font:inherit;width:100%;padding:12px;margin-top:12px}button{background:#fbbc04;border:0;color:#202124;font-weight:700;cursor:pointer}.hint{color:#9aa0a6;font-size:13px}</style></head><body><main><h1>Unlock ${safeTitle}</h1><p>Enter this note's Kept passcode. It is sent directly to your Kept server and is not shared with the connected client or model.</p><form method="post"><input type="password" name="passcode" autocomplete="current-password" required autofocus><button type="submit">Unlock for 5 minutes</button></form><p class="hint">This only unlocks this note for the requesting connection.</p></main></body></html>`);
 }));
 
-app.post('/api/mcp/unlock/:challenge', express.urlencoded({ extended: false, limit: '8kb' }), asyncRoute(async (req, res) => {
-  const challenge = await get(
-    `SELECT c.*, n.locked, n.lockSalt, n.lockHash FROM external_unlock_challenges c
-     JOIN notes n ON n.id = c.noteId
-     JOIN users u ON u.id = c.userId
-     WHERE c.token = ? AND c.expiresAt > ? AND u.mcpAllowLockedNotes = 1
-       AND ((c.principalType = 'mcp' AND u.mcpEnabled = 1)
-         OR (c.principalType = 'oauth' AND u.oauthEnabled = 1))`,
-    [String(req.params.challenge || ''), new Date().toISOString()]
-  );
-  if (!challenge) return res.status(404).send('This unlock request is invalid or has expired.');
-  if (Number(challenge.failedAttempts || 0) >= 5) {
-    return res.status(429).send('Too many incorrect attempts. Request a new unlock link from the agent.');
-  }
-  if (!verifyNotePasscode(challenge, String(req.body?.passcode || ''))) {
-    await run('UPDATE external_unlock_challenges SET failedAttempts = failedAttempts + 1 WHERE token = ?', [challenge.token]);
-    return res.status(401).send('Incorrect passcode. Go back and try again.');
-  }
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-  await run('UPDATE external_unlock_challenges SET approved = 1, expiresAt = ? WHERE token = ?', [expiresAt, challenge.token]);
+app.post('/api/mcp/unlock/:challenge', externalUnlockLimiter, express.urlencoded({ extended: false, limit: '8kb' }), asyncRoute(async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  const outcome = await withDatabaseTransaction(async () => {
+    const challenge = await get(
+      `SELECT c.*, n.locked, n.lockSalt, n.lockHash FROM external_unlock_challenges c
+       JOIN notes n ON n.id = c.noteId
+       JOIN users u ON u.id = c.userId
+       WHERE c.token = ? AND c.expiresAt > ? AND u.mcpAllowLockedNotes = 1
+         AND ((c.principalType = 'mcp' AND u.mcpEnabled = 1)
+           OR (c.principalType = 'oauth' AND u.oauthEnabled = 1))`,
+      [String(req.params.challenge || ''), new Date().toISOString()]
+    );
+    if (!challenge) return { status: 404 };
+    const budget = await externalUnlockBudget(challenge.userId, challenge.noteId);
+    if (budget.failedAttempts >= 5 || Number(challenge.failedAttempts || 0) >= 5) return { budget };
+    if (!verifyNotePasscode(challenge, String(req.body?.passcode || ''))) {
+      await run('UPDATE external_unlock_limits SET failedAttempts = failedAttempts + 1 WHERE userId = ? AND noteId = ?', [challenge.userId, challenge.noteId]);
+      await run('UPDATE external_unlock_challenges SET failedAttempts = failedAttempts + 1 WHERE token = ?', [challenge.token]);
+      if (budget.failedAttempts + 1 >= 5) return { budget };
+      return { status: 401 };
+    }
+    // Replaying an already-approved link must not extend its authorization.
+    if (!challenge.approved) {
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      await run('UPDATE external_unlock_challenges SET approved = 1, expiresAt = ? WHERE token = ?', [expiresAt, challenge.token]);
+    }
+    return { status: 200 };
+  });
+  if (outcome.budget) return sendExternalUnlockLimit(res, outcome.budget);
+  if (outcome.status === 404) return res.status(404).send('This unlock request is invalid or has expired.');
+  if (outcome.status === 401) return res.status(401).send('Incorrect passcode. Go back and try again.');
   res.send('Note unlocked for external access for five minutes. You can close this page.');
 }));
 
@@ -4936,11 +4966,31 @@ app.get('/api/uploads/images/:filename', requireAuth, asyncRoute(async (req, res
   );
   if (!image) return res.status(404).send('Image not found.');
 
+  if (req.mcpToken) {
+    // Check actual content references too: older imports can have incomplete
+    // media-index linkage. An unlinked upload alone is not proof of access.
+    const references = await all(`SELECT n.id, n.locked FROM notes n
+      WHERE (EXISTS (SELECT 1 FROM note_images ni WHERE ni.noteId = n.id AND ni.storedFilename = ?)
+        OR instr(n.noteBody, ?) > 0 OR instr(n.images, ?) > 0 OR instr(n.bgImage, ?) > 0)
+      AND (n.ownerUserId = ? OR EXISTS (
+        SELECT 1 FROM note_collaborators nc WHERE nc.noteId = n.id AND nc.userId = ?))`,
+    [filename, filename, filename, filename, req.user.id, req.user.id]);
+    let allowed = references.length > 0;
+    for (const note of references) {
+      // Adding a known locked-image URL to a new unlocked note must not
+      // turn that note into a way around the original note's lock.
+      if (!await externalNoteAccessAllowed(req, note)) { allowed = false; break; }
+    }
+    if (!allowed) return res.status(423).send('Unlock the note before reading its image through external access.');
+  }
+
   const filePath = path.join(uploadDir, filename);
   if (!fs.existsSync(filePath)) return res.status(404).send('Image file not found.');
 
   res.setHeader('Content-Type', image.mimeType || imageMimeType(filename));
-  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.vary('Authorization');
+  res.vary('Cookie');
+  res.setHeader('Cache-Control', req.mcpToken ? 'private, no-store' : 'private, max-age=3600');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.sendFile(filePath);
 }));
@@ -5045,6 +5095,14 @@ app.get('/api/attachments/:attachmentId', requireAuth, asyncRoute(async (req, re
   );
 
   if (!attachment) return res.status(404).json({ error: 'Attachment not found.' });
+
+  if (req.mcpToken) {
+    const note = await getAccessibleNote(attachment.noteId, req.user.id);
+    if (!note || !await externalNoteAccessAllowed(req, note)) {
+      return res.status(423).json({ error: 'Unlock the note before reading its attachment through external access.' });
+    }
+    res.set('Cache-Control', 'private, no-store');
+  }
 
   const filePath = attachmentPath(attachment.storedFilename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found.' });
@@ -5841,10 +5899,13 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     const limit = Math.min(Math.max(Number(req.query.limit) || 80, 1), 200);
     const cursor = decodeNotesCursor(req.query.cursor);
     const searchTokens = searchTokensFromQuery(req.query.q);
-    const searchWhere = noteSearchWhere(searchTokens);
+    const searchWhere = noteSearchWhere(searchTokens, { protectLockedContent: !!req.mcpToken });
     const searchOperators = searchOperatorsFromQuery(req.query.q);
     const operatorWhere = noteOperatorWhere(searchOperators);
     const whereClauses = [];
+    if (req.mcpToken && (searchOperators.hasImage || searchOperators.hasCheckbox || searchOperators.hasDrawing || searchOperators.hasUrl || searchOperators.hasAttachment)) {
+      whereClauses.push('locked = 0');
+    }
     const queryParams = [req.user.id, req.user.id, req.user.id, req.user.id];
     if (cursor) {
       whereClauses.push(`(
@@ -6047,7 +6108,10 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     } else {
       trace.mark('attachment-query-skipped');
     }
-    return sendJsonWithPerf(res, trace, { notes, nextCursor: hasMore ? encodeNotesCursor(page[page.length - 1]) : null });
+    return sendJsonWithPerf(res, trace, {
+      notes: req.mcpToken ? notes.map(note => mcpNoteResponse(note, false)) : notes,
+      nextCursor: hasMore ? encodeNotesCursor(page[page.length - 1]) : null
+    });
   }
 
   // Avatars (data URLs) can be hundreds of KB each. Joining `owner.avatarDataUrl`
@@ -6159,7 +6223,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
       ...c,
       online: realtimeClients.has(c.id)
     }));
-    return note;
+    return req.mcpToken ? mcpNoteResponse(note, false) : note;
   }));
 }));
 
@@ -6368,6 +6432,9 @@ app.put('/api/notes/:id/collaborators', requireAuth, asyncRoute(async (req, res)
   const noteId = Number(req.params.id);
   const note = await getOwnedNote(noteId, req.user.id);
   if (!note) return res.status(404).json({ error: 'Note not found.' });
+  if (!await externalNoteAccessAllowed(req, note)) {
+    return res.status(423).json({ error: 'Unlock the note before changing its collaborators through external access.' });
+  }
   if (!note.syncId) {
     note.syncId = `note-${crypto.randomUUID()}`;
     await run('UPDATE notes SET syncId = ? WHERE id = ?', [note.syncId, noteId]);
@@ -6526,7 +6593,8 @@ app.post('/api/notes', requireAuth, asyncRoute(async (req, res) => {
   }
   await broadcastNoteChange(result.id, 'created', [req.user.id], { syncId });
   const created = await getAccessibleNote(result.id, req.user.id);
-  res.status(201).json(dbNoteToApi(created));
+  const response = dbNoteToApi(created);
+  res.status(201).json(req.mcpToken ? mcpNoteResponse(response, true) : response);
 }));
 
 app.put('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
@@ -7261,7 +7329,16 @@ app.get('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
      ORDER BY reminders.dueAtUtc`,
     [req.user.id]
   );
-  res.json(await enrichReminderResponses(reminders));
+  let visible = reminders;
+  if (req.mcpToken) {
+    const access = await Promise.all(reminders.map(async reminder => {
+      if (!reminder.noteId) return true;
+      const note = await getAccessibleNote(reminder.noteId, req.user.id);
+      return !!note && await externalNoteAccessAllowed(req, note);
+    }));
+    visible = reminders.filter((_reminder, index) => access[index]);
+  }
+  res.json(await enrichReminderResponses(visible));
 }));
 
 // ─── ICS feed routes ───────────────────────────────────────────────────────
@@ -7338,10 +7415,7 @@ app.get('/api/push/vapid-public-key', requireAuth, (_req, res) => {
 });
 
 app.post('/api/push/subscriptions', requireAuth, asyncRoute(async (req, res) => {
-  const subscription = req.body.subscription;
-  if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
-    return res.status(400).json({ error: 'A valid push subscription is required.' });
-  }
+  const subscription = await integrationRequests.validatePushSubscription(req.body.subscription);
 
   const now = new Date().toISOString();
   await run(
@@ -7457,6 +7531,9 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
   if (noteIdVal) {
     const note = await getAccessibleNote(noteIdVal, req.user.id);
     if (!note) return res.status(404).json({ error: 'Note not found.' });
+    if (!await externalNoteAccessAllowed(req, note)) {
+      return res.status(423).json({ error: 'Unlock the note before modifying its reminders through external access.' });
+    }
   }
   const now = new Date().toISOString();
   const stamp = serverLwwStamp();
@@ -7533,6 +7610,12 @@ app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
   const reminder = await get('SELECT * FROM reminders WHERE id = ? AND userId = ?', [Number(req.params.id), req.user.id]);
   if (!reminder) return res.status(404).json({ error: 'Reminder not found.' });
   if (!(await reminderIsVisibleToUser(reminder, req.user.id))) return res.status(404).json({ error: 'Reminder not found.' });
+  if (req.mcpToken && reminder.noteId) {
+    const note = await getAccessibleNote(reminder.noteId, req.user.id);
+    if (!note || !await externalNoteAccessAllowed(req, note)) {
+      return res.status(423).json({ error: 'Unlock the note before modifying its reminders through external access.' });
+    }
+  }
   const now = new Date().toISOString();
   const stamp = serverLwwStamp();
   const validStatuses = ['pending','fired','dismissed','snoozed'];
@@ -7613,10 +7696,12 @@ app.get('/api/caldav/settings', requireAuth, asyncRoute(async (req, res) => {
 }));
 
 app.put('/api/caldav/settings', requireAuth, asyncRoute(async (req, res) => {
-  const { serverUrl, calendarUrl, username, password, enabled } = req.body;
+  const { serverUrl, username, password, enabled } = req.body;
+  let { calendarUrl } = req.body;
   if (!calendarUrl || !username || !password) {
     return res.status(400).json({ error: 'calendarUrl, username, and password are required.' });
   }
+  calendarUrl = await integrationRequests.validateCaldavUrl(calendarUrl, { resolveAddress: !!enabled });
   const now = new Date().toISOString();
   const existing = await get('SELECT userId FROM caldav_settings WHERE userId = ?', [req.user.id]);
   const isPlaceholder = password === '••••••••';

@@ -582,6 +582,10 @@ export class InputComponent implements OnInit {
     } else if (hasContent && this.canSaveNote) {
       this.newNoteSyncId ||= `note-${createUuid()}`
       noteObj.syncId = this.newNoteSyncId
+      if (!this.mobileComposeMode && Capacitor.getPlatform() === 'web') {
+        // Set this before add() publishes the saved note to the overview.
+        this.Shared.composerDraftSyncId = this.newNoteSyncId
+      }
       id = await this.Shared.note.db.add(noteObj)
       if (!id || id === -1) {
         this.showNoteSaveError()
@@ -995,6 +999,7 @@ export class InputComponent implements OnInit {
 
   reset() {
     this.editorGeneration++
+    this.clearComposerDraft()
     this.newNoteId = undefined
     this.newNoteSyncId = undefined
     this.saveBaselineSnapshot = undefined
@@ -1047,6 +1052,12 @@ export class InputComponent implements OnInit {
     this.isSavingCollaborators = false
   }
 
+
+  private clearComposerDraft() {
+    if (this.newNoteSyncId && this.Shared.composerDraftSyncId === this.newNoteSyncId) {
+      this.Shared.composerDraftSyncId = undefined
+    }
+  }
 
   async pasteEvent(event: ClipboardEvent) {
     const imageFiles = this.clipboardImageFiles(event)
@@ -3939,6 +3950,7 @@ export class InputComponent implements OnInit {
 
   ngOnDestroy() {
     this.destroyed = true;
+    this.clearComposerDraft();
     document.removeEventListener('visibilitychange', this.visibilitySave)
     window.removeEventListener('pagehide', this.flushAutosave)
     for (const handle of this.backgroundSaveHandles) void handle.remove()

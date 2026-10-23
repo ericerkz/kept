@@ -114,6 +114,8 @@ export class SharedService {
   selectedNoteIds = new BehaviorSubject<number[]>([])
   searchScope = new BehaviorSubject<'all' | 'current'>(this.initialSearchScope())
   searchQuery = ''
+  // Keep an autosaved inline draft out of this tab's overview until closed.
+  composerDraftSyncId?: string
 
   initPwa() {
     const ua = navigator.userAgent;

@@ -5,7 +5,7 @@ const path = require('node:path');
 const net = require('node:net');
 const sqlite3 = require('sqlite3');
 
-async function startFixture() {
+async function startFixture({ env = {} } = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'kept-session-'));
   const probe = net.createServer();
   await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve));
@@ -21,7 +21,7 @@ async function startFixture() {
       env: { ...process.env, PORT: String(port), DATA_DIR: directory, SQLITE_PATH: dbPath,
         UPLOAD_DIR: path.join(directory, 'uploads'), ATTACHMENT_DIR: path.join(directory, 'attachments'),
         TAKEOUT_TMP_DIR: path.join(directory, 'imports'), KEPT_TEST_MODE: '1',
-        BASE_URL: origin, KEPT_CORS_ORIGINS: `http://localhost:${port}`, KEPT_CORS_ALLOW_ALL: '0' },
+        BASE_URL: origin, KEPT_CORS_ORIGINS: `http://localhost:${port}`, KEPT_CORS_ALLOW_ALL: '0', ...env },
       stdio: ['ignore', 'pipe', 'pipe']
     });
     child.stdout.on('data', data => { output += data; });

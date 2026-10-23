@@ -25,7 +25,8 @@ export class NotesToolsPipe implements PipeTransform {
   private noteHaystackCache = new WeakMap<NoteI, { title: string; body: string; searchText: string; cbCount: number; labelKey: string; binder: string; attachmentKey: string; haystack: string }>()
   private static normalizeEl: HTMLDivElement | null = null
 
-  transform(object: NoteI[], type: string, searchQuery = '', searchScope: 'all' | 'current' = 'all'): NoteI[] {
+  transform(object: NoteI[], type: string, searchQuery = '', searchScope: 'all' | 'current' = 'all', hiddenSyncId?: string): NoteI[] {
+    if (hiddenSyncId) object = object.filter(note => note.syncId !== hiddenSyncId)
     let notes: NoteI[]
     const isSearching = !!searchQuery.trim()
     const activeNotes = object.filter(x => x.trashed === false && x.archived === false)

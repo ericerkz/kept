@@ -1,6 +1,6 @@
 {
   "name": "keep",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "scripts": {
     "ng": "ng",
     "start": "concurrently \"npm run api\" \"npm run client\"",
@@ -10,12 +10,14 @@
     "test:sync": "node server/sync-smoke.test.js",
     "test:managed-hosting": "node server/managed-hosting.test.js",
     "test:invite": "node server/invite.test.js",
+    "test:integration-requests": "node --test server/integration-requests.test.js",
     "test:offline-sync-status": "node --test scripts/offline-sync-status.test.cjs",
     "test:uuid": "node --test src/app/utils/uuid.test.ts",
     "test:uuid:http": "node scripts/uuid-http-test.mjs",
     "test:native": "node server/native-client.test.js",
     "test:native-signout": "node --test scripts/native-signout.test.cjs",
     "test:reminders": "node --test server/reminder-recurrence.test.js",
+    "test:reminder-navigation": "node --test scripts/reminder-navigation.test.cjs",
     "mcp": "node mcp/index.mjs",
     "test:mcp": "node --test mcp/*.test.mjs",
     "purgecss": "purgecss -c purgecss.config.js",

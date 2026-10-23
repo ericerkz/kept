@@ -1,5 +1,6 @@
 import { createNoteHtmlContainer, sanitizeNoteHtml } from '../utils/note-html';
-import { Injectable } from '@angular/core';
+import { Injectable, NgZone } from '@angular/core';
+import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { BehaviorSubject, firstValueFrom, Subject } from 'rxjs';
@@ -149,7 +150,9 @@ export class ReminderService {
     private offlineStore: OfflineStoreService,
     private offlineSync: OfflineSyncService,
     private userPreferences: UserPreferencesService,
-    private nativeWorkspace: NativeWorkspaceService
+    private nativeWorkspace: NativeWorkspaceService,
+    private router: Router,
+    private zone: NgZone
   ) {
     this.nativeWorkspace.occurrences$.subscribe(reminder => this.firedReminder$.next({reminderId:reminder.id,noteId:reminder.noteId,title:reminder.title,body:reminder.body,source:'native'}));
     this.nativeWorkspace.capabilities$.subscribe(capabilities => { if (capabilities?.durableActions) void this.loadCachedReminders().catch(console.error); });
@@ -744,11 +747,24 @@ export class ReminderService {
     });
   }
 
+  async openReminderNote(noteId: number | null | undefined): Promise<boolean> {
+    if (!Number.isSafeInteger(noteId) || !noteId || noteId === -1) return false;
+    const currentPath = this.router.url.split(/[?#]/, 1)[0];
+    const inNotes = /^\/(?:archive|trash|reminders|attachments|shared|binder\/[^/]+|label\/[^/]+)?$/.test(currentPath);
+    // Notification callbacks can run outside Angular's zone. Router navigation
+    // keeps an active notes view mounted for save-before-switch/passcode checks.
+    return this.zone.run(() => this.router.navigate(inNotes ? [] : ['/'], {
+      queryParams: { note: noteId }, ...(inNotes ? { queryParamsHandling: 'merge' as const } : {})
+    }));
+  }
+
   private listenForServiceWorkerMessages() {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
     navigator.serviceWorker.addEventListener('message', event => {
       if (event.data?.type === 'push-reminder-fired' && event.data.payload) {
         this.handleFired({ ...event.data.payload, source: 'sw-push' });
+      } else if (event.data?.type === 'notification-click') {
+        this.openReminderNote(event.data.payload?.noteId).catch(console.error);
       }
     });
   }

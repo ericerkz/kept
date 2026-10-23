@@ -89,6 +89,14 @@ services:
       # - VAPID_PRIVATE_KEY=
       # - VAPID_SUBJECT=https://kept.example.com
 
+      # Outgoing CalDAV and web-push requests block private destinations by
+      # default. For trusted internal services only, list exact origins
+      # (scheme + host + port; no paths, wildcards, or embedded credentials).
+      # These exceptions apply to all accounts, not incoming Kept connections.
+      # CalDAV supports HTTP/HTTPS; push requires HTTPS with a valid certificate.
+      # - KEPT_CALDAV_ALLOWED_PRIVATE_ORIGINS=http://calendar:5232
+      # - KEPT_PUSH_ALLOWED_PRIVATE_ORIGINS=https://push.internal:8443
+
       # Google Takeout import ZIP cap. Default is 5GB and applies only to
       # Google Keep Takeout imports, not normal note images or attachments.
       # Large uploads may still be limited by Cloudflare/Nginx/etc.; import

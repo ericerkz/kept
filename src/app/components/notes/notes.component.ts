@@ -643,6 +643,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       + '|' + this.currentPageName
       + '|' + this.Shared.searchQuery
       + '|' + this.Shared.searchScope.value
+      + '|' + (this.Shared.composerDraftSyncId || '')
       + '|' + this.visibleNoteLimit
       + '|' + (this.mainContainer?.nativeElement?.clientWidth || 0)
       + '|' + (window?.innerWidth || 0)
@@ -671,7 +672,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private pageNotes() {
-    return this.notesTools.transform(this.Shared.note.all || [], this.currentPageName, this.Shared.searchQuery, this.Shared.searchScope.value)
+    return this.notesTools.transform(this.Shared.note.all || [], this.currentPageName, this.Shared.searchQuery, this.Shared.searchScope.value, this.Shared.composerDraftSyncId)
   }
 
   private maybeBackfillFilteredPage() {

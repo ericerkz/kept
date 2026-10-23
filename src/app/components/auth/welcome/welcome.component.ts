@@ -70,7 +70,7 @@ interface ManagedHostingPlugin {
           <span class="material-symbols-outlined chevron" aria-hidden="true">chevron_right</span>
         </button>
       }
-      @if (managedHostingOffering?.available) {
+      @if (managedHostingSignupEnabled && managedHostingOffering?.available) {
         <button type="button" class="welcome-option primary" [attr.aria-label]="managedHostingOffering?.title" [disabled]="busy" (click)="startManagedHosting()">
           <span class="lead"><span class="material-symbols-outlined" aria-hidden="true">cloud</span></span>
           <span class="text">
@@ -92,13 +92,16 @@ interface ManagedHostingPlugin {
   </section></main>`
 })
 export class WelcomeComponent implements OnInit {
+  // Kept Cloud signup is not ready to ship. Re-enable for its launch; the
+  // welcome card and native KeptManagedHosting integration are retained below.
+  readonly managedHostingSignupEnabled = false;
   busy = false;
   error = '';
   managedHostingOffering: ManagedHostingOffering | null = null;
   constructor(public workspace: WorkspaceService, private router: Router) {}
 
   async ngOnInit() {
-    if (!Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('KeptManagedHosting')) return;
+    if (!this.managedHostingSignupEnabled || !Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('KeptManagedHosting')) return;
     try {
       const offering = await registerPlugin<ManagedHostingPlugin>('KeptManagedHosting').getOffering();
       if (offering?.available) this.managedHostingOffering = offering;
