@@ -42,6 +42,15 @@ that boundary doesn't erode over time.
   *upstream of Kept* (a provider's own suspension gateway, not Kept
   itself) that Kept's own web/native clients recognize and show as a
   billing-paused message rather than a generic network error.
+- A generic native-plugin extension point in the first-run welcome
+  screen (`src/app/components/auth/welcome/welcome.component.ts`): if a
+  `KeptManagedHosting` Capacitor plugin is registered, the screen shows
+  a third option using whatever title/description/price/badge strings
+  that plugin returns, and hands the tap off to the plugin's own
+  `start()`. This component has no managed-hosting provider's name,
+  price, or copy hardcoded in it anywhere - a native app ships that
+  plugin (and all of that provider-specific business logic) in its own,
+  separate, private repository.
 
 None of this requires knowing who the provider is, what they charge, how
 their billing works, or anything about their infrastructure. A different

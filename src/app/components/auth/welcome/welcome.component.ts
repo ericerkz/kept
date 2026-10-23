@@ -1,7 +1,26 @@
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { registerPlugin, Capacitor } from '@capacitor/core';
 import { WorkspaceService } from '../../../services/workspace.service';
+
+// A generic, provider-agnostic extension point: any managed-hosting
+// provider's native app can register a plugin by this name and offer a
+// third onboarding option here. This component never hardcodes a
+// provider's name, pricing, or copy - whatever the plugin returns is
+// displayed verbatim, the same way managed-hosting metadata is shown
+// generically elsewhere in Settings. See docs/managed-hosting.md.
+interface ManagedHostingOffering {
+  available: boolean;
+  title: string;
+  description: string;
+  priceLabel?: string;
+  badge?: string;
+}
+
+interface ManagedHostingPlugin {
+  getOffering(): Promise<ManagedHostingOffering>;
+  start(): Promise<void>;
+}
 
 @Component({
   selector: 'app-welcome', standalone: false,
@@ -33,6 +52,10 @@ import { WorkspaceService } from '../../../services/workspace.service';
     :host-context(.light-theme) .welcome-option.secondary { border-color: #1a73e8; color: #1a73e8; }
     :host-context(.light-theme) .welcome-option.secondary .lead { background: rgb(26 115 232 / 12%); color: #1a73e8; }
     :host-context(.light-theme) .welcome-option.secondary small { color: #5f6368; }
+    .welcome-option .badge {
+      background: #34a853; border-radius: 999px; color: #fff; flex: 0 0 auto; font-family: Roboto, Arial, sans-serif;
+      font-size: 11px; font-weight: 700; letter-spacing: .02em; padding: 3px 9px; text-transform: uppercase;
+    }
   `],
   template: `<main class="auth-page"><section class="auth-panel welcome-panel">
     <div class="brand-row"><img src="assets/images/keep2x.fw.png" width="49" alt="Kept"><span>Kept</span></div>
@@ -47,6 +70,19 @@ import { WorkspaceService } from '../../../services/workspace.service';
           <span class="material-symbols-outlined chevron" aria-hidden="true">chevron_right</span>
         </button>
       }
+      @if (managedHostingOffering?.available) {
+        <button type="button" class="welcome-option primary" [attr.aria-label]="managedHostingOffering?.title" [disabled]="busy" (click)="startManagedHosting()">
+          <span class="lead"><span class="material-symbols-outlined" aria-hidden="true">cloud</span></span>
+          <span class="text">
+            <strong>{{managedHostingOffering?.title}}
+              @if (managedHostingOffering?.badge) { <span class="badge">{{managedHostingOffering?.badge}}</span> }
+            </strong>
+            <small>{{managedHostingOffering?.description}}</small>
+            @if (managedHostingOffering?.priceLabel) { <small>{{managedHostingOffering?.priceLabel}}</small> }
+          </span>
+          <span class="material-symbols-outlined chevron" aria-hidden="true">chevron_right</span>
+        </button>
+      }
       <button type="button" class="welcome-option secondary" aria-label="Have a server? Connect to a server" [disabled]="busy" (click)="connect()">
         <span class="lead"><span class="material-symbols-outlined" aria-hidden="true">dns</span></span>
         <span class="text"><strong>Have a server?</strong><small>Connect to your own Kept server to sync, share and use your notes anywhere.</small></span>
@@ -55,10 +91,20 @@ import { WorkspaceService } from '../../../services/workspace.service';
     </div>
   </section></main>`
 })
-export class WelcomeComponent {
+export class WelcomeComponent implements OnInit {
   busy = false;
   error = '';
+  managedHostingOffering: ManagedHostingOffering | null = null;
   constructor(public workspace: WorkspaceService, private router: Router) {}
+
+  async ngOnInit() {
+    if (!Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('KeptManagedHosting')) return;
+    try {
+      const offering = await registerPlugin<ManagedHostingPlugin>('KeptManagedHosting').getOffering();
+      if (offering?.available) this.managedHostingOffering = offering;
+    } catch { /* no managed-hosting option configured on this build */ }
+  }
+
   async useLocal() {
     this.busy = true;
     try { await this.workspace.createLocal(); await this.router.navigateByUrl('/'); }
@@ -72,6 +118,14 @@ export class WelcomeComponent {
         await registerPlugin<{ chooseServer(): Promise<void> }>('KeptWorkspace').chooseServer();
       } else await this.router.navigateByUrl('/login');
     } catch (error) { this.error = error instanceof Error ? error.message : 'Could not open server setup.'; }
+    finally { this.busy = false; }
+  }
+  async startManagedHosting() {
+    this.busy = true;
+    try {
+      await registerPlugin<ManagedHostingPlugin>('KeptManagedHosting').start();
+      await this.router.navigateByUrl('/');
+    } catch (error) { this.error = error instanceof Error ? error.message : 'Could not open sign-up.'; }
     finally { this.busy = false; }
   }
 }
