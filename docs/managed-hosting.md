@@ -33,6 +33,11 @@ that boundary doesn't erode over time.
   is the real one.
 - `GET /api/health`: a safe, secret-free liveness/readiness check any
   provisioner or load balancer can poll.
+- `KEPT_METRICS_TOKEN`: lets a provider's own monitoring read
+  `/api/settings/storage` (with a matching `X-Kept-Metrics-Token`
+  header) without a user session, so it can compare its own disk
+  measurement against what Kept reports without ever holding the
+  customer's password.
 - A documented `402` + `{"code": "CLOUD_SUSPENDED"}` response shape from
   *upstream of Kept* (a provider's own suspension gateway, not Kept
   itself) that Kept's own web/native clients recognize and show as a

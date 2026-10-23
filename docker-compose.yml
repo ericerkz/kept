@@ -118,6 +118,10 @@ services:
       # Hide the local backup scheduler UI because backups are handled
       # externally:
       # - KEPT_EXTERNAL_BACKUPS=1
+      #
+      # Let the hosting provider's own monitoring read /api/settings/storage
+      # with this header, without a user session or password:
+      # - KEPT_METRICS_TOKEN=
 
 
     volumes:

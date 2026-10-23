@@ -168,6 +168,19 @@ async function main() {
     assert.strictEqual(body.error.includes('quota'), true);
   });
 
+  // ── Metrics token: read-only access to storage usage without a login ───
+  await withServer({ KEPT_METRICS_TOKEN: 'metrics-secret-abc' }, async base => {
+    const noToken = await request(base, '/settings/storage');
+    assert.strictEqual(noToken.status, 401, 'storage usage still requires auth or a metrics token by default');
+
+    const wrongToken = await request(base, '/settings/storage', { headers: { 'X-Kept-Metrics-Token': 'wrong' } });
+    assert.strictEqual(wrongToken.status, 401);
+
+    const withToken = await request(base, '/settings/storage', { headers: { 'X-Kept-Metrics-Token': 'metrics-secret-abc' } });
+    assert.strictEqual(withToken.status, 200);
+    assert.strictEqual(typeof withToken.body.usedBytes, 'number');
+  });
+
   console.log('Managed hosting tests passed.');
 }
 

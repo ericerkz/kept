@@ -67,6 +67,13 @@ const STORAGE_QUOTA_BYTES = (() => {
 })();
 const SETUP_TOKEN = String(process.env.KEPT_SETUP_TOKEN || '');
 const SETUP_TOKEN_EXPIRES_AT = String(process.env.KEPT_SETUP_TOKEN_EXPIRES_AT || '');
+// A managed-hosting provider's own monitoring can't log in as the
+// customer (the provider never holds that password - see
+// docs/managed-hosting.md), but still needs to read non-sensitive
+// operational metrics like storage usage to compare against its own
+// disk measurement. This is read-only and scoped to metrics endpoints
+// only; it grants no write access and no note content.
+const METRICS_TOKEN = String(process.env.KEPT_METRICS_TOKEN || '');
 
 function setupTokenExpired() {
   if (!SETUP_TOKEN_EXPIRES_AT) return false;
@@ -84,6 +91,22 @@ function verifySetupToken(provided) {
   const b = Buffer.from(SETUP_TOKEN);
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
+}
+
+function verifyMetricsToken(provided) {
+  if (!METRICS_TOKEN || !provided) return false;
+  const a = Buffer.from(String(provided));
+  const b = Buffer.from(METRICS_TOKEN);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+// Lets a request in with either a normal user session or a valid
+// X-Kept-Metrics-Token, for the handful of read-only operational
+// endpoints a managed-hosting provider's own monitoring needs.
+function requireAuthOrMetricsToken(req, res, next) {
+  if (verifyMetricsToken(req.get('X-Kept-Metrics-Token'))) return next();
+  return requireAuth(req, res, next);
 }
 
 async function directorySizeBytes(dir) {
@@ -4252,7 +4275,7 @@ app.get('/api/settings/managed-hosting', asyncRoute(async (_req, res) => {
 // hosting portals that want to show the same numbers. usedBytes/percentUsed
 // are always reported; quotaBytes/remainingBytes are null when no quota is
 // configured (ordinary self-hosting).
-app.get('/api/settings/storage', requireAuth, asyncRoute(async (_req, res) => {
+app.get('/api/settings/storage', requireAuthOrMetricsToken, asyncRoute(async (_req, res) => {
   const usedBytes = await getStorageUsageBytes();
   const quotaBytes = STORAGE_QUOTA_BYTES;
   res.json({

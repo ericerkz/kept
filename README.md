@@ -284,6 +284,7 @@ These are for anyone *hosting Kept on someone else's behalf* (a managed-hosting 
 - `KEPT_MANAGED_ACCOUNT_URL`: a link to the provider's account/billing management page, shown in the same places.
 - `KEPT_STORAGE_QUOTA_BYTES`: enforces a storage allocation (database + attachments + uploaded images). Uploads/imports that would exceed it fail with `507 Insufficient Storage`. Unset means unlimited, as today.
 - `KEPT_EXTERNAL_BACKUPS`: set to `1` when backups are handled outside of Kept (e.g. by the hosting provider). Hides the local scheduled/manual backup UI so it isn't presented as authoritative when it isn't.
+- `KEPT_METRICS_TOKEN`: if set, requests to `/api/settings/storage` with a matching `X-Kept-Metrics-Token` header are allowed without a user session. Lets a managed-hosting provider's own monitoring compare its disk measurement against Kept's reported usage without ever holding the customer's password. Read-only, scoped to metrics endpoints; grants no write access and no note content.
 
 A managed-hosting provider's own suspension/billing gateway (not Kept itself) may respond to `/api/*` with `HTTP 402` and `{"code": "CLOUD_SUSPENDED"}` when a subscription lapses; Kept's own clients recognize that shape and show a billing-paused message instead of treating it as a generic network error.
 
