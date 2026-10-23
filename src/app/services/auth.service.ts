@@ -84,7 +84,14 @@ export class AuthService implements OnDestroy {
   private legacyBrowserToken = '';
   private lastSessionExpiredNoticeAt = 0;
   private suppressSessionExpiredUntil = 0;
+  private lastCloudSuspendedNoticeAt = 0;
   currentUser$ = new BehaviorSubject<AuthSessionI | null>(this.getStoredSession());
+  // True once a response carrying the managed-hosting suspension shape
+  // (HTTP 402, code CLOUD_SUSPENDED) has been seen. A managed-hosting
+  // provider's suspension gateway sends this when billing is inactive;
+  // it is not specific to any one provider, any of them can use the
+  // same shape.
+  cloudSuspended$ = new BehaviorSubject<boolean>(false);
   private mediaUrls = new Map<string, string>();
   private mediaCanonical = new Map<string, string>();
   private mediaRequests = new Map<string, Promise<string>>();
@@ -232,6 +239,32 @@ export class AuthService implements OnDestroy {
 
   suppressSessionExpiredNotice(durationMs = 8000) {
     this.suppressSessionExpiredUntil = Math.max(this.suppressSessionExpiredUntil, Date.now() + durationMs);
+  }
+
+  isCloudSuspendedError(error: unknown) {
+    return error instanceof HttpErrorResponse && error.status === 402 && error.error?.code === 'CLOUD_SUSPENDED';
+  }
+
+  // Distinct from notifySessionExpired: a suspended managed-hosting
+  // subscription is not a network failure or an expired login, and should
+  // read as a billing/sync-paused state rather than either of those.
+  // providerName is supplied by the caller (from managed-hosting metadata)
+  // so this stays provider-agnostic rather than naming any one vendor.
+  notifyCloudSuspended(error?: unknown, providerName?: string) {
+    if (error && !this.isCloudSuspendedError(error)) return false;
+    this.cloudSuspended$.next(true);
+    const now = Date.now();
+    if (now - this.lastCloudSuspendedNoticeAt < 4000) return true;
+    this.lastCloudSuspendedNoticeAt = now;
+    const who = providerName ? `${providerName} sync` : 'Sync';
+    try {
+      (window as any).Snackbar?.show({
+        pos: 'bottom-left',
+        text: `${who} is paused because the subscription is inactive.`,
+        duration: 5200
+      });
+    } catch {}
+    return true;
   }
 
   canonicalImageUrl(value: string) {

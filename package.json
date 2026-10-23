@@ -8,6 +8,7 @@
     "api": "nodemon --no-deprecation server/server.js",
     "build": "ng build && npm run purgecss",
     "test:sync": "node server/sync-smoke.test.js",
+    "test:managed-hosting": "node server/managed-hosting.test.js",
     "test:offline-sync-status": "node --test scripts/offline-sync-status.test.cjs",
     "test:uuid": "node --test src/app/utils/uuid.test.ts",
     "test:uuid:http": "node scripts/uuid-http-test.mjs",

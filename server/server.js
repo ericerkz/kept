@@ -51,6 +51,83 @@ const KEPT_VERSION = (() => {
 })();
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/ericerkz/kept/releases/latest';
 
+// ─── Managed hosting (optional) ────────────────────────────────────────────
+// A managed-hosting provider sets these to identify an instance as
+// hosted on the user's behalf, enforce a storage allocation, and gate
+// initial admin setup. None of this is specific to any one provider:
+// any managed-hosting provider can set the same env vars. Self-hosters who
+// set none of these see unchanged behavior.
+const MANAGED_HOSTING_ENABLED = process.env.KEPT_MANAGED_HOSTING === '1';
+const MANAGED_PROVIDER_NAME = String(process.env.KEPT_MANAGED_PROVIDER_NAME || '').trim();
+const MANAGED_ACCOUNT_URL = String(process.env.KEPT_MANAGED_ACCOUNT_URL || '').trim();
+const MANAGED_EXTERNAL_BACKUPS = process.env.KEPT_EXTERNAL_BACKUPS === '1';
+const STORAGE_QUOTA_BYTES = (() => {
+  const raw = Number(process.env.KEPT_STORAGE_QUOTA_BYTES);
+  return Number.isFinite(raw) && raw > 0 ? raw : null;
+})();
+const SETUP_TOKEN = String(process.env.KEPT_SETUP_TOKEN || '');
+const SETUP_TOKEN_EXPIRES_AT = String(process.env.KEPT_SETUP_TOKEN_EXPIRES_AT || '');
+
+function setupTokenExpired() {
+  if (!SETUP_TOKEN_EXPIRES_AT) return false;
+  const expiry = Date.parse(SETUP_TOKEN_EXPIRES_AT);
+  return Number.isFinite(expiry) && Date.now() > expiry;
+}
+
+// Constant-time compare so a mistyped/guessed token can't be distinguished
+// from a correct one by timing. Returns true when no token is configured at
+// all, preserving ordinary self-host behavior.
+function verifySetupToken(provided) {
+  if (!SETUP_TOKEN) return true;
+  if (setupTokenExpired()) return false;
+  const a = Buffer.from(String(provided || ''));
+  const b = Buffer.from(SETUP_TOKEN);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+async function directorySizeBytes(dir) {
+  let total = 0;
+  let entries;
+  try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return 0; }
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += await directorySizeBytes(fullPath);
+    else {
+      try { total += (await fs.promises.stat(fullPath)).size; } catch {}
+    }
+  }
+  return total;
+}
+
+// Covers the meaningful live tenant data (DB + attachments + uploaded
+// images), not offsite backups, staging, or Docker image layers.
+async function getStorageUsageBytes() {
+  let dbBytes = 0;
+  for (const suffix of ['', '-wal', '-shm']) {
+    try { dbBytes += fs.statSync(dbPath + suffix).size; } catch {}
+  }
+  const [uploadsBytes, attachmentsBytes] = await Promise.all([
+    directorySizeBytes(uploadDir),
+    directorySizeBytes(attachmentDir)
+  ]);
+  return dbBytes + uploadsBytes + attachmentsBytes;
+}
+
+// Call after the new bytes are already on disk (uploads land via multer
+// before this runs); additionalBytes lets callers account for bytes not
+// yet written, e.g. an estimated Takeout import size.
+async function assertWithinStorageQuota(additionalBytes = 0) {
+  if (!STORAGE_QUOTA_BYTES) return; // no quota configured: unlimited, as today
+  const used = await getStorageUsageBytes();
+  if (used + additionalBytes > STORAGE_QUOTA_BYTES) {
+    const error = new Error('Storage quota exceeded. Free up space or upgrade your plan.');
+    error.status = 507;
+    error.code = 'STORAGE_QUOTA_EXCEEDED';
+    throw error;
+  }
+}
+
 function configureDatabase(database) {
   database.configure('busyTimeout', 5000);
   return database;
@@ -1263,6 +1340,43 @@ function canonicalizeNotePayload(payload) {
     lockSalt: locked ? String(payload.lockSalt || '').slice(0, 256) : '',
     lockHash: locked ? String(payload.lockHash || '').slice(0, 512) : ''
   };
+}
+
+// Created exactly once, right after the original administrator is set up,
+// when managed-hosting metadata is configured. Idempotent via the
+// 'managedWelcomeNoteCreated' app setting so retried/duplicated setup calls
+// (or a restarted provisioning job) can't create it twice.
+async function createManagedWelcomeNoteIfNeeded(user, baseUrl) {
+  if (!MANAGED_HOSTING_ENABLED) return;
+  const already = await getAppSetting('managedWelcomeNoteCreated', '');
+  if (already === '1') return;
+
+  const providerName = MANAGED_PROVIDER_NAME || 'your hosting provider';
+  const origin = String(baseUrl || '').replace(/\/+$/, '');
+  const parts = [`<p>Your Kept web address:<br><a href="${origin}">${origin}</a></p>`];
+  if (MANAGED_ACCOUNT_URL) {
+    parts.push(`<p>Manage your subscription with ${providerName}:<br><a href="${MANAGED_ACCOUNT_URL}">${MANAGED_ACCOUNT_URL}</a></p>`);
+  }
+  if (STORAGE_QUOTA_BYTES) {
+    const gib = Math.round(STORAGE_QUOTA_BYTES / (1024 * 1024 * 1024));
+    parts.push(`<p>Your plan includes ${gib} GB of storage.</p>`);
+  }
+  parts.push(`<p>This server is backed up and updated automatically by ${providerName}.</p>`);
+
+  const now = new Date().toISOString();
+  const syncId = `note-${crypto.randomUUID()}`;
+  const result = await run(
+    `INSERT INTO notes
+      (ownerUserId, syncId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      user.id, syncId, `Welcome to ${providerName} ☁️`, parts.join(''),
+      '', '', '[]', '[]', 0, '[]', '', '{}', 0, '', '', 0, 0, null, Date.now(), now, now, user.id, 0
+    ]
+  );
+  await setAppSetting('managedWelcomeNoteCreated', '1');
+  await recordNoteSyncChange(result.id, 'upsert', [user.id]);
+  broadcastRealtime([user.id], { type: 'notes-changed' });
 }
 
 function imageMimeType(filename) {
@@ -3580,6 +3694,16 @@ app.post('/api/setup/admin', setupLimiter, asyncRoute(async (req, res) => {
   const row = await get('SELECT COUNT(*) AS count FROM users');
   if (row.count > 0) return res.status(409).json({ error: 'Initial setup is already complete.' });
 
+  // When a managed-hosting provider configures KEPT_SETUP_TOKEN, the first
+  // administrator can only be created by whoever holds that one-time token
+  // (e.g. the provisioning client, immediately after the instance comes
+  // up) rather than by whoever reaches the instance's URL first. Ordinary
+  // self-hosting without this env var is unaffected. The token is never
+  // logged, and is useless again the moment row.count > 0 above.
+  if (SETUP_TOKEN && !verifySetupToken(req.get('X-Kept-Setup-Token'))) {
+    return res.status(403).json({ error: 'A valid setup token is required to complete initial setup.' });
+  }
+
   const { totpSecret, totpToken, ...userData } = req.body;
   let backupCodes = null;
 
@@ -3592,6 +3716,8 @@ app.post('/api/setup/admin', setupLimiter, asyncRoute(async (req, res) => {
 
   const user = await createUser({ ...userData, role: 'admin', totpSecret: totpSecret || null, totpBackupCodes: backupCodes ? JSON.stringify(backupCodes) : null });
   await setAppSetting('originalAdminUserId', String(user.id));
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  await createManagedWelcomeNoteIfNeeded(user, baseUrl);
   res.status(201).json({ user: publicUser(user), backupCodes });
 }));
 
@@ -4107,6 +4233,54 @@ app.patch('/api/users/:id/toggle-enabled', requireAuth, requireAdmin, asyncRoute
   res.json(publicUser(updated));
 }));
 
+// Public, generic managed-hosting metadata: whether this instance is
+// managed, by whom, where to manage the account, and the storage
+// allocation. Safe to expose pre-login (mirrors /api/settings/registration)
+// since it contains no secrets. All fields are blank/false for ordinary
+// self-hosting, where no KEPT_MANAGED_* env vars are set.
+app.get('/api/settings/managed-hosting', asyncRoute(async (_req, res) => {
+  res.json({
+    managed: MANAGED_HOSTING_ENABLED,
+    providerName: MANAGED_HOSTING_ENABLED ? MANAGED_PROVIDER_NAME : '',
+    accountUrl: MANAGED_HOSTING_ENABLED ? MANAGED_ACCOUNT_URL : '',
+    externalBackups: MANAGED_HOSTING_ENABLED && MANAGED_EXTERNAL_BACKUPS,
+    quotaBytes: STORAGE_QUOTA_BYTES
+  });
+}));
+
+// Authenticated storage usage, for the Settings page and for managed
+// hosting portals that want to show the same numbers. usedBytes/percentUsed
+// are always reported; quotaBytes/remainingBytes are null when no quota is
+// configured (ordinary self-hosting).
+app.get('/api/settings/storage', requireAuth, asyncRoute(async (_req, res) => {
+  const usedBytes = await getStorageUsageBytes();
+  const quotaBytes = STORAGE_QUOTA_BYTES;
+  res.json({
+    usedBytes,
+    quotaBytes,
+    remainingBytes: quotaBytes ? Math.max(0, quotaBytes - usedBytes) : null,
+    percentUsed: quotaBytes ? Math.min(100, Math.round((usedBytes / quotaBytes) * 1000) / 10) : null
+  });
+}));
+
+// Safe health check for managed-hosting provisioners/load balancers: no
+// secrets, no user data, just enough to tell "alive" from "broken."
+app.get('/api/health', asyncRoute(async (_req, res) => {
+  const checks = { database: false, dataDirectoryWritable: false };
+  try {
+    await get('SELECT 1');
+    checks.database = true;
+  } catch {}
+  try {
+    const probePath = path.join(dataDir, `.health-${process.pid}`);
+    await fs.promises.writeFile(probePath, '');
+    await fs.promises.unlink(probePath);
+    checks.dataDirectoryWritable = true;
+  } catch {}
+  const healthy = checks.database && checks.dataDirectoryWritable;
+  res.status(healthy ? 200 : 503).json({ status: healthy ? 'ok' : 'unhealthy', version: KEPT_VERSION, checks });
+}));
+
 app.get('/api/settings/registration', asyncRoute(async (_req, res) => {
   const selfRegistrationEnabled = await getAppSetting('selfRegistrationEnabled', 'false');
   const requireApproval = await getAppSetting('requireApproval', 'true');
@@ -4534,6 +4708,12 @@ app.delete('/api/labels/:id', requireAuth, asyncRoute(async (req, res) => {
 
 app.post('/api/uploads/images', requireAuth, upload.single('image'), asyncRoute(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Image file is required.' });
+  try {
+    await assertWithinStorageQuota();
+  } catch (quotaError) {
+    fs.unlink(req.file.path, () => undefined);
+    return res.status(quotaError.status || 500).json({ error: quotaError.message });
+  }
   const uploadOperationId = String(req.body?.operationId || '').trim();
   if (uploadOperationId && (uploadOperationId.length > 160 || !/^[a-zA-Z0-9._:-]+$/.test(uploadOperationId))) {
     fs.unlink(req.file.path, () => undefined);
@@ -4637,6 +4817,12 @@ app.get('/api/uploads/images/:filename', requireAuth, asyncRoute(async (req, res
 
 app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single('file'), asyncRoute(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'File is required.' });
+  try {
+    await assertWithinStorageQuota();
+  } catch (quotaError) {
+    fs.unlink(req.file.path, () => undefined);
+    return res.status(quotaError.status || 500).json({ error: quotaError.message });
+  }
 
   const noteId = Number(req.params.noteId);
   const syncId = String(req.body?.syncId || req.query?.syncId || `attachment-${crypto.randomUUID()}`).trim();
@@ -8187,6 +8373,10 @@ async function readZipEntries(filePath) {
     entries.push({
       entryName: normalized,
       isDirectory: !!(raw.isDirectory ?? raw.type === 'Directory'),
+      // Uncompressed size from the ZIP's own metadata, used only as an
+      // upfront storage-quota estimate before extraction; never trusted
+      // for the actual per-entry/total extraction limits enforced below.
+      size: Number(raw.header?.size ?? raw.uncompressedSize ?? raw._file?.uncompressedSize ?? 0) || 0,
       getData: async () => {
         const data = await getRawData(raw);
         if (!data) return Buffer.alloc(0);
@@ -8225,6 +8415,12 @@ app.post('/api/import/google-takeout', requireAuth, googleTakeoutUpload, asyncRo
     if (!jsonEntries.length) {
       return res.status(400).json({ error: 'No Google Keep notes found in this ZIP. Upload the full Takeout ZIP that contains Takeout/Keep/*.json files. If your ZIP is large and this appears incorrectly, try importing over a direct LAN/SSH connection because some proxies/CDNs reject large uploads before Kept can inspect them.' });
     }
+
+    // Estimate the import's footprint from the ZIP's own uncompressed-size
+    // metadata so a storage-quota rejection happens before extraction, not
+    // after attachments have already been written to disk.
+    const estimatedImportBytes = entries.reduce((sum, e) => sum + (e.isDirectory ? 0 : e.size), 0);
+    await assertWithinStorageQuota(estimatedImportBytes);
 
     let imported = 0, skipped = 0, errors = 0, pinnedCount = 0, deduped = 0;
     const now = new Date().toISOString();

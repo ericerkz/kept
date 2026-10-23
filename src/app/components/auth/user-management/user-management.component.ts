@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { UserI, UserRole } from 'src/app/interfaces/users';
 import { AuthService } from 'src/app/services/auth.service';
+import { ManagedHostingService, ManagedHostingInfo } from 'src/app/services/managed-hosting.service';
 import { environment } from 'src/environments/environment';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 
@@ -63,7 +64,20 @@ export class UserManagementComponent implements OnInit {
   // Version / update info shown in the About section
   versionInfo: { current: string; latest: string | null; isOutdated: boolean; releaseUrl: string | null; checkedAt: string | null; checkError: string | null } | null = null;
 
-  constructor(public auth: AuthService, private zone: NgZone, private http: HttpClient) { }
+  // Managed-hosting metadata, when this instance is run by a provider
+  // rather than self-hosted.
+  managedHosting: ManagedHostingInfo | null = null;
+
+  constructor(
+    public auth: AuthService,
+    private zone: NgZone,
+    private http: HttpClient,
+    private managedHostingService: ManagedHostingService
+  ) { }
+
+  async loadManagedHosting() {
+    this.managedHosting = await this.managedHostingService.info();
+  }
 
   async loadVersionInfo() {
     try {
@@ -333,6 +347,7 @@ export class UserManagementComponent implements OnInit {
     this.loadUsers();
     this.loadRegistrationSettings();
     this.loadVersionInfo();
+    this.loadManagedHosting();
     this.loadBackupStatus().then(() => {
       setTimeout(() => this.initBackupTimePicker(), 500);
     });

@@ -95,6 +95,30 @@ services:
       # directly over LAN/SSH or raise proxy body-size/timeouts if needed.
       # - KEPT_TAKEOUT_UPLOAD_MAX=5GB
 
+      # ── Managed hosting (only relevant if you host Kept FOR someone else) ──
+      # Generic, provider-agnostic primitives. Leave all of these unset for
+      # ordinary self-hosting; nothing below changes default behavior.
+      # See README.md#managed-hosting-optional for details.
+      #
+      # Require a matching X-Kept-Setup-Token header to create the first
+      # administrator (useful when an instance is auto-provisioned and
+      # internet-reachable before anyone has created an account):
+      # - KEPT_SETUP_TOKEN=
+      # - KEPT_SETUP_TOKEN_EXPIRES_AT=
+      #
+      # Identify this instance as managed, and by whom:
+      # - KEPT_MANAGED_HOSTING=1
+      # - KEPT_MANAGED_PROVIDER_NAME=
+      # - KEPT_MANAGED_ACCOUNT_URL=
+      #
+      # Enforce a storage allocation (bytes). Uploads/imports that would
+      # exceed it fail with 507 Insufficient Storage:
+      # - KEPT_STORAGE_QUOTA_BYTES=5368709120
+      #
+      # Hide the local backup scheduler UI because backups are handled
+      # externally:
+      # - KEPT_EXTERNAL_BACKUPS=1
+
 
     volumes:
       - ./data:/app/data

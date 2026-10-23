@@ -13,6 +13,7 @@ import { ReminderService } from 'src/app/services/reminder.service';
 import { NotesService, TakeoutImportResult } from 'src/app/services/notes.service';
 
 import { AuthService, McpAccessSettings, OAuthAccessSettings, OidcLinkStatus } from 'src/app/services/auth.service';
+import { ManagedHostingService, ManagedHostingInfo, StorageUsage } from 'src/app/services/managed-hosting.service';
 import { PushNotificationService } from 'src/app/services/push-notification.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import {
@@ -166,8 +167,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
     public migration: WorkspaceMigrationService,
     public nativeWorkspace: NativeWorkspaceService,
     private offlineStore: OfflineStoreService,
-    public offlineSync: OfflineSyncService
+    public offlineSync: OfflineSyncService,
+    private managedHosting: ManagedHostingService
   ) {}
+
+  managedHostingInfo: ManagedHostingInfo | null = null;
+  managedStorageUsage: StorageUsage | null = null;
 
   storageUsed = '';
   recoveryItems: any[] = [];
@@ -346,6 +351,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.totpEnabled = !!this.authService.currentUser.totpEnabled;
       this.hasBackupCodes = !!this.authService.currentUser.hasBackupCodes;
     }
+
+    try {
+      this.managedHostingInfo = await this.managedHosting.info();
+      if (this.managedHostingInfo.managed) {
+        this.managedStorageUsage = await this.managedHosting.storageUsage();
+      }
+    } catch {}
 
     try {
       [this.mcpAccess, this.oauthAccess, this.oidcLinkStatus] = await Promise.all([

@@ -55,6 +55,22 @@
       </div>
     }
 
+    @if (managedHostingInfo?.managed) {
+      <div class="settings-group">
+        <h2 class="group-title color-blue"><span class="material-symbols-outlined" aria-hidden="true">cloud</span>{{managedHostingInfo?.providerName || 'Managed hosting'}}</h2>
+        <p class="section-desc">This Kept server is hosted and kept up to date by {{managedHostingInfo?.providerName || 'your hosting provider'}}.</p>
+        @if (managedStorageUsage) {
+          <p class="section-desc">
+            Storage: {{(managedStorageUsage.usedBytes / 1073741824).toFixed(2)}} GB
+            @if (managedStorageUsage.quotaBytes) { of {{(managedStorageUsage.quotaBytes / 1073741824).toFixed(0)}} GB used }
+          </p>
+        }
+        @if (managedHostingInfo?.accountUrl) {
+          <a class="btn-secondary" [href]="managedHostingInfo?.accountUrl" target="_blank" rel="noopener">Manage subscription</a>
+        }
+      </div>
+    }
+
     @if (recoveryItems.length) {
       <div class="settings-group">
         <h2>Changes needing review</h2>

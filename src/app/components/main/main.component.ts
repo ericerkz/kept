@@ -16,6 +16,7 @@ import { AuthService } from 'src/app/services/auth.service';
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
 import { OfflineSmartCaptureService } from 'src/app/services/offline-smart-capture.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
+import { ManagedHostingService } from 'src/app/services/managed-hosting.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
 
 interface SmartCaptureEstimateAction {
@@ -165,6 +166,8 @@ export class MainComponent implements OnInit, OnDestroy {
   private smartSavedPlacesLoaded = false;
   private smartCaptureValidatedOffline = false;
 
+  managedHostingProviderName = '';
+
   constructor(
     public Shared: SharedService,
     public auth: AuthService,
@@ -177,8 +180,11 @@ export class MainComponent implements OnInit, OnDestroy {
     private offlineSmartCapture: OfflineSmartCaptureService,
     private ngZone: NgZone,
     public offlineSync: OfflineSyncService,
-    private preferences: UserPreferencesService
-  ) { }
+    private preferences: UserPreferencesService,
+    private managedHosting: ManagedHostingService
+  ) {
+    this.managedHosting.info().then(info => { this.managedHostingProviderName = info.providerName; });
+  }
 
   openMobileComposer() {
     this.Shared.openMobileComposer.next(true)

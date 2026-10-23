@@ -1,5 +1,11 @@
 <app-navbar></app-navbar>
 <app-update-banner></app-update-banner>
+@if (auth.cloudSuspended$ | async) {
+  <aside role="status" class="offline-sync-state cloud-suspended-banner">
+    Your {{managedHostingProviderName || 'managed hosting'}} subscription is inactive. Sync is paused until billing is resolved.
+    <a routerLink="/settings">View account</a>
+  </aside>
+}
 @if (auth.isLocal && backups.reminderDue) {
   <aside role="status" class="offline-sync-state">
     <a routerLink="/settings">Keep a backup of your device notes</a>

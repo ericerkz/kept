@@ -274,6 +274,19 @@ Useful environment variables are documented in `docker-compose.yml`. The common 
 - `KEPT_ALLOW_RESTORE`: temporarily enables restore from backup during setup.
 - `VAPID_SUBJECT`: optional public URL/contact identity for web push. Kept auto-generates VAPID keys if you do not set them; only set this if push notifications need a more explicit public origin.
 
+### Managed hosting (optional)
+
+These are for anyone *hosting Kept on someone else's behalf* (a managed-hosting provider). They are independent, generic primitives — none of them are specific to any one provider — and are all optional; if you self-host for yourself, leave them unset and nothing changes. See [docs/managed-hosting.md](docs/managed-hosting.md) for the full rationale.
+
+- `KEPT_SETUP_TOKEN`: if set, the first administrator can only be created by a request that includes a matching `X-Kept-Setup-Token` header. Useful when an instance is automatically provisioned and exposed to the internet before anyone has had a chance to create the first account. Self-hosters who create their own first account locally don't need this. Becomes permanently irrelevant once the first administrator exists. Optionally paired with `KEPT_SETUP_TOKEN_EXPIRES_AT` (an ISO timestamp) to make an unused token expire.
+- `KEPT_MANAGED_HOSTING`: set to `1` to identify this instance as managed. Shows a "Managed hosting" panel in Settings and creates a one-time welcome note for the first administrator.
+- `KEPT_MANAGED_PROVIDER_NAME`: the hosting provider's display name, shown in that panel and the welcome note.
+- `KEPT_MANAGED_ACCOUNT_URL`: a link to the provider's account/billing management page, shown in the same places.
+- `KEPT_STORAGE_QUOTA_BYTES`: enforces a storage allocation (database + attachments + uploaded images). Uploads/imports that would exceed it fail with `507 Insufficient Storage`. Unset means unlimited, as today.
+- `KEPT_EXTERNAL_BACKUPS`: set to `1` when backups are handled outside of Kept (e.g. by the hosting provider). Hides the local scheduled/manual backup UI so it isn't presented as authoritative when it isn't.
+
+A managed-hosting provider's own suspension/billing gateway (not Kept itself) may respond to `/api/*` with `HTTP 402` and `{"code": "CLOUD_SUSPENDED"}` when a subscription lapses; Kept's own clients recognize that shape and show a billing-paused message instead of treating it as a generic network error.
+
 ## OAuth, MCP, And External Access
 
 Kept includes an optional OAuth 2.1 authorization server for third-party apps and integrations. OAuth clients can request read-only or read/write access to the supported Kept API without receiving a user's password or long-lived local MCP token. See [the OAuth integration guide](docs/oauth.md).

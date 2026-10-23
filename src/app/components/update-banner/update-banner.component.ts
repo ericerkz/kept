@@ -2,6 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 import { AuthService } from 'src/app/services/auth.service';
+import { ManagedHostingService } from 'src/app/services/managed-hosting.service';
 import { environment } from 'src/environments/environment';
 
 interface UpdateStatus {
@@ -28,10 +29,14 @@ export class UpdateBannerComponent implements OnInit {
   status: UpdateStatus | null = null;
   showNotes = false;
 
-  constructor(private http: HttpClient, public auth: AuthService) {}
+  constructor(private http: HttpClient, public auth: AuthService, private managedHosting: ManagedHostingService) {}
 
   async ngOnInit() {
     if (!this.auth.isAdmin) return;
+    // A managed-hosting provider owns the update lifecycle; nagging the
+    // customer to update themselves would contradict that.
+    const { managed } = await this.managedHosting.info();
+    if (managed) return;
     await this.refresh();
   }
 

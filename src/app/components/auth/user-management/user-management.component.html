@@ -178,6 +178,37 @@
       </section>
     </div>
 
+    @if (managedHosting?.managed) {
+      <!-- ── Group: Managed hosting ─────────────────────────────────────── -->
+      <div class="settings-group">
+        <h2 class="group-title color-orange">
+          <span class="material-symbols-outlined">cloud</span>
+          Managed hosting
+        </h2>
+        <section class="settings-section">
+          <div class="about-row">
+            <div class="about-label">Hosted by</div>
+            <div class="about-value">{{managedHosting?.providerName || 'a managed hosting provider'}}</div>
+          </div>
+          @if (managedHosting?.accountUrl) {
+            <div class="about-row">
+              <div class="about-label">Account &amp; billing</div>
+              <div class="about-value">
+                <a [href]="managedHosting?.accountUrl" target="_blank" rel="noopener">Manage subscription →</a>
+              </div>
+            </div>
+          }
+          @if (managedHosting?.quotaBytes) {
+            <div class="about-row">
+              <div class="about-label">Storage</div>
+              <div class="about-value">{{formatSize(managedHosting?.quotaBytes!)}} included</div>
+            </div>
+          }
+        </section>
+      </div>
+    }
+
+    @if (!managedHosting?.managed || !managedHosting?.externalBackups) {
     <!-- ── Group: Automated Backups ────────────────────────────────────── -->
     <div class="settings-group">
       <h2 class="group-title color-orange">
@@ -280,6 +311,19 @@
         }
       </section>
     </div>
+    } @else {
+      <div class="settings-group">
+        <h2 class="group-title color-orange">
+          <span class="material-symbols-outlined">backup</span>
+          Backups
+        </h2>
+        <section class="settings-section">
+          <p class="section-desc">
+            Backups are handled automatically by {{managedHosting?.providerName || 'your hosting provider'}}. There's nothing to configure here.
+          </p>
+        </section>
+      </div>
+    }
 
     <!-- ── Group: About ───────────────────────────────────────────────── -->
     <div class="settings-group">
@@ -293,14 +337,16 @@
           <div class="about-label">Kept version</div>
           <div class="about-value">
             <code>{{versionInfo?.current || '—'}}</code>
-            @if (versionInfo?.isOutdated && versionInfo?.latest) {
+            @if (managedHosting?.managed) {
+              <span class="version-tag uptodate">Updated automatically by {{managedHosting?.providerName || 'your hosting provider'}}</span>
+            } @else if (versionInfo?.isOutdated && versionInfo?.latest) {
               <span class="version-tag outdated">Update available: <code>{{versionInfo?.latest}}</code></span>
             } @else if (versionInfo?.latest && !versionInfo?.isOutdated) {
               <span class="version-tag uptodate">Up to date</span>
             }
           </div>
         </div>
-        @if (versionInfo?.releaseUrl) {
+        @if (!managedHosting?.managed && versionInfo?.releaseUrl) {
           <div class="about-row">
             <div class="about-label">Latest release</div>
             <div class="about-value">
