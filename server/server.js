@@ -5490,7 +5490,9 @@ async function applySyncReminderMutation(userId, mutation) {
   const incomingStamp = normalizeLwwStamp(mutation.lww || payload);
   let existing = mutation.protocolVersion === 2 ? await get('SELECT * FROM reminders WHERE syncId = ?', [syncId]) : await get('SELECT * FROM reminders WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);
   if (existing && existing.userId !== userId) return { ok: false, status: 403, error: 'Reminder not accessible.', syncId };
-  if (existing && type !== 'reminder.delete' && !(await reminderIsVisibleToUser(existing, userId))) {
+  // Trashed/archived notes suppress notifications, not their owners' queued edits.
+  // Keep the access check separate so offline reminder updates can drain on sync.
+  if (existing?.noteId && type !== 'reminder.delete' && !(await getAccessibleNote(existing.noteId, userId))) {
     return { ok: false, status: 404, error: 'The linked note is no longer accessible.', syncId };
   }
   if (existing && mutation.baseScheduleVersion !== undefined && Number(existing.scheduleVersion || 1) !== Number(mutation.baseScheduleVersion)) {
