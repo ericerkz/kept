@@ -1456,6 +1456,11 @@ app-input .editor-link-preview-slot {
   user-select: none;
 }
 
+app-input .editor-link-caret-line {
+  display: block;
+  min-height: 1em;
+}
+
 app-input .editor-link-previews {
   display: none !important;
 }
@@ -1710,6 +1715,7 @@ body.light-theme .reminder-chip.reminder-chip--past {
 // fighting it.
 .touch-dragging-ghost,
 .touch-dragging-ghost * {
+  pointer-events: none !important;
   transition: none !important;
   animation: none !important;
 }
@@ -2656,16 +2662,30 @@ body.light-theme .reminder-date-dialog {
   }
 
   .rd-location-candidate {
+    align-items: center;
     background: #fff;
     border: 1px solid #e1e3e8;
     border-radius: 14px;
     color: #202124;
     cursor: pointer;
+    display: flex;
     font-size: 1rem;
     font-weight: 700;
+    gap: 12px;
+    justify-content: space-between;
     min-height: 48px;
-    padding: 0 16px;
+    min-width: 0;
+    padding: 12px 16px;
     text-align: left;
+
+    .rd-location-candidate-name {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .rd-place-distance {
+      flex: 0 0 auto;
+    }
 
     &:hover {
       background: #f8fbff;
@@ -2928,7 +2948,7 @@ body.light-theme .reminder-date-dialog {
     border: none;
     border-radius: 14px;
     color: #2f7df6;
-    cursor: default;
+    cursor: pointer;
     display: inline-flex;
     font-size: 1.25rem;
     font-weight: 800;
@@ -2946,13 +2966,15 @@ body.light-theme .reminder-date-dialog {
       opacity: 0.72;
     }
 
-    .rd-switch {
+    .rd-trigger-switch {
       align-items: center;
       color: #70757d;
       display: inline-flex;
+      flex: 0 0 auto;
       font-size: 0.95rem;
       gap: 4px;
       margin-left: auto;
+      white-space: nowrap;
     }
   }
 
@@ -2994,13 +3016,6 @@ body.light-theme .reminder-date-dialog {
       opacity: 0.58;
     }
   }
-}
-
-.reminder-date-dialog.reminder-place-dialog.location-map-open {
-  max-height: calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  top: 50%;
 }
 
 @media (max-width: 660px), (max-height: 500px) and (orientation: landscape) {
@@ -3329,7 +3344,7 @@ body.light-theme .reminder-date-dialog {
         font-size: 23px;
       }
 
-      .rd-switch {
+      .rd-trigger-switch {
         font-size: 0.78rem;
       }
     }
@@ -3349,7 +3364,7 @@ body.light-theme .reminder-date-dialog {
 }
 
 @media (max-height: 500px) and (orientation: landscape) {
-  app-input.mobile-active .reminder-date-dialog {
+  app-input.mobile-active .reminder-date-dialog:not(.reminder-place-dialog) {
     max-height: calc(100dvh - 24px);
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -3368,6 +3383,58 @@ body.light-theme .reminder-date-dialog {
   app-input.mobile-active .reminder-place-dialog .rd-place-list,
   app-input.mobile-active .reminder-place-dialog .rd-place-manage-list {
     max-height: min(180px, 36dvh);
+  }
+}
+
+// Every place-picker view needs the same viewport bounds, including search
+// results and saved-place forms at unfolded widths beyond the phone breakpoint.
+// The editor's animation hint otherwise makes fixed dialogs use the note's
+// dimensions as their containing block instead of the viewport after resizing.
+app-notes .modal:has(.reminder-place-dialog, .reminder-picker) {
+  backface-visibility: visible !important;
+  will-change: auto !important;
+}
+
+.reminder-date-dialog.reminder-place-dialog {
+  --rd-available-height: calc(var(--kept-viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  align-content: start;
+  gap: 14px;
+  grid-auto-rows: max-content;
+  left: calc(50% + (env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)) / 2);
+  max-height: max(0px, calc(var(--rd-available-height) - 24px));
+  max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: clamp(16px, 3vw, 28px);
+  top: calc(var(--kept-viewport-offset-top, 0px) + env(safe-area-inset-top, 0px) + var(--rd-available-height) / 2);
+
+  .rd-place-header h2 {
+    font-size: clamp(1.25rem, 3vw, 1.5rem);
+  }
+
+  .rd-place-search {
+    min-height: 48px;
+
+    input { font-size: 1rem; }
+  }
+
+  .rd-place-map {
+    max-height: clamp(80px, calc(var(--rd-available-height) * 0.22), 180px);
+  }
+
+  .rd-arrive-choice {
+    font-size: 1rem;
+    height: auto;
+    min-height: 48px;
+    padding: 10px 14px;
+  }
+
+  .rd-place-cancel,
+  .rd-place-save {
+    font-size: 1rem;
+    height: auto;
+    min-height: 48px;
+    padding: 12px 14px;
   }
 }
 

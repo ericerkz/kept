@@ -42,6 +42,7 @@
   <div id="sidebar-binders" class="sidenav-binders" [hidden]="!bindersExpanded || Shared.binder.list.length === 0">
     @for (binder of Shared.binder.list; track binder.name) {
       <div routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="item is-binder"
+        [attr.data-binder-drop]="binder.name"
         (click)="onNavItemClick()"
         [title]="binder.name"
         [routerLink]="['/binder', binder.name]">
@@ -140,16 +141,27 @@
             (click)="addBinder(binderInput)"></div>
         </div>
         <div #binderError class="error" hidden>Binder already exists</div>
+        @if (binderEditError) {
+          <div class="error" role="alert">{{binderEditError}}</div>
+        }
       </div>
       <div class="label-list">
-        @for (binder of Shared.binder.list; track binder.name) {
-          <div class="labels-container">
+        @for (binder of Shared.binder.list; track binder.name; let index = $index) {
+          <div class="labels-container binder-edit-row">
             <div #binderIcon class="label-icon H" (click)="editBinder(binder.name).delete()"></div>
             <input #binderInput2 (focus)="binderIcon.classList.toggle('trash-icon')"
               (keydown.enter)="binderInput2.blur()"
               (blur)="editBinder(binder.name).update(binderInput2.value);binderIcon.classList.toggle('trash-icon')"
-              [value]="binder.name" type="text" placeholder="Enter binder name" maxlength="50">
+              [value]="binder.name" [disabled]="binderBusy" type="text" placeholder="Enter binder name" maxlength="50">
             <div class="pen-icon H" (click)="editBinder(binder.name).update(binderInput2.value)"></div>
+            <button type="button" class="binder-move" [disabled]="binderBusy || index === 0"
+              [attr.aria-label]="'Move ' + binder.name + ' up'" (click)="moveBinder(binder.name, -1, $event)">
+              <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span>
+            </button>
+            <button type="button" class="binder-move" [disabled]="binderBusy || index === Shared.binder.list.length - 1"
+              [attr.aria-label]="'Move ' + binder.name + ' down'" (click)="moveBinder(binder.name, 1, $event)">
+              <span class="material-symbols-outlined" aria-hidden="true">arrow_downward</span>
+            </button>
           </div>
         }
       </div>

@@ -62,7 +62,7 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 
 ## Use Kept Locally Without a Server
 
-With the 1.9 native iOS and Android apps, you can start using Kept without Docker, a server, or a Kept account:
+With the native iOS and Android apps, you can start using Kept without Docker, a server, or a Kept account:
 
 1. Install the native app using the App Store or Google Play links above.
 2. Choose **Use on this device** on the welcome screen.
@@ -220,6 +220,8 @@ If you access Kept through Tailscale, WireGuard, another VPN, a LAN hostname/IP,
 
 #### Custom header support in the mobile apps
 
+The native iOS and Android app origins are allowed automatically when neither CORS option is configured. You do not need `KEPT_CORS_ALLOW_ALL=1` just to connect the mobile apps. This default allows exact app origins without cross-origin cookie credentials; API authentication is still required. Explicit CORS allowlists and wildcard mode continue to work as configured.
+
 The native iOS and Android apps support optional custom connection headers for reverse proxies or access gateways that require them, such as Cloudflare Access service tokens or shared-secret proxy headers. Configure these only if your proxy setup requires them.
 
 Custom headers help the mobile apps pass normal Kept HTTP requests through a header-auth gateway, including login, loading notes, saving notes, attachments, and settings. They are not a replacement for Kept login; users still need a Kept account/session.
@@ -228,7 +230,9 @@ Custom headers do not apply to realtime WebSocket connections. Realtime presence
 
 #### OpenID Connect single sign-on
 
-Kept can use an OpenID Connect provider for optional single sign-on while keeping normal username/password login available. Set `BASE_URL`, `KEPT_OIDC_ISSUER`, and `KEPT_OIDC_CLIENT_ID`; confidential clients should also set `KEPT_OIDC_CLIENT_SECRET`. Every user first needs a local Kept account and must sign in locally once, then choose **Connect SSO account** in Settings. Kept does not automatically create or email-match accounts from OIDC identities.
+Kept can use an OpenID Connect provider for optional single sign-on. Username/password login stays available by default. Set `BASE_URL`, `KEPT_OIDC_ISSUER`, and `KEPT_OIDC_CLIENT_ID`; confidential clients should also set `KEPT_OIDC_CLIENT_SECRET`. Existing users can choose **Connect SSO account** in Settings. If self-registration is enabled, new users can sign in with the provider and finish creating their Kept account, subject to the existing approval setting. Kept never links accounts by matching email addresses.
+
+After linking and testing SSO for your existing users, including an administrator, you can require SSO with `KEPT_DISABLE_PASSWORD_LOGIN=1`. New users can still register through OIDC when self-registration is enabled; email invitations are paused. See the [OIDC setup guide](docs/oidc.md#require-single-sign-on) for setup and recovery instructions.
 
 The callback URL to register with your identity provider is `https://your-kept.example/api/auth/oidc/callback`. OIDC sign-in is an additional authentication path, not a replacement for Kept's own authorization rules. See the [OIDC setup guide](docs/oidc.md) for configuration and account-linking details.
 
@@ -267,6 +271,7 @@ Useful environment variables are documented in `docker-compose.yml`. The common 
 - `KEPT_OIDC_ISSUER` / `KEPT_OIDC_CLIENT_ID` / `KEPT_OIDC_CLIENT_SECRET`: optional upstream OIDC single sign-on provider.
 - `KEPT_OIDC_NAME`: label shown on the sign-in button. Defaults to `Single sign-on`.
 - `KEPT_OIDC_SCOPES`: scopes requested from the provider. Defaults to `openid profile email`.
+- `KEPT_DISABLE_PASSWORD_LOGIN`: set to `1` to require configured OIDC sign-in after linking an enabled administrator and your users. Off by default.
 - `KEPT_SESSION_TTL_DAYS`: login session lifetime. Defaults to 30 days.
 - `KEPT_CORS_ALLOW_ALL` / `KEPT_CORS_ORIGINS`: CORS behavior for remote clients and native shells. Native app WebView origins are allowed automatically when using `KEPT_CORS_ORIGINS`.
 - `KEPT_CALDAV_ALLOWED_PRIVATE_ORIGINS`: optional comma-separated origins for trusted CalDAV services on private networks, for example `http://calendar:5232,https://calendar.home:8443`.
@@ -291,20 +296,6 @@ Admins can always create accounts directly from User Management. If you'd rather
 - `KEPT_SMTP_FROM`: the `From` address on invite emails. Defaults to `Kept <no-reply@example.com>`.
 
 This works with any SMTP relay — a personal email account's SMTP, or any transactional-email provider's free tier — nothing here is tied to a specific vendor.
-
-### Managed hosting (optional)
-
-These are for anyone *hosting Kept on someone else's behalf* (a managed-hosting provider). They are independent, generic primitives — none of them are specific to any one provider — and are all optional; if you self-host for yourself, leave them unset and nothing changes. See [docs/managed-hosting.md](docs/managed-hosting.md) for the full rationale.
-
-- `KEPT_SETUP_TOKEN`: if set, the first administrator can only be created by a request that includes a matching `X-Kept-Setup-Token` header. Useful when an instance is automatically provisioned and exposed to the internet before anyone has had a chance to create the first account. Self-hosters who create their own first account locally don't need this. Becomes permanently irrelevant once the first administrator exists. Optionally paired with `KEPT_SETUP_TOKEN_EXPIRES_AT` (an ISO timestamp) to make an unused token expire.
-- `KEPT_MANAGED_HOSTING`: set to `1` to identify this instance as managed. Shows a "Managed hosting" panel in Settings and creates a one-time welcome note for the first administrator.
-- `KEPT_MANAGED_PROVIDER_NAME`: the hosting provider's display name, shown in that panel and the welcome note.
-- `KEPT_MANAGED_ACCOUNT_URL`: a link to the provider's account/billing management page, shown in the same places.
-- `KEPT_STORAGE_QUOTA_BYTES`: enforces a storage allocation (database + attachments + uploaded images). Uploads/imports that would exceed it fail with `507 Insufficient Storage`. Unset means unlimited, as today.
-- `KEPT_EXTERNAL_BACKUPS`: set to `1` when backups are handled outside of Kept (e.g. by the hosting provider). Hides the local scheduled/manual backup UI so it isn't presented as authoritative when it isn't.
-- `KEPT_METRICS_TOKEN`: if set, requests to `/api/settings/storage` with a matching `X-Kept-Metrics-Token` header are allowed without a user session. Lets a managed-hosting provider's own monitoring compare its disk measurement against Kept's reported usage without ever holding the customer's password. Read-only, scoped to metrics endpoints; grants no write access and no note content.
-
-A managed-hosting provider's own suspension/billing gateway (not Kept itself) may respond to `/api/*` with `HTTP 402` and `{"code": "CLOUD_SUSPENDED"}` when a subscription lapses; Kept's own clients recognize that shape and show a billing-paused message instead of treating it as a generic network error.
 
 ## OAuth, MCP, And External Access
 

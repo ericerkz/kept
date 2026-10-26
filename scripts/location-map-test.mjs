@@ -30,7 +30,7 @@ try {
    if(session)localStorage.setItem('gk_session',JSON.stringify(session));
    Object.defineProperty(navigator,'geolocation',{value:{getCurrentPosition(success,error){if(window.mapGeoDenied)error({code:1});else success({coords:window.mapGeo});}}});
    const permission=()=>({foregroundGranted:window.mapForeground,backgroundGranted:true,status:'granted'});
-   const resolve=async()=>{if(window.mapDelaySearch)await new Promise(done=>window.mapReleaseSearch=done);return{status:'resolved',location:{displayName:'Search result',latitude:40.7,longitude:-74,radiusMeters:120,source:'geocoder',confidence:'high'}};};
+   const resolve=async()=>{if(window.mapDelaySearch)await new Promise(done=>window.mapReleaseSearch=done);if(window.mapCandidates)return{status:'ambiguous',candidates:window.mapCandidates};return{status:'resolved',location:{displayName:'Search result',latitude:40.7,longitude:-74,radiusMeters:120,source:'geocoder',confidence:'high'}};};
    const workspaceMethods=['getCapabilities','activateWorkspace','publishSnapshot','listActions','acknowledgeActions','quarantineActions','syncReminders','cancelReminders','requestRemindersPermission'];
    const geofenceMethods=['getPermissionStatus','requestForegroundLocationPermission','getNotificationPermissionStatus','getPendingTriggeredEvents','syncGeofences','resolveLocation','locationMapPreview'];
    window.Capacitor={Plugins:{KeptIntelligence:{resolveLocation:resolve}},PluginHeaders:[{name:'KeptWorkspace',methods:workspaceMethods.map(name=>({name,rtype:'promise'}))},{name:'KeptGeofence',methods:geofenceMethods.map(name=>({name,rtype:'promise'}))}],
@@ -64,12 +64,71 @@ try {
   await page.locator('app-notes .note-container').getByText(title,{exact:true}).click();
   const editor=page.locator('app-notes .modal app-input');
   const openPlaces=async()=>{await editor.locator('.mobile-icon.alarm:visible,.alarm[data-pop]:visible').first().click();await page.locator('.rd-choice-card').filter({has:page.getByText('Place',{exact:true})}).click();};
+  await page.evaluate(()=>{window.mapGeoDenied=true;});
   await openPlaces();const dialog=page.getByRole('dialog',{name:'Set location reminder',exact:true});
+  await page.evaluate(()=>{window.mapCandidates=[
+   {displayName:'Wegmans',latitude:43.65,longitude:-79.38,radiusMeters:120,source:'geocoder',confidence:'high'},
+   {displayName:'Wegmans',latitude:43.651,longitude:-79.38,radiusMeters:120,source:'geocoder',confidence:'high'},
+   {displayName:'Wegmans Pharmacy with a long location name that should wrap',latitude:43.75,longitude:-79.38,radiusMeters:120,source:'geocoder',confidence:'high'},
+   {displayName:'Wegmans',latitude:43.76,longitude:-79.38,radiusMeters:120,source:'geocoder',confidence:'high'},
+   {displayName:'Wegmans Pharmacy',latitude:43.77,longitude:-79.38,radiusMeters:120,source:'geocoder',confidence:'high'}
+  ];});
+  await dialog.locator('input[name="locationPhrase"]').fill('Wegmans');
+  await dialog.locator('input[name="locationPhrase"]').press('Enter');
+  if(platform==='android')await page.getByRole('button',{name:'Allow location reminders',exact:true}).click();
+  const candidates=dialog.locator('.rd-location-candidate');
+  await candidates.nth(2).waitFor();
+  assert.equal(await candidates.locator('.rd-place-distance').count(),0,'search still works without device location; no invented distances');
+  await page.evaluate(()=>{window.mapGeoDenied=false;});
+  await dialog.locator('input[name="locationPhrase"]').press('Enter');
+  await candidates.nth(1).getByLabel('Distance from your current location: 111 m',{exact:true}).waitFor();
+  assert.equal(await candidates.nth(0).locator('.rd-place-distance').getAttribute('aria-label'),'Distance from your current location: 1 m');
+  assert.equal(await candidates.nth(2).locator('.rd-place-distance').getAttribute('aria-label'),'Distance from your current location: 11 km');
+  await page.setViewportSize({width:320,height:844});
+  assert.ok(await candidates.evaluateAll(rows=>rows.every(row=>{
+   const name=row.querySelector('.rd-location-candidate-name').getBoundingClientRect();
+   const distance=row.querySelector('.rd-place-distance').getBoundingClientRect();
+   return name.right<=distance.left&&row.scrollWidth<=row.clientWidth;
+  })),'long result names and distances fit a narrow phone');
+  for(const viewport of[{width:320,height:568},{width:390,height:844},{width:844,height:390},{width:720,height:600},{width:1024,height:768}]) {
+   await page.setViewportSize(viewport);
+   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+   const box=await dialog.boundingBox();
+   const placement=await dialog.evaluate(el=>({top:getComputedStyle(el).top,left:getComputedStyle(el).left,maxHeight:getComputedStyle(el).maxHeight,innerHeight,innerWidth,visualHeight:visualViewport.height,visualTop:visualViewport.offsetTop,hostHeight:el.closest('app-input').style.getPropertyValue('--kept-viewport-height'),modalTransform:getComputedStyle(el.closest('.modal')).transform,modalWillChange:getComputedStyle(el.closest('.modal')).willChange}));
+   assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=viewport.width+1&&box.y+box.height<=viewport.height+1,`search picker fits ${viewport.width}x${viewport.height}: ${JSON.stringify({box,placement})}`);
+   await dialog.getByRole('button',{name:'Find place',exact:true}).scrollIntoViewIfNeeded();
+   const action=await dialog.getByRole('button',{name:'Find place',exact:true}).boundingBox();
+   assert.ok(action.y>=box.y&&action.y+action.height<=box.y+box.height+1,'search actions are reachable by scrolling');
+   await dialog.evaluate(el=>{el.scrollTop=0;});
+   const header=await dialog.locator('.rd-place-header').boundingBox();
+   assert.ok(header.y>=box.y&&header.y+header.height<=box.y+box.height,'picker header is reachable too');
+  }
+  await page.setViewportSize({width:390,height:844});
+  // Simulate the visual viewport shrinking and panning when a phone keyboard opens.
+  await page.evaluate(()=>{
+   Object.defineProperty(visualViewport,'height',{configurable:true,value:280});
+   Object.defineProperty(visualViewport,'offsetTop',{configurable:true,value:24});
+   visualViewport.dispatchEvent(new Event('resize'));
+  });
+  const keyboardBox=await dialog.boundingBox();
+  assert.ok(keyboardBox.y>=24&&keyboardBox.y+keyboardBox.height<=304,'picker fits above the keyboard');
+  await dialog.getByRole('button',{name:'Find place',exact:true}).scrollIntoViewIfNeeded();
+  const keyboardAction=await dialog.getByRole('button',{name:'Find place',exact:true}).boundingBox();
+  assert.ok(keyboardAction.y>=24&&keyboardAction.y+keyboardAction.height<=304,'keyboard does not hide the search actions');
+  await page.evaluate(()=>{
+   delete visualViewport.height;delete visualViewport.offsetTop;
+   visualViewport.dispatchEvent(new Event('resize'));
+  });
+  await dialog.evaluate(el=>{el.scrollTop=0;});
+  await candidates.nth(1).click();
+  await dialog.locator('.rd-location-result-distance[aria-label="Distance from your current location: 111 m"]').waitFor();
+  await page.evaluate(()=>{window.mapCandidates=null;});
+  await dialog.getByRole('button',{name:'Back',exact:true}).click();
   await dialog.getByRole('button',{name:'Choose on map',exact:true}).click();const picker=dialog.locator('app-location-map-picker');
   await picker.locator('.leaflet-container').waitFor();
   const bounds=await dialog.boundingBox();assert.ok(bounds.y>=0&&bounds.y+bounds.height<=845,'map dialog stays inside the phone viewport');
   await picker.getByRole('button',{name:'Use my current location',exact:true}).click();
-  if(platform==='android')await page.getByRole('button',{name:'Allow location reminders',exact:true}).click();
+  if(platform==='android'&&await page.getByRole('button',{name:'Allow location reminders',exact:true}).isVisible())await page.getByRole('button',{name:'Allow location reminders',exact:true}).click();
   await picker.getByText('43.65000, -79.38000',{exact:true}).waitFor();
   // A real drag changes the selected coordinates, and native touch pinch changes zoom.
   const map=picker.locator('.map-canvas'),box=await map.boundingBox();
@@ -120,11 +179,53 @@ try {
   await dialog.getByRole('button',{name:'Save place',exact:true}).click();
   await dialog.getByRole('button').filter({has:page.getByText(placeName,{exact:true})}).waitFor();
   const place=(await resources(page,'savedPlaces')).find(row=>row.name===placeName);assert.ok(place);assert.equal(place.latitude,0);assert.equal(place.longitude,0);assert.equal(place.address,'0.00000, 0.00000');
-  await dialog.getByRole('button').filter({has:page.getByText(placeName,{exact:true})}).click();await editor.locator('.reminder-chip').filter({hasText:placeName}).waitFor();
-  await page.waitForFunction(name=>window.mapNativeCalls.some(call=>call.method==='syncReminders'&&call.options.reminders.some(row=>row.locationName===name)),placeName);
+  // Manage opens the same editor with the existing place's fields and map pin.
+  await dialog.getByRole('button',{name:'Manage',exact:true}).click();
+  const editedName=placeName+' edited';
+  const manageRow=()=>dialog.locator('.manage-row').filter({hasText:editedName});
+  await dialog.locator('.manage-row').filter({hasText:placeName}).click();
+  await dialog.getByRole('heading',{name:'Edit saved place',exact:true}).waitFor();
+  assert.equal(await dialog.locator('input[name="addPlaceName"]').inputValue(),placeName);
+  assert.equal(await dialog.locator('input[name="locationPhrase"]').inputValue(),place.address);
+  await dialog.locator('input[name="addPlaceName"]').fill(editedName);
+  await dialog.locator('.rd-place-chips button').filter({hasText:'Gym'}).click();
+  await dialog.getByRole('button',{name:'When I leave',exact:true}).click();
+  await dialog.getByRole('button',{name:'500 m',exact:true}).click();
+  await dialog.getByRole('button',{name:'Adjust pin on map',exact:true}).click();
+  await picker.getByText('0.00000, 0.00000',{exact:true}).waitFor();
+  await page.evaluate(()=>{window.mapGeo={latitude:5,longitude:6};});
+  await picker.getByRole('button',{name:'Use my current location',exact:true}).click();
+  await picker.getByText('5.00000, 6.00000',{exact:true}).waitFor();
+  await picker.getByRole('button',{name:'Use this location',exact:true}).click();
+  await dialog.getByRole('button',{name:'Save changes',exact:true}).click();
+  await dialog.getByRole('heading',{name:'Saved places',exact:true}).waitFor();
+  const updated=(await resources(page,'savedPlaces')).find(row=>row.syncId===place.syncId);
+  if(local)assert.equal(updated.id,place.id);
+  assert.equal(updated.name,editedName);assert.equal(updated.placeType,'gym');
+  assert.equal(updated.radiusMeters,500);assert.equal(updated.locationTrigger,'leave');
+  assert.equal(updated.latitude,5);assert.equal(updated.longitude,6);assert.equal(updated.address,'5.00000, 6.00000');
+  assert.equal((await resources(page,'savedPlaces')).filter(row=>row.syncId===place.syncId).length,1,'editing keeps the same saved place');
+  await manageRow().click();await dialog.locator('input[name="addPlaceName"]').fill('Discard this edit');
+  await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+  await dialog.getByRole('heading',{name:'Saved places',exact:true}).waitFor();
+  assert.equal((await resources(page,'savedPlaces')).find(row=>row.syncId===place.syncId).name,editedName);
+  // The click generated at the end of a swipe must not open the editor.
+  await manageRow().evaluate(el=>{
+   for(const [type,x]of[['pointerdown',150],['pointermove',50],['pointerup',50]])el.dispatchEvent(new PointerEvent(type,{clientX:x,clientY:10,bubbles:true}));
+   el.click();
+  });
+  await dialog.locator('.rd-place-swipe.deleting').waitFor();
+  await dialog.getByRole('heading',{name:'Saved places',exact:true}).waitFor();
+  await manageRow().click();await manageRow().click();
+  await dialog.getByRole('heading',{name:'Edit saved place',exact:true}).waitFor();
+  await dialog.getByRole('button',{name:'Back',exact:true}).click();
+  await dialog.getByRole('heading',{name:'Saved places',exact:true}).waitFor();
+  await dialog.getByRole('button',{name:'Back',exact:true}).click();
+  await dialog.getByRole('button').filter({has:page.getByText(editedName,{exact:true})}).click();await editor.locator('.reminder-chip').filter({hasText:editedName}).waitFor();
+  await page.waitForFunction(name=>window.mapNativeCalls.some(call=>call.method==='syncReminders'&&call.options.reminders.some(row=>row.locationName===name&&row.latitude===5&&row.longitude===6&&row.radiusMeters===500&&row.locationTrigger==='leave')),editedName);
   assert.deepEqual(errors,[]);assert.ok(Math.max(...zooms)>beforeZoom,'touch pinch zooms the map');
-  await page.reload();await editor.locator('.reminder-chip').filter({hasText:placeName}).waitFor();
-  console.log(`PASS ${platform} ${local?'device-only':'connected'}: pan/pinch, pin/radius/name, native payload, permissions, cancellation, failed tiles, zero coordinates, saved place and reload`);
+  await page.reload();await editor.locator('.reminder-chip').filter({hasText:editedName}).waitFor();
+  console.log(`PASS ${platform} ${local?'device-only':'connected'}: search distances, scrollable phone/foldable/keyboard layouts, map selection, saved-place editing, native payload and reload`);
   await context.close();
  }
 }finally{await browser?.close();await fixture.close();}

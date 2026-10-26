@@ -10,13 +10,27 @@
       <p class="helper">Sign in to approve an app connection to your Kept account.</p>
     }
 
-    @if (oidcEnabled) {
+    @if (oidcEnabled && !loadingSignInOptions && !signInOptionsUnavailable) {
       <button type="button" class="sso-button" (click)="signInWithOidc()" [disabled]="isSigningIn">
         Continue with {{oidcName}}
       </button>
-      <div class="auth-divider"><span>or</span></div>
+      @if (passwordLoginEnabled) {
+        <div class="auth-divider"><span>or</span></div>
+      }
     }
 
+    @if (loadingSignInOptions) {
+      <p class="helper">Loading sign-in options…</p>
+    } @else if (signInOptionsUnavailable) {
+      <p class="error" role="alert">Could not load sign-in options. Check your connection and try again.</p>
+      <button type="button" class="sso-button" (click)="loadSignInOptions()">Try again</button>
+    } @else if (!passwordLoginEnabled) {
+      <p class="helper">This server requires single sign-on.</p>
+    }
+    @if (error) {
+      <div class="error" role="alert">{{error}}</div>
+    }
+    @if (!loadingSignInOptions && !signInOptionsUnavailable && passwordLoginEnabled) {
     <form (ngSubmit)="submit()" #loginForm="ngForm" class="auth-form">
       @if (!requires2FA) {
         <label>
@@ -34,17 +48,17 @@
         </label>
       }
 
-      @if (error) {
-        <div class="error">{{error}}</div>
-      }
       <button type="submit" [disabled]="loginForm.invalid || isSigningIn">
         {{isSigningIn ? 'Signing in...' : 'Sign in'}}
       </button>
     </form>
-    @if (registrationEnabled) {
+    }
+    @if (registrationEnabled && passwordLoginEnabled && !loadingSignInOptions && !signInOptionsUnavailable) {
       <div class="footer-tagline">
         Don't have an account? <a routerLink="/register" style="color: #fbbc04;">Create one</a>
       </div>
+    } @else if (registrationEnabled && oidcEnabled && !loadingSignInOptions && !signInOptionsUnavailable) {
+      <div class="footer-tagline">New here? Continue with {{oidcName}} to create your account.</div>
     } @else {
       <div class="footer-tagline">Kept: self-hosted sticky notes</div>
     }

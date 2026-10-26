@@ -272,7 +272,9 @@ export class SharedService {
       ...(this.binders.sync.writesLocally ? this.binders.items$.value.map(item => item.name) : this.storedBinders()),
       ...(this.note.all || []).map(note => note.binder || '').filter(Boolean)
     ];
-    const unique: { name: string }[] = [];
+    const unique: { name: string; sortOrder?: number | null }[] = [];
+    const customLegacyOrder = !this.binders.sync.writesLocally && localStorage.getItem(`${this.binderStoragePartition()}:custom-order`) === '1';
+    const catalog = new Map(this.binders.items$.value.map(item => [item.name.toLowerCase(), item]));
     const seen = new Set<string>();
     for (const name of names) {
       const clean = String(name || '').trim();
@@ -280,9 +282,9 @@ export class SharedService {
       const key = clean.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      unique.push({ name: clean });
+      unique.push({ name: clean, sortOrder: this.binders.sync.writesLocally ? catalog.get(key)?.sortOrder : customLegacyOrder ? names.indexOf(name) : null });
     }
-    unique.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    unique.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     this.binder.list = unique;
   }
 
@@ -465,6 +467,12 @@ export class SharedService {
   binder = {
     list: [] as { name: string }[],
     db: {
+      reorder: async (names: string[]) => {
+        if (this.binders.sync.writesLocally) return this.binders.reorder(names);
+        this.saveStoredBinders(names);
+        localStorage.setItem(`${this.binderStoragePartition()}:custom-order`, '1');
+        this.refreshBinderList();
+      },
       add: async (name: string) => {
         if (this.binders.sync.writesLocally) return this.binders.save(name);
         const clean = String(name || '').trim();

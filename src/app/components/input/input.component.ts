@@ -52,7 +52,7 @@ export class InputComponent implements OnInit {
     return isNativePhonePlatform();
   }
 
-  constructor(private cd: ChangeDetectorRef, public Shared: SharedService, public auth: AuthService, private notesService: NotesService, private push: PushNotificationService, private reminderService: ReminderService, public keptPlugins: KeptPluginsService, private savedPlacesService: LocationSavedPlacesService, private zone: NgZone, private router: Router, public noteLock: NoteLockService, public preferences: UserPreferencesService) { }
+  constructor(private cd: ChangeDetectorRef, public Shared: SharedService, public auth: AuthService, private notesService: NotesService, private push: PushNotificationService, private reminderService: ReminderService, public keptPlugins: KeptPluginsService, private savedPlacesService: LocationSavedPlacesService, private zone: NgZone, private router: Router, public noteLock: NoteLockService, public preferences: UserPreferencesService, private hostElement: ElementRef<HTMLElement>) { }
 
   @ViewChild("main") main!: ElementRef<HTMLDivElement>
   //? Placeholder  ----------------------------------------------------
@@ -167,12 +167,15 @@ export class InputComponent implements OnInit {
   addPlaceType: SavedPlaceType = 'other'
   addPlaceRadiusMeters = 100
   addPlaceSaving = false
+  editingSavedPlace: LocationSavedPlace | null = null
+  private savedPlaceReturnView: 'choose' | 'manage' = 'choose'
   swipingPlaceId: number | null = null
   readonly savedPlaceTypes: SavedPlaceType[] = ['home', 'work', 'gym', 'other']
   readonly savedPlaceRadii = [100, 250, 500, 1000]
   currentLocation: { latitude: number; longitude: number } | null = null
   currentLocationLoading = false
   private placeSwipeStartPoint?: { id: number; x: number; y: number }
+  private placeSwipeMoved = false
   private pendingAndroidLocationReminder: { location: ResolvedLocation; trigger: LocationTrigger } | null = null
   private pendingAndroidLocationSearch: { view: PlaceDialogView; map?: boolean } | null = null
   private androidBackgroundLocationResumeHandler?: () => void
@@ -2126,8 +2129,13 @@ export class InputComponent implements OnInit {
     const div = createNoteHtmlContainer()
     div.innerHTML = sanitizeNoteHtml(this.auth.authenticatedImageHtml(html || ''))
     this.removePreviewMarkup(div)
+    this.decorateEditorLinks(div)
+    return div.innerHTML
+  }
 
+  private decorateEditorLinks(div: HTMLElement) {
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
+      if (anchor.closest('.editor-link-preview-slot')) return
       const href = anchor.href || anchor.getAttribute('href') || ''
       if (!/^https?:\/\//i.test(href)) return
       const marker = document.createElement('span')
@@ -2135,13 +2143,13 @@ export class InputComponent implements OnInit {
       marker.contentEditable = 'false'
       marker.dataset['url'] = href
       marker.dataset['originalHtml'] = anchor.outerHTML
-      anchor.replaceWith(marker)
+      this.replaceEditorLink(anchor, marker)
     })
 
     const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT, {
       acceptNode: node => {
         const parent = node.parentElement
-        if (!parent || parent.closest('.editor-hidden-link')) return NodeFilter.FILTER_REJECT
+        if (!parent || parent.closest('.editor-hidden-link, .editor-link-preview-slot')) return NodeFilter.FILTER_REJECT
         return /https?:\/\/[^\s"'<>]+/.test(node.textContent || '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
       }
     })
@@ -2150,28 +2158,93 @@ export class InputComponent implements OnInit {
 
     textNodes.forEach(node => {
       const text = node.textContent || ''
-      const fragment = document.createDocumentFragment()
-      let lastIndex = 0
-      for (const match of text.matchAll(/https?:\/\/[^\s"'<>]+/g)) {
+      // Split from the end so existing ranges in surrounding text remain live.
+      for (const match of [...text.matchAll(/https?:\/\/[^\s"'<>]+/g)].reverse()) {
         const rawUrl = match[0]
         const start = match.index || 0
         const visibleUrl = rawUrl.replace(/[),.;:!?]+$/, '')
-        const trailing = rawUrl.slice(visibleUrl.length)
-        if (start > lastIndex) fragment.append(document.createTextNode(text.slice(lastIndex, start)))
+        if (!visibleUrl) continue
+        const linkText = node.splitText(start)
+        linkText.splitText(visibleUrl.length)
         const marker = document.createElement('span')
         marker.className = 'editor-link-preview-slot'
         marker.contentEditable = 'false'
         marker.dataset['url'] = visibleUrl
         marker.dataset['originalHtml'] = visibleUrl
-        fragment.append(marker)
-        if (trailing) fragment.append(document.createTextNode(trailing))
-        lastIndex = start + rawUrl.length
+        this.replaceEditorLink(linkText, marker)
       }
-      if (lastIndex < text.length) fragment.append(document.createTextNode(text.slice(lastIndex)))
-      node.replaceWith(fragment)
     })
+  }
 
-    return div.innerHTML
+  private replaceEditorLink(node: Node, marker: HTMLElement) {
+    const body = this.noteBody?.nativeElement
+    const selection = window.getSelection()
+    const range = selection?.rangeCount && body?.contains(node) ? selection.getRangeAt(0) : undefined
+    const parent = node.parentNode!
+    const index = Array.prototype.indexOf.call(parent.childNodes, node)
+    const edge = (container: Node, offset: number): 'before' | 'after' | undefined => {
+      if (container === parent && offset === index) return 'before'
+      if (container === parent && offset === index + 1) return 'after'
+      if (!node.contains(container)) return undefined
+      const prefix = document.createRange()
+      prefix.selectNodeContents(node)
+      prefix.setEnd(container, offset)
+      return prefix.toString().length ? 'after' : 'before'
+    }
+    const start = range && edge(range.startContainer, range.startOffset)
+    const end = range && edge(range.endContainer, range.endOffset)
+    parent.replaceChild(marker, node)
+    if (!range || (!start && !end)) return
+    const startPoint = start ? [parent, index + (start === 'after' ? 1 : 0)] as const : [range.startContainer, range.startOffset] as const
+    const endPoint = end ? [parent, index + (end === 'after' ? 1 : 0)] as const : [range.endContainer, range.endOffset] as const
+    range.setStart(...startPoint)
+    range.setEnd(...endPoint)
+    selection!.removeAllRanges()
+    selection!.addRange(range)
+  }
+
+  private ensureEditorLinkCaretLines(body: HTMLElement) {
+    const selection = window.getSelection()
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined
+    for (const slot of body.querySelectorAll<HTMLElement>('.editor-link-preview-slot')) {
+      for (const before of [true, false]) {
+        let edge: Node = slot
+        let neighbor = before ? edge.previousSibling : edge.nextSibling
+        // Put lines outside a paragraph/formatting wrapper when the preview
+        // occupies its edge, rather than nesting a div inside a paragraph.
+        while (!neighbor && edge.parentElement !== body && edge.parentElement &&
+          /^(P|SPAN|A|B|STRONG|I|EM|U|S|FONT|H[1-6])$/.test(edge.parentElement.tagName)) {
+          edge = edge.parentElement
+          neighbor = before ? edge.previousSibling : edge.nextSibling
+        }
+        while (neighbor?.nodeType === Node.TEXT_NODE && !neighbor.textContent) {
+          neighbor = before ? neighbor.previousSibling : neighbor.nextSibling
+        }
+        if (neighbor && !(neighbor instanceof HTMLElement && neighbor.contentEditable === 'false')) continue
+        const parent = edge.parentElement!
+        const index = Array.prototype.indexOf.call(parent.childNodes, edge) + (before ? 0 : 1)
+        // splitText can leave empty text nodes between the caret and card.
+        // They are the same visible boundary and must enter the new line too.
+        const caretOffset = range?.startContainer === parent ? range.startOffset
+          : range?.startContainer.parentNode === parent && range.startContainer.nodeType === Node.TEXT_NODE && !range.startContainer.textContent
+            ? Array.prototype.indexOf.call(parent.childNodes, range.startContainer) : -1
+        const moveCaret = range?.collapsed && caretOffset >= 0 &&
+          (before ? caretOffset <= index : caretOffset >= index) &&
+          Array.from(parent.childNodes).slice(Math.min(index, caretOffset), Math.max(index, caretOffset))
+            .every(node => node.nodeType === Node.TEXT_NODE && !node.textContent)
+        const line = document.createElement(/^(P|SPAN|A|B|STRONG|I|EM|U|S|FONT|H[1-6])$/.test(parent.tagName) ? 'span' : 'div')
+        line.className = 'editor-link-caret-line'
+        line.append(document.createElement('br'))
+        parent.insertBefore(line, before ? edge : edge.nextSibling)
+        if (moveCaret) {
+          range!.setStart(line, 0)
+          range!.collapse(true)
+          selection!.removeAllRanges()
+          selection!.addRange(range!)
+        }
+      }
+    }
+    this.rememberBodySelection()
   }
 
   private cleanEditorBodyForSave(html: string) {
@@ -2181,6 +2254,17 @@ export class InputComponent implements OnInit {
     // Strip editor-only chrome (e.g. the inline image delete button) that lives
     // inside the editable body but has no business being persisted.
     div.querySelectorAll('[data-inline-image-tool]').forEach(el => el.remove())
+    div.querySelectorAll<HTMLElement>('.editor-link-caret-line').forEach(line => {
+      if (!line.textContent && !line.querySelector('img, hr, .editor-link-preview-slot')) {
+        line.remove()
+        return
+      }
+      // Keep text entered on a generated line, with real line breaks, but
+      // don't persist empty cursor targets or editor-only layout classes.
+      if (line.previousSibling && line.previousSibling.nodeName !== 'BR' && line.firstChild?.nodeName !== 'BR') line.before(document.createElement('br'))
+      if (line.nextSibling && line.nextSibling.nodeName !== 'BR' && line.lastChild?.nodeName !== 'BR') line.after(document.createElement('br'))
+      line.replaceWith(...Array.from(line.childNodes))
+    })
     div.querySelectorAll<HTMLElement>('.editor-link-preview-slot').forEach(marker => {
       const template = document.createElement('template')
       template.innerHTML = sanitizeNoteHtml(marker.dataset['originalHtml'] || marker.dataset['url'] || '')
@@ -2199,8 +2283,14 @@ export class InputComponent implements OnInit {
   private decorateCurrentBodyLinks() {
     const body = this.noteBody?.nativeElement
     if (!body || this.destroyed) return
-    this.editorPreviewGeneration++
-    body.innerHTML = sanitizeNoteHtml(this.decorateLinksForEditor(this.cleanEditorBodyForSave(body.innerHTML)))
+    if (!this.preferences.value.richLinkPreviews) {
+      if (body.querySelector('.editor-link-preview-slot')) {
+        this.editorPreviewGeneration++
+        body.innerHTML = sanitizeNoteHtml(this.auth.authenticatedImageHtml(this.cleanEditorBodyForSave(body.innerHTML)))
+      }
+      return
+    }
+    this.decorateEditorLinks(body)
     this.hydrateEditorLinkPreviews()
   }
 
@@ -2220,6 +2310,7 @@ export class InputComponent implements OnInit {
     if (!this.preferences.value.richLinkPreviews) return
     const body = this.noteBody?.nativeElement
     if (!body || this.destroyed) return
+    this.ensureEditorLinkCaretLines(body)
     const generation = this.editorPreviewGeneration
     body.querySelectorAll<HTMLElement>('.editor-link-preview-slot:not([data-hydrated])').forEach(slot => {
       const url = slot.dataset['url']
@@ -3896,8 +3987,7 @@ export class InputComponent implements OnInit {
     this.lockedBodyScrollY = 0;
   }
 
-  // Track the soft-keyboard height on mobile so the sticky bottom toolbar can
-  // float above it instead of being hidden behind it.
+  // Keep the toolbar above the keyboard and dialogs within the visible area.
   private viewportListener?: () => void;
   private bindKeyboardOffset() {
     const vv = (window as any).visualViewport as VisualViewport | undefined;
@@ -3905,6 +3995,8 @@ export class InputComponent implements OnInit {
     const update = () => {
       const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
       document.documentElement.style.setProperty('--keyboard-offset', `${offset}px`);
+      this.hostElement.nativeElement.style.setProperty('--kept-viewport-height', `${vv.height}px`);
+      this.hostElement.nativeElement.style.setProperty('--kept-viewport-offset-top', `${vv.offsetTop}px`);
     };
     this.viewportListener = update;
     vv.addEventListener('resize', update);
@@ -3918,6 +4010,8 @@ export class InputComponent implements OnInit {
     vv.removeEventListener('resize', this.viewportListener);
     vv.removeEventListener('scroll', this.viewportListener);
     document.documentElement.style.removeProperty('--keyboard-offset');
+    this.hostElement.nativeElement.style.removeProperty('--kept-viewport-height');
+    this.hostElement.nativeElement.style.removeProperty('--kept-viewport-offset-top');
     this.viewportListener = undefined;
   }
 
@@ -4592,6 +4686,7 @@ export class InputComponent implements OnInit {
 
   async openPlaceChooser() {
     this.placeDialogView = 'choose'
+    this.editingSavedPlace = null
     this.resetLocationState()
     this.savedPlacesSearch = ''
     this.locationTrigger = 'arrive'
@@ -4599,7 +4694,12 @@ export class InputComponent implements OnInit {
   }
 
   backFromPlaceDialog() {
+    if (this.addPlaceSaving) return
     if (this.showLocationMap) { this.closeLocationMap(); return }
+    if (this.placeDialogView === 'add' && this.savedPlaceReturnView === 'manage') {
+      this.cancelSavedPlace()
+      return
+    }
     if (this.placeDialogView !== 'choose') {
       this.openPlaceChooser()
       return
@@ -4655,10 +4755,11 @@ export class InputComponent implements OnInit {
     }
   }
 
-  placeDistanceLabel(place: PlaceListItem) {
+  placeDistanceLabel(place: PlaceListItem | ResolvedLocation) {
     if ('prompt' in place) return ''
     if (this.currentLocationLoading && !this.currentLocation) return '...'
     if (!this.currentLocation) return ''
+    if (![this.currentLocation.latitude, this.currentLocation.longitude, place.latitude, place.longitude].every(Number.isFinite)) return ''
     const meters = this.distanceMeters(
       this.currentLocation.latitude,
       this.currentLocation.longitude,
@@ -4671,15 +4772,54 @@ export class InputComponent implements OnInit {
   openManagePlaces() {
     this.placeDialogView = 'manage'
     this.savedPlacesSearch = ''
+    this.swipingPlaceId = null
   }
 
   openAddSavedPlace(seedType: SavedPlaceType = 'other') {
+    this.savedPlaceReturnView = this.placeDialogView === 'manage' ? 'manage' : 'choose'
+    this.editingSavedPlace = null
+    this.savedPlacesError = ''
     this.placeDialogView = 'add'
     this.resetLocationState()
     this.locationTrigger = 'arrive'
     this.addPlaceType = seedType
     this.addPlaceName = seedType === 'other' ? '' : this.titleCase(seedType)
     this.addPlaceRadiusMeters = 100
+  }
+
+  openEditSavedPlace(place: LocationSavedPlace) {
+    if (this.placeSwipeMoved) { this.placeSwipeMoved = false; return }
+    if (this.swipingPlaceId === place.id) { this.swipingPlaceId = null; return }
+    this.swipingPlaceId = null
+    this.resetLocationState()
+    this.editingSavedPlace = place
+    this.savedPlaceReturnView = 'manage'
+    this.savedPlacesError = ''
+    this.placeDialogView = 'add'
+    this.addPlaceName = place.name
+    this.addPlaceType = place.placeType
+    this.addPlaceRadiusMeters = place.radiusMeters
+    this.locationTrigger = place.locationTrigger
+    this.locationPhrase = place.address || ''
+    this.resolvedLocation = {
+      displayName: place.address,
+      latitude: place.latitude,
+      longitude: place.longitude,
+      radiusMeters: place.radiusMeters,
+      confidence: 'high',
+      source: 'savedLocation'
+    }
+    this.locationState = 'resolved'
+    this.locationMapPreview = place.mapPreviewUrl || ''
+  }
+
+  cancelSavedPlace() {
+    if (this.addPlaceSaving) return
+    this.editingSavedPlace = null
+    this.savedPlacesError = ''
+    this.resetLocationState()
+    if (this.savedPlaceReturnView === 'manage') this.placeDialogView = 'manage'
+    else this.clearLocation()
   }
 
   openSearchPlace(keepPhrase = false) {
@@ -4800,6 +4940,7 @@ export class InputComponent implements OnInit {
   }
 
   clearLocation() {
+    this.editingSavedPlace = null
     this.resetLocationState()
     this.showReminderLocationDialog = false
   }
@@ -5038,10 +5179,11 @@ export class InputComponent implements OnInit {
 
   async saveSavedPlace() {
     const location = this.resolvedLocation
-    if (!location || !this.addPlaceName.trim() || this.addPlaceSaving) return
+    if (!location || !this.addPlaceName.trim() || this.addPlaceSaving || this.resolving) return
     this.addPlaceSaving = true
+    this.savedPlacesError = ''
     try {
-      await this.savedPlacesService.create({
+      const payload = {
         name: this.addPlaceName.trim(),
         address: location.source === 'mapPin' ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}` : location.displayName,
         placeType: this.addPlaceType,
@@ -5050,9 +5192,12 @@ export class InputComponent implements OnInit {
         radiusMeters: this.addPlaceRadiusMeters,
         locationTrigger: this.locationTrigger,
         mapPreviewUrl: this.locationMapPreview || null
-      })
+      }
+      if (this.editingSavedPlace) await this.savedPlacesService.update(this.editingSavedPlace.id, payload, this.editingSavedPlace.syncId)
+      else await this.savedPlacesService.create(payload)
       await this.loadSavedPlaces()
-      this.placeDialogView = 'choose'
+      this.placeDialogView = this.savedPlaceReturnView
+      this.editingSavedPlace = null
       this.resetLocationState()
     } catch {
       this.savedPlacesError = 'Saved place could not be saved.'
@@ -5063,6 +5208,7 @@ export class InputComponent implements OnInit {
   }
 
   placeSwipeStart(event: PointerEvent, place: LocationSavedPlace) {
+    this.placeSwipeMoved = false
     this.placeSwipeStartPoint = { id: place.id, x: event.clientX, y: event.clientY }
   }
 
@@ -5070,6 +5216,7 @@ export class InputComponent implements OnInit {
     if (!this.placeSwipeStartPoint || this.placeSwipeStartPoint.id !== place.id) return
     const dx = event.clientX - this.placeSwipeStartPoint.x
     const dy = event.clientY - this.placeSwipeStartPoint.y
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) this.placeSwipeMoved = true
     if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.4) {
       this.swipingPlaceId = place.id
     }
@@ -5079,6 +5226,12 @@ export class InputComponent implements OnInit {
     if (!this.placeSwipeStartPoint || this.placeSwipeStartPoint.id !== place.id) return
     this.placeSwipeStartPoint = undefined
     if (this.swipingPlaceId !== place.id) this.swipingPlaceId = null
+  }
+
+  cancelPlaceSwipe() {
+    this.placeSwipeStartPoint = undefined
+    this.placeSwipeMoved = true
+    this.swipingPlaceId = null
   }
 
   async deleteSavedPlace(place: LocationSavedPlace) {
@@ -5113,7 +5266,7 @@ export class InputComponent implements OnInit {
   }
 
   private loadCurrentLocation() {
-    if (this.keptPlugins.isIos || this.currentLocation || typeof navigator === 'undefined' || !navigator.geolocation) {
+    if (this.currentLocation || typeof navigator === 'undefined' || !navigator.geolocation) {
       return Promise.resolve()
     }
     if (this.keptPlugins.isAndroid) {

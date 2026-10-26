@@ -27,9 +27,12 @@ export class BindersService {
         this.migratingLegacy = true;
         try {
           const names = JSON.parse(localStorage.getItem(legacyKey) || '[]');
-          for (const name of names) if (typeof name === 'string' && name.trim() && !items.some(item=>item.name.toLowerCase() === name.trim().toLowerCase())) {
+          for (const [index, name] of names.entries()) if (typeof name === 'string' && name.trim() && !items.some(item=>item.name.toLowerCase() === name.trim().toLowerCase())) {
             if (partition !== this.sync.partition) return;
-            await this.sync.commit('binder.upsert',`binder-${createUuid()}`,{name:name.trim().slice(0,80)});
+            await this.sync.commit('binder.upsert',`binder-${createUuid()}`,{
+              name:name.trim().slice(0,80),
+              ...(localStorage.getItem(`${legacyKey}:custom-order`) === '1' ? { sortOrder: index } : {})
+            });
           }
           localStorage.setItem(marker,'done');
           items = await this.store.listResources<CatalogItem>('binder', this.sync.partition);
@@ -38,13 +41,26 @@ export class BindersService {
     }
     if (partition !== this.sync.partition) return;
     items = [...new Map(items.map(item=>[item.name.toLowerCase(),item])).values()];
-    this.items$.next(items.sort((a, b) => a.name.localeCompare(b.name)));
+    this.items$.next(items.sort((a, b) =>
+      (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })));
   }
   async save(name: string, oldName?: string) {
     const clean = name.trim().slice(0, 80);
     if (!clean) throw new Error('Binder name is required.');
     const previous = this.items$.value.find(item => item.name.toLowerCase() === (oldName || name).toLowerCase());
-    await this.sync.commit('binder.upsert', previous?.syncId || `binder-${createUuid()}`, { ...previous, name: clean });
+    const ordered = this.items$.value.filter(item => item.sortOrder != null);
+    const sortOrder = previous?.sortOrder ?? (ordered.length ? Math.max(...ordered.map(item => item.sortOrder!)) + 1 : null);
+    await this.sync.commit('binder.upsert', previous?.syncId || `binder-${createUuid()}`, { ...previous, name: clean, sortOrder });
+    await this.load();
+  }
+  async reorder(names: string[]) {
+    const partition = this.sync.partition;
+    for (const [sortOrder, name] of names.entries()) {
+      if (partition !== this.sync.partition) throw new Error('The active workspace changed.');
+      const previous = this.items$.value.find(item => item.name.toLowerCase() === name.toLowerCase());
+      if (previous?.sortOrder === sortOrder) continue;
+      await this.sync.commit('binder.upsert', previous?.syncId || `binder-${createUuid()}`, { ...previous, name, sortOrder });
+    }
     await this.load();
   }
   async delete(name: string) {

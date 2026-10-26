@@ -72,6 +72,7 @@ function appendRedirect(urlValue, values) {
 function htmlPage(title, body, script = '') {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} - Kept</title><style>
   :root{color-scheme:light dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f6f7f8;color:#202124}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.panel{width:min(520px,100%);background:#fff;border:1px solid #dadce0;border-radius:8px;padding:28px;box-shadow:0 8px 28px #0002}.brand{font-size:18px;font-weight:700;color:#f9ab00;margin-bottom:24px}h1{font-size:25px;margin:0 0 12px}p{line-height:1.5;color:#5f6368}.scopes{padding:0;list-style:none;margin:20px 0}.scopes li{padding:10px 0;border-top:1px solid #eee}.actions{display:flex;gap:10px;justify-content:flex-end;margin-top:24px}button,a.button{appearance:none;border:1px solid #dadce0;border-radius:5px;padding:10px 16px;background:#fff;color:#202124;font:inherit;text-decoration:none;cursor:pointer}.primary{background:#1a73e8!important;border-color:#1a73e8!important;color:#fff!important}.error{color:#b3261e}@media(prefers-color-scheme:dark){:root{background:#202124;color:#e8eaed}.panel{background:#292a2d;border-color:#5f6368}p{color:#bdc1c6}.scopes li{border-color:#3c4043}button,a.button{background:#292a2d;color:#e8eaed;border-color:#5f6368}}
+  .registration-form{display:grid;gap:16px}.registration-form label{display:grid;gap:6px;font-size:14px}.registration-form input{box-sizing:border-box;width:100%;min-width:0;border:1px solid #9aa0a6;border-radius:5px;background:transparent;color:inherit;padding:10px;font:inherit;font-size:16px}.registration-form .actions{margin-top:4px}
   </style></head><body><main class="panel"><div class="brand">Kept</div>${body}</main>${script ? `<script>${script}</script>` : ''}</body></html>`;
 }
 
@@ -151,6 +152,11 @@ async function initOAuthTables({ run, all }) {
     expiresAt TEXT NOT NULL, usedAt TEXT,
     FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
   )`);
+  await run(`CREATE TABLE IF NOT EXISTS oidc_registrations (
+    tokenHash TEXT PRIMARY KEY, issuer TEXT NOT NULL, clientId TEXT NOT NULL, subject TEXT NOT NULL,
+    email TEXT, displayName TEXT, username TEXT, returnUrl TEXT, oauthRequest TEXT,
+    createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL, usedAt TEXT
+  )`);
   const now = new Date().toISOString();
   await run('DELETE FROM oauth_pending_authorizations WHERE expiresAt <= ?', [now]);
   await run('DELETE FROM oauth_authorization_codes WHERE expiresAt <= ?', [now]);
@@ -158,6 +164,7 @@ async function initOAuthTables({ run, all }) {
   await run('DELETE FROM oauth_refresh_tokens WHERE expiresAt <= ? OR revokedAt IS NOT NULL', [now]);
   await run('DELETE FROM oidc_flows WHERE expiresAt <= ?', [now]);
   await run('DELETE FROM oidc_login_codes WHERE expiresAt <= ?', [now]);
+  await run('DELETE FROM oidc_registrations WHERE expiresAt <= ? OR usedAt IS NOT NULL', [now]);
 }
 
 async function resolveOAuthAccessToken(token, { get }) {
@@ -191,6 +198,37 @@ function oidcSettings() {
     name: String(process.env.KEPT_OIDC_NAME || 'Single sign-on').trim() || 'Single sign-on',
     scopes: String(process.env.KEPT_OIDC_SCOPES || 'openid profile email').trim()
   };
+}
+
+function passwordLoginDisabled() {
+  return ['1', 'true'].includes(String(process.env.KEPT_DISABLE_PASSWORD_LOGIN || '').trim().toLowerCase());
+}
+
+function requirePasswordLoginEnabled(_req, res, next) {
+  if (passwordLoginDisabled()) {
+    return res.status(403).json({ code: 'PASSWORD_LOGIN_DISABLED', error: 'Password sign-in is disabled on this server. Please use single sign-on.' });
+  }
+  next();
+}
+
+async function validateOidcOnlyConfiguration({ get }) {
+  if (!passwordLoginDisabled()) return;
+  const settings = oidcSettings();
+  const help = 'Remove KEPT_DISABLE_PASSWORD_LOGIN, finish OIDC setup and link an enabled administrator, then enable it and restart.';
+  if (!settings.enabled || !String(process.env.BASE_URL || '').trim()) {
+    throw new Error(`KEPT_DISABLE_PASSWORD_LOGIN requires BASE_URL, KEPT_OIDC_ISSUER and KEPT_OIDC_CLIENT_ID. ${help}`);
+  }
+  try {
+    const issuer = new URL(settings.issuer), base = new URL(process.env.BASE_URL);
+    const localIssuer = ['localhost', '127.0.0.1', '[::1]'].includes(issuer.hostname);
+    if (!(issuer.protocol === 'https:' || (issuer.protocol === 'http:' && localIssuer)) || issuer.username || issuer.password || issuer.search || issuer.hash ||
+        !['http:', 'https:'].includes(base.protocol) || base.username || base.password || base.search || base.hash) throw new Error();
+  } catch {
+    throw new Error(`KEPT_DISABLE_PASSWORD_LOGIN requires valid OIDC issuer and BASE_URL addresses. ${help}`);
+  }
+  const administrator = await get(`SELECT users.id FROM users JOIN oidc_identities ON oidc_identities.userId = users.id
+    WHERE users.role = 'admin' AND users.enabled = 1 AND oidc_identities.issuer = ? LIMIT 1`, [settings.issuer]);
+  if (!administrator) throw new Error(`KEPT_DISABLE_PASSWORD_LOGIN requires an enabled administrator linked to the configured OIDC provider. ${help}`);
 }
 
 function validOidcReturnUrl(value) {
@@ -260,7 +298,8 @@ async function resolveClient(clientId, { get }) {
 }
 
 function mountOAuthAndMcpRoutes(app, dependencies) {
-  const { get, all, run, asyncRoute, requireAuth, createSession, browserSessions, oauthRegistrationLimiter, internalBaseUrl } = dependencies;
+  const { get, all, run, asyncRoute, requireAuth, createSession, browserSessions, oauthRegistrationLimiter, internalBaseUrl,
+    createUser, getAppSetting, withDatabaseTransaction, registerLimiter } = dependencies;
   const urlencoded = express.urlencoded({ extended: false, limit: '32kb' });
 
   app.use('/oauth/authorize', (_req, res, next) => {
@@ -463,8 +502,89 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
 
   app.get('/api/auth/oidc/config', (_req, res) => {
     const settings = oidcSettings();
-    res.json({ enabled: settings.enabled, name: settings.name });
+    res.set('Cache-Control', 'no-store');
+    res.json({ enabled: settings.enabled, name: settings.name, passwordLoginEnabled: !passwordLoginDisabled() });
   });
+
+  function redirectOidcError(res, flow, error) {
+    const params = { oidc_error: error, oauth_request: flow.oauthRequest || '' };
+    return res.redirect(oidcReturnTarget(flow, params) || `/login?${new URLSearchParams(params)}`);
+  }
+
+  async function finishOidcLogin(res, user, flow) {
+    const loginCode = randomToken('kept_login_');
+    await run('INSERT INTO oidc_login_codes (codeHash, userId, createdAt, expiresAt) VALUES (?, ?, ?, ?)', [sha256(loginCode), user.id, new Date().toISOString(), addSeconds(60)]);
+    const params = { oidc_code: loginCode };
+    if (flow.oauthRequest) params.oauth_request = flow.oauthRequest;
+    res.redirect(oidcReturnTarget(flow, params) || `/login?${new URLSearchParams(params)}`);
+  }
+
+  async function pendingRegistration(token) {
+    const settings = oidcSettings();
+    if (!settings.enabled || await getAppSetting('selfRegistrationEnabled', 'false') !== 'true') return null;
+    return get(`SELECT * FROM oidc_registrations WHERE tokenHash = ? AND issuer = ? AND clientId = ? AND usedAt IS NULL AND expiresAt > ?`,
+      [sha256(token), settings.issuer, settings.clientId, new Date().toISOString()]);
+  }
+
+  function renderOidcRegistration(res, token, registration, values = registration, error = '', status = 200) {
+    const field = (name, label, type, value = '', autocomplete = '') => `<label>${label}<input name="${name}" type="${type}" value="${escapeHtml(value)}" autocomplete="${autocomplete}" required ${type === 'password' ? 'minlength="8"' : `maxlength="${name === 'username' ? 80 : 160}"`}></label>`;
+    return res.status(status).type('html').send(htmlPage('Create your account', `<h1>Create your Kept account</h1>
+      <p>You verified your identity with ${escapeHtml(oidcSettings().name)}. Choose your Kept account details to finish.</p>
+      <p>Your Kept password is used to confirm sensitive account actions.${passwordLoginDisabled() ? ' This server requires single sign-on for signing in.' : ''}</p>
+      ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}
+      <form class="registration-form" method="post" action="/api/auth/oidc/register/${encodeURIComponent(token)}">
+      ${field('username', 'Username', 'text', values.username || '', 'username')}
+      ${field('displayName', 'Display name', 'text', values.displayName || '', 'name')}
+      ${field('email', 'Email', 'email', values.email || '', 'email')}
+      ${field('password', 'Kept password', 'password', '', 'new-password')}
+      ${field('confirmPassword', 'Confirm Kept password', 'password', '', 'new-password')}
+      <div class="actions"><button class="primary" type="submit">Create account</button></div></form>
+      <p>Already have a Kept account? Connect this provider from that account’s Settings instead. Existing accounts are not matched by email.</p>`));
+  }
+
+  app.use('/api/auth/oidc/register', (_req, res, next) => {
+    // Keep the same-origin form's Origin header while withholding the proof
+    // URL from cross-origin destinations.
+    res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'same-origin',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self' kept:" });
+    next();
+  });
+  app.get('/api/auth/oidc/register/:token', asyncRoute(async (req, res) => {
+    const registration = await pendingRegistration(req.params.token);
+    if (!registration) return res.status(410).type('html').send(htmlPage('Registration unavailable', '<h1>Registration unavailable</h1><p>This setup link expired, was already used, or registration is disabled. Return to Kept and try single sign-on again.</p>'));
+    renderOidcRegistration(res, req.params.token, registration);
+  }));
+  app.post('/api/auth/oidc/register/:token', registerLimiter, urlencoded, asyncRoute(async (req, res) => {
+    if (req.get('origin') && req.get('origin') !== new URL(baseUrlFor(req)).origin) return res.status(403).end();
+    const body = req.body || {};
+    let registration;
+    let user;
+    const values = { username: String(body.username || '').trim().slice(0, 80), displayName: String(body.displayName || '').trim().slice(0, 160), email: String(body.email || '').trim().slice(0, 160) };
+    try {
+      await withDatabaseTransaction(async () => {
+        registration = await pendingRegistration(req.params.token);
+        if (!registration) throw Object.assign(new Error('This setup link is no longer available. Return to Kept and try single sign-on again.'), { status: 410 });
+        if (await get('SELECT userId FROM oidc_identities WHERE issuer = ? AND subject = ?', [registration.issuer, registration.subject])) {
+          throw Object.assign(new Error('This provider identity already has a Kept account. Return to single sign-on to sign in.'), { status: 409 });
+        }
+        if (!values.email) throw Object.assign(new Error('Please enter a valid email address.'), { status: 400 });
+        if (String(body.password || '') !== String(body.confirmPassword || '')) throw Object.assign(new Error('Passwords do not match.'), { status: 400 });
+        const needsApproval = await getAppSetting('requireApproval', 'true') === 'true';
+        user = await createUser({ ...values, password: String(body.password || ''), role: 'user', enabled: !needsApproval });
+        const now = new Date().toISOString();
+        await run('INSERT INTO oidc_identities(issuer,subject,userId,email,createdAt,updatedAt) VALUES(?,?,?,?,?,?)',
+          [registration.issuer, registration.subject, user.id, registration.email || null, now, now]);
+        await run('UPDATE oidc_registrations SET usedAt = ? WHERE tokenHash = ?', [now, sha256(req.params.token)]);
+      });
+    } catch (error) {
+      if (error.code === 'SQLITE_CONSTRAINT') return renderOidcRegistration(res, req.params.token, registration, values, 'That username is already in use. Choose another, or connect SSO from your existing account’s Settings.', 409);
+      if (error.status === 400 || error.status === 409) return renderOidcRegistration(res, req.params.token, registration, values, error.message, error.status);
+      if (error.status === 410) return res.status(410).type('html').send(htmlPage('Registration unavailable', `<h1>Registration unavailable</h1><p>${escapeHtml(error.message)}</p>`));
+      throw error;
+    }
+    if (!user.enabled) return redirectOidcError(res, registration, 'pending_approval');
+    await finishOidcLogin(res, user, registration);
+  }));
 
   async function createOidcAuthorizationUrl(req, { oauthRequest = '', linkUserId = null, returnUrl = '' } = {}) {
     const settings = oidcSettings();
@@ -512,6 +632,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     );
     res.json({
       enabled: true,
+      passwordLoginEnabled: !passwordLoginDisabled(),
       providerName: settings.name,
       connected: !!identity,
       identityEmail: identity?.email || '',
@@ -529,6 +650,9 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
   }));
 
   app.delete('/api/auth/oidc/link', requireAuth, asyncRoute(async (req, res) => {
+    if (passwordLoginDisabled()) {
+      return res.status(409).json({ code: 'OIDC_REQUIRED', error: 'Single sign-on is required on this server. Your account cannot be disconnected.' });
+    }
     const settings = oidcSettings();
     if (!settings.enabled) return res.status(404).json({ error: 'OIDC sign-in is not configured.' });
     await run('DELETE FROM oidc_identities WHERE issuer = ? AND userId = ?', [settings.issuer, req.user.id]);
@@ -574,17 +698,18 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
       const target = oidcReturnTarget(flow, { oidc_link: 'connected' });
       return res.redirect(target || '/settings?oidc_link=connected');
     }
-    const identity = await get('SELECT users.* FROM oidc_identities JOIN users ON users.id = oidc_identities.userId WHERE issuer = ? AND subject = ? AND users.enabled = 1', [settings.issuer, claims.sub]);
+    const identity = await get('SELECT users.* FROM oidc_identities JOIN users ON users.id = oidc_identities.userId WHERE issuer = ? AND subject = ?', [settings.issuer, claims.sub]);
     if (!identity) {
-      const target = oidcReturnTarget(flow, { oidc_error: 'no_account', oauth_request: flow.oauthRequest });
-      return res.redirect(target || `/login?oidc_error=no_account${flow.oauthRequest ? `&oauth_request=${encodeURIComponent(flow.oauthRequest)}` : ''}`);
+      if (await getAppSetting('selfRegistrationEnabled', 'false') !== 'true') return redirectOidcError(res, flow, 'no_account');
+      const token = randomToken('kept_signup_'), now = new Date().toISOString();
+      await run('DELETE FROM oidc_registrations WHERE expiresAt <= ? OR usedAt IS NOT NULL', [now]);
+      await run(`INSERT INTO oidc_registrations(tokenHash,issuer,clientId,subject,email,displayName,username,returnUrl,oauthRequest,createdAt,expiresAt)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [sha256(token), settings.issuer, settings.clientId, claims.sub, email, String(claims.name || ''),
+        String(claims.preferred_username || email.split('@')[0] || '').slice(0, 80), flow.returnUrl || null, flow.oauthRequest || '', now, addSeconds(PENDING_TTL_SECONDS)]);
+      return res.redirect(`/api/auth/oidc/register/${token}`);
     }
-    const loginCode = randomToken('kept_login_');
-    await run('INSERT INTO oidc_login_codes (codeHash, userId, createdAt, expiresAt) VALUES (?, ?, ?, ?)', [sha256(loginCode), identity.id, new Date().toISOString(), addSeconds(60)]);
-    const params = new URLSearchParams({ oidc_code: loginCode });
-    if (flow.oauthRequest) params.set('oauth_request', flow.oauthRequest);
-    const target = oidcReturnTarget(flow, Object.fromEntries(params.entries()));
-    res.redirect(target || `/login?${params.toString()}`);
+    if (!identity.enabled) return redirectOidcError(res, flow, 'account_unavailable');
+    await finishOidcLogin(res, identity, flow);
   }));
 
   const exchangeOidc = asyncRoute(async (req, res) => {
@@ -628,4 +753,5 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
   }));
 }
 
-module.exports = { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken, trustedClientMetadataDocument, SUPPORTED_SCOPES };
+module.exports = { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken, trustedClientMetadataDocument, SUPPORTED_SCOPES,
+  passwordLoginDisabled, requirePasswordLoginEnabled, validateOidcOnlyConfiguration };

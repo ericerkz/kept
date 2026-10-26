@@ -289,7 +289,11 @@
         <section class="settings-section sso-section">
           <div class="section-title">Single sign-on</div>
           <p class="section-desc">
-            Connect this Kept account to {{oidcLinkStatus?.providerName}} so you can use it to sign in. Your local username and password remain available.
+            @if (oidcLinkStatus?.passwordLoginEnabled === false) {
+              This server requires single sign-on with {{oidcLinkStatus?.providerName}}. Keep your account connected so you can sign in.
+            } @else {
+              Connect this Kept account to {{oidcLinkStatus?.providerName}} so you can use it to sign in. Your local username and password remain available.
+            }
           </p>
 
           @if (oidcLinkStatus?.connected) {
@@ -303,7 +307,7 @@
                   }
                 </span>
               </div>
-              <button type="button" class="btn-secondary" [disabled]="isDisconnectingOidc" (click)="disconnectOidc()">
+              <button type="button" class="btn-secondary" [disabled]="isDisconnectingOidc || oidcLinkStatus?.passwordLoginEnabled === false" (click)="disconnectOidc()">
                 {{isDisconnectingOidc ? 'Disconnecting...' : 'Disconnect'}}
               </button>
             </div>

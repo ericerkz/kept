@@ -1330,3 +1330,42 @@
     }
   }
 }
+
+// Binder ordering uses touch and keyboard controls in the existing edit dialog.
+.label-modal-main .label-list .binder-edit-row {
+  input { margin: 0 8px; min-width: 0; width: 0; }
+  .label-icon, .pen-icon { flex: 0 0 24px; }
+
+  .binder-move {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    color: #e8eaed;
+    cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 36px;
+    height: 44px;
+    justify-content: center;
+    padding: 0;
+
+    .material-symbols-outlined { font-size: 20px; }
+    &:hover:not(:disabled) { background: rgba(154, 160, 166, 0.12); }
+    &:focus-visible { outline: 2px solid #8ab4f8; }
+    &:disabled { cursor: default; opacity: 0.3; }
+  }
+}
+
+:host-context(.light-theme) .label-modal-main .label-list .binder-move { color: #3c4043; }
+
+.main-sidebar.binder-drop-active .item.is-binder {
+  outline: 1px dashed rgba(138, 180, 248, 0.5);
+  outline-offset: -3px;
+}
+
+.main-sidebar.binder-drop-active .item.is-binder.binder-drop-target {
+  background-color: #d2e3fc;
+  color: #174ea6;
+  outline: 2px solid #1a73e8;
+  outline-offset: -3px;
+}

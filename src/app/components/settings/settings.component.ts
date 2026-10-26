@@ -410,6 +410,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   async disconnectOidc() {
+    if (this.oidcLinkStatus?.passwordLoginEnabled === false) return;
     const provider = this.oidcLinkStatus?.providerName || 'single sign-on';
     if (!confirm(`Disconnect ${provider}? You will no longer be able to use it to sign in to this Kept account.`)) return;
     this.isDisconnectingOidc = true;

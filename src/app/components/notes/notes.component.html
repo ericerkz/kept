@@ -479,15 +479,15 @@
     <div class="label-error">{{binderMenuError}}</div>
   }
   <div class="label-list-container">
-    <div class="label-list" (click)="setBinderFromMenu('', binderMenuTt)">
-      <div [class.done]='!binderName' class="check-icon"></div>
-      <div class="label-name">No binder</div>
-    </div>
+    <button type="button" class="label-list binder-choice" [attr.aria-current]="!binderName ? 'true' : null" (click)="setBinderFromMenu('', binderMenuTt)">
+      <span class="binder-selected material-symbols-outlined" aria-hidden="true">{{!binderName ? 'check' : ''}}</span>
+      <span class="label-name">No binder</span>
+    </button>
     @for (binder of Shared.binder.list; track binder.name) {
-      <div class="label-list" (click)="setBinderFromMenu(binder.name, binderMenuTt)">
-        <div [class.done]='binderName === binder.name' class="check-icon"></div>
-        <div class="label-name">{{binder.name}}</div>
-      </div>
+      <button type="button" class="label-list binder-choice" [attr.aria-current]="binderName === binder.name ? 'true' : null" (click)="setBinderFromMenu(binder.name, binderMenuTt)">
+        <span class="binder-selected material-symbols-outlined" aria-hidden="true">{{binderName === binder.name ? 'check' : ''}}</span>
+        <span class="label-name">{{binder.name}}</span>
+      </button>
     }
   </div>
 </div>

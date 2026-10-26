@@ -53,7 +53,7 @@ test('protocol v2 catalog replay, ownership, tombstones, v1 compatibility and re
   const manifest=[];
   async function record(type,value){const key=`record:${type}:${value.syncId}`,payload={type,value},digest=hash(JSON.stringify(payload));await request(`/workspace-import/${job.id}/items`,{key,kind:'record',payload,digest},'PUT');manifest.push({key,digest});}
   await record('label',{id:1,syncId:'source-label',name:'Personal'});
-  await record('binder',{id:2,syncId:'source-binder',name:'Empty imported binder'});
+  await record('binder',{id:2,syncId:'source-binder',name:'Empty imported binder',sortOrder:3});
   const imageSource='/__kept_local_media/migration-photo';
   const imageBytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/C8kAAAAASUVORK5CYII=','base64');
   await record('note',{id:before[0].id,syncId:'source-note',noteTitle:'Imported <script>alert(1)</script>',noteBody:`<p>Local</p><img src="${imageSource}" alt="Photo"><script>alert(1)</script>`,images:[{id:'photo',dataUrl:imageSource,name:'photo.png',placement:'top'}],binder:'Empty imported binder',checkBoxes:[{id:55,data:'item',done:false,indentLevel:2}],isCbox:true,labels:[{id:1,syncId:'source-label',name:'Personal',added:true}],locked:true,lockSalt:'salt',lockHash:'hash'});
@@ -74,6 +74,7 @@ test('protocol v2 catalog replay, ownership, tombstones, v1 compatibility and re
   assert.deepEqual(await request(`/workspace-import/${job.id}/finalize`,{items:manifest}),result,'lost completion response replays without duplicate notes');
   assert.equal((await fixture.sql('SELECT noteTitle FROM notes WHERE id = ?',[before[0].id]))[0].noteTitle,'Existing server content');
   const imported=await request(`/notes/${result.mappings.notes[before[0].id].id}`);
+  assert.equal((await request('/sync/bootstrap?protocolVersion=2')).binders.find(item=>item.name==='Empty imported binder').sortOrder,3,'local-to-server imports preserve binder order');
   assert.equal(imported.checkBoxes[0].indentLevel,2);assert.equal(imported.locked,true);assert.equal(imported.labels[0].id,result.mappings.labels[1].id);
   assert.equal(imported.noteBody.includes('<script'),false);assert.equal(imported.attachments.length,1);
   const imageUrl=imported.images[0].dataUrl;

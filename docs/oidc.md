@@ -1,6 +1,6 @@
 # OpenID Connect single sign-on
 
-Kept can use one OpenID Connect (OIDC) provider as an additional sign-in method. This works with standards-based providers such as Authentik, Pocket ID, Google, Keycloak, and compatible self-hosted identity providers.
+Kept can use one OpenID Connect (OIDC) provider as an additional sign-in method, or optionally require SSO after setup. This works with standards-based providers such as Authentik, Pocket ID, Google, Keycloak, and compatible self-hosted identity providers.
 
 OIDC does not replace Kept's authorization model. A provider identity is linked to one Kept user, and that user retains their normal Kept role, note ownership, sharing permissions, and settings.
 
@@ -118,14 +118,36 @@ Authentik's global issuer mode is an exception: its discovery document can remai
 
 ## Connect a Kept account
 
-Every user must first have a local Kept account. OIDC identities do not automatically create accounts and are not matched to accounts by email.
+Existing users connect their provider identity to their Kept account explicitly. Accounts are never matched by email.
 
 1. Sign in to Kept with your existing local account.
 2. Open **Settings**, then **Security**.
 3. Select **Connect SSO account** for the configured provider.
 4. Complete the provider sign-in and consent flow.
 
-Kept links the provider's stable issuer and subject identifiers to the signed-in Kept account. A provider identity cannot be linked to two Kept accounts. The user's local password remains available as a fallback and is required for account-management actions such as changing the password or deleting the account.
+Kept links the provider's stable issuer and subject identifiers to the signed-in Kept account. A provider identity cannot be linked to two Kept accounts. Unless password sign-in is explicitly disabled below, the user's local password remains available as a fallback. Passwords are still required for account-management confirmations such as changing the password or deleting the account.
+
+If **Self-registration** is enabled, a new user can instead select the provider on the sign-in page. After verifying with the provider, they complete a Kept account form with their username, display name, email and password. This explicitly creates a regular user account linked to that provider identity. The password is still used for sensitive account confirmations, even on an SSO-only server. Provider verification alone never creates an account or links an existing account by email.
+
+The existing **Require approval** setting also applies to OIDC registration. When enabled, the new account cannot sign in until an administrator approves it. Registration links expire after ten minutes and can only be used once. Registration is available in both browser and native SSO flows; native users finish the form in the provider browser before returning to Kept.
+
+## Require single sign-on
+
+Password sign-in is enabled by default. To require SSO:
+
+1. Finish setting up Kept and configuring OIDC with password sign-in still enabled.
+2. Have every user connect their SSO account in Settings. Include at least one enabled administrator and test that administrator's SSO sign-in.
+3. Set `KEPT_DISABLE_PASSWORD_LOGIN=1` and recreate or restart Kept. `true` is also accepted.
+
+Kept refuses to start with this setting unless `BASE_URL`, a valid OIDC issuer and client ID are configured and an enabled administrator is linked to that exact issuer. Startup validation checks local configuration and account links; it does not require the identity provider to be online.
+
+The sign-in page offers **Continue with your provider**. Password login is rejected by both browser and native/API password-login endpoints. When self-registration is enabled, new users register through OIDC as described above; password-only registration is blocked. Email invitations are paused, including acceptance of existing invitations, because that flow creates a password session. Existing accounts, passwords, registration/invitation settings, and sessions are retained. Account permissions and optional API/OAuth access remain governed by their existing settings.
+
+Connected users cannot disconnect SSO while it is required. Existing users with an active session can still connect an unlinked SSO identity. A signed-out existing user without a linked identity needs password sign-in temporarily re-enabled so they can sign in and connect it. They should not register a second account. New users can register through OIDC if self-registration is enabled.
+
+For recovery, remove `KEPT_DISABLE_PASSWORD_LOGIN` (or set it to `0`) and recreate or restart Kept. Your existing passwords work again. Kept never automatically enables password sign-in when the provider is unavailable. Existing sessions are not revoked by this setting; revoke them separately if needed. Device-only libraries do not require server authentication and are unaffected.
+
+Use updated mobile bundles for the shared login page. The native local-to-server sign-in sheets also need to honor the server's policy; older sheets can still offer SSO, but may show password controls whose requests the server will reject.
 
 ## Notes
 

@@ -22,7 +22,8 @@ const { authenticateRealtime } = require('./realtime-auth');
 const { initNativeClientSchema, occurrenceId } = require('./native-client');
 const { mountImageProxyRoutes } = require('./image-proxy');
 const { nextRepeatDueAt, isRepeatOccurrence } = require('./reminder-recurrence');
-const { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken } = require('./oauth-mcp');
+const { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken,
+  passwordLoginDisabled, requirePasswordLoginEnabled, validateOidcOnlyConfiguration } = require('./oauth-mcp');
 const mailer = require('./mailer');
 const { createIntegrationRequests } = require('./integration-requests');
 const integrationRequests = createIntegrationRequests();
@@ -70,12 +71,8 @@ const STORAGE_QUOTA_BYTES = (() => {
 })();
 const SETUP_TOKEN = String(process.env.KEPT_SETUP_TOKEN || '');
 const SETUP_TOKEN_EXPIRES_AT = String(process.env.KEPT_SETUP_TOKEN_EXPIRES_AT || '');
-// A managed-hosting provider's own monitoring can't log in as the
-// customer (the provider never holds that password - see
-// docs/managed-hosting.md), but still needs to read non-sensitive
-// operational metrics like storage usage to compare against its own
-// disk measurement. This is read-only and scoped to metrics endpoints
-// only; it grants no write access and no note content.
+// Optional monitoring access is read-only and scoped to metrics endpoints;
+// it grants no write access and no note content.
 const METRICS_TOKEN = String(process.env.KEPT_METRICS_TOKEN || '');
 
 function setupTokenExpired() {
@@ -1081,6 +1078,7 @@ async function init() {
   `);
   await initNativeClientSchema({ run, get, all });
   await initOAuthTables({ run, all });
+  await validateOidcOnlyConfiguration({ get });
   await browserSessions.init();
   await workspaceSync.init();
   await workspaceImport.init();
@@ -3626,8 +3624,9 @@ function startReminderScheduler() {
 
 // CORS configuration.
 //
-// By default the SPA is served same-origin so no CORS headers are needed.
-// Two opt-in modes for cross-origin deployments:
+// The SPA is normally same-origin. By default, also allow the exact native
+// app origins without cookie credentials; native apps use bearer tokens.
+// Two opt-in modes for other cross-origin deployments:
 //
 //   KEPT_CORS_ALLOW_ALL=1
 //     Send `Access-Control-Allow-Origin: *` to every request, no credential
@@ -3664,6 +3663,11 @@ if (corsAllowlist.length) {
   }));
 } else if (process.env.KEPT_CORS_ALLOW_ALL === '1') {
   app.use(cors({ origin: '*' }));
+} else {
+  app.use(cors({
+    origin: (origin, cb) => cb(null, !!origin && nativeShellOrigins.has(origin)),
+    credentials: false
+  }));
 }
 app.use('/api', (_req, res, next) => {
   res.set({
@@ -3684,6 +3688,7 @@ app.post('/api/auth/browser/adopt', browserSessions.protect, requireAuth, asyncR
 
 mountOAuthAndMcpRoutes(app, {
   get, all, run, asyncRoute, requireAuth, createSession, browserSessions,
+  createUser, getAppSetting, withDatabaseTransaction, registerLimiter,
   oauthRegistrationLimiter, internalBaseUrl: `http://127.0.0.1:${port}`
 });
 
@@ -3824,8 +3829,8 @@ const login = asyncRoute(async (req, res) => {
   if (req.path === '/api/auth/browser/login') return browserSessions.finishLogin(req, res, user);
   res.json(await createSession(user));
 });
-app.post('/api/auth/login', loginLimiter, login);
-app.post('/api/auth/browser/login', loginLimiter, browserSessions.protect, login);
+app.post('/api/auth/login', loginLimiter, requirePasswordLoginEnabled, login);
+app.post('/api/auth/browser/login', loginLimiter, requirePasswordLoginEnabled, browserSessions.protect, login);
 
 app.get('/api/setup/2fa/generate', asyncRoute(async (req, res) => {
   const row = await get('SELECT COUNT(*) AS count FROM users');
@@ -4288,6 +4293,7 @@ app.get('/api/settings/registration', asyncRoute(async (_req, res) => {
   const requireApproval = await getAppSetting('requireApproval', 'true');
   res.json({
     selfRegistrationEnabled: selfRegistrationEnabled === 'true',
+    passwordLoginEnabled: !passwordLoginDisabled(),
     requireApproval: requireApproval === 'true'
   });
 }));
@@ -4303,6 +4309,7 @@ app.patch('/api/settings/registration', requireAuth, requireAdmin, asyncRoute(as
   const requireApproval = await getAppSetting('requireApproval', 'true');
   res.json({
     selfRegistrationEnabled: selfRegistrationEnabled === 'true',
+    passwordLoginEnabled: !passwordLoginDisabled(),
     requireApproval: requireApproval === 'true'
   });
 }));
@@ -4317,7 +4324,7 @@ app.get('/api/settings/invites', requireAuth, requireAdmin, asyncRoute(async (_r
   const inviteByEmailEnabled = await getAppSetting('inviteByEmailEnabled', 'false');
   res.json({
     smtpConfigured: mailer.isConfigured(),
-    inviteByEmailEnabled: mailer.isConfigured() && inviteByEmailEnabled === 'true'
+    inviteByEmailEnabled: mailer.isConfigured() && inviteByEmailEnabled === 'true' && !passwordLoginDisabled()
   });
 }));
 
@@ -4329,10 +4336,10 @@ app.patch('/api/settings/invites', requireAuth, requireAdmin, asyncRoute(async (
     await setAppSetting('inviteByEmailEnabled', String(!!req.body.inviteByEmailEnabled));
   }
   const inviteByEmailEnabled = await getAppSetting('inviteByEmailEnabled', 'false');
-  res.json({ smtpConfigured: true, inviteByEmailEnabled: inviteByEmailEnabled === 'true' });
+  res.json({ smtpConfigured: true, inviteByEmailEnabled: inviteByEmailEnabled === 'true' && !passwordLoginDisabled() });
 }));
 
-app.post('/api/users/invite', requireAuth, requireAdmin, inviteLimiter, asyncRoute(async (req, res) => {
+app.post('/api/users/invite', requireAuth, requireAdmin, inviteLimiter, requirePasswordLoginEnabled, asyncRoute(async (req, res) => {
   const enabled = await getAppSetting('inviteByEmailEnabled', 'false');
   if (!mailer.isConfigured() || enabled !== 'true') {
     return res.status(403).json({ error: 'Inviting users by email is not enabled on this server.' });
@@ -4365,7 +4372,7 @@ app.post('/api/users/invite', requireAuth, requireAdmin, inviteLimiter, asyncRou
   res.status(201).json({ email, expiresAt });
 }));
 
-app.get('/api/invites/:token', asyncRoute(async (req, res) => {
+app.get('/api/invites/:token', requirePasswordLoginEnabled, asyncRoute(async (req, res) => {
   const invite = await get(
     'SELECT * FROM user_invites WHERE tokenHash = ?',
     [mcpTokenHash(String(req.params.token || ''))]
@@ -4375,7 +4382,7 @@ app.get('/api/invites/:token', asyncRoute(async (req, res) => {
   res.json({ email: invite.email, role: invite.role });
 }));
 
-app.post('/api/invites/:token/accept', inviteAcceptLimiter, asyncRoute(async (req, res) => {
+app.post('/api/invites/:token/accept', inviteAcceptLimiter, requirePasswordLoginEnabled, asyncRoute(async (req, res) => {
   const invite = await get(
     'SELECT * FROM user_invites WHERE tokenHash = ?',
     [mcpTokenHash(String(req.params.token || ''))]
@@ -4544,7 +4551,7 @@ app.delete('/api/admin/backup/:filename', requireAuth, requireAdmin, asyncRoute(
   res.status(204).end();
 }));
 
-app.post('/api/auth/register', registerLimiter, asyncRoute(async (req, res) => {
+app.post('/api/auth/register', registerLimiter, requirePasswordLoginEnabled, asyncRoute(async (req, res) => {
   const regEnabled = await getAppSetting('selfRegistrationEnabled', 'false');
   if (regEnabled !== 'true') {
     return res.status(403).json({ error: 'Self-registration is not enabled.' });
@@ -5423,8 +5430,6 @@ async function applySyncNoteMutation(userId, mutation) {
     noteData.lockHash = note.lockHash || '';
   }
   if (!isOwner) {
-    noteData.bgColor = note.bgColor || '';
-    noteData.bgImage = note.bgImage || '';
     noteData.labels = parseJson(note.labels, []);
     noteData.binder = note.binder || '';
     noteData.archived = Boolean(note.archived);
@@ -6611,8 +6616,6 @@ app.put('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
     ? !!req.body.pinned
     : !!note.userPinned;
   if (!isOwner) {
-    next.bgColor = note.bgColor || '';
-    next.bgImage = note.bgImage || '';
     next.labels = parseJson(note.labels, []);
     next.binder = note.binder || '';
     next.archived = Boolean(note.archived);
@@ -6696,8 +6699,6 @@ app.patch('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
     ? !!req.body.pinned
     : !!existing.userPinned;
   if (!isOwner) {
-    next.bgColor = existing.bgColor || '';
-    next.bgImage = existing.bgImage || '';
     next.labels = parseJson(existing.labels, []);
     next.binder = existing.binder || '';
     next.archived = Boolean(existing.archived);

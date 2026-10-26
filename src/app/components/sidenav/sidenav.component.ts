@@ -31,6 +31,8 @@ export class NavComponent implements OnInit, OnDestroy {
 
   bindersExpanded = true;
   labelsExpanded = true;
+  binderBusy = false;
+  binderEditError = '';
   private subscriptions: Subscription[] = [];
 
   constructor(public Shared: SharedService, public router: Router, public auth: AuthService) {
@@ -88,6 +90,7 @@ export class NavComponent implements OnInit, OnDestroy {
   }
 
   openBinderModal() {
+    this.binderEditError = '';
     this.binderModalContainer.nativeElement.style.display = 'block';
     document.addEventListener('mousedown', this.binderMouseDownEvent)
   }
@@ -121,8 +124,38 @@ export class NavComponent implements OnInit, OnDestroy {
 
   editBinder(name: string) {
     return {
-      delete: () => this.Shared.binder.db.delete(name),
-      update: (value: string) => this.Shared.binder.db.update(name, value)
+      delete: () => this.changeBinder(() => this.Shared.binder.db.delete(name)),
+      update: (value: string) => value.trim() === name ? Promise.resolve() : this.changeBinder(() => this.Shared.binder.db.update(name, value))
+    }
+  }
+
+  async moveBinder(name: string, direction: -1 | 1, event: Event) {
+    if (this.binderBusy) return;
+    const button = event.currentTarget as HTMLButtonElement;
+    const names = this.Shared.binder.list.map(binder => binder.name);
+    const index = names.indexOf(name);
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= names.length) return;
+    [names[index], names[next]] = [names[next], names[index]];
+    await this.changeBinder(() => this.Shared.binder.db.reorder(names));
+    // Disabling controls during the write drops keyboard focus in some browsers.
+    setTimeout(() => {
+      if (!button.isConnected) return;
+      const target = button.disabled ? button.closest('.binder-edit-row')?.querySelector<HTMLButtonElement>('button:not(:disabled)') : button;
+      target?.focus();
+    }, 0);
+  }
+
+  private async changeBinder(change: () => Promise<unknown>) {
+    if (this.binderBusy) return;
+    this.binderBusy = true;
+    this.binderEditError = '';
+    try {
+      await change();
+    } catch {
+      this.binderEditError = 'Could not save your binder changes. Please try again.';
+    } finally {
+      this.binderBusy = false;
     }
   }
 

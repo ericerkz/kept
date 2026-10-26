@@ -19,6 +19,9 @@ export class LoginComponent implements OnInit, OnDestroy {
   registrationEnabled = false;
   oidcEnabled = false;
   oidcName = 'Single sign-on';
+  passwordLoginEnabled = true;
+  loadingSignInOptions = true;
+  signInOptionsUnavailable = false;
   oauthRequest = '';
   private routeSubscription?: Subscription;
   private handledOidcCodes = new Set<string>();
@@ -29,14 +32,29 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.routeSubscription = this.route.queryParamMap.subscribe(params => {
       this.handleOidcParams(params.get('oidc_code'), params.get('oidc_error'), params.get('oauth_request') || '').catch(console.error);
     });
-    const [registration, oidc] = await Promise.allSettled([
-      this.auth.getRegistrationSettings(),
-      this.auth.getOidcConfig()
-    ]);
-    if (registration.status === 'fulfilled') this.registrationEnabled = registration.value.selfRegistrationEnabled;
-    if (oidc.status === 'fulfilled') {
-      this.oidcEnabled = oidc.value.enabled;
-      this.oidcName = oidc.value.name;
+    void this.auth.getRegistrationSettings().then(settings => {
+      this.registrationEnabled = settings.selfRegistrationEnabled;
+    }).catch(() => {});
+    await this.loadSignInOptions();
+  }
+
+  async loadSignInOptions() {
+    this.loadingSignInOptions = true;
+    this.signInOptionsUnavailable = false;
+    try {
+      const oidc = await this.auth.getOidcConfig();
+      this.oidcEnabled = oidc.enabled;
+      this.oidcName = oidc.name;
+      // Older servers do not expose a password-login policy.
+      this.passwordLoginEnabled = oidc.passwordLoginEnabled !== false;
+      if (!this.passwordLoginEnabled) {
+        this.password = this.totpToken = '';
+        this.requires2FA = false;
+      }
+    } catch {
+      this.signInOptionsUnavailable = true;
+    } finally {
+      this.loadingSignInOptions = false;
     }
   }
 
@@ -47,9 +65,12 @@ export class LoginComponent implements OnInit, OnDestroy {
   private async handleOidcParams(oidcCode: string | null, oidcError: string | null, oauthRequest: string) {
     this.oauthRequest = oauthRequest;
     if (oidcError) {
-      this.error = oidcError === 'no_account'
-        ? 'Your identity provider account is not linked to an enabled Kept user.'
-        : 'Single sign-on could not be completed. Please try again.';
+      const messages: Record<string, string> = {
+        no_account: 'Your identity provider account is not linked to an enabled Kept user.',
+        pending_approval: 'Your account was created. An administrator must approve it before you can sign in.',
+        account_unavailable: 'Your account is awaiting approval or has been disabled. Please contact your administrator.'
+      };
+      this.error = messages[oidcError] || 'Single sign-on could not be completed. Please try again.';
       return;
     }
     if (!oidcCode || this.handledOidcCodes.has(oidcCode)) return;
@@ -67,6 +88,7 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   async submit() {
+    if (!this.passwordLoginEnabled || this.signInOptionsUnavailable) return;
     this.error = '';
     this.isSigningIn = true;
     try {
@@ -77,8 +99,21 @@ export class LoginComponent implements OnInit, OnDestroy {
       }
       this.finishLogin();
     } catch (e: any) {
-      if (e?.requires2FA) {
+      if (e?.error?.code === 'PASSWORD_LOGIN_DISABLED') {
+        this.passwordLoginEnabled = false;
+        this.requires2FA = false;
+        this.password = this.totpToken = '';
+        this.error = e.error.error;
+      } else if (e?.requires2FA) {
         this.requires2FA = true;
+      } else if (e?.status === 0) {
+        this.error = 'Could not connect to your server. Check your connection, server address and server configuration.';
+      } else if (e?.name === 'TimeoutError' || e?.status === 408) {
+        this.error = 'The sign-in request timed out. Please try again.';
+      } else if (e?.status === 429) {
+        this.error = e?.error?.error || 'Too many sign-in attempts. Please try again later.';
+      } else if (e?.status >= 500) {
+        this.error = 'Your server is temporarily unavailable. Please try again later.';
       } else {
         this.error = e?.error?.error || 'Could not sign in.';
       }

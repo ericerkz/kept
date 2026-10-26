@@ -195,6 +195,26 @@
 
         }
 
+        button.binder-choice {
+            align-items: center;
+            background: transparent;
+            border: 0;
+            color: inherit;
+            min-height: 36px;
+            text-align: left;
+            width: 100%;
+
+            .binder-selected {
+                flex: 0 0 18px;
+                font-size: 18px;
+                width: 18px;
+            }
+
+            .label-name { overflow-wrap: anywhere; }
+
+            &:focus-visible { outline: 2px solid #8ab4f8; outline-offset: -2px; }
+        }
+
         .label-list {
             display: flex;
             padding: 5px 10px 3px;

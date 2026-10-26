@@ -8,7 +8,7 @@ import { WorkspaceService } from '../../../services/workspace.service';
 // third onboarding option here. This component never hardcodes a
 // provider's name, pricing, or copy - whatever the plugin returns is
 // displayed verbatim, the same way managed-hosting metadata is shown
-// generically elsewhere in Settings. See docs/managed-hosting.md.
+// generically elsewhere in Settings.
 interface ManagedHostingOffering {
   available: boolean;
   title: string;

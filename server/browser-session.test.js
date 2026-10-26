@@ -67,6 +67,7 @@ test('HttpOnly browser sessions, CSRF, revocation and native bearer compatibilit
     assert.ok(note.id);
     await socket('/api/realtime', { Cookie: cookie, Origin: base }, 'ready');
     await socket('/api/realtime', { Cookie: cookie, Origin: 'https://evil.example' }, 'rejected');
+    await socket('/api/realtime', { Cookie: cookie, Origin: 'https://localhost' }, 'rejected');
     await socket('/api/realtime', { Cookie: cookie }, 'rejected');
     await fixture.restart();
     await request('/api/notes');

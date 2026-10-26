@@ -30,6 +30,7 @@ export interface CatalogItem {
   syncId: string;
   name: string;
   updatedAt: string;
+  sortOrder?: number | null;
 }
 export interface NativeAction {
   actionId: string;

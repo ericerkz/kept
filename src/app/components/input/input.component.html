@@ -459,11 +459,11 @@
     <div class="reminder-date-dialog reminder-place-dialog" [class.location-map-open]="showLocationMap" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
       role="dialog" aria-label="Set location reminder">
       <div class="rd-place-header">
-        <button type="button" class="rd-place-back" aria-label="Back"
+        <button type="button" class="rd-place-back" aria-label="Back" [disabled]="addPlaceSaving"
           (click)="backFromPlaceDialog()">
           <span class="material-symbols-outlined">chevron_left</span>
         </button>
-        <h2>{{ showLocationMap ? 'Choose on map' : placeDialogView === 'manage' ? 'Saved places' : (placeDialogView === 'add' ? 'Add saved place' : 'Place') }}</h2>
+        <h2>{{ showLocationMap ? 'Choose on map' : placeDialogView === 'manage' ? 'Saved places' : (placeDialogView === 'add' ? (editingSavedPlace ? 'Edit saved place' : 'Add saved place') : 'Place') }}</h2>
       </div>
 
       @if (placeDialogView === 'choose') {
@@ -525,10 +525,11 @@
             <div class="rd-place-swipe" [class.deleting]="swipingPlaceId === place.id">
               <button type="button" class="rd-place-delete-bg" (click)="deleteSavedPlace(place)">Delete</button>
               <button type="button" class="rd-place-row manage-row"
+                (click)="openEditSavedPlace(place)"
                 (pointerdown)="placeSwipeStart($event, place)"
                 (pointermove)="placeSwipeMove($event, place)"
                 (pointerup)="placeSwipeEnd(place)"
-                (pointercancel)="swipingPlaceId = null">
+                (pointercancel)="cancelPlaceSwipe()">
                 <span class="rd-place-icon material-symbols-outlined">{{ placeIcon(place.placeType) }}</span>
                 <span class="rd-place-copy">
                   <strong>{{ place.name }}</strong>
@@ -545,6 +546,7 @@
           <span class="rd-place-icon material-symbols-outlined">add</span>
           <span class="rd-place-copy"><strong>Add saved place</strong></span>
         </button>
+        @if (savedPlacesError) { <p class="rd-location-message" role="alert">{{ savedPlacesError }}</p> }
       }
 
       @if (placeDialogView === 'add' || placeDialogView === 'search') {
@@ -565,11 +567,25 @@
             @else { <span class="material-symbols-outlined" aria-hidden="true">location_on</span><span>map preview</span> }
           </div>
         }
+        @if (!showLocationMap && locationState === 'resolved' && resolvedLocation) {
+          @if (placeDistanceLabel(resolvedLocation); as distance) {
+            <div class="rd-place-distance rd-location-result-distance" [attr.aria-label]="'Distance from your current location: ' + distance">
+              <span class="material-symbols-outlined" aria-hidden="true">near_me</span>{{ distance }}
+            </div>
+          }
+        }
         @if (locationState === 'ambiguous') {
           <p class="rd-location-message">Multiple places found. Pick one:</p>
           <div class="rd-location-candidates">
-            @for (c of candidates; track c.displayName) {
-              <button type="button" class="rd-location-candidate" (click)="selectCandidate(c)">{{ c.displayName }}</button>
+            @for (c of candidates; track $index) {
+              <button type="button" class="rd-location-candidate" (click)="selectCandidate(c)">
+                <span class="rd-location-candidate-name">{{ c.displayName }}</span>
+                @if (placeDistanceLabel(c); as distance) {
+                  <span class="rd-place-distance" [attr.aria-label]="'Distance from your current location: ' + distance">
+                    <span class="material-symbols-outlined" aria-hidden="true">near_me</span>{{ distance }}
+                  </span>
+                }
+              </button>
             }
           </div>
         }
@@ -619,15 +635,15 @@
           <button type="button" class="rd-arrive-choice" [class.active]="resolvedLocation" (click)="toggleLocationTrigger()">
             <span class="material-symbols-outlined">location_on</span>
             Remind me when I {{ locationTrigger === 'leave' ? 'leave' : 'arrive' }}
-            <span class="rd-switch"><span class="material-symbols-outlined">swap_vert</span>Switch</span>
+            <span class="rd-trigger-switch"><span class="material-symbols-outlined" aria-hidden="true">swap_vert</span>Switch</span>
           </button>
         }
 
         <div class="rd-place-actions">
-          <button type="button" class="rd-place-cancel" (click)="placeDialogView === 'search' ? openPlaceChooser() : clearLocation()">Cancel</button>
+          <button type="button" class="rd-place-cancel" [disabled]="addPlaceSaving" (click)="placeDialogView === 'search' ? openPlaceChooser() : cancelSavedPlace()">Cancel</button>
           @if (placeDialogView === 'add') {
-            <button type="button" class="rd-place-save" (click)="saveSavedPlace()" [disabled]="addPlaceSaving || !resolvedLocation || !addPlaceName.trim()">
-              {{ addPlaceSaving ? 'Saving...' : 'Save place' }}
+            <button type="button" class="rd-place-save" (click)="saveSavedPlace()" [disabled]="addPlaceSaving || resolving || !resolvedLocation || !addPlaceName.trim()">
+              {{ addPlaceSaving ? 'Saving...' : editingSavedPlace ? 'Save changes' : 'Save place' }}
             </button>
           } @else if (resolvedLocation) {
             <button type="button" class="rd-place-save" (click)="confirmLocationReminder()">Set reminder</button>
@@ -637,6 +653,7 @@
             </button>
           }
         </div>
+        @if (savedPlacesError) { <p class="rd-location-message" role="alert">{{ savedPlacesError }}</p> }
         }
       }
     </div>
@@ -920,15 +937,15 @@
     <div class="label-error">{{binderMenuError}}</div>
   }
   <div class="label-list-container">
-    <div class="label-list" (click)="selectBinder('', binderMenuTt)">
-      <div [class.done]="!binderName" class="check-icon"></div>
-      <div class="label-name">No binder</div>
-    </div>
+    <button type="button" class="label-list binder-choice" [attr.aria-current]="!binderName ? 'true' : null" (click)="selectBinder('', binderMenuTt)">
+      <span class="binder-selected material-symbols-outlined" aria-hidden="true">{{!binderName ? 'check' : ''}}</span>
+      <span class="label-name">No binder</span>
+    </button>
     @for (binder of Shared.binder.list; track binder.name) {
-      <div class="label-list" (click)="selectBinder(binder.name, binderMenuTt)">
-        <div [class.done]='isSelectedBinder(binder.name)' class="check-icon"></div>
-        <div class="label-name">{{binder.name}}</div>
-      </div>
+      <button type="button" class="label-list binder-choice" [attr.aria-current]="isSelectedBinder(binder.name) ? 'true' : null" (click)="selectBinder(binder.name, binderMenuTt)">
+        <span class="binder-selected material-symbols-outlined" aria-hidden="true">{{isSelectedBinder(binder.name) ? 'check' : ''}}</span>
+        <span class="label-name">{{binder.name}}</span>
+      </button>
     }
   </div>
 </div>

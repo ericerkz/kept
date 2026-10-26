@@ -33,8 +33,12 @@ services:
       # - KEPT_OIDC_CLIENT_SECRET=
       # - KEPT_OIDC_NAME=Single sign-on
       # - KEPT_OIDC_SCOPES=openid profile email
-      # Users first need a local Kept account, then connect their provider
-      # account from Settings. OIDC does not create or email-match accounts.
+      # Optional: require SSO after configuring OIDC and linking/testing all
+      # users, including an enabled administrator. See docs/oidc.md for recovery.
+      # - KEPT_DISABLE_PASSWORD_LOGIN=1
+      # Existing users connect their provider account from Settings. New users
+      # can register through OIDC if self-registration is enabled. Accounts are
+      # never linked by matching email addresses.
 
       # Allow restoring a SQLite backup via /api/setup/restore. This should really only be enabled when you actually need it
       # (lost access to account/forgotten password/failed TOTP, etc.), 
@@ -49,6 +53,8 @@ services:
 
       # ── CORS (cross-origin requests) ─────────────────────────────────────
       # Browser sessions use HttpOnly cookies; same-origin access needs no CORS.
+      # If neither CORS option is set, exact native app origins are allowed
+      # automatically without cookie credentials, so iOS/Android can connect.
       # Native/API clients continue to use Bearer tokens. Wildcard mode supports
       # those clients, but browser cookie requests to a separate SPA origin need
       # the explicit allowlist below and a same-site API.
@@ -66,7 +72,7 @@ services:
       # trailing slashes, scheme + host (+ port if non-default):
       # - KEPT_CORS_ORIGINS=https://kept.example.com,https://app.example.com
       #
-      # When KEPT_CORS_ORIGINS is used, Kept still allows exact native app
+      # By default and when KEPT_CORS_ORIGINS is used, Kept allows exact native app
       # WebView origins (capacitor://localhost, ionic://localhost, and
       # localhost variants) so iOS/Android apps can connect.
       #
@@ -115,35 +121,6 @@ services:
       # - KEPT_SMTP_USER=
       # - KEPT_SMTP_PASS=
       # - KEPT_SMTP_FROM=Kept <no-reply@example.com>
-
-      # ── Managed hosting (only relevant if you host Kept FOR someone else) ──
-      # Generic, provider-agnostic primitives. Leave all of these unset for
-      # ordinary self-hosting; nothing below changes default behavior.
-      # See README.md#managed-hosting-optional for details.
-      #
-      # Require a matching X-Kept-Setup-Token header to create the first
-      # administrator (useful when an instance is auto-provisioned and
-      # internet-reachable before anyone has created an account):
-      # - KEPT_SETUP_TOKEN=
-      # - KEPT_SETUP_TOKEN_EXPIRES_AT=
-      #
-      # Identify this instance as managed, and by whom:
-      # - KEPT_MANAGED_HOSTING=1
-      # - KEPT_MANAGED_PROVIDER_NAME=
-      # - KEPT_MANAGED_ACCOUNT_URL=
-      #
-      # Enforce a storage allocation (bytes). Uploads/imports that would
-      # exceed it fail with 507 Insufficient Storage:
-      # - KEPT_STORAGE_QUOTA_BYTES=5368709120
-      #
-      # Hide the local backup scheduler UI because backups are handled
-      # externally:
-      # - KEPT_EXTERNAL_BACKUPS=1
-      #
-      # Let the hosting provider's own monitoring read /api/settings/storage
-      # with this header, without a user session or password:
-      # - KEPT_METRICS_TOKEN=
-
 
     volumes:
       - ./data:/app/data

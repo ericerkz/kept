@@ -1,4 +1,5 @@
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
+import { BinderDropService } from 'src/app/services/binder-drop.service';
 import { NativeWorkspaceService } from 'src/app/services/native-workspace.service';
 import { createNoteHtmlContainer, sanitizeNoteHtml } from '../../utils/note-html';
 import { CheckboxI, NoteAttachmentI, NoteI, NoteImageI } from './../../interfaces/notes';
@@ -59,7 +60,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   get nativePhoneLayout() {
     return isNativePhonePlatform()
   }
-  constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, public notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe, public noteLock: NoteLockService, public preferences: UserPreferencesService, private offlineSync: OfflineSyncService, private nativeWorkspace: NativeWorkspaceService) { }
+  constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, public notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe, public noteLock: NoteLockService, public preferences: UserPreferencesService, private offlineSync: OfflineSyncService, private nativeWorkspace: NativeWorkspaceService, private binderDrop: BinderDropService) { }
 
   get notePreviewTextSizeClass() {
     return `preview-text-${this.preferences.value.notePreviewTextSize}`;
@@ -1451,6 +1452,9 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.touchDragNotes = note.pinned ? this.Shared.note.pinned : this.Shared.note.unpinned
     this.draggedNoteId = note.id
     this.noteOrderChanged = false
+    this.beginBinderDrop(note)
+    this.touchDragLastX = this.longPressStartX
+    this.touchDragLastY = this.longPressStartY
 
     // Snapshot the card's screen rect at pickup. Use this as the anchor for
     // the ghost — masonry's per-card transforms can't move it once it's a
@@ -1526,7 +1530,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.touchDragLastX = t.clientX
       this.touchDragLastY = t.clientY
       this.fastUpdateGhost(t.clientX, t.clientY)
-      this.scheduleReorderTick()
+      const overSidebar = this.binderDrop.update(t.clientX, t.clientY)
+      if (this.touchDragNote && !overSidebar) this.scheduleReorderTick()
     }
     document.addEventListener('touchmove', this.touchDragMoveListener, { passive: false })
 
@@ -1564,6 +1569,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   private checkReorder(x: number, y: number) {
     if (!this.touchDragNote) return
+    if (this.binderDrop.update(x, y)) return
     const pointEl = document.elementFromPoint(x, y) as HTMLElement | null
     const targetCard = pointEl?.closest('[data-note-id]') as HTMLElement | null
     if (!targetCard) return
@@ -1604,6 +1610,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const note = this.touchDragNote
     const moved = this.touchDragMovedFromOrigin
     const notes = this.touchDragNotes
+    const movedToBinder = committed && moved && this.binderDrop.dropAt(this.touchDragLastX, this.touchDragLastY)
+    this.binderDrop.end()
 
     if (this.touchDragMoveListener) {
       document.removeEventListener('touchmove', this.touchDragMoveListener)
@@ -1636,7 +1644,9 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       return
     }
 
-    if (moved && notes) {
+    if (movedToBinder) {
+      this.noteOrderChanged = false
+    } else if (moved && notes) {
       this.persistNoteOrder(notes)
     } else {
       this.Shared.toggleNoteSelection(note.id!)
@@ -1692,6 +1702,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     }
     this.draggedNoteId = note.id
     this.noteOrderChanged = false
+    this.beginBinderDrop(note)
     event.dataTransfer?.setData('text/plain', String(note.id))
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
   }
@@ -1748,6 +1759,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.persistNoteOrder(notes)
     }
     this.draggedNoteId = undefined
+    this.binderDrop.end()
     setTimeout(() => this.suppressNextOpen = false)
   }
 
@@ -1755,6 +1767,35 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (!this.noteOrderChanged) return
     this.noteOrderChanged = false
     this.Shared.note.db.reorder(this.loadedNoteOrderIds())
+  }
+
+  private beginBinderDrop(note: NoteI) {
+    this.binderDrop.end()
+    // Binder membership remains owner-controlled, just like Move to binder.
+    if (note.ownerUserId && note.ownerUserId !== this.auth.currentUser?.id) return
+    const originalOrder = new Map(this.loadedNoteOrderIds().map((id, index) => [id, index]))
+    const restoreGridOrder = () => {
+      const compare = (a: NoteI, b: NoteI) => (originalOrder.get(a.id!) ?? Infinity) - (originalOrder.get(b.id!) ?? Infinity)
+      this.Shared.note.pinned = [...this.Shared.note.pinned].sort(compare)
+      this.Shared.note.unpinned = [...this.Shared.note.unpinned].sort(compare)
+      this.Shared.note.all = [...this.Shared.note.pinned, ...this.Shared.note.unpinned]
+      this.scheduleBuildMasonry(true)
+    }
+    this.binderDrop.begin(name => {
+      // A binder drop must not also save a grid reorder on native dragend.
+      restoreGridOrder()
+      this.noteOrderChanged = false
+      this.draggedNoteId = undefined
+      if ((note.binder || '') === name || !note.id) return
+      void this.notesService.updateKey({ binder: name }, note.id).catch(() => {
+        this.showMessage('Could not move this note to the binder. Please try again.')
+      })
+    }, () => {
+      restoreGridOrder()
+      if (this.touchDragNote) this.endTouchDrag(false)
+      this.draggedNoteId = undefined
+      this.noteOrderChanged = false
+    })
   }
 
   private loadedNoteOrderIds() {
@@ -2994,6 +3035,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   ngOnDestroy(): void {
     this.destroyed = true
+    this.onTouchCancel()
+    this.binderDrop.end()
     window.removeEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
     this.unregisterPullToRefresh()
     this.widgetAppUrlOpenHandle?.remove()

@@ -1308,6 +1308,18 @@
 }
 
 
+// Long notes can scroll their midpoint offscreen; keep reminder actions visible.
+.reminder-picker--inline {
+  left: 50%;
+  max-height: calc(var(--kept-viewport-height, 100dvh) - 32px);
+  overflow-y: auto;
+  position: fixed;
+  right: auto;
+  top: calc(var(--kept-viewport-offset-top, 0px) + var(--kept-viewport-height, 100dvh) / 2);
+  transform: translate(-50%, -50%);
+  width: min(320px, calc(100vw - 32px));
+}
+
 .close-btn {
   background: transparent;
   border: 0;

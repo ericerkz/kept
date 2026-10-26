@@ -74,9 +74,11 @@ export class LocationSavedPlacesService {
     return place;
   }
 
-  async update(id: number, payload: Partial<LocationSavedPlacePayload>) {
+  async update(id: number, payload: Partial<LocationSavedPlacePayload>, syncId?: string) {
     if (this.sync.writesLocally) {
-      const value = (await this.list()).find(place => place.id === id);
+      // A connected workspace can receive the server's numeric id while the
+      // editor is open. Its sync identity stays the same throughout.
+      const value = (await this.list()).find(place => syncId ? place.syncId === syncId : place.id === id);
       if (!value) throw new Error('Saved place unavailable.');
       return this.saveLocal({ ...value, ...payload }, value);
     }

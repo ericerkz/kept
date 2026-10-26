@@ -35,7 +35,7 @@ export class RegisterComponent implements OnInit {
   async ngOnInit() {
     try {
       const settings = await this.auth.getRegistrationSettings();
-      this.registrationEnabled = settings.selfRegistrationEnabled;
+      this.registrationEnabled = settings.selfRegistrationEnabled && settings.passwordLoginEnabled !== false;
     } catch {
       this.registrationEnabled = false;
     }

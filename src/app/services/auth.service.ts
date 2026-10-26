@@ -52,10 +52,12 @@ export interface ExternalAccessCapabilities {
 export interface OidcConfig {
   enabled: boolean
   name: string
+  passwordLoginEnabled?: boolean
 }
 
 export interface OidcLinkStatus {
   enabled: boolean
+  passwordLoginEnabled?: boolean
   providerName: string
   connected: boolean
   identityEmail: string
@@ -446,10 +448,10 @@ export class AuthService implements OnDestroy {
       if (error?.error?.requires2FA) {
         throw { requires2FA: true };
       }
-      if (error?.status === 403) {
-        throw error;
-      }
-      return false;
+      // Only Kept's actual password rejection maps to false. Network failures,
+      // proxy responses, invalid 2FA codes and server errors must stay distinct.
+      if (error?.status === 401 && error?.error?.error === 'Username or password is incorrect.') return false;
+      throw error;
     }
 
     this.storeLoginResult(result);
@@ -457,7 +459,7 @@ export class AuthService implements OnDestroy {
   }
 
   async getOidcConfig() {
-    return await firstValueFrom(this.http.get<OidcConfig>(`${this.apiUrl}/auth/oidc/config`));
+    return await firstValueFrom(this.http.get<OidcConfig>(`${this.apiUrl}/auth/oidc/config`).pipe(timeout(10000)));
   }
 
   startOidcLogin(oauthRequest = '') {
@@ -733,7 +735,7 @@ export class AuthService implements OnDestroy {
   }
 
   async getRegistrationSettings() {
-    return await firstValueFrom(this.http.get<{ selfRegistrationEnabled: boolean, requireApproval: boolean }>(
+    return await firstValueFrom(this.http.get<{ selfRegistrationEnabled: boolean, requireApproval: boolean, passwordLoginEnabled?: boolean }>(
       `${this.apiUrl}/settings/registration`
     ));
   }
