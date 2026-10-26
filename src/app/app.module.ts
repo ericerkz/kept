@@ -5,6 +5,7 @@ import { HTTP_INTERCEPTORS, provideHttpClient, withInterceptorsFromDi } from '@a
 import { AppComponent } from './app.component';
 import { MainComponent } from './components/main/main.component';
 import { NavComponent } from './components/sidenav/sidenav.component';
+import { CatalogReorderDirective } from './components/sidenav/catalog-reorder.directive';
 import { NavbarComponent } from './components/navbar/navbar.component';
 import { NotesComponent } from './components/notes/notes.component';
 import { InputComponent } from './components/input/input.component';
@@ -34,6 +35,7 @@ import { LocationMapPickerComponent } from './components/location-map-picker/loc
         WelcomeComponent,
         MainComponent,
         NavComponent,
+        CatalogReorderDirective,
         NavbarComponent,
         NotesComponent,
         InputComponent,

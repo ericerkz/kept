@@ -1,6 +1,6 @@
 {
   "name": "keep",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "scripts": {
     "ng": "ng",
     "start": "concurrently \"npm run api\" \"npm run client\"",
@@ -21,6 +21,8 @@
     "test:reminder-sync": "node --test server/reminder-sync-lifecycle.test.js",
     "test:binders": "node --test scripts/binder-order.test.cjs",
     "test:binders:ui": "node scripts/binder-drop-test.mjs",
+    "test:catalog-order": "node --test scripts/binder-order.test.cjs",
+    "test:catalog-order:ui": "node scripts/catalog-order-test.mjs",
     "test:oidc": "node --test server/oidc-only.test.js server/oidc-registration.test.js mcp/oidc-link.test.mjs scripts/login-errors.test.cjs",
     "test:reminder-navigation": "node --test scripts/reminder-navigation.test.cjs",
     "mcp": "node mcp/index.mjs",

@@ -234,8 +234,9 @@ export class SharedService {
   }
 
   private compareLabels(a: LabelI, b: LabelI) {
+    const byOrder = (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity);
     const byName = String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
-    return byName || Number(a.id || 0) - Number(b.id || 0);
+    return byOrder || byName || Number(a.id || 0) - Number(b.id || 0);
   }
 
   private binderStoragePartition() {
@@ -460,6 +461,7 @@ export class SharedService {
       add: async (data: LabelI) => this.Labels.add(data),
       update: (data: LabelI) => this.Labels.update(data, this.label.id),
       delete: () => this.Labels.delete(this.label.id),
+      reorder: (labels: LabelI[]) => this.Labels.reorder(labels),
       updateAllLabels: (value: any) => this.note.db.updateAllLabels(this.label.id, value),
     }
   }

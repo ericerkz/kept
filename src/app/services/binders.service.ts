@@ -10,15 +10,17 @@ import { OfflineSyncService } from './offline-sync.service';
 @Injectable({ providedIn: 'root' })
 export class BindersService {
   private migratingLegacy = false;
+  private loadRevision = 0;
   readonly items$ = new BehaviorSubject<CatalogItem[]>([]);
   constructor(private store: OfflineStoreService, public sync: OfflineSyncService,private auth: AuthService) {
     this.sync.cacheChanged$.subscribe(() => this.load().catch(console.error));
   }
   async load() {
+    const revision = ++this.loadRevision;
     if (!this.sync.partition) { this.items$.next([]); return; }
     const partition = this.sync.partition;
     let items = await this.store.listResources<CatalogItem>('binder', partition);
-    if (partition !== this.sync.partition) return;
+    if (partition !== this.sync.partition || revision !== this.loadRevision) return;
     if (!this.auth.isLocal && this.sync.writesLocally && this.auth.currentUser) {
       const legacyKey = `kept_binders_v1:${environment.apiUrl || location.origin}:${this.auth.currentUser.id}`;
       const marker = `${legacyKey}:workspace-migrated`;
@@ -39,7 +41,7 @@ export class BindersService {
         } catch(error) {localStorage.removeItem(marker);throw error;} finally {this.migratingLegacy = false;}
       }
     }
-    if (partition !== this.sync.partition) return;
+    if (partition !== this.sync.partition || revision !== this.loadRevision) return;
     items = [...new Map(items.map(item=>[item.name.toLowerCase(),item])).values()];
     this.items$.next(items.sort((a, b) =>
       (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })));

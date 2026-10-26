@@ -12,6 +12,7 @@ import { createUuid } from '../utils/uuid';
   providedIn: 'root'
 })
 export class LabelsService {
+  private loadRevision = 0;
   private readonly apiUrl = `${environment.apiUrl}/labels`;
   labelsList$ = new BehaviorSubject<LabelI[]>([]);
 
@@ -21,17 +22,18 @@ export class LabelsService {
   }
 
   async load() {
+    const revision = ++this.loadRevision;
     if (this.sync.writesLocally) {
       const partition = this.sync.partition;
       const labels = await this.store.listResources<LabelI>('label',partition);
-      if (partition === this.sync.partition) this.labelsList$.next(this.uniqueLabels(labels)); return;
+      if (partition === this.sync.partition && revision === this.loadRevision) this.labelsList$.next(this.uniqueLabels(labels)); return;
     }
     try {
       const labels = await firstValueFrom(this.http.get<LabelI[]>(this.apiUrl, { headers: this.auth.authHeaders() }));
-      this.labelsList$.next(this.uniqueLabels(labels));
+      if (revision === this.loadRevision) this.labelsList$.next(this.uniqueLabels(labels));
     } catch (error: any) {
       if (!navigator.onLine || error?.status === 0) {
-        this.labelsList$.next(this.uniqueLabels(this.labelsList$.value));
+        if (revision === this.loadRevision) this.labelsList$.next(this.uniqueLabels(this.labelsList$.value));
         return;
       }
       throw error;
@@ -46,7 +48,9 @@ export class LabelsService {
     if (existing?.id != null) return existing.id;
 
     if (this.sync.writesLocally) {
-      const value = await this.sync.commit('label.upsert', labelObj.syncId || `label-${createUuid()}`, { name });
+      const ordered = this.labelsList$.value.filter(label => label.sortOrder != null);
+      const sortOrder = ordered.length ? Math.max(...ordered.map(label => label.sortOrder!)) + 1 : null;
+      const value = await this.sync.commit('label.upsert', labelObj.syncId || `label-${createUuid()}`, { name, sortOrder });
       await this.load(); return (value as any).id as number;
     }
     if (!navigator.onLine) return this.addLocal(name);
@@ -74,6 +78,23 @@ export class LabelsService {
       console.log(error)
       throw error
     }
+  }
+
+  async reorder(labels: LabelI[]) {
+    const partition = this.sync.partition;
+    for (const [sortOrder, label] of labels.entries()) {
+      if (partition !== this.sync.partition) throw new Error('The active workspace changed.');
+      const previous = this.labelsList$.value.find(item => item.name.toLowerCase() === label.name.toLowerCase());
+      if (previous?.sortOrder === sortOrder) continue;
+      if (this.sync.writesLocally) {
+        // Note-derived labels may not yet have a catalog entry in this workspace.
+        await this.sync.commit('label.upsert', previous?.syncId || `label-${createUuid()}`, { ...previous, name: label.name, sortOrder });
+      } else {
+        const id = previous?.id ?? await this.add({ name: label.name });
+        await firstValueFrom(this.http.patch(`${this.apiUrl}/${id}`, { name: label.name, sortOrder }, { headers: this.auth.authHeaders() }));
+      }
+    }
+    await this.load();
   }
 
   async update(object: UpdateKeyI, id: number) {
@@ -121,7 +142,8 @@ export class LabelsService {
   }
 
   private compareLabels(a: LabelI, b: LabelI) {
+    const byOrder = (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity);
     const byName = String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
-    return byName || Number(a.id || 0) - Number(b.id || 0);
+    return byOrder || byName || Number(a.id || 0) - Number(b.id || 0);
   }
 }

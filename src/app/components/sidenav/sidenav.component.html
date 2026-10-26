@@ -145,9 +145,11 @@
           <div class="error" role="alert">{{binderEditError}}</div>
         }
       </div>
-      <div class="label-list">
+      <div class="label-list" appCatalogReorder [appCatalogReorderDisabled]="binderBusy"
+        (catalogOrderChange)="reorderBinders($event)">
         @for (binder of Shared.binder.list; track binder.name; let index = $index) {
-          <div class="labels-container binder-edit-row">
+          <div class="labels-container binder-edit-row" [attr.data-catalog-name]="binder.name">
+            <span class="catalog-drag-handle" aria-hidden="true" title="Drag to reorder"></span>
             <div #binderIcon class="label-icon H" (click)="editBinder(binder.name).delete()"></div>
             <input #binderInput2 (focus)="binderIcon.classList.toggle('trash-icon')"
               (keydown.enter)="binderInput2.blur()"
@@ -211,16 +213,29 @@
             (click)="addLabel(labelInput)"></div>
         </div>
         <div #labelError class="error" hidden>Label already exists</div>
+        @if (labelEditError) {
+          <div class="error" role="alert">{{labelEditError}}</div>
+        }
       </div>
-      <div class="label-list">
-        @for (label of Shared.label.list; track label) {
-          <div class="labels-container">
+      <div class="label-list" appCatalogReorder [appCatalogReorderDisabled]="labelBusy"
+        (catalogOrderChange)="reorderLabels($event)">
+        @for (label of Shared.label.list; track label.id; let index = $index) {
+          <div class="labels-container label-edit-row" [attr.data-catalog-name]="label.name">
+            <span class="catalog-drag-handle" aria-hidden="true" title="Drag to reorder"></span>
             <div #labelIcon class="label-icon H" (click)="editLabel(label.id!).delete()"></div>
             <input #labelInput2 (focus)="labelIcon.classList.toggle('trash-icon')"
               (keydown.enter)="labelInput2.blur()"
               (blur)="editLabel(label.id!).update(labelInput2.value);labelIcon.classList.toggle('trash-icon')"
-              [value]="label.name" type="text" placeholder="Enter label name" maxlength="50">
+              [value]="label.name" [disabled]="labelBusy" type="text" placeholder="Enter label name" maxlength="50">
             <div class="pen-icon H" (click)="editLabel(label.id!).update(labelInput2.value)"></div>
+            <button type="button" class="label-move" [disabled]="labelBusy || index === 0"
+              [attr.aria-label]="'Move ' + label.name + ' up'" (click)="moveLabel(label.id!, -1, $event)">
+              <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span>
+            </button>
+            <button type="button" class="label-move" [disabled]="labelBusy || index === Shared.label.list.length - 1"
+              [attr.aria-label]="'Move ' + label.name + ' down'" (click)="moveLabel(label.id!, 1, $event)">
+              <span class="material-symbols-outlined" aria-hidden="true">arrow_downward</span>
+            </button>
           </div>
         }
       </div>

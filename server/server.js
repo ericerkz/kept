@@ -4829,7 +4829,7 @@ app.get('/api/users/search', requireAuth, asyncRoute(async (req, res) => {
 }));
 
 app.get('/api/labels', requireAuth, asyncRoute(async (req, res) => {
-  res.json(await all('SELECT id, name FROM labels WHERE userId = ? ORDER BY name COLLATE NOCASE, id', [req.user.id]));
+  res.json(await all('SELECT id, name, sortOrder FROM labels WHERE userId = ? ORDER BY sortOrder IS NULL, sortOrder, name COLLATE NOCASE, id', [req.user.id]));
 }));
 
 app.post('/api/labels/find-or-create', requireAuth, asyncRoute(async (req, res) => {
@@ -4850,7 +4850,11 @@ app.patch('/api/labels/:id', requireAuth, asyncRoute(async (req, res) => {
   const labelId = Number(req.params.id);
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Label name is required.' });
-  const label = await get('SELECT id, name FROM labels WHERE id = ? AND userId = ?', [labelId, req.user.id]);
+  const sortOrder = req.body.sortOrder;
+  if (sortOrder !== undefined && sortOrder !== null && (!Number.isSafeInteger(sortOrder) || sortOrder < 0)) {
+    return res.status(400).json({ error: 'Invalid label order.' });
+  }
+  const label = await get('SELECT id, name, sortOrder FROM labels WHERE id = ? AND userId = ?', [labelId, req.user.id]);
   if (!label) return res.status(404).json({ error: 'Label not found.' });
   const duplicate = await get(
     'SELECT id FROM labels WHERE userId = ? AND lower(name) = lower(?) AND id <> ?',
@@ -4858,10 +4862,13 @@ app.patch('/api/labels/:id', requireAuth, asyncRoute(async (req, res) => {
   );
   if (duplicate) return res.status(409).json({ error: 'Label already exists.' });
   await run('UPDATE labels SET name = ? WHERE id = ? AND userId = ?', [name, labelId, req.user.id]);
-  const { recipientIds } = await updateNoteLabelReferencesForUser(req.user.id, labelId, name, { oldName: label.name });
-  broadcastRealtime([...recipientIds], { type: 'notes-changed', action: 'labels-updated' });
+  if (sortOrder !== undefined) await run('UPDATE labels SET sortOrder = ? WHERE id = ? AND userId = ?', [sortOrder, labelId, req.user.id]);
+  if (label.name !== name) {
+    const { recipientIds } = await updateNoteLabelReferencesForUser(req.user.id, labelId, name, { oldName: label.name });
+    broadcastRealtime([...recipientIds], { type: 'notes-changed', action: 'labels-updated' });
+  }
   await withDatabaseTransaction(() => workspaceSync.capture(req.user.id));
-  res.json({ id: labelId, name });
+  res.json({ id: labelId, name, sortOrder: sortOrder === undefined ? label.sortOrder : sortOrder });
 }));
 
 app.delete('/api/labels/:id', requireAuth, asyncRoute(async (req, res) => {

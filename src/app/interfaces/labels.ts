@@ -3,6 +3,7 @@ export interface LabelI {
     updatedAt?: string
     id?: number
     name: string
+    sortOrder?: number | null
     added?: boolean
 }
 
@@ -22,6 +23,7 @@ export interface LabelModelI {
         add(data: LabelI): Promise<any>
         update(data: UpdateKeyI): Promise<void>
         delete(): Promise<void>
+        reorder(labels: LabelI[]): Promise<void>
         updateAllLabels(value: string): Promise<void>
     }
 }

@@ -1331,12 +1331,36 @@
   }
 }
 
-// Binder ordering uses touch and keyboard controls in the existing edit dialog.
-.label-modal-main .label-list .binder-edit-row {
+// Catalog ordering uses touch and keyboard controls in the existing edit dialogs.
+.label-modal-main .label-list .binder-edit-row,
+.label-modal-main .label-list .label-edit-row {
   input { margin: 0 8px; min-width: 0; width: 0; }
   .label-icon, .pen-icon { flex: 0 0 24px; }
 
-  .binder-move {
+  .catalog-drag-handle {
+    background-color: currentColor;
+    color: #e8eaed;
+    cursor: grab;
+    flex: 0 0 28px;
+    height: 44px;
+    mask: url(/assets/images/svg/move.svg) center / 18px 18px no-repeat;
+    -webkit-mask: url(/assets/images/svg/move.svg) center / 18px 18px no-repeat;
+    opacity: 0.54;
+    touch-action: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    &:active { cursor: grabbing; opacity: 0.87; }
+  }
+
+  &.catalog-drag-source {
+    background: rgba(138, 180, 248, 0.08);
+    border-radius: 6px;
+    outline: 1px dashed #8ab4f8;
+    outline-offset: -3px;
+    > * { opacity: 0; }
+  }
+
+  .binder-move, .label-move {
     align-items: center;
     background: transparent;
     border: 0;
@@ -1356,7 +1380,17 @@
   }
 }
 
-:host-context(.light-theme) .label-modal-main .label-list .binder-move { color: #3c4043; }
+.label-list.catalog-reordering > [data-catalog-name] {
+  transition: transform 140ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .label-list.catalog-reordering > [data-catalog-name] { transition: none; }
+}
+
+:host-context(.light-theme) .label-modal-main .label-list .binder-move,
+:host-context(.light-theme) .label-modal-main .label-list .label-move,
+:host-context(.light-theme) .label-modal-main .label-list .catalog-drag-handle { color: #3c4043; }
 
 .main-sidebar.binder-drop-active .item.is-binder {
   outline: 1px dashed rgba(138, 180, 248, 0.5);

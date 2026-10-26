@@ -23,8 +23,10 @@ function createWorkspaceSync(deps) {
 
     await run(`CREATE TABLE IF NOT EXISTS binders (id INTEGER PRIMARY KEY AUTOINCREMENT,
       userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, UNIQUE(userId, name))`);
-    if (!(await all('PRAGMA table_info(binders)')).some(column => column.name === 'sortOrder')) {
-      await run('ALTER TABLE binders ADD COLUMN sortOrder INTEGER');
+    for (const table of ['binders', 'labels']) {
+      if (!(await all(`PRAGMA table_info(${table})`)).some(column => column.name === 'sortOrder')) {
+        await run(`ALTER TABLE ${table} ADD COLUMN sortOrder INTEGER`);
+      }
     }
     await run(`CREATE TABLE IF NOT EXISTS workspace_catalog (
       userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, resourceType TEXT NOT NULL, syncId TEXT NOT NULL, resourceId INTEGER,
@@ -142,17 +144,17 @@ function createWorkspaceSync(deps) {
     } else {
       const name = String(payload.name || '').trim().slice(0,80);
       if (!name) return { ok:false,error:'A name is required.' };
-      if (type === 'binder' && payload.sortOrder !== undefined && payload.sortOrder !== null &&
+      if (payload.sortOrder !== undefined && payload.sortOrder !== null &&
           (!Number.isSafeInteger(payload.sortOrder) || payload.sortOrder < 0)) {
-        return { ok:false,error:'Invalid binder order.' };
+        return { ok:false,error:`Invalid ${type} order.` };
       }
       const duplicate = await get(`SELECT * FROM ${table} WHERE userId = ? AND lower(name) = lower(?)`, [userId,name]);
       if (duplicate && id && duplicate.id !== id) return { ok:false,error:'That name is already in use.' };
       if (id) await run(`UPDATE ${table} SET name = ? WHERE id = ? AND userId = ?`, [name,id,userId]);
       else if (duplicate) id=duplicate.id;
       else id=(await run(`INSERT INTO ${table}(userId,name) VALUES(?,?)`, [userId,name])).id;
-      if (type === 'binder' && payload.sortOrder !== undefined) {
-        await run('UPDATE binders SET sortOrder = ? WHERE id = ? AND userId = ?', [payload.sortOrder,id,userId]);
+      if (payload.sortOrder !== undefined) {
+        await run(`UPDATE ${table} SET sortOrder = ? WHERE id = ? AND userId = ?`, [payload.sortOrder,id,userId]);
       }
       if (type === 'label' && row && row.name !== name) await deps.updateNoteLabelReferencesForUser(userId,row.id,name,{ oldName:row.name });
       if (type === 'binder' && row && row.name !== name) {

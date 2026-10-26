@@ -33,6 +33,8 @@ export class NavComponent implements OnInit, OnDestroy {
   labelsExpanded = true;
   binderBusy = false;
   binderEditError = '';
+  labelBusy = false;
+  labelEditError = '';
   private subscriptions: Subscription[] = [];
 
   constructor(public Shared: SharedService, public router: Router, public auth: AuthService) {
@@ -41,6 +43,7 @@ export class NavComponent implements OnInit, OnDestroy {
 
   // ? modal ----------------------------------------------------------
   openModal() {
+    this.labelEditError = '';
     this.modalContainer.nativeElement.style.display = 'block';
     document.addEventListener('mousedown', this.mouseDownEvent)
   }
@@ -58,35 +61,70 @@ export class NavComponent implements OnInit, OnDestroy {
   // ? labels ----------------------------------------------------
 
   addLabel(el: HTMLInputElement) {
-    if (!el) return
+    if (!el || this.labelBusy) return
     this.Shared.label.db.add({ name: el.value })
       .then(() => { this.labelError.nativeElement.hidden = true; el.value = ''; el.focus() })
       .catch(x => { if (x.status === 409) this.labelError.nativeElement.hidden = false; el.focus() })
   }
 
   editLabel(id: number) {
-    this.Shared.label.id = id
     let actions: LabelActionsT = {
-      delete: async () => {
-        try {
-          await this.Shared.label.db.delete()
-          await this.Shared.label.db.updateAllLabels('')
-          this.labelError.nativeElement.hidden = true
-        } catch {
-          this.labelError.nativeElement.hidden = false
-        }
-      },
+      delete: () => this.changeLabel(async () => {
+        this.Shared.label.id = id
+        await this.Shared.label.db.delete()
+        await this.Shared.label.db.updateAllLabels('')
+        this.labelError.nativeElement.hidden = true
+      }),
       update: async (value: string) => {
-        try {
+        if (value.trim() === this.Shared.label.list.find(label => label.id === id)?.name) return;
+        await this.changeLabel(async () => {
+          this.Shared.label.id = id
           await this.Shared.label.db.update({ name: value })
           await this.Shared.label.db.updateAllLabels(value)
           this.labelError.nativeElement.hidden = true
-        } catch {
-          this.labelError.nativeElement.hidden = false
-        }
+        });
       }
     }
     return actions
+  }
+
+  async moveLabel(id: number, direction: -1 | 1, event: Event) {
+    if (this.labelBusy) return;
+    const button = event.currentTarget as HTMLButtonElement;
+    const labels = [...this.Shared.label.list];
+    const index = labels.findIndex(label => label.id === id);
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= labels.length) return;
+    [labels[index], labels[next]] = [labels[next], labels[index]];
+    await this.changeLabel(() => this.Shared.label.db.reorder(labels));
+    setTimeout(() => {
+      if (!button.isConnected) return;
+      const target = button.disabled ? button.closest('.label-edit-row')?.querySelector<HTMLButtonElement>('button:not(:disabled)') : button;
+      target?.focus();
+    }, 0);
+  }
+
+  reorderLabels(names: string[]) {
+    const labels = names.map(name => this.Shared.label.list.find(label => label.name === name));
+    if (labels.some(label => !label)) return;
+    return this.changeLabel(() => this.Shared.label.db.reorder(labels as typeof this.Shared.label.list));
+  }
+
+  reorderBinders(names: string[]) {
+    return this.changeBinder(() => this.Shared.binder.db.reorder(names));
+  }
+
+  private async changeLabel(change: () => Promise<unknown>) {
+    if (this.labelBusy) return;
+    this.labelBusy = true;
+    this.labelEditError = '';
+    try {
+      await change();
+    } catch {
+      this.labelEditError = 'Could not save your label changes. Please try again.';
+    } finally {
+      this.labelBusy = false;
+    }
   }
 
   openBinderModal() {
