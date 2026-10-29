@@ -27,6 +27,7 @@ const { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOA
 const mailer = require('./mailer');
 const { createIntegrationRequests } = require('./integration-requests');
 const integrationRequests = createIntegrationRequests();
+const fullBackup = require('./full-backup');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -235,7 +236,7 @@ function getVapidKeys() {
   return keys;
 }
 
-const vapidKeys = getVapidKeys();
+let vapidKeys = getVapidKeys();
 // Apple's APNS gateway (used for iOS web push) validates the VAPID JWT
 // `sub` claim and rejects reserved/private TLDs like `.local`, which
 // causes pushes to iOS PWAs to silently fail (BadJwtToken). Use a
@@ -291,16 +292,12 @@ async function performBackup(isManual = false) {
   const filename = `backup-${timestamp}${isManual ? '-manual' : ''}.sqlite`;
   const destPath = path.join(backupDir, filename);
 
-  await withDatabaseLock(() => new Promise((resolve, reject) => {
-    // Using VACUUM INTO for a safe, consistent backup while excluding active transactions.
-    db.run(`VACUUM INTO ?`, [destPath], err => {
-      if (!err) return resolve();
-      try {
-        fs.copyFileSync(dbPath, destPath);
-        resolve();
-      } catch (copyError) { reject(copyError); }
-    });
-  }));
+  try {
+    await withDatabaseLock(() => rawRun(db, 'VACUUM INTO ?', [destPath]));
+  } catch (error) {
+    await fs.promises.rm(destPath, { force: true });
+    throw error;
+  }
   const setting = isManual ? 'lastManualBackupAt' : 'lastAutomatedBackupAt';
   await setAppSetting(setting, now);
   return filename;
@@ -308,6 +305,7 @@ async function performBackup(isManual = false) {
 
 
 function startBackupScheduler() {
+  if (MANAGED_EXTERNAL_BACKUPS) return;
   setInterval(async () => {
     try {
       const schedule = await getAppSetting('backupSchedule', 'none');
@@ -3728,55 +3726,75 @@ app.post('/api/setup/admin', setupLimiter, asyncRoute(async (req, res) => {
   res.status(201).json({ user: publicUser(user), backupCodes });
 }));
 
-app.post('/api/setup/restore', setupLimiter, multer({ dest: path.join(dataDir, 'backups') }).single('backup'), asyncRoute(async (req, res) => {
-  // Guard: even if all users are deleted, restore must be explicitly enabled
-  // by the operator via KEPT_ALLOW_RESTORE=1. Otherwise an attacker who can
-  // wipe the DB could swap in an arbitrary SQLite to take over.
-  if (process.env.KEPT_ALLOW_RESTORE !== '1') {
-    if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
-    return res.status(403).json({ error: 'Restore is disabled. Set KEPT_ALLOW_RESTORE=1 on the server to enable.' });
-  }
-  const row = await get('SELECT COUNT(*) AS count FROM users');
-  if (row.count > 0) {
-    if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
-    return res.status(403).json({ error: 'Initial setup already complete.' });
-  }
-
-  if (!req.file) return res.status(400).json({ error: 'Backup file is required.' });
-
-  const tempPath = req.file.path;
-
-  // Validate the upload is actually a SQLite database (magic header).
-  try {
-    const fd = fs.openSync(tempPath, 'r');
-    const header = Buffer.alloc(16);
-    fs.readSync(fd, header, 0, 16, 0);
-    fs.closeSync(fd);
-    if (header.toString('utf8', 0, 16) !== 'SQLite format 3\0') {
-      try { fs.unlinkSync(tempPath); } catch {}
-      return res.status(400).json({ error: 'File is not a valid SQLite backup.' });
+const RESTORE_MAX_BYTES = parseByteSize(process.env.KEPT_BACKUP_UPLOAD_MAX, 20 * 1024 ** 3);
+const restoreUpload = multer({ dest: path.join(dataDir, 'backups'), limits: { fileSize: RESTORE_MAX_BYTES, files: 1, fields: 0 } }).single('backup');
+let restoreInProgress = false;
+app.post('/api/setup/restore', setupLimiter, asyncRoute(async (req, res, next) => {
+  // Check these before accepting any bytes, then recheck users under the
+  // exclusive database lock in case account setup raced the upload.
+  if (process.env.KEPT_ALLOW_RESTORE !== '1') return res.status(403).json({ error: 'Restore is disabled. Set KEPT_ALLOW_RESTORE=1 on the server to enable.' });
+  if ((await get('SELECT COUNT(*) AS count FROM users')).count > 0) return res.status(403).json({ error: 'Initial setup already complete.' });
+  if (restoreInProgress) return res.status(409).json({ error: 'Another restore is already in progress.' });
+  fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
+  restoreInProgress = true;
+  restoreUpload(req, res, error => {
+    if (error) {
+      restoreInProgress = false;
+      return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: error.code === 'LIMIT_FILE_SIZE'
+        ? `Backup exceeds the ${formatBytes(RESTORE_MAX_BYTES)} restore upload limit.` : 'Could not upload the backup file.' });
     }
-  } catch (e) {
-    try { fs.unlinkSync(tempPath); } catch {}
-    return res.status(400).json({ error: 'Could not read backup file.' });
-  }
-
+    next();
+  });
+}), asyncRoute(async (req, res) => {
+  let stage, replacements = [], cleanup = true, failure;
   try {
+    if (!req.file) throw Object.assign(new Error('Backup file is required.'), { status: 400 });
+    stage = await fs.promises.mkdtemp(path.join(dataDir, 'backups', '.restore-'));
+    const prepared = await fullBackup.prepareRestore({ source: req.file.path, stage, maxBytes: RESTORE_MAX_BYTES, quotaBytes: STORAGE_QUOTA_BYTES });
+    replacements = await fullBackup.stageReplacements({ stage, dbPath, uploadDir, attachmentDir, vapidPath, ...prepared });
     await withDatabaseExclusive(async setConnection => {
+      if ((await get('SELECT COUNT(*) AS count FROM users')).count > 0) throw Object.assign(new Error('Initial setup already complete.'), { status: 403 });
       await new Promise((resolve, reject) => db.close(error => error ? reject(error) : resolve()));
-      fs.copyFileSync(tempPath, dbPath);
-      fs.unlinkSync(tempPath);
-      db = configureDatabase(new sqlite3.Database(dbPath));
-      setConnection(db);
-      await init();
+      const previousVapidKeys = vapidKeys;
+      try {
+        for (const suffix of ['-wal', '-shm']) await fs.promises.rm(dbPath + suffix, { force: true });
+        await fullBackup.installReplacements(replacements);
+        db = configureDatabase(new sqlite3.Database(dbPath));
+        setConnection(db);
+        await init();
+        if (prepared.vapid) {
+          vapidKeys = getVapidKeys();
+          webPush.setVapidDetails(vapidSubject, vapidKeys.publicKey, vapidKeys.privateKey);
+        }
+      } catch (error) {
+        vapidKeys = previousVapidKeys;
+        webPush.setVapidDetails(vapidSubject, vapidKeys.publicKey, vapidKeys.privateKey);
+        await new Promise(resolve => db.close(() => resolve()));
+        try {
+          for (const suffix of ['-wal', '-shm']) await fs.promises.rm(dbPath + suffix, { force: true });
+          await fullBackup.rollbackReplacements(replacements);
+        } catch (rollbackError) {
+          cleanup = false; // Preserve the previous files for operator recovery.
+          console.error('Backup rollback failed:', rollbackError);
+          throw rollbackError;
+        } finally {
+          db = configureDatabase(new sqlite3.Database(dbPath));
+          setConnection(db);
+        }
+        throw error;
+      }
     });
-
-    res.json({ success: true });
-  } catch (e) {
-    // Attempt to recover current DB if possible
-    db = configureDatabase(new sqlite3.Database(dbPath));
-    res.status(500).json({ error: 'Restore failed: ' + e.message });
+  } catch (error) {
+    failure = error;
+  } finally {
+    try {
+      if (cleanup) await fullBackup.cleanupReplacements(replacements);
+      if (stage) await fs.promises.rm(stage, { recursive: true, force: true });
+      if (req.file) await fs.promises.rm(req.file.path, { force: true });
+    } finally { restoreInProgress = false; }
   }
+  if (failure) return res.status(failure.status || 500).json({ error: failure.status ? failure.message : 'Restore failed. The previous server data has been retained.' });
+  res.json({ success: true });
 }));
 
 const login = asyncRoute(async (req, res) => {
@@ -4250,7 +4268,7 @@ app.get('/api/settings/managed-hosting', asyncRoute(async (_req, res) => {
     managed: MANAGED_HOSTING_ENABLED,
     providerName: MANAGED_HOSTING_ENABLED ? MANAGED_PROVIDER_NAME : '',
     accountUrl: MANAGED_HOSTING_ENABLED ? MANAGED_ACCOUNT_URL : '',
-    externalBackups: MANAGED_HOSTING_ENABLED && MANAGED_EXTERNAL_BACKUPS,
+    externalBackups: MANAGED_EXTERNAL_BACKUPS,
     quotaBytes: STORAGE_QUOTA_BYTES
   });
 }));
@@ -4417,7 +4435,7 @@ app.get('/api/admin/backup/status', requireAuth, requireAdmin, asyncRoute(async 
   let files = [];
   if (fs.existsSync(backupDir)) {
     files = fs.readdirSync(backupDir)
-      .filter(f => f.endsWith('.sqlite'))
+      .filter(f => resolveBackupFilePath(f) && fs.lstatSync(path.join(backupDir, f)).isFile())
       .map(f => {
         const stats = fs.statSync(path.join(backupDir, f));
         return { filename: f, size: stats.size, createdAt: stats.birthtime };
@@ -4429,6 +4447,7 @@ app.get('/api/admin/backup/status', requireAuth, requireAdmin, asyncRoute(async 
 
 
 app.post('/api/admin/backup/schedule', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  if (MANAGED_EXTERNAL_BACKUPS) return res.status(409).json({ error: 'Backup scheduling is handled externally.' });
   const { schedule, backupTime } = req.body;
   if (schedule && !['none', 'daily', 'weekly', 'monthly'].includes(schedule)) {
     return res.status(400).json({ error: 'Invalid schedule.' });
@@ -4446,6 +4465,23 @@ app.post('/api/admin/backup/now', requireAuth, requireAdmin, asyncRoute(async (_
   } catch (e) {
     res.status(500).json({ error: 'Backup failed: ' + e.message });
   }
+}));
+
+let fullBackupInProgress = false;
+app.post('/api/admin/backup/full', requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
+  if (fullBackupInProgress) return res.status(409).json({ error: 'Another full backup is already in progress.' });
+  fullBackupInProgress = true;
+  try {
+    const result = await fullBackup.createFullBackup({
+      backupDir: path.join(dataDir, 'backups'), uploadDir, attachmentDir, version: KEPT_VERSION, vapidKeys,
+      snapshot: (destination, copyMedia) => withDatabaseLock(async () => {
+        await rawRun(db, 'VACUUM INTO ?', [destination]);
+        await copyMedia();
+      })
+    });
+    await setAppSetting('lastManualBackupAt', new Date().toISOString());
+    res.json({ success: true, ...result });
+  } finally { fullBackupInProgress = false; }
 }));
 
 app.post('/api/admin/users/:id/disable-2fa', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
@@ -4525,12 +4561,13 @@ function resolveBackupFilePath(filename) {
   // Reject any filename containing path separators or traversal segments
   // before path.join silently normalizes them out of the backup dir.
   if (typeof filename !== 'string') return null;
-  if (!/^backup-[A-Za-z0-9._-]+\.sqlite$/.test(filename)) return null;
+  if (!/^backup-[A-Za-z0-9._-]+\.(?:sqlite|zip)$/.test(filename)) return null;
   if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) return null;
   const backupDir = path.resolve(path.join(dataDir, 'backups'));
   const resolved = path.resolve(path.join(backupDir, filename));
   if (resolved !== path.join(backupDir, filename)) return null;
   if (!resolved.startsWith(backupDir + path.sep)) return null;
+  if (fs.existsSync(resolved) && !fs.lstatSync(resolved).isFile()) return null;
   return resolved;
 }
 
@@ -4539,6 +4576,7 @@ app.get('/api/admin/backup/download/:filename', requireAuth, requireAdmin, (req,
   if (!filePath) return res.status(400).end();
   if (!fs.existsSync(filePath)) return res.status(404).end();
   res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length');
   res.download(filePath);
 });
 

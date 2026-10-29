@@ -233,7 +233,7 @@
           <span class="material-symbols-outlined">cloud</span>
           Managed hosting
         </h2>
-        <section class="settings-section">
+        <section class="settings-section about-section">
           <div class="about-row">
             <div class="about-label">Hosted by</div>
             <div class="about-value">{{managedHosting?.providerName || 'a managed hosting provider'}}</div>
@@ -256,7 +256,7 @@
       </div>
     }
 
-    @if (!managedHosting?.managed || !managedHosting?.externalBackups) {
+    @if (!managedHosting?.externalBackups) {
     <!-- ── Group: Automated Backups ────────────────────────────────────── -->
     <div class="settings-group">
       <h2 class="group-title color-orange">
@@ -310,26 +310,40 @@
       </section>
     </div>
 
+    } @else {
+      <div class="settings-group">
+        <h2 class="group-title color-orange">
+          <span class="material-symbols-outlined">backup</span>
+          Backups
+        </h2>
+        <section class="settings-section">
+          <p class="section-desc">
+            Backups are handled automatically by {{managedHosting?.providerName || 'your hosting provider'}}. There's nothing to configure here. To keep your own copy, or to move your notes to another Kept server, download a full backup below.
+          </p>
+        </section>
+      </div>
+    }
+
     <!-- ── Group: Manual Backup ─────────────────────────────────────────── -->
     <div class="settings-group">
       <h2 class="group-title color-orange">
         <span class="material-symbols-outlined">backup</span>
-        Manual database backup
+        Full server backup
       </h2>
 
       <section class="settings-section backup-section">
-        <div class="section-title">One-click snapshot</div>
+        <div class="section-title">Download a full backup</div>
         @if (manualBackupError) { <div class="error global-msg" style="margin-bottom: 16px;">{{manualBackupError}}</div> }
         @if (manualBackupSuccess) { <div class="success global-msg" style="margin-bottom: 16px;">{{manualBackupSuccess}}</div> }
         <p class="section-desc">
 
 
-          Trigger an immediate manual backup of the entire database.
+          Download all accounts, notes, settings, images, and attachments in one ZIP file. Restore it during setup on another Kept server. This file contains private data for every user; keep it somewhere private. Older .sqlite backups contain the database only.
         </p>
 
         <div class="backup-controls manual-controls">
           <button type="button" class="btn-primary" (click)="runBackupNow()" [disabled]="isBackingUp">
-            {{isBackingUp ? 'Backing up…' : 'Run manual backup now'}}
+            {{isBackingUp ? 'Preparing backup…' : 'Download a full backup'}}
           </button>
         </div>
 
@@ -350,7 +364,7 @@
                   <span class="file-meta">{{formatSize(file.size)}} • {{file.createdAt | date:'medium'}}</span>
                 </div>
                 <div class="file-actions">
-                  <button type="button" class="btn-secondary" (click)="downloadBackup(file.filename)">Download</button>
+                  <button type="button" class="btn-secondary" (click)="downloadBackup(file.filename, file.size)">Download</button>
                   <button type="button" class="btn-danger-link" (click)="deleteBackup(file.filename)">Delete</button>
                 </div>
               </div>
@@ -359,19 +373,6 @@
         }
       </section>
     </div>
-    } @else {
-      <div class="settings-group">
-        <h2 class="group-title color-orange">
-          <span class="material-symbols-outlined">backup</span>
-          Backups
-        </h2>
-        <section class="settings-section">
-          <p class="section-desc">
-            Backups are handled automatically by {{managedHosting?.providerName || 'your hosting provider'}}. There's nothing to configure here.
-          </p>
-        </section>
-      </div>
-    }
 
     <!-- ── Group: About ───────────────────────────────────────────────── -->
     <div class="settings-group">

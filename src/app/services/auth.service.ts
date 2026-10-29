@@ -831,6 +831,12 @@ export class AuthService implements OnDestroy {
     await firstValueFrom(this.http.delete(`${this.apiUrl}/admin/backup/${filename}`, { headers: this.authHeaders() }));
   }
 
+  async createFullBackup() {
+    return await firstValueFrom(this.http.post<{ success: boolean; filename: string; size: number }>(
+      `${this.apiUrl}/admin/backup/full`, {}, { headers: this.authHeaders() }
+    ));
+  }
+
   async disableUser2fa(userId: number) {
     return await firstValueFrom(this.http.post<{ success: boolean }>(
       `${this.apiUrl}/admin/users/${userId}/disable-2fa`,

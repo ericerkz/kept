@@ -93,15 +93,15 @@
           <input type="checkbox" name="isRestoringFromBackup" [(ngModel)]="isRestoringFromBackup" (change)="error = ''">
           <span>
             <strong>Restore from backup</strong>
-            <small>Already have a Kept backup? Upload your .sqlite file to restore all accounts, notes, and settings instantly.</small>
+            <small>Upload a full server backup (.zip) to restore accounts, notes, settings, images, and attachments. Older .sqlite backups restore the database only. Server restores must be enabled by the administrator with KEPT_ALLOW_RESTORE=1.</small>
           </span>
         </label>
 
         @if (isRestoringFromBackup) {
           <div class="restore-upload">
-            <input type="file" #backupFileInput (change)="onBackupFileSelected($event)" accept=".sqlite" style="display: none;">
+            <input type="file" #backupFileInput (change)="onBackupFileSelected($event)" accept=".sqlite,.zip" style="display: none;">
             <button type="button" class="btn-secondary" (click)="backupFileInput.click()">
-              {{selectedBackupFile ? selectedBackupFile.name : 'Select .sqlite file'}}
+              {{selectedBackupFile ? selectedBackupFile.name : 'Select server backup'}}
             </button>
             @if (selectedBackupFile) {
               <button type="button" class="btn-primary" (click)="submitRestore()" [disabled]="isRestoring">

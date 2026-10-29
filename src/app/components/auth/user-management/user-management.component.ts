@@ -6,6 +6,7 @@ import { AuthService } from 'src/app/services/auth.service';
 import { ManagedHostingService, ManagedHostingInfo } from 'src/app/services/managed-hosting.service';
 import { environment } from 'src/environments/environment';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
+import { ServerBackupService } from 'src/app/services/server-backup.service';
 
 
 @Component({
@@ -84,7 +85,8 @@ export class UserManagementComponent implements OnInit {
     public auth: AuthService,
     private zone: NgZone,
     private http: HttpClient,
-    private managedHostingService: ManagedHostingService
+    private managedHostingService: ManagedHostingService,
+    private serverBackup: ServerBackupService
   ) { }
 
   async loadManagedHosting() {
@@ -357,8 +359,8 @@ export class UserManagementComponent implements OnInit {
     this.manualBackupError = '';
     this.manualBackupSuccess = '';
     try {
-      const result = await this.auth.runBackupNow();
-      this.manualBackupSuccess = `Manual backup successful: ${result.filename}`;
+      await this.serverBackup.createAndDownload();
+      this.manualBackupSuccess = 'Full backup ready. Save the downloaded file somewhere private.';
       await this.loadBackupStatus();
     } catch (error) {
       this.manualBackupError = this.getErrorMessage(error, 'Manual backup failed.');
@@ -378,9 +380,13 @@ export class UserManagementComponent implements OnInit {
     } catch {}
   }
 
-  async downloadBackup(filename: string) {
-    try { await this.auth.downloadBackup(filename); }
-    catch (error) { this.auth.notifySessionExpired(error); }
+  async downloadBackup(filename: string, size: number) {
+    this.manualBackupError = '';
+    try { await this.serverBackup.download(filename, size); }
+    catch (error) {
+      this.auth.notifySessionExpired(error);
+      this.manualBackupError = this.getErrorMessage(error, 'Could not download the backup.');
+    }
   }
 
   formatSize(bytes: number) {

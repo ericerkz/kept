@@ -9,6 +9,7 @@
     "build": "ng build && npm run purgecss",
     "test:sync": "node server/sync-smoke.test.js",
     "test:managed-hosting": "node server/managed-hosting.test.js",
+    "test:backup": "node --test server/full-backup.test.js scripts/server-backup.test.cjs",
     "test:invite": "node server/invite.test.js",
     "test:integration-requests": "node --test server/integration-requests.test.js",
     "test:offline-sync-status": "node --test scripts/offline-sync-status.test.cjs",

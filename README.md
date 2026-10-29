@@ -242,16 +242,18 @@ The callback URL to register with your identity provider is `https://your-kept.e
 
 For device-only notes, use **Settings → Notes on this device → Save a complete backup** in the native app. The backup includes notes, images, attachments, reminders, and device preferences. Use **Restore a backup** in either native app to restore that library on a device. Backup reminders are optional in-app prompts; they do not create backups automatically.
 
-For self-hosted servers, Kept can create consistent SQLite backups while the app is running. Admin users can schedule daily, weekly, or monthly backups from User Management, or create one manually.
+For servers, admins can choose **User management → Download a full backup** to save a ZIP containing a consistent SQLite snapshot, uploaded images, attachments, and web-push keys for all accounts. This is a server-wide backup containing private data for every user; store it somewhere private. Server environment variables and reverse-proxy configuration must be configured separately on the destination. If you supply VAPID keys through environment variables, configure those consistently on the destination too.
+
+Scheduled daily, weekly, or monthly backups remain database-only SQLite snapshots. The readable JSON/CSV/Markdown exports in Settings are per-user exports, exclude media files, and cannot be imported back into Kept.
 
 To restore from a backup during setup:
 
 1. Set `KEPT_ALLOW_RESTORE=1`.
 2. Restart Kept.
-3. Upload the backup file from the setup screen.
+3. Before creating any accounts, upload the full server ZIP or an older `.sqlite` backup from the setup screen. Full ZIP backups restore images and attachments too; SQLite-only backups do not include those files. Device-only mobile backups use a different format and must be restored in a native app.
 4. Remove `KEPT_ALLOW_RESTORE` and restart again.
 
-The restore flag is intentionally opt-in so the restore endpoint is not left open on a public instance.
+The restore flag is intentionally opt-in so the restore endpoint is not left open on a public instance. Restore uploads and their expanded contents are limited to 20 GB by default; set `KEPT_BACKUP_UPLOAD_MAX` (for example, `40GB`) if necessary, and allow sufficient temporary disk space. A reverse proxy may impose a lower upload limit.
 
 ## Updating
 

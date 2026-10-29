@@ -94,11 +94,11 @@ export class SetupComponent {
 
   onBackupFileSelected(event: any) {
     const file = event.target.files[0];
-    if (file && file.name.endsWith('.sqlite')) {
+    if (file && /\.(sqlite|zip)$/i.test(file.name)) {
       this.selectedBackupFile = file;
       this.error = '';
     } else {
-      this.error = 'Please select a valid .sqlite backup file.';
+      this.error = 'Please select a full server backup (.zip) or a database backup (.sqlite).';
       this.selectedBackupFile = null;
     }
   }
@@ -111,7 +111,7 @@ export class SetupComponent {
       await this.auth.restoreFromBackup(this.selectedBackupFile);
       this.router.navigateByUrl('/login');
     } catch (e: any) {
-      this.error = this.getErrorMessage(e, 'Database restoration failed.');
+      this.error = this.getErrorMessage(e, 'Backup restoration failed.');
     } finally {
       this.isRestoring = false;
     }

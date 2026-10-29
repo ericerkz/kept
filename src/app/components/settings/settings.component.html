@@ -59,6 +59,14 @@
       <div class="settings-group">
         <h2 class="group-title color-blue"><span class="material-symbols-outlined" aria-hidden="true">cloud</span>{{managedHostingInfo?.providerName || 'Managed hosting'}}</h2>
         <p class="section-desc">This Kept server is hosted and kept up to date by {{managedHostingInfo?.providerName || 'your hosting provider'}}.</p>
+        @if (managedHostingInfo?.externalBackups) {
+          <p class="section-desc">Backups are handled automatically by {{managedHostingInfo?.providerName || 'your hosting provider'}}. There's nothing to configure here.</p>
+          @if (authService.isAdmin) {
+            <p class="section-desc">To keep your own copy, or to move everything to another Kept server, <a routerLink="/users">download a full backup in User management</a>.</p>
+          } @else {
+            <p class="section-desc">You can also export your own notes from Settings → Data &amp; Migration. To move everything to another Kept server, ask your server's admin for a full backup.</p>
+          }
+        }
         @if (managedStorageUsage) {
           <p class="section-desc">
             Storage: {{(managedStorageUsage.usedBytes / 1073741824).toFixed(2)}} GB
@@ -136,7 +144,7 @@
       <section class="settings-section export-section" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 24px; margin-top: 24px;">
         <div class="section-title">Export your Kept data</div>
         <p class="section-desc">
-          Download a copy of all your notes, checklists, and labels. Useful for backups or migrating to another service.
+          A readable copy of your notes, checklists and labels. These exports cannot be imported back into Kept. To move everything, including images and attachments, to another Kept server, ask your server's admin for a full backup.
         </p>
 
         <div class="export-actions" style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px;">
