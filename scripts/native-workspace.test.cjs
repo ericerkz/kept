@@ -2,13 +2,15 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),rx=require('rxjs');
 const source=ts.transpileModule(fs.readFileSync('src/app/services/native-workspace.service.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText;
-function harness(platform = 'android') {
+function harness(platform = 'android', imageRuntime = {}) {
  const values=new Map(),exports={},settings=[];
  const window=new EventTarget(),document=Object.assign(new EventTarget(),{visibilityState:'visible'});
- vm.runInNewContext(source,{exports,console,window,document,Error,Date,Promise,localStorage:{getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value)},require(name){
+ vm.runInNewContext(source,{exports,console,window,document,Error,Date,Promise,Blob,atob,localStorage:{getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value)},require(name){
+  if(name.endsWith('/note-images'))return require('../test-support/note-images.cjs').loadNoteImages(imageRuntime);
   if(name==='@angular/core')return{Injectable:()=>target=>target};
   if(name==='@capacitor/core')return{Capacitor:{isNativePlatform:()=>false,getPlatform:()=>platform},registerPlugin:name=>({openBackgroundLocationSettings:async()=>settings.push(name)})};
   if(name==='rxjs')return rx;
+  if(name.endsWith('/note-html'))return{sanitizeNoteHtml:value=>value || ''};
   if(name==='@noble/hashes/sha2.js'||name==='@noble/hashes/utils.js'||name.endsWith('/uuid')||name.endsWith('/note-html')||name.endsWith('/attachments'))return{};
   throw Error(`Unexpected native-workspace dependency: ${name}`);
  }});
@@ -39,6 +41,29 @@ test('malformed payload and exact-alarm warnings still surface',async()=>{
  await h.native.syncReminders([]);assert.match(h.native.error$.value,/Invalid native reminder: bad/);
  h.native.plugin.syncReminders=async()=>({exact:false});await h.native.syncReminders([]);
  assert.match(h.native.error$.value,/exact-alarm/);
+});
+test('confirmed exact-alarm permission clears its warning; an omitted permission result does not',async()=>{
+ const h=harness();
+ h.native.plugin.syncReminders=async()=>({exact:false});await h.native.syncReminders([]);
+ const warning=h.native.error$.value;assert.match(warning,/exact-alarm/);
+ h.native.plugin.syncReminders=async()=>({});await h.native.syncReminders([]);
+ assert.equal(h.native.error$.value,warning);
+ h.native.plugin.syncReminders=async()=>({exact:true});await h.native.syncReminders([]);
+ assert.equal(h.native.error$.value,'');
+});
+test('exact-alarm recovery never clears unrelated errors or errors from the current sync',async()=>{
+ const h=harness();h.native.plugin.syncReminders=async()=>({exact:true});
+ for(const error of ['Existing storage failure','Could not open exact-alarm settings.']) {
+  h.native.error$.next(error);await h.native.syncReminders([]);assert.equal(h.native.error$.value,error);
+ }
+ h.native.plugin.syncReminders=async()=>({exact:true,skipped:[{id:'bad',reason:'invalid'}]});
+ await h.native.syncReminders([]);assert.match(h.native.error$.value,/Invalid native reminder: bad/);
+});
+test('an obsolete permission-granted response cannot clear the active workspace warning',async()=>{
+ const h=harness();h.native.plugin.syncReminders=async()=>({exact:false});await h.native.syncReminders([]);
+ const warning=h.native.error$.value;
+ h.native.plugin.syncReminders=async()=>{h.sync.generation='next';return{exact:true};};
+ await h.native.syncReminders([]);assert.equal(h.native.error$.value,warning);
 });
 test('explicit stale/inactive snapshot rejections are harmless and are not cached as published',async()=>{
  for(const code of ['STALE_SNAPSHOT','INACTIVE_WORKSPACE']) {
@@ -106,4 +131,25 @@ test('overlapping native reminder syncs serialize cancellation and recover after
  const second=h.native.syncReminders([]);await Promise.resolve();assert.equal(calls,1);
  const rejected=assert.rejects(first,/Transient native failure/);release();await rejected;await second;
  assert.equal(maximum,1);assert.equal(calls,2);
+});
+
+for (const platform of ['ios','android']) test(`${platform}: a shared HEIC is committed as a JPEG image, not an attachment`,async()=>{
+ const jpeg=new Blob([new Uint8Array([255,216,255,217])],{type:'image/jpeg'});
+ const h=harness(platform,{
+  createImageBitmap:async()=>({width:2,height:2,close(){}}),
+  document:{createElement:()=>({getContext:()=>({fillRect(){},drawImage(){}}),toBlob(callback){callback(jpeg);}})}
+ });
+ const bytes=Buffer.from('000000186674797068656963000000006d69663168656963','hex');
+ h.native.plugin.readFileChunk=async()=>({base64:bytes.toString('base64')});
+ h.store.listNotes=async()=>[];
+ let captured;
+ h.sync.commit=async(type,id,value,options)=>{captured={type,id,value,options};};
+ await h.native.applyAction(h.workspace,{actionId:'photo-share',workspaceId:h.workspace.id,generation:h.workspace.generation,
+  sequence:1,kind:'note.upsert',targetSyncId:'shared-photo',payload:{noteTitle:'Photo'},
+  files:[{reference:'opaque-file',name:'IMG_0001.HEIC',size:bytes.length,mimeType:'image/heic'}]});
+ assert.equal(captured.type,'note.upsert');
+ assert.equal(captured.value.images.length,1);
+ assert.equal(captured.value.images[0].name,'IMG_0001.jpg');
+ assert.equal(captured.options.blobs[0].value.type,'image/jpeg');
+ assert.equal(captured.options.attachments.length,0);
 });

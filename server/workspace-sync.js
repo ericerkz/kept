@@ -35,6 +35,12 @@ function createWorkspaceSync(deps) {
     await run(`CREATE INDEX IF NOT EXISTS workspace_catalog_resource ON workspace_catalog(userId,resourceType,resourceId)`);
     await run(`CREATE TABLE IF NOT EXISTS workspace_operations (userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, operationId TEXT NOT NULL,
       fingerprint TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(userId,operationId))`);
+    if (deps.compactReceipts && !(await get("SELECT value FROM app_settings WHERE key = 'compactWorkspaceReceipts'"))) {
+      await run(`UPDATE workspace_operations SET result = json_set(json_remove(result,'$.canonical','$.payload'),'$._canonicalPayload',1)
+        WHERE json_extract(result,'$.resourceType') IN ('note','reminder','attachment') AND json_type(result,'$.payload') IS NOT NULL`);
+      await run("UPDATE workspace_operations SET result = json_remove(result,'$.canonical') WHERE json_type(result,'$.canonical') IS NOT NULL");
+      await run("INSERT INTO app_settings(key,value) VALUES('compactWorkspaceReceipts','1')");
+    }
     await run(`CREATE TABLE IF NOT EXISTS workspace_tombstones (userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, resourceType TEXT NOT NULL,
       syncId TEXT NOT NULL, physicalMs INTEGER NOT NULL, logical INTEGER NOT NULL, deviceId TEXT NOT NULL,
       operationId TEXT NOT NULL, PRIMARY KEY(userId,resourceType,syncId))`);
@@ -52,6 +58,10 @@ function createWorkspaceSync(deps) {
   // snapshots/change reads, and repairs a missed publication after a crash.
   async function capture(userId) {
     await run("INSERT OR IGNORE INTO binders(userId,name) SELECT DISTINCT ownerUserId,binder FROM notes WHERE ownerUserId = ? AND binder <> ''", [userId]);
+    await run(`INSERT OR IGNORE INTO binders(userId,name)
+      SELECT org.userId,org.binder FROM user_note_organization org
+      JOIN note_collaborators access ON access.noteId = org.noteId AND access.userId = org.userId
+      WHERE org.userId = ? AND org.binder <> ''`, [userId]);
     for (const [resourceType, table] of Object.entries(catalogs)) {
       const rows = await all(`SELECT * FROM ${table} WHERE userId = ?`, [userId]);
       const known = await all('SELECT * FROM workspace_catalog WHERE userId = ? AND resourceType = ? AND deleted = 0', [userId,resourceType]);
@@ -67,7 +77,7 @@ function createWorkspaceSync(deps) {
       for (const row of known) if (!ids.has(row.resourceId)) await publish(userId,resourceType,row.syncId,null,serverLwwStamp());
     }
     const user = await get('SELECT * FROM users WHERE id = ?', [userId]);
-    const value = { syncId: 'account-preferences', theme: user.theme || 'light', followSystemTheme: !!user.followSystemTheme, showPastReminders: !!user.showPastReminders };
+    const value = { syncId: 'account-preferences', theme: user.theme || 'light', followSystemTheme: !!user.followSystemTheme, showPastReminders: !!user.showPastReminders, inheritSharedLabels: user.inheritSharedLabels !== 0, inheritSharedBinders: user.inheritSharedBinders !== 0 };
     const old = await get("SELECT * FROM workspace_catalog WHERE userId = ? AND resourceType = 'preferences'", [userId]);
     if (!old || JSON.stringify(value) !== old.payload) await publish(userId,'preferences',value.syncId,value,serverLwwStamp());
   }
@@ -106,11 +116,12 @@ function createWorkspaceSync(deps) {
     if (previous && compareLwwStamp(stamp,stampOf(previous)) < 0) return { ok:true, skipped:true, resourceType:type, syncId, canonical:object(previous.payload) };
     if (type === 'preferences') {
       const patch = {};
-      for (const key of ['theme','followSystemTheme','showPastReminders']) if (payload[key] !== undefined) patch[key] = payload[key];
-      if ((patch.theme !== undefined && !['light','dark'].includes(patch.theme)) || ['followSystemTheme','showPastReminders'].some(key => patch[key] !== undefined && typeof patch[key] !== 'boolean')) return { ok:false, error:'Invalid account preference.' };
+      for (const key of ['theme','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders']) if (payload[key] !== undefined) patch[key] = payload[key];
+      if ((patch.theme !== undefined && !['light','dark'].includes(patch.theme)) || ['followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders'].some(key => patch[key] !== undefined && typeof patch[key] !== 'boolean')) return { ok:false, error:'Invalid account preference.' };
       if (Object.keys(patch).length) await run(`UPDATE users SET ${Object.keys(patch).map(key => `${key} = ?`).join(',')} WHERE id = ?`, [...Object.values(patch).map(value => typeof value === 'boolean' ? Number(value) : value),userId]);
+      await deps.sharedOrganization.preferencesChanged(userId, patch);
       const user = publicUser(await get('SELECT * FROM users WHERE id = ?', [userId]));
-      const value = { syncId, theme:user.theme, followSystemTheme:user.followSystemTheme, showPastReminders:user.showPastReminders };
+      const value = { syncId, theme:user.theme, followSystemTheme:user.followSystemTheme, showPastReminders:user.showPastReminders,inheritSharedLabels:user.inheritSharedLabels,inheritSharedBinders:user.inheritSharedBinders };
       await publish(userId,type,syncId,value,stamp);
       return { ok:true, resourceType:type,syncId,canonical:value };
     }
@@ -120,12 +131,13 @@ function createWorkspaceSync(deps) {
     if (mutation.type.endsWith('.delete')) {
       if (row) {
         if (type === 'binder') {
+          await deps.sharedOrganization.renameBinder(userId,row.name,'',stamp);
           const notes = await all('SELECT id FROM notes WHERE ownerUserId = ? AND binder = ?', [userId,row.name]);
           await run("UPDATE notes SET binder = '' WHERE ownerUserId = ? AND binder = ?", [userId,row.name]);
           for (const note of notes) await deps.recordNoteSyncChange(note.id,'upsert');
         }
         if (type === 'label') {
-          await deps.updateNoteLabelReferencesForUser(userId,row.id,'',{ oldName:row.name });
+          await deps.updateNoteLabelReferencesForUser(userId,row.id,'',{ oldName:row.name, stamp });
         }
         await run(`DELETE FROM ${table} WHERE id = ? AND userId = ?`, [row.id,userId]);
       }
@@ -156,8 +168,9 @@ function createWorkspaceSync(deps) {
       if (payload.sortOrder !== undefined) {
         await run(`UPDATE ${table} SET sortOrder = ? WHERE id = ? AND userId = ?`, [payload.sortOrder,id,userId]);
       }
-      if (type === 'label' && row && row.name !== name) await deps.updateNoteLabelReferencesForUser(userId,row.id,name,{ oldName:row.name });
+      if (type === 'label' && row && row.name !== name) await deps.updateNoteLabelReferencesForUser(userId,row.id,name,{ oldName:row.name, stamp });
       if (type === 'binder' && row && row.name !== name) {
+        await deps.sharedOrganization.renameBinder(userId,row.name,name,stamp);
         const notes = await all('SELECT id FROM notes WHERE ownerUserId = ? AND binder = ?', [userId,row.name]);
         await run('UPDATE notes SET binder = ? WHERE ownerUserId = ? AND binder = ?', [name,userId,row.name]);
         for (const note of notes) await deps.recordNoteSyncChange(note.id,'upsert');
@@ -173,14 +186,25 @@ function createWorkspaceSync(deps) {
 
   // Must be called inside the existing operation's SQLite transaction.
   async function apply(userId, mutation, core) {
-    const allowed = new Set(['note.upsert','note.delete','note.view-state','note.reorder','reminder.upsert','reminder.delete','reminder.occurrence','reminder.action','attachment.delete','label.upsert','label.delete','binder.upsert','binder.delete','savedPlace.upsert','savedPlace.delete','preferences.patch']);
+    const allowed = new Set(['note.upsert','note.delete','note.organization','note.view-state','note.reorder','reminder.upsert','reminder.delete','reminder.occurrence','reminder.action','attachment.delete','label.upsert','label.delete','binder.upsert','binder.delete','savedPlace.upsert','savedPlace.delete','preferences.patch']);
     if (!allowed.has(mutation.type)) return {ok:false,error:'Unsupported mutation type.'};
     const operationId = mutation.operationId || mutation.lww?.operationId;
     if (typeof operationId !== 'string' || !operationId || operationId.length > 160) return { ok:false,error:'A valid operationId is required.' };
     if (!mutation.syncId || typeof mutation.syncId !== 'string' || mutation.syncId.length > 160) return { ok:false,operationId,error:'A valid resource identity is required.' };
     const fingerprint = crypto.createHash('sha256').update(JSON.stringify({ type:mutation.type,syncId:mutation.syncId,payload:mutation.payload,lww:mutation.lww })).digest('hex');
     const receipt = await get('SELECT * FROM workspace_operations WHERE userId = ? AND operationId = ?', [userId,operationId]);
-    if (receipt) return receipt.fingerprint === fingerprint ? object(receipt.result) : { ok:false,operationId,error:'An operationId cannot be reused for different content.' };
+    if (receipt) {
+      if (receipt.fingerprint !== fingerprint) return { ok:false,operationId,error:'An operationId cannot be reused for different content.' };
+      const result = object(receipt.result);
+      // Compact receipts remain valid after quotas are disabled or a full
+      // backup is moved to a server with different allocation settings.
+      if (mutation.type !== 'note.reorder' && !Object.hasOwn(result,'canonical')) {
+        result.canonical = await canonical(userId,mutation.type.split('.')[0],mutation.syncId,result);
+        if (result._canonicalPayload) result.payload = result.canonical;
+      }
+      delete result._canonicalPayload;
+      return result;
+    }
     const stamp=normalizeLwwStamp(mutation.lww || {});
     const type=mutation.type.split('.')[0];
     const tombstone=await get('SELECT * FROM workspace_tombstones WHERE userId = ? AND resourceType = ? AND syncId = ?', [userId,type,mutation.syncId]);
@@ -194,7 +218,16 @@ function createWorkspaceSync(deps) {
         (userId,resourceType,syncId,physicalMs,logical,deviceId,operationId) VALUES(?,?,?,?,?,?,?)`, [userId,type,mutation.syncId,stamp.physicalMs,stamp.logical,stamp.deviceId,stamp.operationId]);
     }
     result={...result,operationId};
-    if (result.ok) await run('INSERT INTO workspace_operations(userId,operationId,fingerprint,result) VALUES(?,?,?,?)', [userId,operationId,fingerprint,JSON.stringify(result)]);
+    if (result.ok) {
+      const receipt = {...result};
+      if (deps.compactReceipts) {
+        delete receipt.canonical;
+        if (['note','reminder','attachment'].includes(result.resourceType) && Object.hasOwn(result,'payload')) {
+          delete receipt.payload; receipt._canonicalPayload = true;
+        }
+      }
+      await run('INSERT INTO workspace_operations(userId,operationId,fingerprint,result) VALUES(?,?,?,?)', [userId,operationId,fingerprint,JSON.stringify(receipt)]);
+    }
     return result;
   }
   return { init,capture,resources,apply };

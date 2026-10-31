@@ -1,11 +1,5 @@
 <app-navbar></app-navbar>
 <app-update-banner></app-update-banner>
-@if (auth.cloudSuspended$ | async) {
-  <aside role="status" class="offline-sync-state cloud-suspended-banner">
-    Your {{managedHostingProviderName || 'managed hosting'}} subscription is inactive. Sync is paused until billing is resolved.
-    <a routerLink="/settings">View account</a>
-  </aside>
-}
 @if (auth.isLocal && backups.reminderDue) {
   <aside role="status" class="offline-sync-state">
     <a routerLink="/settings">Keep a backup of your device notes</a>
@@ -15,13 +9,25 @@
 }
 <section class="main-section" [class.native-phone-layout]="nativePhoneLayout"
     [class.sidebar-collapsed]="(Shared.sideBarCollapsed | async)">
+    @if (auth.isLocal && showDeviceSyncInvite) {
+      <aside class="device-sync-invite" aria-label="Sync across devices">
+        <button type="button" class="device-sync-invite-link" (click)="tryDeviceSync()">
+          <span class="material-symbols-outlined" aria-hidden="true">cloud</span>
+          <span>Interested in syncing your notes data across all of your devices? <strong>Try Kept Cloud</strong></span>
+        </button>
+        <button type="button" class="device-sync-invite-dismiss" aria-label="Dismiss sync invitation" (click)="showDeviceSyncInvite = false">
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+      </aside>
+    }
     @if ((offlineSync.state$ | async); as syncState) {
+      @let storageBlocked = (offlineSync.storageBlocked$ | async) && syncState !== 'offline' && syncState !== 'error';
       <!-- Device-only libraries are always "saved on this device", which isn't worth a permanent pill;
            show it only when saving needs attention. Server libraries keep every non-saved state. -->
-      @if (auth.isLocal ? syncState === 'error' : syncState !== 'saved') {
-        <div class="offline-sync-state" [class.is-error]="syncState === 'error'" role="status">
-          <span class="material-symbols-outlined">{{ syncState === 'offline' ? 'cloud_off' : syncState === 'error' ? 'sync_problem' : 'sync' }}</span>
-          <span>{{ syncState === 'error' ? (auth.isLocal ? 'Save needs attention' : 'Sync needs attention') : auth.isLocal ? 'Saved on this device' : syncState === 'offline' ? 'Saved offline' : 'Syncing' }}</span>
+      @if (auth.isLocal ? syncState === 'error' : syncState !== 'saved' || storageBlocked) {
+        <div class="offline-sync-state" [class.is-error]="syncState === 'error' || storageBlocked" [class.storage-full]="storageBlocked" role="status">
+          <span class="material-symbols-outlined">{{ storageBlocked ? 'storage' : syncState === 'offline' ? 'cloud_off' : syncState === 'error' ? 'sync_problem' : 'sync' }}</span>
+          <span>{{ storageBlocked ? offlineSync.storageFullMessage : syncState === 'error' ? (auth.isLocal ? 'Save needs attention' : 'Sync needs attention') : auth.isLocal ? 'Saved on this device' : syncState === 'offline' ? 'Saved offline' : 'Syncing' }}</span>
         </div>
       }
     }
@@ -30,6 +36,7 @@
             <app-sidenav></app-sidenav>
         </div>
         <div class="w-100 padding">
+            <app-managed-notice-banner></app-managed-notice-banner>
             <app-input class="desktop-placeholder-input"></app-input>
             <app-notes></app-notes>
         </div>

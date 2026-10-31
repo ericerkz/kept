@@ -1,0 +1,22 @@
+@if (notice) {
+  <aside class="plan-notice" role="status" aria-label="Server plan notice">
+    <span class="material-symbols-outlined plan-notice-icon" aria-hidden="true">warning</span>
+    <div class="plan-notice-copy">
+      <p>{{message}}</p>
+      @if (notice.deletesAt) {
+        <p class="plan-notice-deletion">After that, notes on this server are deleted on {{formatDate(notice.deletesAt)}}.</p>
+      }
+    </div>
+    <div class="plan-notice-actions">
+      @if (auth.isAdmin) {
+        @if (notice.kind === 'ending') { <a routerLink="/users" fragment="full-server-backup">Back up</a> }
+        <a [href]="notice.actionUrl" target="_blank" rel="noopener noreferrer">Manage plan</a>
+      } @else if (notice.kind === 'ending') {
+        <a routerLink="/settings" fragment="export-notes">Export my notes</a>
+      }
+    </div>
+    <button type="button" class="plan-notice-dismiss" aria-label="Dismiss plan notice for 24 hours" (click)="dismiss()">
+      <span class="material-symbols-outlined" aria-hidden="true">close</span>
+    </button>
+  </aside>
+}

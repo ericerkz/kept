@@ -1,3 +1,4 @@
+import { isNoteImageFile } from '../utils/note-images';
 import { NativeWorkspaceService } from './native-workspace.service';
 import { Injectable, NgZone } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
@@ -324,9 +325,7 @@ export class ShareIntentsService {
   }
 
   private isImageFile(fileRef: ShareFileReference) {
-    const mime = String(fileRef.mimeType || '').toLowerCase();
-    if (mime) return mime.startsWith('image/');
-    return /\.(avif|gif|heic|heif|jpe?g|png|svg|webp)$/i.test(fileRef.filename || fileRef.pathInContainer || '');
+    return isNoteImageFile({ mimeType: fileRef.mimeType, filename: fileRef.filename || fileRef.pathInContainer });
   }
 
   private fileReferencesForIntent(intent: ShareIntent) {

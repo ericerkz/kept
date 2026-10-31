@@ -32,17 +32,34 @@
           <div class="device-actions">
             <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="backupDevice()"><span class="material-symbols-outlined" aria-hidden="true">download</span>Save a complete backup</button>
             <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="restoreDevice()"><span class="material-symbols-outlined" aria-hidden="true">restore</span>Restore a backup</button>
-            <button type="button" class="btn-primary device-move" [disabled]="deviceBusy" (click)="movePromptOpen = true"><span class="material-symbols-outlined" aria-hidden="true">cloud_upload</span>Move my notes to a server</button>
+            <button type="button" class="btn-primary device-move" [disabled]="deviceBusy" (click)="openMovePrompt()"><span class="material-symbols-outlined" aria-hidden="true">cloud_upload</span>Move my notes to a server</button>
           </div>
           @if (movePromptOpen) {
             <div class="move-prompt" role="dialog" aria-labelledby="move-prompt-title">
-              <p id="move-prompt-title"><strong>Which settings should your server account use?</strong></p>
-              <label><input type="radio" name="movePreferences" [value]="false" [(ngModel)]="copyDevicePreferences"> Keep my server settings</label>
-              <label><input type="radio" name="movePreferences" [value]="true" [(ngModel)]="copyDevicePreferences"> Use this device’s appearance and reminder display settings</label>
-              <div class="device-actions">
-                <button type="button" class="btn-primary" [disabled]="deviceBusy" (click)="confirmMove()">Continue</button>
-                <button type="button" class="btn-secondary" (click)="movePromptOpen = false">Cancel</button>
-              </div>
+              @if (cloudMoveReady) {
+                <p id="move-prompt-title"><strong>Move your notes to Kept Cloud</strong></p>
+                <p class="section-desc">Once your Cloud account is set up, continue to sign in to your Kept server and transfer your notes. Your device copy stays safe until the transfer is verified.</p>
+                <div class="device-actions">
+                  <button type="button" class="btn-primary" [disabled]="deviceBusy" (click)="moveDevice(true)">Continue transfer</button>
+                  <button type="button" class="btn-secondary" [disabled]="deviceBusy || !deviceMove.cloudAvailable" (click)="setUpCloudMove()">Open Cloud setup</button>
+                </div>
+              } @else {
+                <p id="move-prompt-title"><strong>Where would you like to move your notes?</strong></p>
+                <div class="move-destinations">
+                  <button type="button" class="btn-secondary move-cloud" [disabled]="deviceBusy || !deviceMove.cloudAvailable" (click)="setUpCloudMove()">
+                    <span class="material-symbols-outlined" aria-hidden="true">cloud</span>
+                    <span><strong>Kept Cloud</strong><small>We host and maintain your Kept server. Sync across devices with no setup.</small></span>
+                    <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
+                  </button>
+                  <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="moveDevice()">
+                    <span class="material-symbols-outlined" aria-hidden="true">dns</span>
+                    <span><strong>Self-host</strong><small>Connect to a Kept server you host yourself.</small></span>
+                    <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
+                  </button>
+                </div>
+                @if (!deviceMove.cloudAvailable) { <p class="section-desc">Cloud setup needs a native app version that supports it.</p> }
+              }
+              <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="cancelMovePrompt()">{{cloudMoveReady ? 'Cancel transfer' : 'Cancel'}}</button>
             </div>
           }
           <label class="toggle-label backup-reminder-toggle"><input type="checkbox" [checked]="!authService.workspace.local?.backupRemindersDisabled" (change)="backups.dismissReminder(!$any($event.target).checked)"><span class="toggle-text">Remind me to back up my notes</span></label>
@@ -75,18 +92,6 @@
         }
         @if (managedHostingInfo?.accountUrl) {
           <a class="btn-secondary" [href]="managedHostingInfo?.accountUrl" target="_blank" rel="noopener">Manage subscription</a>
-        }
-      </div>
-    }
-
-    @if (recoveryItems.length) {
-      <div class="settings-group">
-        <h2>Changes needing review</h2>
-        <p>These edits were retained because they conflicted with newer changes.</p>
-        @for (item of recoveryItems; track item.key) {
-          <details><summary>{{item.reason}}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{item.value || item.operation | json}}</pre>
-            @if (canRecoverNote(item)) {<button type="button" [disabled]="deviceBusy" (click)="recoverNote(item)">Save retained edit as a separate note</button>}
-          </details>
         }
       </div>
     }
@@ -141,7 +146,7 @@
         </div>
       </section>
 
-      <section class="settings-section export-section" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 24px; margin-top: 24px;">
+      <section class="settings-section export-section" id="export-notes" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 24px; margin-top: 24px;">
         <div class="section-title">Export your Kept data</div>
         <p class="section-desc">
           A readable copy of your notes, checklists and labels. These exports cannot be imported back into Kept. To move everything, including images and attachments, to another Kept server, ask your server's admin for a full backup.
@@ -424,6 +429,33 @@
             <span class="toggle-text">{{showPastReminders ? 'Enabled' : 'Disabled'}}</span>
           </label>
         </div>
+
+        @if (!authService.isLocal) {
+          <div class="preference-row">
+            <div class="preference-info">
+              <span class="preference-label">Use the owner's binders for shared notes</span>
+              <span class="preference-desc">Turn off to place notes shared with you in your own binders. Your choices won't affect anyone else.</span>
+            </div>
+            <label class="toggle-label">
+              <input type="checkbox" aria-label="Use the owner's binders for shared notes"
+                [checked]="authService.currentUser?.inheritSharedBinders !== false" [disabled]="savingSharedOrganization"
+                (change)="toggleSharedOrganization('inheritSharedBinders', $event)">
+              <span class="toggle-text">{{authService.currentUser?.inheritSharedBinders !== false ? 'Enabled' : 'Disabled'}}</span>
+            </label>
+          </div>
+          <div class="preference-row">
+            <div class="preference-info">
+              <span class="preference-label">Use the owner's labels for shared notes</span>
+              <span class="preference-desc">Turn off to label notes shared with you yourself. Your choices won't affect anyone else.</span>
+            </div>
+            <label class="toggle-label">
+              <input type="checkbox" aria-label="Use the owner's labels for shared notes"
+                [checked]="authService.currentUser?.inheritSharedLabels !== false" [disabled]="savingSharedOrganization"
+                (change)="toggleSharedOrganization('inheritSharedLabels', $event)">
+              <span class="toggle-text">{{authService.currentUser?.inheritSharedLabels !== false ? 'Enabled' : 'Disabled'}}</span>
+            </label>
+          </div>
+        }
 
         <div class="preference-row">
           <div class="preference-info">

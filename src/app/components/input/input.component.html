@@ -922,6 +922,10 @@
 <!--? binder MENU -->
 <div #binderMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu binderMenu">
   <div class="title">Move to binder</div>
+  @if (sharedOrganizationHint('binders')) {
+    <p class="organization-hint">{{sharedOrganizationHint('binders')}}</p>
+  }
+  @if (!inheritsSharedOrganization('binders')) {
   <div class="search">
     <input #newBinderInput type="text" maxlength="50" placeholder="Enter binder name"
       (keydown.enter)="addBinderFromMenu(newBinderInput); $event.preventDefault()" (blur)="addBinderFromMenu(newBinderInput)"
@@ -948,6 +952,7 @@
       </button>
     }
   </div>
+  }
 </div>
 <!--? color MENU -->
 <div #colorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="colorMenu">
@@ -1019,6 +1024,10 @@
 <!--? label MENU -->
 <div #labelMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu">
   <div class="title">Label note</div>
+  @if (sharedOrganizationHint('labels')) {
+    <p class="organization-hint">{{sharedOrganizationHint('labels')}}</p>
+  }
+  @if (!inheritsSharedOrganization('labels')) {
   <div class="search">
     <div class="search-icon"></div>
     <input #newLabelInput type="text" maxlength="50" placeholder="Enter label name"
@@ -1042,4 +1051,5 @@
       </div>
     }
   </div>
+  }
 </div>

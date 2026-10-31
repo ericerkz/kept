@@ -15,8 +15,8 @@ function imageProxyResponseHeaders(_req, res, next) {
   next();
 }
 
-function mountImageProxyRoutes(app, { requireAuthOrQueryToken, asyncRoute, publicRequestOptions, absolutizeUrl }) {
-  app.get('/api/proxy-image', imageProxyResponseHeaders, requireAuthOrQueryToken, asyncRoute(async (req, res) => {
+function mountImageProxyRoutes(app, { requireAuthOrQueryToken, asyncRoute, publicRequestOptions, absolutizeUrl, previewLimiter = (_req, _res, next) => next() }) {
+  app.get('/api/proxy-image', imageProxyResponseHeaders, requireAuthOrQueryToken, previewLimiter, asyncRoute(async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).send('URL required');
 

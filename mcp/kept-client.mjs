@@ -1,5 +1,4 @@
-import dns from 'node:dns/promises';
-import net from 'node:net';
+import { createPublicFileDownloader } from '../server/public-file-download.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const BLOCKED_HEADER_NAMES = new Set(['authorization', 'cookie', 'host', 'content-length', 'connection', 'accept-encoding']);
@@ -75,59 +74,12 @@ function sanitizedFilename(name, fallback) {
   return (String(name || '').split(/[\\/]/).pop() || fallback).replace(/[\r\n"]/g, '_').slice(0, 255) || fallback;
 }
 
-function isPrivateIp(address) {
-  if (net.isIP(address) === 4) {
-    const parts = address.split('.').map(Number);
-    return parts[0] === 10 || parts[0] === 127 || parts[0] === 0
-      || (parts[0] === 169 && parts[1] === 254)
-      || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
-      || (parts[0] === 192 && parts[1] === 168)
-      || parts[0] >= 224;
-  }
-  const value = address.toLowerCase();
-  return value === '::1' || value === '::' || value.startsWith('fc') || value.startsWith('fd') || value.startsWith('fe80:');
-}
-
-async function assertPublicHttpsUrl(rawUrl) {
-  let parsed;
-  try { parsed = new URL(rawUrl); } catch { throw new KeptApiError('The file download URL is invalid.'); }
-  if (parsed.protocol !== 'https:') throw new KeptApiError('File download URLs must use HTTPS.');
-  if (parsed.username || parsed.password) throw new KeptApiError('File download URLs cannot contain credentials.');
-  const records = await dns.lookup(parsed.hostname, { all: true });
-  if (!records.length || records.some(record => isPrivateIp(record.address))) {
-    throw new KeptApiError('File download URL resolves to a private or unsupported network address.');
-  }
-  return parsed.toString();
-}
-
 function inferMime({ filename, providedMime, kind }) {
   const normalized = String(providedMime || '').split(';')[0].trim().toLowerCase();
   const allowed = kind === 'image' ? IMAGE_MIME_TYPES : ATTACHMENT_MIME_TYPES;
   if (allowed.has(normalized)) return normalized;
   const byExt = kind === 'image' ? IMAGE_MIME_BY_EXT : ATTACHMENT_MIME_BY_EXT;
   return byExt.get(extensionFromName(filename)) || '';
-}
-
-async function readResponseBody(response, maxBytes) {
-  if (!response.body?.getReader) {
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.length > maxBytes) throw new KeptApiError('The selected file is too large for Kept.');
-    return buffer;
-  }
-  const reader = response.body.getReader();
-  const chunks = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      throw new KeptApiError('The selected file is too large for Kept.');
-    }
-    chunks.push(Buffer.from(value));
-  }
-  return Buffer.concat(chunks, total);
 }
 
 async function readResponse(response, responseType) {
@@ -142,10 +94,11 @@ async function readResponse(response, responseType) {
 }
 
 export class KeptClient {
-  constructor(config, { fetchImpl = globalThis.fetch } = {}) {
+  constructor(config, { fetchImpl = globalThis.fetch, downloadImpl = createPublicFileDownloader() } = {}) {
     if (typeof fetchImpl !== 'function') throw new KeptApiError('A Fetch API implementation is required.');
     this.config = config;
     this.fetch = fetchImpl;
+    this.download = downloadImpl;
   }
 
   async request(path, { method = 'GET', body, formData, responseType = 'json' } = {}) {
@@ -255,19 +208,7 @@ export class KeptClient {
         : 'This file type is not supported. Use PDF, Office documents, text files, or archives.');
     }
     const maxBytes = kind === 'image' ? IMAGE_UPLOAD_MAX_BYTES : ATTACHMENT_UPLOAD_MAX_BYTES;
-    let url = await assertPublicHttpsUrl(file?.download_url);
-    let response;
-    for (let redirects = 0; redirects <= 3; redirects += 1) {
-      response = await this.fetch(url, { headers: { accept: '*/*' }, redirect: 'manual', signal: AbortSignal.timeout(this.config.timeoutMs) });
-      if (![301, 302, 303, 307, 308].includes(response.status)) break;
-      const location = response.headers.get('location');
-      if (!location) break;
-      url = await assertPublicHttpsUrl(new URL(location, url).toString());
-    }
-    if (!response?.ok) throw new KeptApiError(`Could not download the selected file for upload${response ? ` (HTTP ${response.status})` : ''}.`);
-    const declaredLength = Number(response.headers.get('content-length') || 0);
-    if (declaredLength > maxBytes) throw new KeptApiError('The selected file is too large for Kept.');
-    const bytes = await readResponseBody(response, maxBytes);
+    const bytes = await this.download(file?.download_url, { maxBytes, timeoutMs: this.config.timeoutMs });
     return { filename, mimeType, base64Data: bytes.toString('base64') };
   }
 

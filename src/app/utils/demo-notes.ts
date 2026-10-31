@@ -63,7 +63,7 @@ export function createDemoNotes(label: LabelI): NoteI[] {
     },
     {
       noteTitle: 'Files Welcome 📎',
-      noteBody: 'Need to keep a PDF, doc, or zip alongside your notes? Drop in any file up to 25 MB with the paperclip icon. Files download with their original names — perfect for receipts, manuals, or that ZIP you keep losing track of. 📂',
+      noteBody: 'Need to keep a PDF, doc, or zip alongside your notes? Drop in any file up to 100 MiB with the paperclip icon. Files download with their original names — perfect for receipts, manuals, or that ZIP you keep losing track of. 📂',
       bgColor: bgColors.peach,
       pinned: false, archived: false, trashed: false, isCbox: false, labels: [],
       isDemo: true
@@ -76,7 +76,7 @@ export const demoWelcomeText =
   '================\n\n' +
   'This little file is here to show off how attachments work.\n' +
   'You can drop in PDFs, Office docs, ZIPs, plain text, and more —\n' +
-  'up to 25 MB each. Files keep their original names on download,\n' +
+  'up to 100 MiB each. Files keep their original names on download,\n' +
   'so receipts, manuals, and anything else you want to keep next\n' +
   'to a note are just a click away.\n\n' +
   '— Kept ✨\n';

@@ -53,3 +53,18 @@ test('native reset failure does not navigate and can be retried after the sessio
 test('leaving local mode does not forget server configuration',async()=>{
  const h=harness({local:true});assert.equal(await h.auth.logout(),false);assert.deepEqual(h.events,['leave-local']);
 });
+test('login recovery forgets an unreachable server without making a logout request or removing local libraries',async()=>{
+ const h=harness({httpError:503});
+ assert.equal(await h.auth.forgetServerAndRestart(),true);
+ assert.deepEqual(h.events,['remove:gk_session','forget','replace:/']);
+ assert.equal(h.auth.currentUser,null);
+ assert.equal(h.values.get('kept_active_workspace'),'retained-library-reference');
+});
+test('login recovery works without a session and reset failures remain retryable',async()=>{
+ const h=harness({forgetError:new Error('Native write failed')});
+ h.auth.currentUser$.next(null);
+ await assert.rejects(h.auth.forgetServerAndRestart(),error=>error.name==='KeptServerResetError');
+ assert.equal(h.events.includes('server-logout'),false);
+ assert.equal(h.events.some(event=>event.startsWith('replace:')),false);
+ assert.equal(h.values.get('kept_active_workspace'),'retained-library-reference');
+});

@@ -14,7 +14,7 @@ const source = ts.transpileModule(fs.readFileSync(path.join(__dirname,
 }).outputText;
 
 class HttpErrorResponse extends Error {
-  constructor({ status }) { super(`HTTP ${status}`); this.status = status; }
+  constructor({ status, error }) { super(`HTTP ${status}`); this.status = status; this.error = error; }
 }
 const failure = status => rx.throwError(() => new HttpErrorResponse({ status }));
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -71,6 +71,20 @@ function harness(t, platform = 'web', initiallyOnline = true) {
     }),
     removeOutbox: async keys => {
       for (let i = queued.length - 1; i >= 0; i--) if (keys.includes(queued[i].key)) queued.splice(i, 1);
+    },
+    markUploadStorageBlocked: async (_workspace, entry) => {
+      const current = queued.find(value => value.key === entry.key);
+      if (!current) return false;
+      current.blockedBy = 'storage'; return true;
+    },
+    getBlob: async () => new Blob([Buffer.from('89504e470d0a1a0a', 'hex')], { type: 'image/png' }),
+    putBlob: async () => {},
+    acknowledgeImage: async (_workspace, entry, url) => {
+      const source = entry.payload.url;
+      for (const pending of queued.filter(pending => pending.type === 'note.upsert')) {
+        pending.payload = JSON.parse(JSON.stringify(pending.payload).split(source).join(url));
+      }
+      await store.removeOutbox([entry.key]);
     }
   };
   const auth = {
@@ -89,11 +103,12 @@ function harness(t, platform = 'web', initiallyOnline = true) {
   })]));
   const errors = [];
   const sandbox = {
-    exports: {}, navigator, window, document,
+    exports: {}, navigator, window, document, Blob, FormData,
     console: { error: (...args) => errors.push(args), warn: (...args) => errors.push(args) },
     Date: { now: () => clock.now }, queueMicrotask,
     setTimeout: clock.setTimeout.bind(clock), clearTimeout: clock.clearTimeout.bind(clock),
     require(name) {
+  if(name.endsWith('/note-images'))return require('../test-support/note-images.cjs').loadNoteImages();
       if (name === '@angular/core') return { Injectable: () => target => target };
       if (name === '@angular/common/http') return { HttpErrorResponse };
       if (name === '@capacitor/core') return {
@@ -111,13 +126,49 @@ function harness(t, platform = 'web', initiallyOnline = true) {
   service.state$.subscribe(state => states.push(state));
   t.after(() => service.ngOnDestroy());
   return {
-    service, states, store, queued, requests, clock, navigator, window, document, callbacks, errors,
+    service, auth, states, store, queued, requests, clock, navigator, window, document, callbacks, errors,
     respond: handler => { respond = handler; },
     login: async () => { auth.currentUser$.next({ id: 1 }); await settle(); },
     logout: async () => { auth.currentUser$.next(null); await settle(); },
     emit: event => window.dispatchEvent(new Event(event))
   };
 }
+
+test('older cached account preferences settle after normalization instead of continuously restarting iOS sync', async t => {
+  const h = harness(t, 'ios');
+  const exports = {};
+  const authSource = ts.transpileModule(fs.readFileSync('src/app/services/auth.service.ts', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, experimentalDecorators: true }
+  }).outputText;
+  vm.runInNewContext(authSource, { exports, localStorage: { setItem() {} }, require(name) {
+    if (name === '@angular/core') return { Injectable: () => target => target };
+    if (name === '@angular/common/http' || name === '@capacitor/core' || name.endsWith('/note-html')) return {};
+    if (name === 'rxjs') return rx;
+    if (name.endsWith('/environment')) return { environment: { apiUrl: '/api' } };
+    throw new Error(`Unexpected auth dependency: ${name}`);
+  } });
+  h.auth.applyWorkspacePreferences = exports.AuthService.prototype.applyWorkspacePreferences;
+  h.auth.mergeAccountPreferences = exports.AuthService.prototype.mergeAccountPreferences;
+  h.store.ensureServerWorkspace = async partition => ({ id: partition, partition, generation: 'test', status: 'active', protocolVersion: 2 });
+  // Existing device caches can predate the shared-label/binder preferences.
+  h.store.listResources = async () => [{ theme: 'light', followSystemTheme: false, showPastReminders: false }];
+  h.respond(() => h.requests.length > 4 ? rx.NEVER : rx.of({
+    protocolVersion: 2, changes: [], cursor: 1, hasMore: false, serverTime: h.clock.now
+  }));
+  await h.login();
+  await settle();
+  assert.equal(h.service.state$.value, 'saved');
+  assert.ok(h.requests.length <= 2, 'normalizing preferences may request one follow-up pass, then sync must stop');
+  assert.equal(h.auth.currentUser.inheritSharedLabels, true);
+  assert.equal(h.auth.currentUser.inheritSharedBinders, true);
+  h.store.listResources = async () => [{ theme: 'dark', followSystemTheme: false, showPastReminders: false }];
+  h.auth.applyWorkspacePreferences({ theme: 'dark' });
+  await settle();
+  await settle();
+  assert.equal(h.auth.currentUser.theme, 'dark', 'real preference changes still apply');
+  assert.equal(h.auth.currentUser.inheritSharedLabels, true, 'partial preferences retain existing settings');
+  assert.equal(h.service.state$.value, 'saved');
+});
 
 test('outages stay offline through queued saves and capped 5/15/30-second retries', async t => {
   const h = harness(t);
@@ -355,6 +406,106 @@ test('new edits during an in-flight sync are flushed in a coalesced follow-up', 
   assert.equal(h.queued.length, 0);
   assert.deepEqual(h.requests.map(request => request.method), ['GET', 'POST', 'GET']);
   assert.equal(h.service.state$.value, 'saved');
+});
+
+for (const platform of ['web', 'ios', 'android']) {
+  for (const type of ['image.upload', 'attachment.upload', 'attachment.upsert']) {
+    test(`${platform}: a 507 on ${type} keeps media queued while text and incoming changes sync`, async t => {
+      const h = harness(t, platform);
+      await h.login();
+      h.requests.length = 0;
+      await h.store.enqueue(h.service.partition, type, 'media', type === 'image.upload'
+        ? { url: '/__kept_local_media/photo', filename: 'photo.png' }
+        : { noteSyncId: 'baseline', filename: 'file.pdf', blobKey: 'file' }, h.store.nextStamp());
+      await h.store.enqueue(h.service.partition, 'note.upsert', 'text-note', { noteTitle: 'Text still saves' }, h.store.nextStamp());
+      h.respond((method, url, body) => url.includes('/uploads/images') || url.includes('/attachments')
+        ? rx.throwError(() => new HttpErrorResponse({ status: 507, error: { code: 'STORAGE_QUOTA_EXCEEDED' } }))
+        : rx.of(method === 'POST'
+          ? { results: body.mutations.map(() => ({ ok: true })), serverTime: h.clock.now }
+          : { changes: [], cursor: 2, hasMore: false, serverTime: h.clock.now }));
+      await h.service.syncNow();
+      assert.equal(h.queued.length, 1);
+      assert.equal(h.queued[0].type, type);
+      assert.equal(h.queued[0].blockedBy, 'storage');
+      assert.equal(h.service.storageBlocked$.value, true);
+      assert.match(h.service.storageFullMessage, /storage is full.*upgrade or delete some files\/images/);
+      assert.equal(h.service.state$.value, 'saved');
+      assert.equal(h.service.isConnectionDegraded(), false);
+      assert.equal(h.errors.length, 0);
+      assert.ok(h.requests.some(request => request.url.endsWith('/sync/mutations') && request.body.mutations[0].syncId === 'text-note'));
+      assert.equal(h.requests.at(-1).url, '/api/sync/changes');
+      assert.ok(await h.store.getBlob(h.service.partition, 'file'), 'local media remains available');
+
+      h.respond((method, url, body) => rx.of(url.includes('/uploads/images') ? { url: '/api/uploads/images/photo.png' }
+        : url.includes('/attachments') ? { id: 2, syncId: 'media' }
+        : method === 'POST' ? { results: body.mutations.map(() => ({ ok: true })), serverTime: h.clock.now }
+        : { changes: [], cursor: 3, hasMore: false, serverTime: h.clock.now }));
+      await h.service.syncNow();
+      assert.equal(h.queued.length, 0);
+      assert.equal(h.service.storageBlocked$.value, false);
+      assert.equal(h.service.state$.value, 'saved');
+    });
+  }
+}
+
+test('a blocked image keeps its dependent note local until retry succeeds', async t => {
+  const h = harness(t);
+  await h.login();
+  const url = '/__kept_local_media/photo';
+  await h.store.enqueue(h.service.partition, 'image.upload', 'image', { url, filename: 'photo.png' }, h.store.nextStamp());
+  await h.store.enqueue(h.service.partition, 'note.upsert', 'photo-note', { noteTitle: 'Photo note', images: [{ dataUrl: url }] }, h.store.nextStamp());
+  await h.store.enqueue(h.service.partition, 'reminder.upsert', 'reminder', { noteSyncId: 'photo-note' }, h.store.nextStamp());
+  await h.store.enqueue(h.service.partition, 'note.upsert', 'other-note', { noteTitle: 'Unrelated edit' }, h.store.nextStamp());
+  h.respond((method, requestUrl, body) => requestUrl.includes('/uploads/images') ? failure(507)
+    : rx.of(method === 'POST' ? { results: body.mutations.map(() => ({ ok: true })), serverTime: h.clock.now }
+      : { changes: [], cursor: 2, hasMore: false, serverTime: h.clock.now }));
+  await h.service.syncNow();
+  const sent = h.requests.filter(request => request.method === 'POST' && request.url.endsWith('/mutations')).flatMap(request => request.body.mutations);
+  assert.deepEqual(sent.map(entry => entry.syncId), ['other-note']);
+  assert.equal(h.queued.length, 3, 'dependent changes must remain recoverable');
+  h.respond((method, requestUrl, body) => rx.of(requestUrl.includes('/uploads/images') ? { url: '/api/uploads/images/photo.png' }
+    : method === 'POST' ? { results: body.mutations.map(() => ({ ok: true })), serverTime: h.clock.now }
+      : { changes: [], cursor: 3, hasMore: false, serverTime: h.clock.now }));
+  await h.service.syncNow();
+  assert.equal(h.queued.length, 0);
+  const note = h.requests.filter(request => request.url.endsWith('/mutations')).at(-1).body.mutations.find(entry => entry.syncId === 'photo-note');
+  assert.equal(note.payload.images[0].dataUrl, '/api/uploads/images/photo.png');
+});
+
+test('upload authentication and local persistence errors remain real sync errors', async t => {
+  for (const status of [401, 403, 400]) {
+    const h = harness(t);
+    await h.login();
+    await h.store.enqueue(h.service.partition, 'image.upload', 'image', { url: '/__kept_local_media/photo', filename: 'photo.png' }, h.store.nextStamp());
+    h.respond(() => failure(status));
+    await h.service.syncNow();
+    assert.equal(h.service.state$.value, 'error');
+    assert.equal(h.service.storageBlocked$.value, false);
+    assert.equal(h.queued.length, 1);
+  }
+  const h = harness(t);
+  await h.login();
+  await h.store.enqueue(h.service.partition, 'image.upload', 'image', { url: '/__kept_local_media/photo', filename: 'photo.png' }, h.store.nextStamp());
+  h.respond(() => failure(507));
+  h.store.markUploadStorageBlocked = async () => { throw new Error('Local storage unavailable'); };
+  await h.service.syncNow();
+  assert.equal(h.service.state$.value, 'error');
+});
+
+test('a late 507 after logout cannot flag a different workspace', async t => {
+  const h = harness(t);
+  await h.login();
+  await h.store.enqueue(h.service.partition, 'image.upload', 'image', { url: '/__kept_local_media/photo', filename: 'photo.png' }, h.store.nextStamp());
+  const upload = new rx.Subject();
+  h.respond(() => upload);
+  const syncing = h.service.syncNow();
+  await settle();
+  await h.logout();
+  upload.error(new HttpErrorResponse({ status: 507 }));
+  await syncing;
+  assert.equal(h.service.storageBlocked$.value, false);
+  assert.equal(h.queued[0].blockedBy, undefined);
+  assert.equal(h.errors.length, 0);
 });
 
 test('logout and service teardown cancel retries and lifecycle listeners', async t => {

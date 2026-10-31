@@ -10,6 +10,8 @@ export interface UserI {
     followSystemTheme?: boolean
     avatarDataUrl: string
     avatarPreset: string
+    inheritSharedLabels?: boolean
+    inheritSharedBinders?: boolean
     showPastReminders?: boolean
     totpEnabled?: boolean
     hasBackupCodes?: boolean
@@ -29,6 +31,8 @@ export interface AuthSessionI {
     followSystemTheme?: boolean
     avatarDataUrl: string
     avatarPreset: string
+    inheritSharedLabels?: boolean
+    inheritSharedBinders?: boolean
     showPastReminders?: boolean
     totpEnabled?: boolean
     hasBackupCodes?: boolean

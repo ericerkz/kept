@@ -22,8 +22,13 @@
     @if (loadingSignInOptions) {
       <p class="helper">Loading sign-in options…</p>
     } @else if (signInOptionsUnavailable) {
-      <p class="error" role="alert">Could not load sign-in options. Check your connection and try again.</p>
-      <button type="button" class="sso-button" (click)="loadSignInOptions()">Try again</button>
+      <p class="error" role="alert">{{signInOptionsError}}</p>
+      <button type="button" class="sso-button" (click)="loadSignInOptions()" [disabled]="isChangingServer">Try again</button>
+      @if (canChangeServer) {
+        <button type="button" class="sso-button" style="margin-top:12px" (click)="useDifferentServer()" [disabled]="isChangingServer">
+          {{isChangingServer ? 'Changing server…' : 'Use a different server'}}
+        </button>
+      }
     } @else if (!passwordLoginEnabled) {
       <p class="helper">This server requires single sign-on.</p>
     }

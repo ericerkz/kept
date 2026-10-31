@@ -1,14 +1,15 @@
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
-import { sanitizeNoteHtml } from 'src/app/utils/note-html';
 import { WorkspaceBackupService, BACKUP_NOTICE } from 'src/app/services/workspace-backup.service';
 import { WorkspaceMigrationService } from 'src/app/services/workspace-migration.service';
+import { DeviceServerMoveService } from 'src/app/services/device-server-move.service';
 import { OfflineStoreService } from 'src/app/services/offline-store.service';
 import { NativeWorkspaceService } from 'src/app/services/native-workspace.service';
 import { Workspace } from 'src/app/interfaces/workspace';
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import * as JSZip from 'jszip';
 import { ActivatedRoute, Router } from '@angular/router';
-import { GoogleCalendarStatusI } from 'src/app/interfaces/reminder';
+import { GoogleCalendarStatusI, IcsFeedI } from 'src/app/interfaces/reminder';
+import { serverApiUrl } from 'src/app/utils/server-links';
 import { ReminderService } from 'src/app/services/reminder.service';
 import { NotesService, TakeoutImportResult } from 'src/app/services/notes.service';
 
@@ -96,7 +97,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
   isLoadingGoogle = false;
   isSavingGoogle = false;
   isConnectingGoogle = false;
-  readonly googleRedirectUrl = `${window.location.origin}/api/auth/google/callback`;
+  get googleRedirectUrl() {
+    return this.googleStatus?.redirectUrl || (this.authService.isLocal ? '' : serverApiUrl('auth/google/callback'));
+  }
 
   // ── Takeout import ─────────────────────────────────────────────────────────
   isImportingTakeout = false;
@@ -135,6 +138,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   moveCompletedChecklistItemsToBottom = true;
   richLinkPreviews = true;
   showPastReminders = false;
+  savingSharedOrganization = false;
   notePreviewTextSize: 'compact' | 'default' | 'large' = 'default';
   readonly notePreviewTextSizeOptions: Array<{ value: 'compact' | 'default' | 'large'; label: string }> = [
     { value: 'compact', label: 'Compact' },
@@ -168,17 +172,17 @@ export class SettingsComponent implements OnInit, OnDestroy {
     public nativeWorkspace: NativeWorkspaceService,
     private offlineStore: OfflineStoreService,
     public offlineSync: OfflineSyncService,
-    private managedHosting: ManagedHostingService
+    private managedHosting: ManagedHostingService,
+    public deviceMove: DeviceServerMoveService
   ) {}
 
   managedHostingInfo: ManagedHostingInfo | null = null;
   managedStorageUsage: StorageUsage | null = null;
 
   storageUsed = '';
-  recoveryItems: any[] = [];
   deviceBusy = false;
-  copyDevicePreferences = false;
   movePromptOpen = false;
+  cloudMoveReady = false;
   stagingWorkspaces: Workspace[] = [];
   readonly backupNotice = BACKUP_NOTICE;
   async deviceTask(task: () => Promise<unknown>, message: string) {
@@ -189,21 +193,30 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
   backupDevice() { return this.deviceTask(() => this.backups.export(), 'Backup saved.'); }
   restoreDevice() { return this.deviceTask(() => this.backups.restore(), 'Backup restored into a separate device workspace.'); }
-  moveDevice() { return this.deviceTask(() => this.migration.moveToServer(this.copyDevicePreferences), 'Transfer complete.'); }
-  confirmMove() { this.movePromptOpen = false; return this.moveDevice(); }
-  canRecoverNote(item:any) {return item.operation?.type === 'note.upsert' || item.value?.kind === 'note.upsert';}
-  recoverNote(item:any) {
-    return this.deviceTask(async()=>{
-      if (item.value?.kind === 'note.upsert') await this.nativeWorkspace.recoverNote(item.value);
-      else {
-        const input=item.operation.payload;
-        await this.notesService.add({noteTitle:sanitizeNoteHtml(String(input.noteTitle || 'Recovered note')),noteBody:sanitizeNoteHtml(String(input.noteBody || '')),
-          checkBoxes:(input.checkBoxes || []).map((box:any)=>({...box,data:sanitizeNoteHtml(String(box.data || ''))})),images:input.images || [],
-          pinned:false,bgColor:input.bgColor || '',bgImage:input.bgImage || '',isCbox:!!input.isCbox,labels:[],archived:false,trashed:false,
-          locked:input.locked,lockSalt:input.lockSalt,lockHash:input.lockHash});
-      }
-      await this.offlineStore.resolveConflict(this.offlineSync.partition,item.key);
-    },'The retained edit was saved as a separate note.');
+  openMovePrompt() {
+    this.cloudMoveReady = this.deviceMove.pendingCloudMove;
+    this.movePromptOpen = true;
+  }
+  cancelMovePrompt() {
+    this.deviceMove.cancelCloudMove();
+    this.movePromptOpen = false;
+    this.cloudMoveReady = false;
+  }
+  async setUpCloudMove() {
+    this.movePromptOpen = true;
+    this.cloudMoveReady = true;
+    await this.deviceTask(() => this.deviceMove.startCloud(), '');
+    if (!this.deviceMove.pendingCloudMove) this.cloudMoveReady = false;
+  }
+  moveDevice(toCloud = false) {
+    if (!toCloud) this.deviceMove.cancelCloudMove();
+    return this.deviceTask(async () => {
+      // Destination selection replaces the old preferences prompt. Preserve
+      // the target account's settings and the existing verified migration.
+      const moved = await this.migration.moveToServer(false);
+      if (moved) this.deviceMove.cancelCloudMove();
+      return moved;
+    }, 'Transfer complete.');
   }
   discardStaging(workspace: Workspace) {
     if (confirm('Remove this incomplete backup or restore? Your saved notes will be kept.')) return this.deviceTask(()=>this.offlineStore.discardStaging(workspace.id),'Incomplete staging data removed.');
@@ -213,11 +226,21 @@ export class SettingsComponent implements OnInit, OnDestroy {
     const usage = await this.authService.workspace.storageUsage();
     this.storageUsed = `${Math.round((usage.usage || 0) / 1048576)} MiB used`;
     this.stagingWorkspaces = (await this.offlineStore.listWorkspaces()).filter(item=>item.status === 'staging');
-    if (this.offlineSync.partition) this.recoveryItems = await this.offlineStore.listConflicts(this.offlineSync.partition);
   }
 
   async ngOnInit() {
     if (this.authService.workspace.canUseLocal || this.authService.currentUser) await this.loadDeviceData();
+    await this.deviceMove.ready;
+    if (this.authService.isLocal && this.route.snapshot.queryParamMap.get('move') === 'cloud') {
+      const resuming = this.route.snapshot.queryParamMap.get('resume') === '1';
+      // Consume the navigation intent so refresh/back never reopens sign-up.
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('move');
+      cleanUrl.searchParams.delete('resume');
+      history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+      this.openMovePrompt();
+      if (!resuming) await this.setUpCloudMove();
+    }
     const oidcLinkResult = this.route.snapshot.queryParamMap.get('oidc_link');
     const googleResult = this.route.snapshot.queryParamMap.get('google');
     const googleMessage = this.route.snapshot.queryParamMap.get('message');
@@ -322,6 +345,17 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }
   }
 
+  async toggleSharedOrganization(field: 'inheritSharedLabels' | 'inheritSharedBinders', event: Event) {
+    const input = event.target as HTMLInputElement;
+    this.savingSharedOrganization = true;
+    try {
+      await this.authService.updateAccountPreferences({ [field]: input.checked });
+    } catch {
+      input.checked = this.authService.currentUser?.[field] !== false;
+      this.error = 'Could not save the shared note preference.';
+    } finally { this.savingSharedOrganization = false; }
+  }
+
   setNotePreviewTextSize(size: 'compact' | 'default' | 'large') {
     this.notePreviewTextSize = size;
     this.preferences.update({ notePreviewTextSize: size });
@@ -369,8 +403,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
     try {
       const feed = await this.reminderService.getIcsFeedToken();
-      this.icsFeedToken = feed.token;
-      this.icsFeedUrl = `${window.location.origin}/api/reminders/ics/${feed.token}/kept-reminders.ics`;
+      this.applyIcsFeed(feed);
     } catch (e: any) {
       this.icsFeedError = e?.error?.error || e?.message || 'Could not load feed URL.';
     }
@@ -701,6 +734,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   // ── ICS Feed ─────────────────────────────────────────────────────────────
 
+  private applyIcsFeed(feed: IcsFeedI) {
+    this.icsFeedToken = feed.token;
+    this.icsFeedUrl = feed.url || serverApiUrl(`reminders/ics/${encodeURIComponent(feed.token)}/kept-reminders.ics`);
+  }
+
   async copyFeedUrl() {
     try {
       await navigator.clipboard.writeText(this.icsFeedUrl);
@@ -714,8 +752,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.icsFeedError = '';
     try {
       const feed = await this.reminderService.regenerateIcsFeedToken();
-      this.icsFeedToken = feed.token;
-      this.icsFeedUrl = `${window.location.origin}/api/reminders/ics/${feed.token}/kept-reminders.ics`;
+      this.applyIcsFeed(feed);
     } catch (e: any) {
       this.icsFeedError = e?.error?.error || e?.message || 'Could not regenerate feed URL.';
     }

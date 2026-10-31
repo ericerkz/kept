@@ -128,6 +128,30 @@ test('OAuth grants scoped access to the Kept API and remote MCP', async t => {
     body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'kept_search_notes', arguments: { query: 'anything' } } })
   });
   assert.equal(mcpSearch.result.isError, undefined);
+  async function callTool(name, args, id) {
+    return json(`${origin}/mcp`, {
+      method: 'POST', headers: { authorization: `Bearer ${tokens.access_token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } })
+    });
+  }
+  const overBudget = await callTool('kept_create_note', { checklist: Array.from({ length: 10_001 }, () => ({ text: 'item' })) }, 30);
+  assert.equal(overBudget.result.isError, true);
+  assert.match(overBudget.result.content[0].text, /maximum of 10000 elements/);
+  const created = await callTool('kept_create_note', { title: 'Large MCP image' }, 31);
+  const largeImage = await callTool('kept_add_image', {
+    noteId: created.result.structuredContent.result.id, name: 'large.png', mimeType: 'image/png',
+    base64Data: Buffer.alloc(4 * 1024 * 1024, 1).toString('base64')
+  }, 32);
+  assert.equal(largeImage.result.isError, undefined, 'valid requests over the SDK default 4 MiB limit still work');
+  const tooLarge = await fetch(`${origin}/mcp`, {
+    method: 'POST', headers: { authorization: `Bearer ${tokens.access_token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ padding: 'x'.repeat(25 * 1024 * 1024) })
+  });
+  assert.equal(tooLarge.status, 413);
+  const unauthenticated = await fetch(`${origin}/mcp`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{not valid json'
+  });
+  assert.equal(unauthenticated.status, 401, 'authenticate before parsing remote MCP input');
   const deniedDirectApi = await fetch(`${origin}/api/notes/search?q=anything`, {
     headers: { authorization: `Bearer ${tokens.access_token}` }
   });

@@ -1,3 +1,5 @@
+import { MAX_FILE_BYTES, prepareNoteImage } from '../utils/note-images';
+import { applyPersonalOrganization, projectSharedOrganization } from '../utils/shared-note-organization';
 import { attachmentMimeType } from '../utils/attachments';
 import { Injectable } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
@@ -516,10 +518,20 @@ export class NotesService {
   }
 
   async update(object: NoteI, id: number) {
+    const existingOrganization = await this.cachedOrLoadedNote(id);
+    if (existingOrganization?.sharedOrganization) {
+      const patch: Partial<Pick<NoteI, 'labels' | 'binder'>> = {};
+      if (this.auth.currentUser?.inheritSharedLabels === false && object.labels !== undefined &&
+          JSON.stringify(object.labels) !== JSON.stringify(existingOrganization.labels)) patch.labels = object.labels;
+      if (this.auth.currentUser?.inheritSharedBinders === false && object.binder !== undefined && object.binder !== existingOrganization.binder) patch.binder = object.binder;
+      if (Object.keys(patch).length) await this.updatePersonalOrganization(existingOrganization, patch);
+      const { sharedOrganization, labels, binder, ...content } = object;
+      object = content as NoteI;
+    }
     if (this.offlineSync.writesLocally) {
       const existing = await this.offlineStore.getNote(this.offlineSync.partition, id);
       if (!existing?.syncId) throw new Error('This note is unavailable on this device.');
-      const local = this.canonicalizeNoteMedia({ ...existing, ...object, id, isCardPreview: false });
+      const local = this.canonicalizeNoteMedia({ ...existing, ...object, sharedOrganization: existing.sharedOrganization, id, isCardPreview: false });
       await this.offlineSync.commit('note.upsert', existing.syncId, local);
       await this.reminders.refreshNoteContent(local);
       await this.load();
@@ -565,6 +577,16 @@ export class NotesService {
   }
 
   async updateKey(object: UpdateKeyI, id: number) {
+    const existingOrganization = await this.cachedOrLoadedNote(id);
+    if (existingOrganization?.sharedOrganization) {
+      const patch: Partial<Pick<NoteI, 'labels' | 'binder'>> = {};
+      if (this.auth.currentUser?.inheritSharedLabels === false && object.labels !== undefined) patch.labels = object.labels;
+      if (this.auth.currentUser?.inheritSharedBinders === false && object.binder !== undefined) patch.binder = object.binder;
+      if (Object.keys(patch).length) await this.updatePersonalOrganization(existingOrganization, patch);
+      const { labels, binder, ...content } = object;
+      if (!Object.keys(content).length) return;
+      object = content;
+    }
     if (this.offlineSync.writesLocally) return this.update(object as NoteI, id);
     object = this.canonicalizeNoteMedia(object);
     if (id === -1) return;
@@ -602,6 +624,30 @@ export class NotesService {
       console.log(error);
       await this.load(this.searchQuery, { cacheBust: true }).catch(console.error);
       throw error;
+    }
+  }
+
+  private async updatePersonalOrganization(note: NoteI, patch: Partial<Pick<NoteI, 'labels' | 'binder'>>) {
+    if (!note.syncId || !note.id) throw new Error('This shared note is unavailable.');
+    if (this.offlineSync.writesLocally) {
+      await this.offlineSync.commit('note.organization', note.syncId, patch);
+      await this.load();
+      return;
+    }
+    const local = applyPersonalOrganization(note, patch);
+    if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, local);
+    this.mergeNoteIntoList(local);
+    try {
+      if (!navigator.onLine) throw new HttpErrorResponse({ status: 0 });
+      const saved = await this.withTimeout(firstValueFrom(this.http.patch<NoteI>(`${this.apiUrl}/${note.id}/organization`, patch, { headers: this.auth.authHeaders() })), this.noteWriteTimeoutMs);
+      this.offlineSync.clearConnectionDegraded();
+      if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition, saved);
+      this.mergeNoteIntoList(saved);
+    } catch (error) {
+      if (this.isOfflineError(error) && this.offlineSync.partition) {
+        this.offlineSync.markConnectionDegraded();
+        await this.offlineSync.enqueue('note.organization', note.syncId, patch);
+      } else { await this.load(this.searchQuery, { cacheBust: true }); throw error; }
     }
   }
 
@@ -669,8 +715,9 @@ export class NotesService {
   }
 
   async uploadImage(file: File) {
+    const prepared = await prepareNoteImage(file, file.name);
+    file = new File([prepared.blob], prepared.name, { type: prepared.blob.type, lastModified: file.lastModified });
     if (this.offlineSync.writesLocally) {
-      if (file.size > 10 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) throw new Error('Choose a PNG, JPEG, GIF or WebP image up to 10 MiB.');
       const canonical = `/__kept_local_media/${createUuid()}`;
       if (this.auth.isLocal) await this.offlineStore.putBlob(this.offlineSync.partition, `media:${canonical}`, file);
       else await this.offlineSync.commit('image.upload', createUuid(), {url:canonical,filename:file.name}, {blobs:[{key:`media:${canonical}`,value:file}]});
@@ -702,8 +749,8 @@ export class NotesService {
   }
 
   async uploadAttachment(noteId: number, file: File | Blob, filename?: string) {
+    if (file.size > MAX_FILE_BYTES) throw new Error('Attachments must be 100 MiB or smaller.');
     if (this.offlineSync.writesLocally) {
-      if (file.size > 25 * 1024 * 1024) throw new Error('Attachments must be 25 MiB or smaller.');
       const note = await this.offlineStore.getNote(this.offlineSync.partition, noteId);
       if (!note?.syncId) throw new Error('Save the note before adding an attachment.');
       const resolvedName = filename || (file instanceof File ? file.name : 'attachment');
@@ -891,12 +938,12 @@ export class NotesService {
     if (this.offlineSync.writesLocally) {
       const note = await this.offlineStore.getNote(this.offlineSync.partition, id);
       if (!note) throw new Error('This note has not been downloaded to this device.');
-      return this.hydrateOfflineNoteMedia(note);
+      return this.hydrateOfflineNoteMedia(projectSharedOrganization(note, this.auth.currentUser || {}));
     }
     if (id !== -1) {
       if (id < 0 || !navigator.onLine) {
         const cached = this.offlineSync.partition ? await this.offlineStore.getNote(this.offlineSync.partition, id) : undefined;
-        if (cached) return this.hydrateOfflineNoteMedia(cached);
+        if (cached) return this.hydrateOfflineNoteMedia(projectSharedOrganization(cached, this.auth.currentUser || {}));
       }
       try {
         const note = await firstValueFrom(this.http.get<NoteI>(`${this.apiUrl}/${id}`, { headers: this.auth.authHeaders() }));
@@ -908,7 +955,7 @@ export class NotesService {
         return note;
       } catch (error) {
         const cached = this.offlineSync.partition ? await this.offlineStore.getNote(this.offlineSync.partition, id) : undefined;
-        if (cached) return this.hydrateOfflineNoteMedia(cached);
+        if (cached) return this.hydrateOfflineNoteMedia(projectSharedOrganization(cached, this.auth.currentUser || {}));
         throw error;
       }
     } else return {} as NoteI
@@ -940,6 +987,7 @@ export class NotesService {
   }
 
   private publishNotes(notes: NoteI[]) {
+    notes = notes.map(note => projectSharedOrganization(note, this.auth.currentUser || {}));
     if (notes.length) this.lastNonEmptyNotes = notes;
     this.reminders.updateNoteLifecycle(notes);
     this.notesList$.next(notes);
@@ -1162,6 +1210,7 @@ export class NotesService {
     const prioritized: string[] = [];
     const deferred: string[] = [];
     notes.forEach((note, index) => {
+      if (note.linkPreviews === false) return;
       for (const url of this.noteUrls(note)) {
         if (seen.has(url) || this.preloadedPreviewUrls.has(url)) continue;
         seen.add(url);
@@ -1267,7 +1316,7 @@ export class NotesService {
     if (loaded && !loaded.isCardPreview) return loaded;
     if (this.offlineSync.partition) {
       const cached = await this.offlineStore.getNote(this.offlineSync.partition, id);
-      if (cached) return this.hydrateOfflineNoteMedia(cached);
+      if (cached) return this.hydrateOfflineNoteMedia(projectSharedOrganization(cached, this.auth.currentUser || {}));
     }
     if (id > 0 && navigator.onLine) return this.get(id, { merge: false });
     return loaded;

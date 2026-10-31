@@ -128,6 +128,33 @@ async function main() {
       notes.body.some(note => /Welcome to Acme Hosting/.test(note.noteTitle)),
       'a managed welcome note should exist exactly once after setup'
     );
+    const welcome = notes.body.find(note => note.noteTitle === 'Welcome to Acme Hosting!');
+    assert.ok(welcome, 'welcome title ends with an exclamation mark');
+    assert.strictEqual(welcome.pinned, true);
+    assert.strictEqual(welcome.linkPreviews, false, 'compact app/account links should not become large preview cards');
+    assert.match(welcome.noteBody, /<h3>/);
+    assert.match(welcome.noteBody, /apps\.apple\.com\/ca\/app\/kept-notes\/id6768974473/);
+    assert.match(welcome.noteBody, /play\.google\.com\/store\/apps\/details\?id=xyz\.keepitkept\.app/);
+    assert.match(welcome.noteBody, /100 MiB/);
+    assert.match(welcome.noteBody, /5 GB of storage/);
+    // Browser and offline-first starter creation must both keep the welcome
+    // note first, even when the starter was created with a newer sortOrder.
+    const demo = await request(base, '/notes', { method:'POST', headers:authHeaders,
+      body:JSON.stringify({noteTitle:'Saved Links',pinned:true,isDemo:true,labels:[],images:[]}) });
+    assert.strictEqual(demo.status,201);
+    const synced = await request(base, '/sync/mutations', { method:'POST',headers:authHeaders,
+      body:JSON.stringify({protocolVersion:2,mutations:[{type:'note.upsert',syncId:'starter-sync',operationId:'starter-sync',
+        payload:{noteTitle:'Synced starter',pinned:true,isDemo:true,sortOrder:Date.now()+10000},
+        lww:{physicalMs:Date.now(),logical:0,deviceId:'starter-test',operationId:'starter-sync'}}]}) });
+    assert.strictEqual(synced.body.results[0].ok,true);
+    const cards = await request(base, '/notes?view=card', {headers:authHeaders});
+    assert.strictEqual(cards.body.notes[0].id,welcome.id,'the welcome is the first/top-left note after seeding');
+    assert.strictEqual(cards.body.notes[0].linkPreviews,false,'overview cards preserve compact links');
+    const bootstrap = await request(base, '/sync/bootstrap?protocolVersion=2', {headers:authHeaders});
+    assert.strictEqual(bootstrap.body.notes[0].id,welcome.id,'native offline snapshots preserve first position');
+    // The welcome note remains a normal note the user can unpin.
+    await request(base, `/notes/${welcome.id}`, {method:'PATCH',headers:authHeaders,body:JSON.stringify({pinned:false})});
+    assert.strictEqual((await request(base, `/notes/${welcome.id}`, {headers:authHeaders})).body.pinned,false);
 
     const reusedToken = await request(base, '/setup/admin', {
       method: 'POST',
@@ -165,7 +192,8 @@ async function main() {
     });
     assert.strictEqual(response.status, 507, 'an upload that would exceed quota should fail with 507');
     const body = await response.json();
-    assert.strictEqual(body.error.includes('quota'), true);
+    assert.strictEqual(body.code, 'STORAGE_QUOTA_EXCEEDED');
+    assert.match(body.error, /storage is full/);
   });
 
   // ── Metrics token: read-only access to storage usage without a login ───

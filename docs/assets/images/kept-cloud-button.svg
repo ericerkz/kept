@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="64" viewBox="0 0 260 64" role="img" aria-labelledby="title description">
+  <title id="title">Get Kept Cloud</title>
+  <desc id="description">Sync across your devices. Hosting, backups and updates handled for you.</desc>
+  <rect x="1" y="1" width="258" height="62" rx="16" fill="#fff2c2" stroke="#e5d59a" stroke-width="1.5"/>
+  <rect x="10" y="10" width="44" height="44" rx="12" fill="#fbbc04"/>
+  <svg x="18" y="18" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#202124" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18.5 10a6.5 6.5 0 0 0-12.1-2.7A5 5 0 0 0 6 17h12.5a3.5 3.5 0 0 0 0-7Z"/>
+  </svg>
+  <text x="68" y="29" fill="#202124" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700">Get Kept Cloud</text>
+  <text x="68" y="47" fill="#665a39" font-family="Arial, Helvetica, sans-serif" font-size="11.5">Sync across your devices</text>
+  <path d="m236 26 6 6-6 6" fill="none" stroke="#806313" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

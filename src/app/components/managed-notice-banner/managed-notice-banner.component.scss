@@ -1,0 +1,48 @@
+:host {
+  // Contain the banner margins so measuring its document position is stable.
+  display: flow-root;
+  padding-top: var(--plan-notice-clearance, 0px);
+}
+.plan-notice {
+  align-items: center;
+  background: #473c22;
+  border: 1px solid #a78028;
+  border-radius: 10px;
+  color: #ffdf87;
+  display: flex;
+  flex-wrap: wrap;
+  font: 400 14px/1.4 Roboto, Arial, sans-serif;
+  gap: 8px 12px;
+  margin: 12px;
+  padding: 10px 14px;
+}
+.plan-notice-icon { flex-shrink: 0; font-size: 22px; }
+.plan-notice-copy { flex: 1 1 280px; min-width: 0; }
+p { margin: 0; }
+.plan-notice-deletion { font-size: 13px; margin-top: 3px; }
+.plan-notice-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+a {
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: inherit;
+  display: inline-flex;
+  font-weight: 500;
+  min-height: 36px;
+  padding: 6px 10px;
+  text-decoration: none;
+}
+.plan-notice-dismiss {
+  align-items: center; background: transparent; border: 0; border-radius: 50%; color: inherit;
+  cursor: pointer; display: inline-flex; flex-shrink: 0; height: 44px; justify-content: center; margin: -4px; width: 44px;
+  .material-symbols-outlined { font-size: 20px; }
+}
+a:focus-visible, button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+:host-context(.light-theme) .plan-notice { background: #fff8df; border-color: #efd278; color: #60480b; }
+@media (max-width: 599px) {
+  .plan-notice { align-items: start; display: grid; gap: 8px; grid-template-columns: 20px minmax(0, 1fr) auto; padding: 10px; }
+  .plan-notice-copy { grid-column: 2; grid-row: 1; }
+  .plan-notice-actions { grid-column: 2; grid-row: 2; }
+  .plan-notice-actions:empty { display: none; }
+  .plan-notice-dismiss { grid-column: 3; grid-row: 1; }
+}

@@ -3613,3 +3613,12 @@ body:not(.light-theme) :where(.note-main, .note-container) .reminder-chip img {
 }
 body [data-note-ink="#202124"] .reminder-chip img { filter: brightness(0) !important; }
 body [data-note-ink="#e8eaed"] .reminder-chip img { filter: brightness(0) invert(1); }
+
+[data-tooltip="true"] .organization-hint {
+  max-width: 270px;
+  margin: 8px 12px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: normal;
+  opacity: .8;
+}

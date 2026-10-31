@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kept - Offline Mobile and Self-Hosted Notes</title>
-  <meta name="description" content="Use Kept offline on iOS and Android without a server, or self-host for web access, sharing, and sync across devices.">
+  <title>Kept - Offline Mobile Notes, Self-Hosting and Kept Cloud</title>
+  <meta name="description" content="Use Kept offline on iOS and Android, self-host your own server, or choose Kept Cloud for hosting, backups and sync across devices.">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -68,9 +68,12 @@
         
         <div class="hero">
           <img src="assets/images/keep2x.png" alt="Kept logo">
-          <h1>Your notes, on your device or your server</h1>
-          <p>Keep the speed, simplicity, and colorful notes you love. Use Kept offline on iOS and Android without a server, or connect to your own server for web access, sharing, and sync across devices.</p>
+          <h1>Your notes, your way</h1>
+          <p>Keep the speed, simplicity, and colorful notes you love. Use Kept offline on iOS and Android, run your own server, or let Kept Cloud handle the hosting, backups, and updates.</p>
           <div class="hero-actions">
+            <a href="https://cloud.keepitkept.xyz/" target="_blank" rel="noopener noreferrer" class="kept-cloud-button" aria-label="Get Kept Cloud — sync across your devices">
+              <img src="assets/images/kept-cloud-button.svg" alt="Get Kept Cloud — sync across your devices" width="260" height="64">
+            </a>
             <a href="#quick-start" class="btn btn-primary">Get Started</a>
             <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer" class="app-store-badge app-store-badge--compact" aria-label="Download Kept Notes on the App Store">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.05 12.4c-.03-3.05 2.49-4.52 2.6-4.59-1.42-2.08-3.63-2.36-4.41-2.39-1.88-.19-3.67 1.1-4.62 1.1-.96 0-2.44-1.07-4.01-1.04-2.06.03-3.96 1.2-5.02 3.04-2.14 3.72-.55 9.23 1.54 12.24 1.02 1.48 2.24 3.15 3.84 3.09 1.54-.06 2.12-.99 3.98-.99s2.38.99 4.01.96c1.65-.03 2.7-1.51 3.71-3 1.17-1.71 1.65-3.37 1.68-3.45-.04-.02-3.26-1.25-3.3-4.97ZM14.01 3.44c.85-1.03 1.42-2.46 1.26-3.88-1.22.05-2.7.81-3.58 1.84-.78.91-1.47 2.37-1.28 3.76 1.36.1 2.75-.69 3.6-1.72Z"/></svg>
@@ -127,12 +130,12 @@
 
             <div class="feature-box">
               <h3>🍎 Native iOS App</h3>
-              <p><a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer">Kept Notes on the App Store</a> works on your device or with your self-hosted server, with native Apple Reminders integration, quick share, and Apple Intelligence-powered Smart Capture on supported devices.</p>
+              <p><a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer">Kept Notes on the App Store</a> supports device-only use, Kept Cloud, and self-hosted servers. It includes native Apple Reminders integration, quick share, and Apple Intelligence-powered Smart Capture on supported devices.</p>
             </div>
 
             <div class="feature-box">
               <h3>🤖 Native Android App</h3>
-              <p><a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer">Kept Notes on Google Play</a> works on your device or with your self-hosted server, with native reminders, saved places, quick share, home screen widgets, and on-device Smart Capture on supported devices.</p>
+              <p><a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer">Kept Notes on Google Play</a> supports device-only use, Kept Cloud, and self-hosted servers. It includes native reminders, saved places, quick share, home screen widgets, and on-device Smart Capture on supported devices.</p>
             </div>
 
             <div class="feature-box">
@@ -182,7 +185,7 @@
           <h2>🚀 How to Install</h2>
           <p>Just want notes on your phone or tablet? Install a <a href="#pwa-mobile">native iOS or Android app</a> and choose <strong>Use on this device</strong>. You do not need to set up a server.</p>
           <h3>Set up a Kept server</h3>
-          <p>For web access, sharing, and access across devices, run your own Kept server using the published Docker image, <code>ghcr.io/ericerkz/kept:latest</code>.</p>
+          <p>For web access, sharing, and sync across devices, choose <a href="#kept-cloud">Kept Cloud</a> or run your own Kept server using the published Docker image, <code>ghcr.io/ericerkz/kept:latest</code>.</p>
           
           <pre><code>git clone https://github.com/ericerkz/kept.git
 cd kept
@@ -190,20 +193,18 @@ docker compose up -d</code></pre>
           
           <p>That's it! Open your browser and go to <code>http://localhost:6767</code>. You'll be greeted by a friendly setup wizard to create your admin account.</p>
 
-          <section id="deploy-on-railway" class="hosted-setup-callout">
-            <h2>Deploy Kept on Railway</h2>
-            <p>If you do not want to set up Docker or manage a server yourself, Railway can create a ready-to-use Kept instance for you with storage and HTTPS handled.</p>
-            <a href="https://railway.com/deploy/kept-notes" target="_blank" rel="noopener noreferrer" aria-label="Deploy Kept on Railway">
-              <img src="https://railway.com/button.svg" alt="Deploy on Railway">
+          <section id="kept-cloud" class="hosted-setup-callout kept-cloud-callout">
+            <h2>Kept Cloud — hosting handled for you</h2>
+            <p>Want web access, sharing, and sync across devices without setting up Docker or managing a server? Kept Cloud runs and maintains your own private Kept server for you, with automatic backups and updates included.</p>
+            <a href="https://cloud.keepitkept.xyz/" target="_blank" rel="noopener noreferrer" class="kept-cloud-button" aria-label="Get Kept Cloud — sync across your devices">
+              <img src="assets/images/kept-cloud-button.svg" alt="Get Kept Cloud — sync across your devices" width="260" height="64">
             </a>
             <ol>
-              <li>Click <strong>Deploy on Railway</strong> and sign in or create a Railway account.</li>
-              <li>Review the generated Kept service, volume, and environment settings.</li>
-              <li>Deploy the template and wait for Railway to finish building the service.</li>
-              <li>Open the public URL Railway provides.</li>
-              <li>Create your first Kept admin account from the setup screen.</li>
+              <li>Open <strong>Kept Cloud</strong> and follow the steps to create your account and set up your server.</li>
+              <li>Create your Kept login when prompted, then open your private server address.</li>
+              <li>Connect the iOS or Android app to the same server to sync your notes across devices.</li>
             </ol>
-            <p class="hosted-setup-callout__note">Railway is one convenient way to deploy Kept quickly. Kept remains self-hostable on any platform that supports Docker.</p>
+            <p class="hosted-setup-callout__note">Add family, friends, or teammates to the same server. Everyone shares one subscription, with no per-user charge. Kept remains free to self-host, and device-only mode in the native apps needs no subscription.</p>
           </section>
           
           <details>
@@ -324,7 +325,7 @@ KEPT_OIDC_NAME=Google</code></pre>
 
         <section id="pwa-mobile">
           <h2>Install on iOS and Android</h2>
-          <p>Choose a native app to use Kept on your device or connect to your own server. You can also install the server's web app as a Progressive Web App.</p>
+          <p>Choose a native app to use Kept on your device, with Kept Cloud, or with your own server. You can also install the server's web app as a Progressive Web App.</p>
 
           <h3 id="offline-mobile">Use Kept locally without a server</h3>
           <p>With the 1.9 native iOS and Android apps, choose <strong>Use on this device</strong> on the welcome screen to start without a server or Kept account. Create and organize notes, checklists, images, drawings, attachments, labels, and reminders on the device.</p>
@@ -333,7 +334,7 @@ KEPT_OIDC_NAME=Google</code></pre>
 
           <div class="app-store-callout">
             <h3>Native iPhone and iPad app</h3>
-            <p><a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer">Kept Notes is available on the App Store</a> for iPhone and iPad. Use device-only mode or connect to your self-hosted server. The app includes native Apple Reminders integration, quick share from other apps, and Apple Intelligence-powered Smart Capture for private, on-device note creation and updates on supported devices.</p>
+            <p><a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer">Kept Notes is available on the App Store</a> for iPhone and iPad. Use device-only mode, Kept Cloud, or your self-hosted server. The app includes native Apple Reminders integration, quick share from other apps, and Apple Intelligence-powered Smart Capture for private, on-device note creation and updates on supported devices.</p>
             <p>The app has a nominal one-time cost. That helps cover the charge required to distribute Kept through the App Store.</p>
             <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank" rel="noopener noreferrer" class="app-store-badge" aria-label="Download Kept Notes on the App Store">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.05 12.4c-.03-3.05 2.49-4.52 2.6-4.59-1.42-2.08-3.63-2.36-4.41-2.39-1.88-.19-3.67 1.1-4.62 1.1-.96 0-2.44-1.07-4.01-1.04-2.06.03-3.96 1.2-5.02 3.04-2.14 3.72-.55 9.23 1.54 12.24 1.02 1.48 2.24 3.15 3.84 3.09 1.54-.06 2.12-.99 3.98-.99s2.38.99 4.01.96c1.65-.03 2.7-1.51 3.71-3 1.17-1.71 1.65-3.37 1.68-3.45-.04-.02-3.26-1.25-3.3-4.97ZM14.01 3.44c.85-1.03 1.42-2.46 1.26-3.88-1.22.05-2.7.81-3.58 1.84-.78.91-1.47 2.37-1.28 3.76 1.36.1 2.75-.69 3.6-1.72Z"/></svg>
@@ -343,7 +344,7 @@ KEPT_OIDC_NAME=Google</code></pre>
 
           <div class="app-store-callout">
             <h3>Native Android app</h3>
-            <p><a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer">Kept Notes is available on Google Play</a> with device-only mode and optional self-hosted server access. It includes native time and location reminders, saved places, quick share from other apps, home screen widgets for browsing and capturing notes, and on-device Smart Capture on supported devices.</p>
+            <p><a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer">Kept Notes is available on Google Play</a> with device-only mode, Kept Cloud, or your self-hosted server. It includes native time and location reminders, saved places, quick share from other apps, home screen widgets for browsing and capturing notes, and on-device Smart Capture on supported devices.</p>
             <a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank" rel="noopener noreferrer" class="app-store-badge" aria-label="Get Kept Notes on Google Play">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3.6 1.62c-.37.2-.6.58-.6 1.07v18.62c0 .49.23.87.6 1.07l10.56-10.38L3.6 1.62Zm12.01 8.95 2.68-2.63L5.55.52l10.06 10.05Zm0 2.86L5.55 23.48l12.74-7.42-2.68-2.63Zm1.43-1.43 3.38 3.32c.78-.43.78-1.53 0-1.96l-3.38-1.36Zm0 0 3.38-1.36c.78-.43.78-1.53 0-1.96l-3.38 3.32Z"/></svg>
               <span><small>Get it on</small>Google Play</span>

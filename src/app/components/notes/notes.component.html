@@ -150,6 +150,9 @@
         (touchmove)="onTouchMove($event)"
         (touchend)="onTouchEnd(noteEL, note, $event)"
         (touchcancel)="onTouchCancel()">
+        <div class="note-swipe-background" aria-hidden="true">
+          <span class="material-symbols-outlined">archive</span>
+        </div>
         @if (currentPage.label && (note.archived || note.trashed)) {
           <span class="note-badge"
           [innerText]="note.archived ? 'archive': (note.trashed ? 'trash' : '') "></span>
@@ -437,6 +440,10 @@
 <!--? label MENU -->
 <div #labelMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu">
   <div class="title">Label note</div>
+  @if (sharedOrganizationHint('labels')) {
+    <p class="organization-hint">{{sharedOrganizationHint('labels')}}</p>
+  }
+  @if (!inheritsSharedOrganization('labels')) {
   <div class="search">
     <div class="search-icon"></div>
     <input #newLabelInput type="text" maxlength="50" placeholder="Enter label name"
@@ -460,10 +467,15 @@
       </div>
     }
   </div>
+  }
 </div>
 <!--? binder MENU -->
 <div #binderMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu binderMenu">
   <div class="title">Move to binder</div>
+  @if (sharedOrganizationHint('binders')) {
+    <p class="organization-hint">{{sharedOrganizationHint('binders')}}</p>
+  }
+  @if (!inheritsSharedOrganization('binders')) {
   <div class="search">
     <input #newBinderInput type="text" maxlength="50" placeholder="Enter binder name"
       (keydown.enter)="addBinderFromMenu(newBinderInput); $event.preventDefault()" (blur)="addBinderFromMenu(newBinderInput)"
@@ -490,6 +502,7 @@
       </button>
     }
   </div>
+  }
 </div>
 <!--? collaborator MENU -->
 <div #collaboratorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="collaboratorMenu">

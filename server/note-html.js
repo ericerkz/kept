@@ -1,5 +1,6 @@
 const sanitizeHtml = require('sanitize-html');
 const policy = require('../shared/note-html-policy.json');
+const { plainText } = require('./text-utils');
 
 function safeUrl(value, image = false) {
   const raw = String(value ?? '').trim();
@@ -14,6 +15,7 @@ function safeUrl(value, image = false) {
 }
 
 const options = {
+  nestingLimit: 100,
   allowedTags: policy.tags,
   allowedAttributes: { '*': policy.attributes },
   allowedSchemes: policy.linkSchemes,
@@ -27,7 +29,13 @@ const options = {
 };
 
 function sanitizeNoteHtml(value) {
-  return sanitizeHtml(String(value ?? ''), options);
+  try { return sanitizeHtml(String(value ?? ''), options); }
+  catch (error) {
+    // Historical/imported content must not disable an entire library's reads.
+    // Fail closed to literal text if a parser encounters pathological nesting.
+    if (!(error instanceof RangeError)) throw error;
+    return plainText(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
 }
 
 function sanitizeNoteContent(note) {

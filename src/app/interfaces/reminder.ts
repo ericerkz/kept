@@ -65,6 +65,7 @@ export interface ReminderFiredPayload {
 
 export interface IcsFeedI {
   token: string;
+  url?: string;
 }
 
 export interface GoogleCalendarStatusI {
@@ -72,4 +73,5 @@ export interface GoogleCalendarStatusI {
   connected: boolean;
   enabled: boolean;
   clientId: string | null;
+  redirectUrl?: string;
 }

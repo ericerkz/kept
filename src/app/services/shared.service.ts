@@ -230,7 +230,8 @@ export class SharedService {
     const key = name.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
-    target.push({ ...label, name });
+    // This is the available-label catalog, not a selection for any one note.
+    target.push({ ...label, name, added: false });
   }
 
   private compareLabels(a: LabelI, b: LabelI) {
@@ -339,8 +340,25 @@ export class SharedService {
     this.clearNoteSelection()
   }
 
+  canOrganizeNote(note: NoteI, kind: 'labels' | 'binders') {
+    return !note.ownerUserId || note.ownerUserId === this.auth.currentUser?.id ||
+      (kind === 'labels' ? this.auth.currentUser?.inheritSharedLabels === false : this.auth.currentUser?.inheritSharedBinders === false);
+  }
+
+  canOrganizeSelection(kind: 'labels' | 'binders') {
+    return this.note.all.some(note => note.id && this.selectedNoteIds.value.includes(note.id) && this.canOrganizeNote(note, kind));
+  }
+
+  selectionOrganizationHint(kind: 'labels' | 'binders') {
+    const shared = this.note.all.filter(note => note.id && this.selectedNoteIds.value.includes(note.id) && note.ownerUserId && note.ownerUserId !== this.auth.currentUser?.id);
+    if (!shared.length) return '';
+    return shared.some(note => !this.canOrganizeNote(note, kind))
+      ? `Shared notes keep the owner's ${kind}. You can change this in Settings.`
+      : 'Only changes your organization of shared notes.';
+  }
+
   async bulkApplyLabel(label: LabelI) {
-    const selected = this.note.all.filter(note => note.id && this.selectedNoteIds.value.includes(note.id))
+    const selected = this.note.all.filter(note => note.id && this.selectedNoteIds.value.includes(note.id) && this.canOrganizeNote(note, 'labels'))
     const shouldAdd = selected.some(note => !note.labels.some(noteLabel => noteLabel.id === label.id && noteLabel.added))
 
     for (const note of selected) {
@@ -359,7 +377,7 @@ export class SharedService {
   async bulkApplyBinder(name: string) {
     const binder = String(name || '').trim();
     if (binder) await this.binder.db.add(binder);
-    const selected = this.note.all.filter(note => note.id && this.selectedNoteIds.value.includes(note.id));
+    const selected = this.note.all.filter(note => note.id && this.selectedNoteIds.value.includes(note.id) && this.canOrganizeNote(note, 'binders'));
     for (const note of selected) {
       await this.Notes.updateKey({ binder }, note.id!);
     }

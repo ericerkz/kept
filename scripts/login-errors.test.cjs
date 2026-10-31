@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const rx = require('rxjs');
 
-function load(file) {
+function load(file, {native = false, available = false} = {}) {
   const exports = {};
   const source = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, experimentalDecorators: true }
@@ -13,7 +13,7 @@ function load(file) {
   vm.runInNewContext(source, { exports, console, require(name) {
     if (name === '@angular/core') return { Injectable: () => target => target, Component: () => target => target };
     if (name === '@angular/common/http') return {};
-    if (name === '@capacitor/core') return {};
+    if (name === '@capacitor/core') return { Capacitor: { isNativePlatform: () => native, isPluginAvailable: () => available } };
     if (name === 'rxjs') return rx;
     if (name.endsWith('/environment')) return { environment: { apiUrl: '/api' } };
     if (name.endsWith('/note-html')) return {};
@@ -133,4 +133,50 @@ test('login options honor OIDC-only policy, keep older servers compatible and re
   const changed = harness({ error: { status: 403, error: { code: 'PASSWORD_LOGIN_DISABLED', error: 'Use SSO.' } } });
   await changed.component.submit(); assert.equal(changed.component.passwordLoginEnabled, false);
   assert.equal(changed.component.error, 'Use SSO.');
+});
+
+test('paused sign-in options get the specific message and a successful retry clears it', async () => {
+  const h = harness();
+  h.auth.getOidcConfig = async () => { throw { status: 402, error: { code: 'CLOUD_SUSPENDED' } }; };
+  await h.component.loadSignInOptions();
+  assert.equal(h.component.signInOptionsUnavailable, true);
+  assert.equal(h.component.signInOptionsError, 'This server’s Kept Cloud plan has ended, so it’s paused.');
+  for (const failure of [{ status: 402, error: { code: 'UNRELATED' } }, { status: 0 }]) {
+    h.auth.getOidcConfig = async () => { throw failure; };
+    await h.component.loadSignInOptions();
+    assert.equal(h.component.signInOptionsError, 'Could not load sign-in options. Check your connection and try again.');
+  }
+  h.auth.getOidcConfig = async () => ({ enabled: false, name: 'SSO' });
+  await h.component.loadSignInOptions();
+  assert.equal(h.component.signInOptionsUnavailable, false);
+  assert.equal(h.component.signInOptionsError, '');
+});
+
+test('changing servers is gated to supported native shells and repeated taps coalesce', async () => {
+  for (const options of [{ native: false, available: true }, { native: true, available: false }, { native: true, available: true }]) {
+    const { LoginComponent } = load('src/app/components/auth/login/login.component.ts', options);
+    let calls = 0, release;
+    const pending = new Promise(resolve => release = resolve);
+    const auth = { forgetServerAndRestart: async () => { calls++; await pending; return true; } };
+    const component = new LoginComponent(auth, {}, {});
+    assert.equal(component.canChangeServer, options.native && options.available);
+    const first = component.useDifferentServer();
+    await component.useDifferentServer();
+    assert.equal(calls, component.canChangeServer ? 1 : 0);
+    release(); await first;
+    assert.equal(component.isChangingServer, false);
+    assert.equal(component.error, '');
+  }
+});
+
+test('server reset errors and older bridge fallback are shown without navigating', async () => {
+  const { LoginComponent } = load('src/app/components/auth/login/login.component.ts', { native: true, available: true });
+  const auth = { forgetServerAndRestart: async () => { throw new Error('Could not reset the server connection. Please try again.'); } };
+  const component = new LoginComponent(auth, {}, {});
+  await component.useDifferentServer();
+  assert.equal(component.error, 'Could not reset the server connection. Please try again.');
+  assert.equal(component.isChangingServer, false);
+  auth.forgetServerAndRestart = async () => false;
+  await component.useDifferentServer();
+  assert.match(component.error, /Update the native Kept app/);
 });

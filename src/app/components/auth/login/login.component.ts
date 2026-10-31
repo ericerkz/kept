@@ -1,4 +1,5 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { AuthService } from 'src/app/services/auth.service';
@@ -22,11 +23,28 @@ export class LoginComponent implements OnInit, OnDestroy {
   passwordLoginEnabled = true;
   loadingSignInOptions = true;
   signInOptionsUnavailable = false;
+  signInOptionsError = '';
+  isChangingServer = false;
   oauthRequest = '';
   private routeSubscription?: Subscription;
   private handledOidcCodes = new Set<string>();
 
   constructor(private auth: AuthService, private router: Router, private route: ActivatedRoute) { }
+
+  get canChangeServer() {
+    return Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('KeptWorkspace');
+  }
+
+  async useDifferentServer() {
+    if (!this.canChangeServer || this.isChangingServer) return;
+    this.isChangingServer = true;
+    this.error = '';
+    try {
+      if (!await this.auth.forgetServerAndRestart()) this.error = 'Update the native Kept app to change servers from this screen.';
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : 'Could not reset the server connection. Please try again.';
+    } finally { this.isChangingServer = false; }
+  }
 
   async ngOnInit() {
     this.routeSubscription = this.route.queryParamMap.subscribe(params => {
@@ -41,6 +59,7 @@ export class LoginComponent implements OnInit, OnDestroy {
   async loadSignInOptions() {
     this.loadingSignInOptions = true;
     this.signInOptionsUnavailable = false;
+    this.signInOptionsError = '';
     try {
       const oidc = await this.auth.getOidcConfig();
       this.oidcEnabled = oidc.enabled;
@@ -51,8 +70,11 @@ export class LoginComponent implements OnInit, OnDestroy {
         this.password = this.totpToken = '';
         this.requires2FA = false;
       }
-    } catch {
+    } catch (error: any) {
       this.signInOptionsUnavailable = true;
+      this.signInOptionsError = error?.status === 402 && error?.error?.code === 'CLOUD_SUSPENDED'
+        ? 'This server’s Kept Cloud plan has ended, so it’s paused.'
+        : 'Could not load sign-in options. Check your connection and try again.';
     } finally {
       this.loadingSignInOptions = false;
     }

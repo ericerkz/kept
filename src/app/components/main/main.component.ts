@@ -1,5 +1,6 @@
 import { NativeWorkspaceService } from 'src/app/services/native-workspace.service';
 import { WorkspaceBackupService } from 'src/app/services/workspace-backup.service';
+import { DeviceServerMoveService } from 'src/app/services/device-server-move.service';
 import { Component, NgZone, OnDestroy, OnInit } from '@angular/core';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 import { Capacitor, registerPlugin } from '@capacitor/core';
@@ -16,7 +17,6 @@ import { AuthService } from 'src/app/services/auth.service';
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
 import { OfflineSmartCaptureService } from 'src/app/services/offline-smart-capture.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
-import { ManagedHostingService } from 'src/app/services/managed-hosting.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
 
 interface SmartCaptureEstimateAction {
@@ -166,7 +166,8 @@ export class MainComponent implements OnInit, OnDestroy {
   private smartSavedPlacesLoaded = false;
   private smartCaptureValidatedOffline = false;
 
-  managedHostingProviderName = '';
+  showDeviceSyncInvite = false;
+  private destroyed = false;
 
   constructor(
     public Shared: SharedService,
@@ -181,13 +182,24 @@ export class MainComponent implements OnInit, OnDestroy {
     private ngZone: NgZone,
     public offlineSync: OfflineSyncService,
     private preferences: UserPreferencesService,
-    private managedHosting: ManagedHostingService
-  ) {
-    this.managedHosting.info().then(info => { this.managedHostingProviderName = info.providerName; });
-  }
+    private deviceMove: DeviceServerMoveService
+  ) {}
 
   openMobileComposer() {
     this.Shared.openMobileComposer.next(true)
+  }
+
+  private async initializeDeviceSyncInvite() {
+    await this.auth.workspace.ready;
+    if (this.destroyed) return;
+    if (await this.deviceMove.resumeCloudMove()) return;
+    await this.deviceMove.ready;
+    if (!this.destroyed) this.ngZone.run(() => { this.showDeviceSyncInvite = this.deviceMove.claimInvite(); });
+  }
+
+  tryDeviceSync() {
+    this.showDeviceSyncInvite = false;
+    return this.deviceMove.openCloudMove();
   }
 
   async startSmartCapture() {
@@ -298,6 +310,7 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    void this.initializeDeviceSyncInvite();
     this.refreshSmartCaptureAvailability();
     if (this.isAndroidSmartCapture()) {
       setTimeout(() => this.ngZone.run(() => this.refreshSmartCaptureAvailability()), 800);
@@ -313,6 +326,7 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     window.removeEventListener('kept-smart-capture-estimate', this.smartCaptureEstimateEventHandler as EventListener);
     window.removeEventListener('kept-smart-capture-plan', this.smartCaptureEventHandler as EventListener);
     window.removeEventListener('smartCaptureCompleted', this.smartCaptureEventHandler as EventListener);

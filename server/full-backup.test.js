@@ -38,7 +38,7 @@ function archive(files, changes = {}) {
   return zip;
 }
 
-test('full server backup works with external backups and restores all accounts and media', async t => {
+test('full server backup works with external backups and restores all accounts and media', { timeout: 20_000 }, async t => {
   const source = await startFixture({ env: { KEPT_MANAGED_HOSTING: '1', KEPT_EXTERNAL_BACKUPS: '1' } });
   const target = await startFixture({ env: { KEPT_ALLOW_RESTORE: '1' } });
   const legacy = await startFixture({ env: { KEPT_ALLOW_RESTORE: '1' } });

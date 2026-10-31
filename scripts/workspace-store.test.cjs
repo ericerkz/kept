@@ -1,7 +1,29 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {createStore}=require('../test-support/workspace-store.cjs');
+const {IDBFactory}=require('fake-indexeddb');
 const local=()=>({id:'device',partition:'local:device',mode:'local',generation:'first',status:'active',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),preferences:{theme:'light',followSystemTheme:true,showPastReminders:false},nextId:1,revision:0});
+
+test('storage-blocked uploads keep their replay identity and blobs across reopening and reconciliation', async()=>{
+  const database=new IDBFactory(),store=createStore(database),workspace=await store.ensureServerWorkspace('quota-test');
+  const url='/__kept_local_media/photo';
+  await store.commitMutation(workspace,'image.upload','image-id',{url,filename:'photo.png'}, {
+    blobs:[{key:`media:${url}`,value:new Blob(['preserved image'],{type:'image/png'})}]
+  });
+  const [entry]=await store.listOutbox(workspace.partition);
+  assert.equal(await store.markUploadStorageBlocked(workspace,entry),true);
+  const reopened=createStore(database);
+  await reopened.reconcile(workspace,{changes:[],cursor:1});
+  const [pending]=await reopened.listOutbox(workspace.partition);
+  assert.equal(pending.blockedBy,'storage');
+  assert.equal(pending.attempts,1);
+  assert.equal(pending.operationId,entry.operationId);
+  assert.equal(await (await reopened.getBlob(workspace.partition,`media:${url}`)).text(),'preserved image');
+  await assert.rejects(reopened.markUploadStorageBlocked({...workspace,generation:'obsolete'},entry),/Obsolete/);
+  await reopened.removeOutbox([entry.key]);
+  assert.equal(await reopened.markUploadStorageBlocked(workspace,entry),false,'a deleted upload must not be recreated');
+  assert.equal((await reopened.listOutbox(workspace.partition)).length,0);
+});
 test('local identity, native receipt and blobs commit together; failed writes preserve previous data',async()=>{
   const store=createStore(),workspace=local();await store.saveWorkspace(workspace);
   const action={actionId:'native-1',workspaceId:workspace.id,generation:workspace.generation,sequence:1};

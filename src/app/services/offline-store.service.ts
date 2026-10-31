@@ -1,3 +1,4 @@
+import { applyPersonalOrganization, projectSharedOrganization } from '../utils/shared-note-organization';
 import { Capacitor } from '@capacitor/core';
 import { Injectable } from '@angular/core';
 import { environment } from 'src/environments/environment';
@@ -11,6 +12,7 @@ import { CatalogItem, MutationOutcome, NativeAction, ResourceChange, ResourceTyp
 export type SyncResourceType = ResourceType;
 export type SyncMutationType =
   | 'image.upload'
+  | 'note.organization'
   | 'note.upsert'
   | 'note.delete'
   | 'note.reorder'
@@ -40,6 +42,7 @@ export interface OutboxEntry {
   lww: LwwStamp;
   createdAt: number;
   attempts: number;
+  blockedBy?: 'storage';
 }
 
 type StoredResource<T> = {
@@ -218,6 +221,10 @@ export class OfflineStoreService {
   }
 
   async enqueue(partition: string, type: SyncMutationType, syncId: string, payload: unknown, stamp: LwwStamp) {
+    if (type === 'note.upsert' && (payload as NoteI)?.sharedOrganization) {
+      const { sharedOrganization, labels, binder, ...content } = payload as NoteI;
+      payload = content;
+    }
     const entry: OutboxEntry = {
       key: `${partition}|${stamp.operationId}`,
       partition,
@@ -237,7 +244,7 @@ export class OfflineStoreService {
   async listOutbox(partition: string) {
     const priority: Record<SyncMutationType, number> = {
       'image.upload': -10,
-      'note.upsert': 0,
+      'note.upsert': 0, 'note.organization': 0,
       'note.delete': 1,
       'note.reorder': 2,
       'reminder.upsert': 3, 'reminder.occurrence': 4,
@@ -259,6 +266,17 @@ export class OfflineStoreService {
     const db = await this.open();
     await this.transaction(db, ['outbox'], 'readwrite', stores => {
       keys.forEach(key => stores['outbox'].delete(key));
+    });
+  }
+
+  async markUploadStorageBlocked(workspace: Workspace, entry: OutboxEntry) {
+    return this.atomic(['outbox', 'workspaces'], async tx => {
+      const meta = await this.request<Workspace | undefined>(tx.objectStore('workspaces').get(workspace.id));
+      if (!meta || meta.generation !== workspace.generation || meta.status !== 'active') throw new Error('Obsolete upload response.');
+      const current = await this.request<OutboxEntry | undefined>(tx.objectStore('outbox').get(entry.key));
+      if (!current) return false; // The person may have deleted it during upload.
+      tx.objectStore('outbox').put({ ...current, blockedBy: 'storage', attempts: current.attempts + 1 });
+      return true;
     });
   }
 
@@ -575,7 +593,14 @@ export class OfflineStoreService {
       if (options.blobs) for (const blob of options.blobs) {
         tx.objectStore('blobs').put({ key: `${partition}|${blob.key}`, partition, blobKey: blob.key, value: blob.value });
       }
-      if (type === 'note.reorder') {
+      if (type === 'note.organization') {
+        const key = this.resourceKey(partition, syncId);
+        const previous = await this.request<StoredResource<NoteI> | undefined>(tx.objectStore('notes').get(key));
+        if (!previous?.value.sharedOrganization) throw new Error('This shared note is unavailable on this device.');
+        // Keep a field-only outgoing operation; it must never replay stale note content.
+        for (const key of Object.keys(payload)) if (!['syncId','labels','binder'].includes(key)) delete payload[key];
+        tx.objectStore('notes').put({ ...previous, value: applyPersonalOrganization(previous.value, payload) });
+      } else if (type === 'note.reorder') {
         const rows = await this.request<StoredResource<any>[]>(tx.objectStore('notes').index('partition').getAll(partition));
         const order = input['syncIds'] as string[];
         for (const row of rows) {
@@ -653,7 +678,11 @@ export class OfflineStoreService {
           if (previous?.value.id != null) value.id = previous.value.id;
           Object.assign(payload, value);
           store.put({ key, partition, syncId, value });
-          if (resource === 'preferences') meta.preferences = { ...meta.preferences, ...input };
+          if (resource === 'preferences') {
+            meta.preferences = { ...meta.preferences, ...input };
+            const notes = await this.request<StoredResource<NoteI>[]>(tx.objectStore('notes').index('partition').getAll(partition));
+            for (const note of notes) tx.objectStore('notes').put({ ...note, value: projectSharedOrganization(note.value, meta.preferences) });
+          }
         }
         if (resource === 'attachment' && payload['noteId'] != null) {
           const notes = await this.request<StoredResource<any>[]>(tx.objectStore('notes').index('partition').getAll(partition));
@@ -665,12 +694,15 @@ export class OfflineStoreService {
           }
         }
         if (resource === 'label' || resource === 'binder') {
+          const matchesLabel = (label: any) => label.syncId === syncId || (previous?.value.id != null && label.id === previous.value.id);
           const queued = await this.request<OutboxEntry[]>(tx.objectStore('outbox').index('partition').getAll(partition));
-          for (const entry of queued.filter(entry=>entry.type === 'note.upsert')) {
+          for (const entry of queued.filter(entry=>entry.type === 'note.upsert' || entry.type === 'note.organization')) {
             const value = entry.payload as any;
-            if (resource === 'label') value.labels = (value.labels || []).flatMap((label:any)=>label.syncId === syncId || label.id === previous?.value.id
+            const before = JSON.stringify(value);
+            if (resource === 'label' && Array.isArray(value.labels)) value.labels = (value.labels || []).flatMap((label:any)=>matchesLabel(label)
               ? type.endsWith('.delete') ? [] : [{...label,...payload}] : [label]);
-            else if (previous && value.binder === previous.value.name) value.binder = type.endsWith('.delete') ? '' : payload['name'];
+            else if (resource === 'binder' && previous && value.binder === previous.value.name) value.binder = type.endsWith('.delete') ? '' : payload['name'];
+            if (JSON.stringify(value) === before) continue;
             // Preserve any operation already sent: changed content receives a new
             // replay identity, while its replacement remains in this transaction.
             const operationId = `${stamp.operationId}:note:${queued.indexOf(entry)}`;
@@ -679,8 +711,15 @@ export class OfflineStoreService {
           }
           const notes = await this.request<StoredResource<any>[]>(tx.objectStore('notes').index('partition').getAll(partition));
           for (const note of notes) {
+            if (note.value.sharedOrganization) {
+              const org = note.value.sharedOrganization;
+              if (resource === 'label') org.personalLabels = (org.personalLabels || []).flatMap((label:any) =>
+                matchesLabel(label)
+                  ? type.endsWith('.delete') ? [] : [{...label,...payload}] : [label]);
+              else if (previous && org.personalBinder === previous.value.name) org.personalBinder = type.endsWith('.delete') ? '' : payload['name'];
+            }
             if (resource === 'label') note.value.labels = (note.value.labels || []).flatMap((label: any) =>
-              label.syncId === syncId || label.id === previous?.value.id
+              matchesLabel(label)
                 ? type.endsWith('.delete') ? [] : [{ ...label, ...payload }] : [label]);
             else if (previous && note.value.binder === previous.value.name) note.value.binder = type.endsWith('.delete') ? '' : payload['name'];
             tx.objectStore('notes').put(note);
@@ -710,15 +749,39 @@ export class OfflineStoreService {
       if (type === 'reminder.occurrence' && action) Object.assign(payload,{
         occurrenceId:action.payload['occurrenceId'],occurrenceDueAtUtc:action.payload['dueAtUtc'],nextDueAtUtc:action.payload['nextDueAtUtc'],scheduleVersion:action.payload['scheduleVersion']
       });
+      let outgoingPayload = payload;
+      if (type === 'note.upsert' && payload['sharedOrganization']) {
+        const { sharedOrganization, labels, binder, ...content } = payload;
+        outgoingPayload = content;
+      }
       if (meta.mode === 'server') tx.objectStore('outbox').put({
-        key: `${partition}|${stamp.operationId}`, partition, type, syncId, payload, lww: stamp,
+        key: `${partition}|${stamp.operationId}`, partition, type, syncId, payload: outgoingPayload, lww: stamp,
         operationId: stamp.operationId, createdAt: stamp.physicalMs, attempts: 0
       } satisfies OutboxEntry);
       meta.revision++;
-      meta.updatedAt = payload['updatedAt'];
+      meta.updatedAt = new Date().toISOString();
       tx.objectStore('workspaces').put(meta);
       if (action) tx.objectStore('receipts').put({ key: `${partition}|${action.actionId}`, partition, actionId: action.actionId, result: payload, revision: meta.revision });
       return payload as T;
+    });
+  }
+
+  async prepareQueuedImage(workspace: Workspace, entry: OutboxEntry, blob: Blob, filename: string) {
+    return this.atomic(['outbox','blobs','workspaces'], async tx => {
+      const meta = await this.request<Workspace>(tx.objectStore('workspaces').get(workspace.id));
+      if (meta.generation !== workspace.generation || meta.status !== 'active') throw new Error('Obsolete image conversion.');
+      const current = await this.request<OutboxEntry | undefined>(tx.objectStore('outbox').get(entry.key));
+      if (!current) throw new Error('The queued image changed during conversion.');
+      // Conversion changes the uploaded bytes. Persist them and give this repair
+      // a fresh replay identity before the first request, then reuse it on retry.
+      const operationId = createUuid();
+      const prepared: OutboxEntry = { ...current, key: `${workspace.partition}|${operationId}`, operationId,
+        syncId: operationId, payload: { ...(current.payload as any), filename }, lww: { ...current.lww, operationId } };
+      tx.objectStore('outbox').delete(entry.key);
+      tx.objectStore('outbox').put(prepared);
+      const url = (current.payload as any).url;
+      tx.objectStore('blobs').put({ key: `${workspace.partition}|media:${url}`, partition: workspace.partition, blobKey: `media:${url}`, value: blob });
+      return prepared;
     });
   }
 
@@ -798,7 +861,9 @@ export class OfflineStoreService {
         const record = await this.request<any>(baseline.get(`${partition}|${type}|${syncId}`));
         let value = record?.value || null;
         for (const op of pending.filter(op => op.syncId === syncId && op.type.split('.')[0] === type && op.type !== 'attachment.upload')) {
-          value = op.type.endsWith('.delete') ? null : { ...value, ...(op.payload as any), ...(value?.id > 0 ? { id: value.id } : {}) };
+          value = op.type === 'note.organization'
+            ? value && applyPersonalOrganization(value, op.payload as any)
+            : op.type.endsWith('.delete') ? null : { ...value, ...(op.payload as any), ...(value?.id > 0 ? { id: value.id } : {}) };
         }
         const store = tx.objectStore(RESOURCE_STORES[type]);
         if (!value) { store.delete(this.resourceKey(partition, syncId)); continue; }
@@ -812,7 +877,10 @@ export class OfflineStoreService {
       const notes = await this.request<StoredResource<any>[]>(tx.objectStore('notes').index('partition').getAll(partition));
       const attachmentRows = await this.request<StoredResource<any>[]>(tx.objectStore('attachments').index('partition').getAll(partition));
       const labels = await this.request<StoredResource<any>[]>(tx.objectStore('labels').index('partition').getAll(partition));
+      const preferences = await this.request<StoredResource<any>[]>(tx.objectStore('preferences').index('partition').getAll(partition));
+      if (preferences[0]) meta.preferences = { ...meta.preferences, ...preferences[0].value };
       for (const row of notes) {
+        row.value = projectSharedOrganization(row.value, meta.preferences);
         row.value.attachments = attachmentRows.filter(item => item.value.noteId === row.value.id || item.value.noteSyncId === row.syncId).map(item => ({...item.value,noteId:row.value.id}));
         row.value.labels = (row.value.labels || []).map((label:any) => {
           const catalog = labels.find(item => item.syncId === label.syncId);
@@ -885,6 +953,8 @@ export class OfflineStoreService {
       return {
         ...latest,
         ...full,
+        // Organization can change without advancing the shared content clock.
+        ...(right.sharedOrganization ? { sharedOrganization: right.sharedOrganization, labels: right.labels, binder: right.binder } : {}),
         sortOrder: latest.sortOrder,
         pinned: latest.pinned,
         updatedAt: latest.updatedAt,

@@ -1,3 +1,4 @@
+import uploadLimits from '../../../shared/upload-limits.json';
 import { Injectable } from '@angular/core';
 import type { Reader } from '@zip.js/zip.js';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -155,7 +156,7 @@ export class WorkspaceBackupService {
       for (const item of manifest.entries) {
         if (!item || (item.kind === 'blob' ? !/^media\/\d+$/.test(item.path) : item.kind !== 'record' || !/^records\/\d+$/.test(item.path))) throw new Error('Invalid backup entry path or kind.');
         const entry = entries.get(item.path);
-        const limit = item.kind === 'blob' ? 25 * 1024 * 1024 : JSON_LIMIT;
+        const limit = item.kind === 'blob' ? uploadLimits.maxFileBytes : JSON_LIMIT;
         if (!entry || seen.has(item.path) || !Number.isSafeInteger(item.size) || item.size < 0 || item.size > limit || entry.uncompressedSize !== item.size || !/^[a-f0-9]{64}$/.test(item.sha256)) throw new Error('Invalid backup entry metadata.');
         seen.add(item.path);
         // Only one bounded record/media file is materialized at a time.

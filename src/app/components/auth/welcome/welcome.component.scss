@@ -1,0 +1,245 @@
+:host {
+  display: block;
+  --welcome-page: #202124;
+  --welcome-surface: #292a2d;
+  --welcome-text: #e8eaed;
+  --welcome-copy: #bdc1c6;
+  --welcome-muted: #9aa0a6;
+  --welcome-border: #575449;
+  --welcome-label: #c8c2b4;
+  --welcome-soft-gold: #514325;
+  --welcome-gold-ink: #f6ce67;
+  --welcome-cloud: #4b4023;
+  --welcome-cloud-text: #fff2c8;
+  --welcome-cloud-copy: #ece0be;
+  --welcome-price: #6c531b;
+  --welcome-price-text: #ffdc89;
+  --welcome-included: #3c4043;
+  --welcome-shadow: 0 18px 40px rgb(0 0 0 / 22%);
+}
+
+:host-context(.light-theme) {
+  --welcome-page: #f3f2ec;
+  --welcome-surface: #fff;
+  --welcome-text: #202124;
+  --welcome-copy: #4d5055;
+  --welcome-muted: #9298a0;
+  --welcome-border: #ebe7d9;
+  --welcome-label: #747165;
+  --welcome-soft-gold: #fff2c9;
+  --welcome-gold-ink: #856000;
+  --welcome-cloud: #fff2c2;
+  --welcome-cloud-text: #202124;
+  --welcome-cloud-copy: #4d5055;
+  --welcome-price: #ffe49b;
+  --welcome-price-text: #705000;
+  --welcome-included: #f2f1ee;
+  --welcome-shadow: 0 18px 36px rgb(32 33 36 / 12%);
+}
+
+.welcome-page,
+:host-context(.light-theme) .welcome-page {
+  background: var(--welcome-page);
+  color: var(--welcome-text);
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  justify-content: flex-start;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+
+.welcome-panel,
+:host-context(.light-theme) .welcome-panel {
+  background: var(--welcome-surface);
+  border: 1px solid var(--welcome-border);
+  border-radius: 24px;
+  box-shadow: var(--welcome-shadow);
+  flex-shrink: 0;
+  margin-block: auto;
+  max-width: 520px;
+  padding: 20px;
+  width: 100%;
+}
+
+.welcome-brand {
+  gap: 18px;
+  margin-bottom: 16px;
+
+  .brand-mascot { height: auto; width: 52px; }
+  .brand-wordmark { height: auto; width: 100px; }
+}
+
+h1 {
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.25;
+  margin-bottom: 10px;
+}
+
+.welcome-intro {
+  color: var(--welcome-muted);
+  font: 400 16px / 1.4 Roboto, Arial, sans-serif;
+  margin: 0 0 18px;
+}
+
+.welcome-option {
+  align-items: center;
+  background: var(--welcome-surface);
+  border: 0;
+  color: var(--welcome-text);
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 12px;
+  grid-template-columns: 44px minmax(0, 1fr) 18px;
+  padding: 16px 14px;
+  text-align: left;
+  width: 100%;
+
+  &:disabled { cursor: default; opacity: .6; }
+  &:focus-visible { outline: 2px solid #c28b00; outline-offset: -4px; }
+}
+
+.device-option {
+  border: 1.5px solid var(--welcome-border);
+  border-radius: 18px;
+}
+
+.option-icon {
+  align-items: center;
+  background: var(--welcome-soft-gold);
+  border-radius: 14px;
+  color: var(--welcome-gold-ink);
+  display: flex;
+  height: 44px;
+  justify-content: center;
+  width: 44px;
+
+  .material-symbols-outlined { font-size: 26px; }
+}
+
+.option-content { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.option-heading { align-items: center; display: flex; flex-wrap: wrap; gap: 6px 8px; }
+.option-title { font-size: 18px; font-weight: 500; line-height: 1.3; }
+.option-description { color: var(--welcome-copy); font: 400 15px / 1.5 Roboto, Arial, sans-serif; }
+.option-chevron { color: var(--welcome-muted); font-size: 22px; justify-self: center; }
+
+.sync-options h2 {
+  color: var(--welcome-label);
+  font: 700 12px / 1.4 Roboto, Arial, sans-serif;
+  letter-spacing: 1.2px;
+  margin: 22px 2px 10px;
+  text-transform: uppercase;
+}
+
+.sync-option-group { border: 1.5px solid var(--welcome-border); border-radius: 18px; overflow: hidden; }
+.option-badge { border-radius: 999px; font: 700 13px / 1.3 Roboto, Arial, sans-serif; padding: 3px 9px; white-space: nowrap; }
+.price-badge { background: var(--welcome-price); color: var(--welcome-price-text); }
+.included-badge { background: var(--welcome-included); color: var(--welcome-copy); }
+
+.cloud-option {
+  background: var(--welcome-cloud);
+  color: var(--welcome-cloud-text);
+
+  .option-icon { background: #fbbc04; color: #202124; }
+  .option-description { color: var(--welcome-cloud-copy); }
+  .option-chevron { color: var(--welcome-cloud-copy); }
+}
+
+.cloud-benefit {
+  align-items: start;
+  display: grid;
+  font: 400 15px / 1.5 Roboto, Arial, sans-serif;
+  gap: 8px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  margin-top: 5px;
+
+  .material-symbols-outlined { color: var(--welcome-gold-ink); font-size: 18px; margin-top: 2px; }
+}
+
+.cloud-option + .server-option { border-top: 1px solid var(--welcome-border); }
+.welcome-footer {
+  border-top: 1px solid var(--welcome-border);
+  color: var(--welcome-copy);
+  display: grid;
+  font: 400 14px / 1.5 Roboto, Arial, sans-serif;
+  gap: 10px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  margin: 20px 0 0;
+  padding-top: 14px;
+
+  .material-symbols-outlined { color: #c28b00; font-size: 20px; margin-top: 1px; }
+}
+
+// Let mobile copy use the card's full width instead of wrapping into a narrow
+// column beside a tall icon. Keep the same cards, grouping and reading order.
+@media (max-width: 599px), (max-height: 800px) {
+  .welcome-panel,
+  :host-context(.light-theme) .welcome-panel { padding: 16px; }
+  .welcome-brand {
+    gap: 16px;
+    margin-bottom: 12px;
+    .brand-mascot { width: 48px; }
+  }
+  h1 { font-size: 24px; margin-bottom: 6px; }
+  .welcome-intro { font-size: 15px; line-height: 1.35; margin-bottom: 14px; }
+  .welcome-option { gap: 6px 10px; grid-template-columns: 36px minmax(0, 1fr) 16px; padding: 12px; }
+  .option-content { display: contents; }
+  .option-icon {
+    border-radius: 10px;
+    grid-column: 1;
+    grid-row: 1;
+    height: 36px;
+    width: 36px;
+    .material-symbols-outlined { font-size: 22px; }
+  }
+  .option-content > .option-title,
+  .option-heading { grid-column: 2; grid-row: 1; }
+  .option-heading { gap: 4px 6px; }
+  .option-title { font-size: 17px; line-height: 1.25; }
+  .option-badge { font-size: 12px; padding: 3px 8px; }
+  .option-chevron { grid-column: 3; grid-row: 1; }
+  .option-description { font-size: 14px; grid-column: 1 / -1; grid-row: 2; line-height: 1.4; }
+  .cloud-benefit { font-size: 14px; gap: 6px; grid-column: 1 / -1; grid-row: 3; line-height: 1.4; margin-top: 0; }
+  .sync-options h2 { margin: 14px 2px 8px; }
+  .welcome-footer { font-size: 13px; line-height: 1.4; margin-top: 12px; padding-top: 10px; }
+}
+
+@media (max-height: 600px) {
+  .welcome-page,
+  :host-context(.light-theme) .welcome-page {
+    padding-top: max(12px, env(safe-area-inset-top));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .welcome-panel,
+  :host-context(.light-theme) .welcome-panel { padding: 12px; }
+  .welcome-brand {
+    margin-bottom: 8px;
+    .brand-mascot { width: 36px; }
+    .brand-wordmark { width: 80px; }
+  }
+  h1 { font-size: 22px; }
+  .welcome-intro { font-size: 14px; margin-bottom: 12px; }
+  .welcome-option { padding: 10px; grid-template-columns: 32px minmax(0, 1fr) 16px; }
+  .option-icon { height: 32px; width: 32px; }
+  .sync-options h2 { margin-top: 10px; margin-bottom: 6px; }
+}
+
+// Use the otherwise empty horizontal space on short landscape screens.
+@media (min-width: 740px) and (max-height: 650px) {
+  .welcome-panel,
+  :host-context(.light-theme) .welcome-panel {
+    column-gap: 20px;
+    display: grid;
+    grid-template-columns: minmax(0, .9fr) minmax(0, 1.3fr);
+    max-width: 980px;
+  }
+  .welcome-brand, h1, .welcome-intro, .error, .device-option { grid-column: 1; }
+  .sync-options { grid-column: 2; grid-row: 1 / span 5; }
+  .sync-options h2 { margin-top: 0; }
+  .welcome-footer { grid-column: 1 / -1; }
+}

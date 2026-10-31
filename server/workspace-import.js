@@ -1,3 +1,4 @@
+const { maxFileBytes: MAX_FILE_BYTES } = require('../shared/upload-limits.json');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -10,13 +11,47 @@ function createWorkspaceImport(d) {
   const directory = path.join(d.dataDir, 'imports', 'workspaces');
   const hash = data => crypto.createHash('sha256').update(data).digest('hex');
   const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+  function mediaTarget(jobId,key,data) {
+    const isImage=data.blobKey?.startsWith('media:');
+    const mime=String(data.mimeType || '');
+    const ext=isImage ? d.safeImageTypes.get(mime) : d.safeAttachmentExtension({originalname:data.name || 'attachment',mimetype:mime});
+    if (!ext) return null;
+    const filename=`import-${hash(`${jobId}:${key}`)}${ext}`;
+    return {isImage,mime,filename,destination:path.join(isImage ? d.uploadDir : d.attachmentDir,filename)};
+  }
   async function init() {
     fs.mkdirSync(directory, { recursive: true });
     await run(`CREATE TABLE IF NOT EXISTS workspace_imports (id TEXT PRIMARY KEY, userId INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       sourceId TEXT NOT NULL, generation TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'uploading', manifest TEXT, result TEXT, createdAt TEXT NOT NULL)`);
+    if (!(await all('PRAGMA table_info(workspace_imports)')).some(column => column.name === 'updatedAt')) {
+      await run('ALTER TABLE workspace_imports ADD COLUMN updatedAt TEXT');
+      await run('UPDATE workspace_imports SET updatedAt = createdAt');
+    }
     await run('CREATE UNIQUE INDEX IF NOT EXISTS workspace_import_source ON workspace_imports(userId,sourceId,generation)');
     await run(`CREATE TABLE IF NOT EXISTS workspace_import_items (jobId TEXT NOT NULL REFERENCES workspace_imports(id) ON DELETE CASCADE,
       key TEXT NOT NULL, kind TEXT NOT NULL, digest TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(jobId,key))`);
+    // A process can stop between moving a staged file and committing SQLite.
+    // Recover only unfinished jobs, before accepting requests or scanning usage.
+    const unfinished = await all(`SELECT i.* FROM workspace_import_items i JOIN workspace_imports j ON j.id = i.jobId
+      WHERE j.state <> 'complete' AND i.kind = 'blob'`);
+    const stagedNames = fs.readdirSync(directory);
+    for (const row of unfinished) {
+      const staged=filePath(row.jobId,row.key);
+      const prefix=path.basename(staged)+'.rollback-';
+      for (const name of stagedNames.filter(name=>name.startsWith(prefix))) {
+        const backup=path.join(directory,name);
+        // The old digest distinguishes a rolled-back replacement from a
+        // committed replacement whose backup cleanup was interrupted.
+        if (name.slice(prefix.length,prefix.length+64) === row.digest) {
+          d.storageQuota.removeSync(staged);
+          d.storageQuota.moveSync(backup,staged);
+        } else d.storageQuota.removeSync(backup);
+      }
+      const target=mediaTarget(row.jobId,row.key,JSON.parse(row.payload));
+      if (!target || !fs.existsSync(target.destination)) continue;
+      if (fs.existsSync(staged)) d.storageQuota.removeSync(target.destination);
+      else d.storageQuota.moveSync(target.destination,staged);
+    }
   }
   async function job(userId, id) {
     const value = await get('SELECT * FROM workspace_imports WHERE id = ? AND userId = ?', [id,userId]);
@@ -36,7 +71,7 @@ function createWorkspaceImport(d) {
       offset:row.kind === 'blob' ? (fs.existsSync(filePath(id,row.key)) ? fs.statSync(filePath(id,row.key)).size : 0) : undefined })) };
   }
   function mount(app, requireAuth, asyncRoute) {
-    const route = fn => asyncRoute(async (req,res) => { try { await fn(req,res); } catch (error) { if (error.status) return res.status(error.status).json({error:error.message}); throw error; } });
+    const route = fn => asyncRoute(async (req,res) => { try { await fn(req,res); } catch (error) { if (error.status) return res.status(error.status).json({error:error.message,...(error.code === 'STORAGE_QUOTA_EXCEEDED' ? {code:error.code} : {})}); throw error; } });
     app.get('/api/workspace-import/capabilities',requireAuth,route(async (_req,res) => res.json({version:1,syncProtocol:2,chunkBytes:262144,recordChecksum:'canonical-json-v1'})));
     app.post('/api/workspace-import',requireAuth,route(async (req,res) => {
       const { sourceId,generation } = req.body || {};
@@ -51,9 +86,10 @@ function createWorkspaceImport(d) {
     }));
     app.get('/api/workspace-import/:id',requireAuth,route(async (req,res) => res.json(await status(req.user.id,req.params.id))));
     app.put('/api/workspace-import/:id/items',requireAuth,route(async (req,res) => {
-      await transaction(async () => {
+      const result = await transaction(async () => {
         const value = await job(req.user.id,req.params.id);
         if (value.state !== 'uploading') throw fail('This transfer is sealed.',409);
+        await run('UPDATE workspace_imports SET updatedAt = ? WHERE id = ?', [new Date().toISOString(),value.id]);
         const { key,kind,digest,payload,offset,base64,digestFormat } = req.body || {};
         if (typeof key !== 'string' || key.length > 2048 || !/^[a-f0-9]{64}$/.test(digest || '') || !['record','blob'].includes(kind)) throw fail('Invalid transfer item.');
         if (kind === 'record') {
@@ -61,16 +97,23 @@ function createWorkspaceImport(d) {
           if (digestFormat !== undefined && digestFormat !== 'canonical-json-v1') throw fail('Unsupported record checksum format.');
           if (hash(digestFormat === 'canonical-json-v1' ? canonicalJson(payload) : JSON.stringify(payload)) !== digest) throw fail('Record checksum failed.');
           await run('INSERT OR REPLACE INTO workspace_import_items(jobId,key,kind,digest,payload) VALUES(?,?,?,?,?)', [value.id,key,kind,digest,JSON.stringify(payload)]);
-          return res.json({saved:true});
+          return {saved:true};
         }
-        if (!payload || !Number.isSafeInteger(payload.size) || payload.size < 0 || payload.size > 25*1024*1024 || !Number.isSafeInteger(offset) || offset < 0 || typeof base64 !== 'string' || base64.length > 349528 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw fail('Invalid file chunk.');
+        if (!payload || !Number.isSafeInteger(payload.size) || payload.size < 0 || payload.size > MAX_FILE_BYTES || !Number.isSafeInteger(offset) || offset < 0 || typeof base64 !== 'string' || base64.length > 349528 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw fail('Invalid file chunk.');
         const chunk = Buffer.from(base64,'base64');
         if (chunk.length > 262144 || offset + chunk.length > payload.size) throw fail('File chunk exceeds its declared size.');
         const previous = await get('SELECT * FROM workspace_import_items WHERE jobId = ? AND key = ?', [value.id,key]);
         const filename=filePath(value.id,key);
         if (previous && previous.digest !== digest && offset !== 0) throw fail('File changed; restart its upload.',409);
-        if (!previous || previous.digest !== digest) {
-          fs.writeFileSync(filename,Buffer.alloc(0));
+        if (!previous || previous.digest !== digest || !fs.existsSync(filename)) {
+          if (fs.existsSync(filename) && previous) {
+            const backup = filename + '.rollback-' + previous.digest + '-' + crypto.randomUUID();
+            d.storageQuota.moveSync(filename,backup);
+            d.afterDatabaseRollback(() => d.storageQuota.moveSync(backup,filename));
+            d.removeFileAfterCommit(backup);
+          } else if (fs.existsSync(filename)) d.storageQuota.removeSync(filename);
+          fs.writeFileSync(filename,Buffer.alloc(0),{flag:'wx'});
+          d.afterDatabaseRollback(() => d.storageQuota.removeSync(filename));
           await run('INSERT OR REPLACE INTO workspace_import_items(jobId,key,kind,digest,payload) VALUES(?,?,?,?,?)', [value.id,key,kind,digest,JSON.stringify(payload)]);
         }
         const size=fs.statSync(filename).size;
@@ -78,12 +121,17 @@ function createWorkspaceImport(d) {
           const handle=fs.openSync(filename,'r'); const bytes=Buffer.alloc(chunk.length);
           try { fs.readSync(handle,bytes,0,chunk.length,offset); } finally { fs.closeSync(handle); }
           if (!bytes.equals(chunk)) throw fail('A retried file chunk differs from the saved chunk.',409);
-        } else if (offset === size) fs.appendFileSync(filename,chunk);
+        } else if (offset === size) {
+          d.storageQuota.resize(filename,size + chunk.length);
+          d.afterDatabaseRollback(() => { fs.truncateSync(filename,size); d.storageQuota.resize(filename,size); });
+          fs.appendFileSync(filename,chunk);
+        }
         else throw fail('Resume the file at its saved offset.',409);
         const actual=fs.statSync(filename).size;
         if (actual === payload.size && await digestFile(filename) !== digest) throw fail('File checksum failed.');
-        res.json({offset:actual});
+        return {offset:actual};
       });
+      res.json(result);
     }));
     app.post('/api/workspace-import/:id/finalize',requireAuth,route(async (req,res) => {
       const result = await transaction(async () => {
@@ -106,13 +154,12 @@ function createWorkspaceImport(d) {
         const mappings={notes:{},reminders:{},attachments:{},labels:{},binders:{},savedPlaces:{}};
         const media=new Map();
         for (const row of rows.filter(row=>row.kind === 'blob')) {
-          const isImage=row.data.blobKey?.startsWith('media:');
-          const mime=String(row.data.mimeType || '');
-          const ext=isImage ? d.safeImageTypes.get(mime) : d.safeAttachmentExtension({originalname:row.data.name || 'attachment',mimetype:mime});
-          if (!ext || (isImage && row.data.size > 10*1024*1024)) throw fail('Unsupported media file in transfer.');
-          const filename=`import-${hash(`${value.id}:${row.key}`)}${ext}`;
-          const destination=path.join(isImage ? d.uploadDir : d.attachmentDir,filename);
-          fs.copyFileSync(filePath(value.id,row.key),destination);
+          const target=mediaTarget(value.id,row.key,row.data);
+          if (!target || row.data.size > MAX_FILE_BYTES) throw fail('Unsupported media file in transfer.');
+          const {isImage,mime,filename,destination}=target;
+          const source = filePath(value.id,row.key);
+          d.storageQuota.moveSync(source,destination);
+          d.afterDatabaseRollback(() => d.storageQuota.moveSync(destination,source));
           media.set(row.data.blobKey,{filename,mime,size:row.data.size,url:`/api/uploads/images/${filename}`});
           if (isImage) await run(`INSERT INTO note_images(noteId,ownerUserId,storedFilename,originalName,fileSize,mimeType,uploadedAt)
             VALUES(NULL,?,?,?,?,?,?)`,[req.user.id,filename,row.data.name || filename,row.data.size,mime,new Date().toISOString()]);
@@ -164,27 +211,36 @@ function createWorkspaceImport(d) {
         }
         const result={verified:true,sourceId:value.sourceId,generation:value.generation,mappings};
         await run("UPDATE workspace_imports SET state = 'complete',manifest = ?,result = ? WHERE id = ?", [JSON.stringify(manifest),JSON.stringify(result),value.id]);
-        d.afterDatabaseCommit(() => { for (const row of rows.filter(row=>row.kind === 'blob')) {try{fs.unlinkSync(filePath(value.id,row.key));}catch{}} });
+        await run('DELETE FROM workspace_import_items WHERE jobId = ?', [value.id]);
         return result;
       });
       res.json(result);
     }));
     app.delete('/api/workspace-import/:id',requireAuth,route(async (req,res) => {
-      const value=await job(req.user.id,req.params.id);
       await transaction(async()=>{
+        const value=await job(req.user.id,req.params.id);
+        for (const name of fs.readdirSync(directory)) if (name.startsWith(`${value.id}-`)) d.removeFileAfterCommit(path.join(directory,name));
         await run('DELETE FROM workspace_import_items WHERE jobId = ?', [value.id]);
         await run('DELETE FROM workspace_imports WHERE id = ? AND userId = ?', [value.id,req.user.id]);
       });
-      for (const name of fs.readdirSync(directory)) if (name.startsWith(`${value.id}-`)) fs.unlinkSync(path.join(directory,name));
       res.status(204).end();
     }));
   }
   async function removeForUser(userId) {
     const jobs = await all('SELECT id FROM workspace_imports WHERE userId = ?', [userId]);
-    d.afterDatabaseCommit(() => {
-      for (const job of jobs) for (const name of fs.readdirSync(directory)) if (name.startsWith(`${job.id}-`)) {try {fs.unlinkSync(path.join(directory,name));} catch {}}
+    for (const job of jobs) for (const name of fs.readdirSync(directory)) if (name.startsWith(`${job.id}-`)) d.removeFileAfterCommit(path.join(directory,name));
+  }
+  async function prune() {
+    await transaction(async () => {
+      const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
+      const expired = await all("SELECT id FROM workspace_imports WHERE state = 'uploading' AND COALESCE(updatedAt,createdAt) < ?", [cutoff]);
+      for (const value of expired) {
+        for (const name of fs.readdirSync(directory)) if (name.startsWith(`${value.id}-`)) d.removeFileAfterCommit(path.join(directory,name));
+        await run('DELETE FROM workspace_import_items WHERE jobId = ?', [value.id]);
+        await run('DELETE FROM workspace_imports WHERE id = ?', [value.id]);
+      }
     });
   }
-  return {init,mount,removeForUser};
+  return {init,mount,removeForUser,prune};
 }
 module.exports={createWorkspaceImport};

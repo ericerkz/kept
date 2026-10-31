@@ -4,8 +4,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createKeptMcpServer } from './server.mjs';
 
-async function withMcpClient(keptClient, run) {
-  const server = createKeptMcpServer(keptClient);
+async function withMcpClient(keptClient, run, options) {
+  const server = createKeptMcpServer(keptClient, options);
   const client = new Client({ name: 'kept-mcp-test', version: '1.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -184,4 +184,39 @@ test('API failures become MCP tool errors without stopping the server', async ()
     assert.equal(failed.content[0].text, 'Note not found.');
     assert.equal((await client.callTool({ name: 'kept_list_labels', arguments: {} })).isError, undefined);
   });
+});
+
+test('excessive input collections are rejected before tool validation or execution', async () => {
+  let writes = 0;
+  await withMcpClient(stubKeptClient({ createNote: async () => { writes++; } }), async client => {
+    const result = await client.callTool({ name: 'kept_create_note', arguments: {
+      checklist: Array.from({ length: 10_001 }, () => ({ text: 'item' }))
+    } });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /maximum of 10000 elements/);
+    assert.equal(writes, 0);
+    assert.equal((await client.callTool({ name: 'kept_list_labels', arguments: {} })).isError, undefined);
+  });
+});
+
+test('the largest supported checklist and normal labels still pass the input budget', async () => {
+  let note;
+  await withMcpClient(stubKeptClient({ createNote: async value => { note = value; return { id: 1 }; } }), async client => {
+    const result = await client.callTool({ name: 'kept_create_note', arguments: {
+      checklist: Array.from({ length: 500 }, () => ({ text: 'item', done: false, indentLevel: 0, format: 'plain_text' })),
+      labels: Array.from({ length: 50 }, (_, index) => `label ${index}`)
+    } });
+    assert.equal(result.isError, undefined);
+    assert.equal(note.checkBoxes.length, 500);
+    assert.equal(note.labels.length, 50);
+  });
+});
+
+test('read-only OAuth tokens cannot start downloads or other write-tool side effects', async () => {
+  let downloaded = false;
+  await withMcpClient(stubKeptClient({fileParamToUpload:async()=>{downloaded=true;throw new Error('must not download');}}), async client => {
+    const result=await client.callTool({name:'kept_upload_attachment',arguments:{noteId:3,file:{download_url:'https://files.example/file.txt',file_id:'file-1',mime_type:'text/plain',file_name:'file.txt'}}});
+    assert.equal(result.isError,true);assert.match(result.content[0].text,/kept.write/);assert.equal(downloaded,false);
+    assert.equal((await client.callTool({name:'kept_get_note',arguments:{noteId:3}})).isError,undefined);
+  }, {oauth:true,scopes:['kept.read']});
 });

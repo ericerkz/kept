@@ -1,3 +1,4 @@
+import { isNoteImageFile } from '../../utils/note-images';
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
 import { BinderDropService } from 'src/app/services/binder-drop.service';
 import { NativeWorkspaceService } from 'src/app/services/native-workspace.service';
@@ -42,6 +43,10 @@ type KeptWidgetIntentsPlugin = {
 };
 type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string }
 type NoteBodyPreview = { segments: NoteBodySegment[]; urls: string[] }
+type NoteArchiveSwipe = {
+  note: NoteI; card: HTMLElement; identifier: number; width: number;
+  startX: number; startY: number; offset: number; horizontal: boolean;
+}
 type NoteMeta = { rawBody: string; title: string; bgKey: string; urls: string[]; linkOnly: boolean; textColor: string; displayBody: string; bodySegments: NoteBodySegment[]; hiddenLinkCount: number; visibleUrls: string[] }
 type PullRefreshState = 'idle' | 'pulling' | 'ready' | 'refreshing'
 type NoteHistoryEntry = { baseUrl: string; workspaceId: string; generation: string }
@@ -327,7 +332,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const rawBody = note.noteBody || ''
     const title = note.noteTitle || ''
     const themeKey = document.body.classList.contains('light-theme') ? 'l' : 'd'
-    const richLinkPreviews = this.preferences.value.richLinkPreviews
+    const richLinkPreviews = this.preferences.value.richLinkPreviews && note.linkPreviews !== false
     const bgKey = `${note.bgColor || ''}|${note.bgImage || ''}|${note.isCbox ? 1 : 0}|${themeKey}|links:${richLinkPreviews ? 1 : 0}`
     const cached = this.noteMetaCache.get(note)
     if (cached && cached.rawBody === rawBody && cached.title === title && cached.bgKey === bgKey) return cached
@@ -337,7 +342,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const bodySegments = bodyPreview.segments
     const urls = bodyPreview.urls
     const visibleUrls = urls.slice(0, 3)
-    const totalLinkCount = Math.max(note.linkCount || 0, urls.length)
+    const totalLinkCount = note.linkPreviews === false ? 0 : Math.max(note.linkCount || 0, urls.length)
     const hiddenLinkCount = Math.max(0, totalLinkCount - visibleUrls.length)
     const plainBody = body.replace(/<[^>]+>/g, ' ')
     const bodyWithoutUrls = plainBody.replace(/https?:\/\/\S+/g, '').replace(/&nbsp;/g, ' ').trim()
@@ -1185,8 +1190,9 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   // ---- Touch interaction state --------------------------------------
-  // Single touch produces one of three outcomes (Google-Keep-style):
+  // A single touch produces one of these outcomes:
   //   • quick release, no movement      → tap → opens the note
+  //   • horizontal move before holding → swipe → archive on release
   //   • 400ms hold + move               → drag-and-drop reorder
   //   • 400ms hold, no move, release    → toggles multi-select
   private longPressTimer: any = null
@@ -1196,6 +1202,9 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   private touchStartedAt = 0
   private touchMoved = false
+  private noteArchiveSwipe?: NoteArchiveSwipe
+  private pendingSwipeArchives = new Set<number>()
+  private readonly noteTouchControl = 'button, a, input, textarea, select, [contenteditable="true"], [role="button"], [role="checkbox"], app-link-preview, .reminder-chip, .reminder-picker, .check-icon, .cbox-icon, .cbox-cancel-icon, .pin-icon, .icons-container, .cancel-icon'
   pullRefreshState: PullRefreshState = 'idle'
   pullRefreshDistance = 0
   private readonly pullRefreshThreshold = 118
@@ -1216,14 +1225,30 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   private touchDragNotes?: NoteI[]
 
   onTouchStart(note: NoteI, event: TouchEvent) {
+    this.onTouchCancel()
     const touch = event.touches[0]
+    if (!touch || event.touches.length !== 1 || (event.target as HTMLElement).closest(this.noteTouchControl)) return
     this.longPressStartX = touch?.clientX ?? 0
     this.longPressStartY = touch?.clientY ?? 0
     this.longPressFired = false
     this.touchStartedAt = Date.now()
     this.touchMoved = false
     const noteEl = (event.currentTarget as HTMLDivElement) || ((event.target as HTMLElement).closest('.note-container') as HTMLDivElement)
+    // Leave screen-edge navigation to the OS. Touch events are the sole entry
+    // point: mouse drags and trackpad wheel events never start an archive.
+    if (this.canSwipeArchive(note) && touch.clientX > 32 && touch.clientX < window.innerWidth - 32) {
+      this.noteArchiveSwipe = { note, card: noteEl, identifier: touch.identifier,
+        width: noteEl.getBoundingClientRect().width, startX: touch.clientX, startY: touch.clientY, offset: 0, horizontal: false }
+      this.zone.runOutsideAngular(() => {
+        document.addEventListener('touchmove', this.moveNoteArchiveSwipe, { passive: false })
+        document.addEventListener('touchstart', this.cancelMultiTouchSwipe, { capture: true, passive: true })
+        document.addEventListener('visibilitychange', this.cancelHiddenSwipe)
+        window.addEventListener('blur', this.interruptNoteSwipe)
+        window.addEventListener('resize', this.interruptNoteSwipe)
+      })
+    }
     this.longPressTimer = setTimeout(() => {
+      this.cancelNoteArchiveSwipe()
       this.longPressFired = true
       this.beginTouchDrag(note, noteEl)
     }, 400)
@@ -1250,6 +1275,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   onTouchCancel() {
+    this.cancelNoteArchiveSwipe()
     if (this.longPressTimer) {
       clearTimeout(this.longPressTimer)
       this.longPressTimer = null
@@ -1265,6 +1291,35 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       clearTimeout(this.longPressTimer)
       this.longPressTimer = null
     }
+
+    const swipe = this.noteArchiveSwipe
+    if (swipe?.horizontal) {
+      if (event.cancelable) event.preventDefault()
+      const touch = Array.from(event.changedTouches).find(touch => touch.identifier === swipe.identifier)
+      const offset = touch ? touch.clientX - swipe.startX : swipe.offset
+      const vertical = touch ? Math.abs(touch.clientY - swipe.startY) : 0
+      // The move already claimed this gesture. Some WebViews send a
+      // non-cancelable touchend after scrolling has been prevented.
+      const archive = event.touches.length === 0 && swipe.card.isConnected &&
+        swipe.note.id === note.id && this.canSwipeArchive(note) &&
+        Math.abs(offset) >= this.swipeArchiveThreshold(swipe.width) && Math.abs(offset) > vertical * 1.5
+      this.detachNoteArchiveSwipe()
+      this.touchStartedAt = 0
+      this.touchMoved = true
+      this.suppressNextOpen = true
+      setTimeout(() => { this.suppressNextOpen = false }, 350)
+      if (archive) {
+        this.pendingSwipeArchives.add(note.id!)
+        swipe.card.classList.add('note-swipe-leaving')
+        swipe.card.style.setProperty('--note-swipe-offset', `${Math.sign(offset) * (swipe.width + 24)}px`)
+        void this.zone.run(() => this.toggleArchive(note.id!, false)).then(saved => {
+          if (saved) this.clearNoteSwipeVisual(swipe)
+          else this.cancelNoteArchiveSwipe(swipe)
+        }).finally(() => this.pendingSwipeArchives.delete(note.id!))
+      } else this.cancelNoteArchiveSwipe(swipe)
+      return
+    }
+    this.cancelNoteArchiveSwipe()
 
     if (this.touchDragNote) {
       // The hold-pickup happened. Either we moved (reorder) or we didn't
@@ -1287,6 +1342,78 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.openModal(noteEl, note)
       this.suppressNextOpen = true
       setTimeout(() => { this.suppressNextOpen = false }, 350)
+    }
+  }
+
+  private canSwipeArchive(note: NoteI) {
+    return !!note.id && !note.archived && !note.trashed && !this.destroyed &&
+      !this.pendingSwipeArchives.has(note.id) && !this.Shared.selectedNoteIds.value.length &&
+      !this.touchDragNote && this.pullRefreshState !== 'refreshing' &&
+      this.modalContainer?.nativeElement?.style.display !== 'block' &&
+      !document.querySelector('[data-is-tooltip-open="true"]') &&
+      (this.auth.isLocal || (!!this.auth.currentUser && (!note.ownerUserId || note.ownerUserId === this.auth.currentUser.id)))
+  }
+
+  private swipeArchiveThreshold(width: number) { return Math.max(72, Math.min(140, width * 0.3)) }
+
+  private moveNoteArchiveSwipe = (event: TouchEvent) => {
+    const swipe = this.noteArchiveSwipe
+    if (!swipe) return
+    const touch = Array.from(event.touches).find(touch => touch.identifier === swipe.identifier)
+    if (!touch || event.touches.length !== 1 || !swipe.card.isConnected || !this.canSwipeArchive(swipe.note)) {
+      this.onTouchCancel(); return
+    }
+    const dx = touch.clientX - swipe.startX, dy = Math.abs(touch.clientY - swipe.startY)
+    if (!swipe.horizontal) {
+      if (Math.abs(dx) < 8 && dy < 8) return
+      this.touchMoved = true
+      clearTimeout(this.longPressTimer); this.longPressTimer = null
+      if (Math.abs(dx) < 8 || Math.abs(dx) <= dy * 1.5 || !event.cancelable || this.pullRefreshActive) {
+        this.cancelNoteArchiveSwipe(); return
+      }
+      swipe.horizontal = true
+      this.resetPullRefresh()
+      swipe.card.querySelector<HTMLElement>('.note-main')?.getAnimations().forEach(animation => animation.cancel())
+      swipe.card.classList.add('note-swiping')
+    }
+    if (!event.cancelable || dy > Math.max(40, Math.abs(dx))) { this.onTouchCancel(); return }
+    event.preventDefault()
+    swipe.offset = dx
+    swipe.card.style.setProperty('--note-swipe-offset', `${dx}px`)
+    swipe.card.classList.toggle('note-swipe-right', dx > 0)
+    swipe.card.classList.toggle('note-swipe-ready', Math.abs(dx) >= this.swipeArchiveThreshold(swipe.width))
+  }
+
+  private cancelMultiTouchSwipe = (event: TouchEvent) => {
+    if (event.touches.length !== 1) { this.onTouchCancel(); this.resetPullRefresh() }
+  }
+  private cancelHiddenSwipe = () => { if (document.visibilityState === 'hidden') this.onTouchCancel() }
+  private interruptNoteSwipe = () => this.onTouchCancel()
+
+  private detachNoteArchiveSwipe() {
+    this.noteArchiveSwipe = undefined
+    document.removeEventListener('touchmove', this.moveNoteArchiveSwipe)
+    document.removeEventListener('touchstart', this.cancelMultiTouchSwipe, true)
+    document.removeEventListener('visibilitychange', this.cancelHiddenSwipe)
+    window.removeEventListener('blur', this.interruptNoteSwipe)
+    window.removeEventListener('resize', this.interruptNoteSwipe)
+  }
+
+  private clearNoteSwipeVisual(swipe: NoteArchiveSwipe) {
+    swipe.card.classList.remove('note-swiping', 'note-swipe-right', 'note-swipe-ready', 'note-swipe-leaving')
+    swipe.card.style.removeProperty('--note-swipe-offset')
+  }
+
+  private cancelNoteArchiveSwipe(swipe = this.noteArchiveSwipe) {
+    if (!swipe) return
+    if (swipe === this.noteArchiveSwipe) this.detachNoteArchiveSwipe()
+    this.clearNoteSwipeVisual(swipe)
+    if (swipe.horizontal && swipe.card.isConnected) {
+      const surface = swipe.card.querySelector<HTMLElement>('.note-main')
+      try {
+        surface?.animate([{ transform: `translateX(${swipe.offset}px)` }, { transform: 'translateX(0)' }],
+          { duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 140, easing: 'ease-out' })
+      } catch { /* A snap back is still functional without Web Animations. */ }
     }
   }
 
@@ -1671,7 +1798,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       input.value = ''
       return
     }
-    const files = Array.from(input.files).filter(file => file.type.startsWith('image/'))
+    const files = Array.from(input.files).filter(file => isNoteImageFile(file))
     input.value = ''
     if (!files.length) return
     const imageData = await Promise.all(files.map(file => this.fileToNoteImage(file, 'bottom')))
@@ -1696,6 +1823,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   noteDragStart(note: NoteI, event: DragEvent) {
+    if (this.noteArchiveSwipe?.horizontal) { event.preventDefault(); return }
+    this.cancelNoteArchiveSwipe()
     if (!this.canReorderNote(note) || !note.id) {
       event.preventDefault()
       return
@@ -1771,8 +1900,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   private beginBinderDrop(note: NoteI) {
     this.binderDrop.end()
-    // Binder membership remains owner-controlled, just like Move to binder.
-    if (note.ownerUserId && note.ownerUserId !== this.auth.currentUser?.id) return
+    if (note.ownerUserId && note.ownerUserId !== this.auth.currentUser?.id && this.auth.currentUser?.inheritSharedBinders !== false) return
     const originalOrder = new Map(this.loadedNoteOrderIds().map((id, index) => [id, index]))
     const restoreGridOrder = () => {
       const compare = (a: NoteI, b: NoteI) => (originalOrder.get(a.id!) ?? Infinity) - (originalOrder.get(b.id!) ?? Infinity)
@@ -1849,7 +1977,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (!event.dataTransfer?.files?.length || !note.id) return
     event.preventDefault()
     event.stopPropagation()
-    const files = Array.from(event.dataTransfer.files).filter(file => file.type.startsWith('image/'))
+    const files = Array.from(event.dataTransfer.files).filter(file => isNoteImageFile(file))
     if (!files.length) return
     const imageData = await Promise.all(files.map(file => this.fileToNoteImage(file, 'bottom')))
     if (note.isCardPreview && note.id) note = await this.notesService.get(note.id).catch(() => note)
@@ -1969,6 +2097,20 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     return actions
   }
 
+  sharedOrganizationHint(kind: 'labels' | 'binders') {
+    const note = this.activeNote;
+    if (!note?.ownerUserId || note.ownerUserId === this.auth.currentUser?.id) return '';
+    return this.inheritsSharedOrganization(kind)
+      ? `Using the owner's ${kind === 'binders' ? 'binder' : 'labels'}. You can change this in Settings.`
+      : 'Only changes your organization.';
+  }
+
+  inheritsSharedOrganization(kind: 'labels' | 'binders') {
+    const note = this.activeNote;
+    return !!note?.ownerUserId && note.ownerUserId !== this.auth.currentUser?.id &&
+      (kind === 'labels' ? this.auth.currentUser?.inheritSharedLabels !== false : this.auth.currentUser?.inheritSharedBinders !== false);
+  }
+
   canManageActiveNoteLock() {
     return !!(this.activeNote?.id && (!this.activeNote.ownerUserId || this.activeNote.ownerUserId === this.auth.currentUser?.id))
   }
@@ -1983,11 +2125,13 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   labelMenu(label: LabelI) {
+    if (this.inheritsSharedOrganization('labels')) return
     label.added = !label.added
     this.Shared.note.db.updateKey({ labels: this.selectedLabelsForSave() })
   }
 
   async addLabelFromMenu(input: HTMLInputElement) {
+    if (this.inheritsSharedOrganization('labels')) return
     const name = input.value.trim()
     if (!name) return
 
@@ -2026,6 +2170,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   async addBinderFromMenu(input: HTMLInputElement) {
+    if (this.inheritsSharedOrganization('binders')) return
     const name = input.value.trim()
     if (!name || !this.activeNote?.id) return
     const existing = this.Shared.binder.list.find(binder => binder.name.toLowerCase() === name.toLowerCase())
@@ -2042,6 +2187,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   async setBinderFromMenu(name: string, tooltipEl?: HTMLDivElement) {
+    if (this.inheritsSharedOrganization('binders')) return
     if (!this.activeNote?.id) return
     this.binderName = String(name || '').trim()
     await this.Shared.note.db.updateKey({ binder: this.binderName })
@@ -2120,12 +2266,18 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   // ? archive page
 
-  toggleArchive(noteId: number, archived: boolean) {
+  async toggleArchive(noteId: number, archived: boolean) {
     this.Shared.note.id = noteId
     archived = !archived
-    this.Shared.note.db.updateKey({ archived: archived, trashed: false })
-    let obj = archived ? { action: 'archived', opposite: 'unarchived' } : { action: 'unarchived', opposite: 'archived' }
-    this.Shared.snackBar(obj, { archived: !archived }, noteId)
+    try {
+      await this.notesService.updateKey({ archived, trashed: false }, noteId)
+      const obj = archived ? { action: 'archived', opposite: 'unarchived' } : { action: 'unarchived', opposite: 'archived' }
+      this.Shared.snackBar(obj, { archived: !archived }, noteId)
+      return true
+    } catch {
+      this.showMessage(archived ? 'Could not archive this note. Please try again.' : 'Could not unarchive this note. Please try again.')
+      return false
+    }
   }
 
   // ? trash page

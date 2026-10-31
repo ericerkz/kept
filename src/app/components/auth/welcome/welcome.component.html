@@ -1,0 +1,68 @@
+<main class="auth-page welcome-page">
+  <section class="auth-panel welcome-panel" aria-labelledby="welcome-title" [attr.aria-busy]="busy">
+    <div class="brand-row welcome-brand" aria-label="Kept">
+      <img class="brand-mascot" src="assets/images/keep2x.fw.png" alt="" width="64" height="77">
+      <img class="brand-wordmark" src="assets/images/keep2x_Text.png" alt="Kept" width="112" height="67">
+    </div>
+
+    <h1 id="welcome-title">Your notes, your way</h1>
+    <p class="welcome-intro">Start on this device, or sync across all of them.</p>
+    @if (error) { <p class="error" role="alert">{{error}}</p> }
+
+    @if (workspace.canUseLocal) {
+      <button type="button" class="welcome-option device-option" [disabled]="busy" (click)="useLocal()"
+        aria-labelledby="device-option-title" aria-describedby="device-option-description">
+        <span class="option-icon"><span class="material-symbols-outlined" aria-hidden="true">smartphone</span></span>
+        <span class="option-content">
+          <strong class="option-title" id="device-option-title">Use on this device</strong>
+          <span class="option-description" id="device-option-description">No account or server needed. Back up or move to a server later.</span>
+        </span>
+        <span class="material-symbols-outlined option-chevron" aria-hidden="true">chevron_right</span>
+      </button>
+    }
+
+    <section class="sync-options" aria-labelledby="sync-options-title">
+      <h2 id="sync-options-title">Sync across devices</h2>
+      <div class="sync-option-group">
+        @if (managedHostingSignupEnabled && managedHostingOffering?.available) {
+          <button type="button" class="welcome-option cloud-option" [disabled]="busy" (click)="startManagedHosting()"
+            aria-labelledby="cloud-option-title cloud-option-price" aria-describedby="cloud-option-description cloud-option-benefit">
+            <span class="option-icon"><span class="material-symbols-outlined" aria-hidden="true">cloud</span></span>
+            <span class="option-content">
+              <span class="option-heading">
+                <strong class="option-title" id="cloud-option-title">Kept Cloud</strong>
+                <span class="option-badge price-badge" id="cloud-option-price">$3.99/mo</span>
+              </span>
+              <span class="option-description" id="cloud-option-description">Sync across phone, desktop and web with no setup. We run and maintain your Kept server for you.</span>
+              <span class="cloud-benefit" id="cloud-option-benefit">
+                <span class="material-symbols-outlined" aria-hidden="true">group</span>
+                <span>Add unlimited people. Everyone shares one subscription and 5 GB.</span>
+              </span>
+            </span>
+            <span class="material-symbols-outlined option-chevron" aria-hidden="true">chevron_right</span>
+          </button>
+        }
+
+        <button type="button" class="welcome-option server-option" [disabled]="busy" (click)="connect()"
+          aria-labelledby="server-option-title" aria-describedby="server-option-included server-option-description">
+          <span class="option-icon"><span class="material-symbols-outlined" aria-hidden="true">dns</span></span>
+          <span class="option-content">
+            <span class="option-heading">
+              <strong class="option-title" id="server-option-title">Your own server</strong>
+              <span class="option-badge included-badge" id="server-option-included">Included</span>
+            </span>
+            <span class="option-description" id="server-option-description">Connect a Kept server you host yourself. Every feature, fully in your control.</span>
+          </span>
+          <span class="material-symbols-outlined option-chevron" aria-hidden="true">chevron_right</span>
+        </button>
+      </div>
+    </section>
+
+    @if (managedHostingSignupEnabled && managedHostingOffering?.available) {
+      <p class="welcome-footer">
+        <span class="material-symbols-outlined" aria-hidden="true">favorite_border</span>
+        <span>Cloud covers hosting and supports development. You can switch any time.</span>
+      </p>
+    }
+  </section>
+</main>

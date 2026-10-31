@@ -830,12 +830,23 @@ h1 { margin-bottom: 0; }
 
     label { display: block; font-size: 14px; margin: 14px 0; }
     .device-actions { margin-bottom: 0; }
+    > .btn-secondary { margin-top: 16px; }
+    .move-destinations {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+      button { display: grid; grid-template-columns: 26px minmax(0, 1fr) 20px; text-align: left; width: 100%; }
+      strong { display: block; font-size: 16px; }
+      small { display: block; font: 400 14px/1.5 Roboto, Arial, sans-serif; margin-top: 4px; }
+      .move-cloud { background: #514325; border-color: #a78028; color: #ffdf87; }
+    }
   }
 }
 
 :host-context(.light-theme) .device-data {
   button:focus-visible { outline-color: #1a73e8; }
   .move-prompt { border-color: #dadce0; }
+  .move-prompt .move-destinations .move-cloud { background: #fff2c2; border-color: #ead99d; color: #202124; }
   .btn-primary {
     background: #1a73e8;
     color: #fff;

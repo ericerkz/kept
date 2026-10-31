@@ -1,7 +1,15 @@
 import { LabelI } from './labels';
 import { ShareUserI } from './users';
 
+export interface SharedNoteOrganization {
+    ownerLabels: LabelI[]
+    ownerBinder: string
+    personalLabels: LabelI[]
+    personalBinder: string
+}
+
 export interface NoteI {
+    sharedOrganization?: SharedNoteOrganization
     id?: number
     syncId?: string
     ownerUserId?: number
@@ -13,6 +21,7 @@ export interface NoteI {
     noteBody?: string
     searchText?: string
     previewText?: string
+    linkPreviews?: boolean
     linkCount?: number
     nextCursor?: string
     isCardPreview?: boolean

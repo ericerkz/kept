@@ -23,6 +23,7 @@ import { SettingsComponent } from './components/settings/settings.component';
 import { ReminderNotificationComponent } from './components/reminder/reminder-notification.component';
 import { LinkPreviewComponent } from './components/link-preview/link-preview.component';
 import { UpdateBannerComponent } from './components/update-banner/update-banner.component';
+import { ManagedNoticeBannerComponent } from './components/managed-notice-banner/managed-notice-banner.component';
 import { MergeDialogComponent } from './components/merge-dialog/merge-dialog.component';
 import { AuthExpiredInterceptor } from './services/auth-expired.interceptor';
 import { AuthService } from './services/auth.service';
@@ -53,6 +54,7 @@ import { LocationMapPickerComponent } from './components/location-map-picker/loc
         ReminderNotificationComponent,
         LinkPreviewComponent,
         UpdateBannerComponent,
+        ManagedNoticeBannerComponent,
         MergeDialogComponent,
     ],
     bootstrap: [AppComponent], imports: [BrowserModule,

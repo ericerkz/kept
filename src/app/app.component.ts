@@ -6,6 +6,7 @@ import { PushNotificationService } from './services/push-notification.service';
 import { SharedService } from './services/shared.service';
 import { ShareIntentsService } from './services/share-intents.service';
 import { AuthService } from './services/auth.service';
+import { ManagedHostingService } from './services/managed-hosting.service';
 
 type AppBackButtonEvent = { canGoBack?: boolean };
 type PluginListenerHandle = { remove: () => Promise<void> | void };
@@ -26,6 +27,15 @@ const CapacitorApp = registerPlugin<CapacitorAppPlugin>('App');
         <main role="alert" style="padding:24px"><h1>Device storage needs attention</h1><p>{{storageError}}</p><p>Your data has been preserved. Try reopening Kept or freeing device storage. Do not clear app data.</p></main>
       }
       <router-outlet></router-outlet>
+      @if (auth.cloudSuspensionNotice$ | async; as notice) {
+        <aside class="subscription-notice" role="status">
+          <span>This server’s Kept Cloud plan has ended, so it’s paused.</span>
+          @if (notice.accountUrl) {
+            <a [href]="notice.accountUrl" target="_blank" rel="noopener noreferrer">Manage account</a>
+          }
+          <button type="button" aria-label="Dismiss paused-server notice" (click)="auth.dismissCloudSuspensionNotice()">×</button>
+        </aside>
+      }
       <app-reminder-notification></app-reminder-notification>
       @if (notificationPromptVisible) {
         <div class="notification-permission-card" role="region" aria-label="Notification permission prompt">
@@ -38,6 +48,30 @@ const CapacitorApp = registerPlugin<CapacitorAppPlugin>('App');
       }
     `,
     styles: [`
+      .subscription-notice {
+        align-items: center;
+        background: #fff8df;
+        border: 1px solid #fdd663;
+        border-radius: 12px;
+        bottom: max(16px, env(safe-area-inset-bottom));
+        box-shadow: 0 6px 18px rgb(60 64 67 / 20%);
+        color: #3c4043;
+        display: flex;
+        flex-wrap: wrap;
+        font: 400 14px/1.4 Roboto, Arial, sans-serif;
+        gap: 8px 12px;
+        left: 16px;
+        max-width: min(620px, calc(100vw - 32px));
+        padding: 12px 16px;
+        position: fixed;
+        z-index: 1500;
+      }
+      .subscription-notice span { flex: 1 1 240px; }
+      .subscription-notice a { color: #185abc; font-weight: 600; }
+      .subscription-notice button {
+        background: transparent; border: 0; border-radius: 50%; color: inherit;
+        cursor: pointer; font: 400 24px/1 Roboto, Arial, sans-serif; height: 32px; width: 32px;
+      }
       .notification-permission-card {
         background: #fff8dc;
         border: 1px solid #fbbc04;
@@ -117,9 +151,10 @@ export class AppComponent implements OnInit, OnDestroy {
     private push: PushNotificationService,
     private shared: SharedService,
     private shareIntents: ShareIntentsService,
-    private auth: AuthService,
+    public auth: AuthService,
     private ngZone: NgZone,
-    private router: Router
+    private router: Router,
+    private managedHosting: ManagedHostingService
   ) { void this.auth.workspace.ready.catch(error => this.ngZone.run(() => this.storageError = error instanceof Error ? error.message : 'Could not open device storage.')); }
 
   ngOnInit() {

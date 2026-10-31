@@ -1,3 +1,4 @@
+const { stripTrailingSlashes } = require('./text-utils');
 const crypto = require('crypto');
 const express = require('express');
 
@@ -22,7 +23,7 @@ function addSeconds(seconds) {
 }
 
 function baseUrlFor(req) {
-  return String(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+  return stripTrailingSlashes(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`);
 }
 
 function safeJson(value, fallback) {
@@ -298,7 +299,7 @@ async function resolveClient(clientId, { get }) {
 }
 
 function mountOAuthAndMcpRoutes(app, dependencies) {
-  const { get, all, run, asyncRoute, requireAuth, createSession, browserSessions, oauthRegistrationLimiter, internalBaseUrl,
+  const { get, all, run, asyncRoute, requireAuth, createSession, browserSessions, oauthRegistrationLimiter, oauthTokenLimiter, internalBaseUrl,
     createUser, getAppSetting, withDatabaseTransaction, registerLimiter } = dependencies;
   const urlencoded = express.urlencoded({ extended: false, limit: '32kb' });
 
@@ -375,7 +376,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     if (!client || !client.redirectUris.includes(redirectUri)) return res.status(400).send(htmlPage('Invalid request', '<h1>Invalid OAuth request</h1><p>The client or redirect address is not registered with this Kept server.</p>'));
     if (req.query.response_type !== 'code') return res.redirect(appendRedirect(redirectUri, { error: 'unsupported_response_type', state: req.query.state }));
     if (req.query.code_challenge_method !== 'S256' || !/^[A-Za-z0-9_-]{43,128}$/.test(String(req.query.code_challenge || ''))) return res.redirect(appendRedirect(redirectUri, { error: 'invalid_request', error_description: 'PKCE S256 is required.', state: req.query.state }));
-    const resource = String(req.query.resource || `${issuer}/api`).replace(/\/+$/, '');
+    const resource = stripTrailingSlashes(req.query.resource || `${issuer}/api`);
     if (![`${issuer}/api`, `${issuer}/mcp`].includes(resource)) return res.redirect(appendRedirect(redirectUri, { error: 'invalid_target', state: req.query.state }));
     const scope = parseScopes(String(req.query.scope || 'kept.read')).join(' ');
     if (!validScopes(scope)) return res.redirect(appendRedirect(redirectUri, { error: 'invalid_scope', error_description: `Supported scopes: ${SUPPORTED_SCOPES.join(' ')}`, state: req.query.state }));
@@ -412,8 +413,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     if (!client) return res.status(400).json({ error: 'This OAuth client is no longer available.' });
     const code = randomToken('kept_code_');
     const now = new Date().toISOString();
-    await run('BEGIN IMMEDIATE');
-    try {
+    await withDatabaseTransaction(async () => {
       await run(
         `INSERT INTO oauth_grants (userId, clientId, clientName, resource, scope, authorizedAt)
          VALUES (?, ?, ?, ?, ?, ?)
@@ -436,8 +436,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
         [sha256(code), pending.clientId, user.id, grant.id, pending.redirectUri, pending.codeChallenge, pending.resource, pending.scope, now, addSeconds(AUTHORIZATION_CODE_TTL_SECONDS)]
       );
       await run('DELETE FROM oauth_pending_authorizations WHERE requestHash = ?', [sha256(requestId)]);
-      await run('COMMIT');
-    } catch (error) { await run('ROLLBACK'); throw error; }
+    });
     res.json({ redirect: appendRedirect(pending.redirectUri, { code, state: pending.state, iss: baseUrlFor(req) }) });
   }));
 
@@ -454,7 +453,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     return tokenPayload(accessToken, refreshToken, record.scope);
   }
 
-  app.post('/oauth/token', urlencoded, asyncRoute(async (req, res) => {
+  app.post('/oauth/token', oauthTokenLimiter, urlencoded, asyncRoute(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const grantType = String(req.body?.grant_type || '');
     const clientId = String(req.body?.client_id || '');
@@ -465,27 +464,27 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
       const verifier = String(req.body?.code_verifier || '');
       const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
       if (!verifier || challenge !== code.codeChallenge) return oauthError(res, 400, 'invalid_grant', 'PKCE verification failed.');
-      if (req.body?.resource && String(req.body.resource).replace(/\/+$/, '') !== code.resource) return oauthError(res, 400, 'invalid_target', 'The requested resource does not match the authorization grant.');
-      await run('BEGIN IMMEDIATE');
+      if (req.body?.resource && stripTrailingSlashes(req.body.resource) !== code.resource) return oauthError(res, 400, 'invalid_target', 'The requested resource does not match the authorization grant.');
       try {
-        const used = await run('UPDATE oauth_authorization_codes SET usedAt = ? WHERE codeHash = ? AND usedAt IS NULL', [new Date().toISOString(), code.codeHash]);
-        if (!used.changes) throw Object.assign(new Error('Authorization code was already used.'), { status: 400 });
-        const result = await issueTokens(code);
-        await run('COMMIT');
+        const result = await withDatabaseTransaction(async () => {
+          const used = await run('UPDATE oauth_authorization_codes SET usedAt = ? WHERE codeHash = ? AND usedAt IS NULL', [new Date().toISOString(), code.codeHash]);
+          if (!used.changes) throw Object.assign(new Error('Authorization code was already used.'), { status: 400 });
+          return issueTokens(code);
+        });
         return res.json(result);
-      } catch (error) { await run('ROLLBACK'); if (error.status === 400) return oauthError(res, 400, 'invalid_grant', error.message); throw error; }
+      } catch (error) { if (error.status === 400) return oauthError(res, 400, 'invalid_grant', error.message); throw error; }
     }
     if (grantType === 'refresh_token') {
       const refresh = await get('SELECT * FROM oauth_refresh_tokens WHERE tokenHash = ? AND revokedAt IS NULL AND expiresAt > ?', [sha256(req.body?.refresh_token), new Date().toISOString()]);
       if (!refresh || refresh.clientId !== clientId) return oauthError(res, 400, 'invalid_grant', 'Refresh token is invalid or expired.');
-      await run('BEGIN IMMEDIATE');
       try {
-        const revoked = await run('UPDATE oauth_refresh_tokens SET revokedAt = ? WHERE tokenHash = ? AND revokedAt IS NULL', [new Date().toISOString(), refresh.tokenHash]);
-        if (!revoked.changes) throw Object.assign(new Error('Refresh token was already used.'), { status: 400 });
-        const result = await issueTokens(refresh);
-        await run('COMMIT');
+        const result = await withDatabaseTransaction(async () => {
+          const revoked = await run('UPDATE oauth_refresh_tokens SET revokedAt = ? WHERE tokenHash = ? AND revokedAt IS NULL', [new Date().toISOString(), refresh.tokenHash]);
+          if (!revoked.changes) throw Object.assign(new Error('Refresh token was already used.'), { status: 400 });
+          return issueTokens(refresh);
+        });
         return res.json(result);
-      } catch (error) { await run('ROLLBACK'); if (error.status === 400) return oauthError(res, 400, 'invalid_grant', error.message); throw error; }
+      } catch (error) { if (error.status === 400) return oauthError(res, 400, 'invalid_grant', error.message); throw error; }
     }
     return oauthError(res, 400, 'unsupported_grant_type', 'Supported grants are authorization_code and refresh_token.');
   }));
@@ -726,7 +725,11 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
   app.post('/api/auth/oidc/exchange', exchangeOidc);
   app.post('/api/auth/browser/oidc/exchange', browserSessions.protect, exchangeOidc);
 
-  app.all('/mcp', asyncRoute(async (req, res) => {
+  // Preserve the existing 25 MiB allowance for inline images and attachments.
+  // The SDK's default 4 MiB limit would break those existing tools. Tool
+  // collection sizes are bounded separately before schema validation.
+  const mcpRequestLimit = 25 * 1024 * 1024;
+  app.all('/mcp', asyncRoute(async (req, res, next) => {
     const issuer = baseUrlFor(req);
     const header = req.header('authorization') || '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
@@ -736,17 +739,22 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
       return res.status(401).json({ error: 'invalid_token', error_description: 'A valid Kept OAuth access token is required.' });
     }
     if (req.method !== 'POST') return res.status(405).set('Allow', 'POST').end();
+    req.keptMcpToken = token;
+    req.keptMcpScopes = parseScopes(access.oauthScope);
+    next();
+  }), express.json({ limit: mcpRequestLimit }), asyncRoute(async (req, res) => {
     const [{ StreamableHTTPServerTransport }, { KeptClient }, { createKeptMcpServer }] = await Promise.all([
       import('@modelcontextprotocol/sdk/server/streamableHttp.js'), import('../mcp/kept-client.mjs'), import('../mcp/server.mjs')
     ]);
     const client = new KeptClient({
       baseUrl: internalBaseUrl,
-      token,
+      token: req.keptMcpToken,
       timeoutMs: 120000,
       customHeaders: { [MCP_INTERNAL_HEADER]: MCP_INTERNAL_SECRET }
     });
-    const mcpServer = createKeptMcpServer(client, { oauth: true });
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    const mcpServer = createKeptMcpServer(client, { oauth: true, scopes: req.keptMcpScopes });
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true,
+      maxRequestBodySize: mcpRequestLimit });
     res.on('close', () => { transport.close().catch(() => undefined); mcpServer.close().catch(() => undefined); });
     await mcpServer.connect(transport);
     await transport.handleRequest(req, res, req.body);

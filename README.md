@@ -5,11 +5,11 @@
 
 # Kept
 
-### Google Keep-style notes, on your device or your server
+### Google Keep-style notes, on your device, your server, or Kept Cloud
 
 </div>
 
-Kept is a notes app built for quick capture: text notes, checklists, images, drawings, links, attachments, labels, colors, and reminders. Use the native iOS or Android app entirely on your device without setting up a server, or connect to your own Kept server for web access, sharing, and access across devices.
+Kept is a notes app built for quick capture: text notes, checklists, images, drawings, links, attachments, labels, colors, and reminders. Use the native iOS or Android app entirely on your device without setting up a server, or connect to Kept Cloud or your own Kept server for web access, sharing, and sync across devices.
 
 <p>
   <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473">
@@ -24,8 +24,8 @@ Kept is a notes app built for quick capture: text notes, checklists, images, dra
 </p>
 
 <p>
-  <a href="https://railway.com/deploy/kept-notes">
-    <img src="https://railway.com/button.svg" alt="Deploy on Railway">
+  <a href="https://cloud.keepitkept.xyz/">
+    <img src="docs/assets/images/kept-cloud-button.svg" alt="Get Kept Cloud — sync across your devices" width="260" height="64">
   </a>
 </p>
 
@@ -51,7 +51,7 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Real-time collaborative sharing of notes between users on the same instance.
 - Device-only mode in the native iOS and Android apps, with no server or account required.
 - Offline viewing/editing of downloaded notes in server mode, with automatic sync when the server is reachable again.
-- Complete device backups, restore on another mobile device, and a local-to-server transfer when you want to self-host.
+- Complete device backups, restore on another mobile device, and a local-to-server transfer when you want to use Kept Cloud or self-host.
 - Google Keep Takeout data import.
 - Built-in database backups and restore flow.
 - Local user accounts, optional 2FA, and user management.
@@ -72,7 +72,7 @@ Device-only mode keeps your notes, checklists, images, drawings, attachments, la
 
 In **Settings → Notes on this device**, use **Save a complete backup** to save your library, or **Restore a backup** to restore it on an iOS or Android device. Save backups somewhere outside the app: deleting the app or losing the device can mean losing its local notes.
 
-If you decide to self-host later, choose **Move my notes to a server** in the same section. This seamlessly transfers your entire local library to your Kept server, including images and attachments.
+If you decide to sync across devices later, choose **Move my notes to a server** in the same section, then choose Kept Cloud or your own server. This transfers your entire local library, including images and attachments.
 
 
 
@@ -95,26 +95,24 @@ Open `http://localhost:6767` and create the first admin account.
 
 Kept stores its database, uploads, attachments, and generated server data in `./data`. Back that folder up if you are not using the built-in backup tools.
 
-## Easy Hosted Setup
+## Kept Cloud — Hosting Handled for You
 
-If you want web access, sharing, or access across devices without setting up Docker or managing a server yourself, Railway can create a ready-to-use Kept instance for you in a few clicks. For mobile use on a single device, you can use device-only mode without a server instead.
+Want web access, sharing, and sync across devices without setting up Docker or managing a server? Kept Cloud runs and maintains your own private Kept server for you.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/kept-notes)
+[![Get Kept Cloud — sync across your devices](docs/assets/images/kept-cloud-button.svg)](https://cloud.keepitkept.xyz/)
 
-Railway handles the technical setup:
+- Hosting, automatic backups, and updates are handled for you.
+- Use Kept on iOS, Android, and the web at your own server address.
+- Add family, friends, or teammates. Everyone shares one subscription, with no per-user charge.
+- Use the same Kept features available when self-hosting.
 
-- Runs Kept for you
-- Keeps storage attached for your notes and attachments
-- Sets the required configuration
-- Gives you a public HTTPS link to open in your browser
+Visit [Kept Cloud](https://cloud.keepitkept.xyz/) to create your account and set up your server. Once it's ready, open your server address in a browser or connect the native mobile apps.
 
-Once deployment finishes, open the link Railway gives you and create your first Kept account.
-
-Railway is one convenient way to deploy Kept quickly. Kept remains self-hostable on any platform that supports Docker.
+Kept remains free to self-host on any platform that supports Docker. Device-only mode in the native apps also works without a server or subscription.
 
 ## Native iOS App
 
-[Kept Notes is available on the App Store](https://apps.apple.com/ca/app/kept-notes/id6768974473). Use it on your iPhone or iPad without a server, or connect to your self-hosted Kept server:
+[Kept Notes is available on the App Store](https://apps.apple.com/ca/app/kept-notes/id6768974473). Use it on your iPhone or iPad without a server, or connect to Kept Cloud or your own Kept server:
 
 - Device-only notes, complete backups and restore, and offline editing with automatic sync when connected to a server.
 - Apple Reminders support.
@@ -125,7 +123,7 @@ Railway is one convenient way to deploy Kept quickly. Kept remains self-hostable
 
 ## Native Android App
 
-[Kept Notes is available on Google Play](https://play.google.com/store/apps/details?id=xyz.keepitkept.app). Use it without a server, or connect to your self-hosted Kept server:
+[Kept Notes is available on Google Play](https://play.google.com/store/apps/details?id=xyz.keepitkept.app). Use it without a server, or connect to Kept Cloud or your own Kept server:
 
 - Device-only notes, complete backups and restore, and offline editing with automatic sync when connected to a server.
 - Location reminders with arrival/departure settings, background geofencing, and saved places.

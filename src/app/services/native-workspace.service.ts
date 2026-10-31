@@ -1,3 +1,4 @@
+import { MAX_FILE_BYTES, isNoteImageFile, prepareNoteImage } from '../utils/note-images';
 import { attachmentMimeType } from '../utils/attachments';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
@@ -12,6 +13,8 @@ import { sanitizeNoteHtml } from '../utils/note-html';
 import { AuthService } from './auth.service';
 import { OfflineStoreService } from './offline-store.service';
 import { OfflineSyncService } from './offline-sync.service';
+
+const EXACT_ALARM_WARNING = 'Android exact-alarm permission is off. Reminder delivery may be delayed. Enable precise reminders in Android settings.';
 
 export interface KeptWorkspacePlugin {
   getCapabilities(): Promise<NativeCapabilities>;
@@ -131,8 +134,8 @@ export class NativeWorkspaceService {
     const images: any[] = [];
     const attachments: Record<string,any>[] = [];
     for (const file of action.files || []) {
-      const raster = ['image/png','image/jpeg','image/gif','image/webp'].includes(file.mimeType);
-      if (!this.plugin || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > (raster ? 10 : 25) * 1024 * 1024) throw new Error('A captured file exceeds the supported size.');
+      const raster = isNoteImageFile(file);
+      if (!this.plugin || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > MAX_FILE_BYTES) throw new Error('A captured file exceeds the supported size.');
       const mimeType = raster ? file.mimeType : attachmentMimeType(file.name,file.mimeType);
       const chunks: Uint8Array<ArrayBuffer>[] = [];
       for (let offset = 0; offset < file.size; offset += 256 * 1024) {
@@ -149,8 +152,9 @@ export class NativeWorkspaceService {
         continue;
       }
       const canonical = `/__kept_local_media/${encodeURIComponent(action.actionId)}-${images.length}`;
-      blobs.push({ key: `media:${canonical}`, value: new Blob(chunks, { type: file.mimeType }) });
-      images.push({ id: `${action.actionId}-${images.length}`, dataUrl: canonical, name: file.name, placement: 'top' });
+      const prepared = await prepareNoteImage(new Blob(chunks, { type: file.mimeType }), file.name);
+      blobs.push({ key: `media:${canonical}`, value: prepared.blob });
+      images.push({ id: `${action.actionId}-${images.length}`, dataUrl: canonical, name: prepared.name, placement: 'top' });
     }
     if (blobs.length && action.kind !== 'note.upsert') throw new Error('Files must accompany a note capture.');
     const payload = { ...action.payload } as any;
@@ -297,7 +301,11 @@ export class NativeWorkspaceService {
     if (this.sync.partition !== workspace.partition || this.sync.generation !== workspace.generation) return result;
     this.zone.run(() => this.locationPermissionRequired$.next((result.skipped || []).some(skipped => skipped.reason === 'locationPermissionRequired')));
     for (const skipped of result.skipped || []) if (skipped.reason === 'invalid') this.report(new Error(`Invalid native reminder: ${skipped.id}`));
-    if (result.exact === false) this.report(new Error('Android exact-alarm permission is off. Reminder delivery may be delayed. Enable precise reminders in Android settings.'));
+    if (result.exact === false) {
+      this.report(new Error(EXACT_ALARM_WARNING));
+    } else if (result.exact === true && this.error$.value === EXACT_ALARM_WARNING) {
+      this.zone.run(() => this.error$.next(''));
+    }
     return result;
   }
 

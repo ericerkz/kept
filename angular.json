@@ -31,6 +31,16 @@
               "src/manifest.webmanifest",
               "src/assets",
               {
+                "glob": "libheif-without-unsafe-eval.js",
+                "input": "node_modules/heic-to/src/lib",
+                "output": "assets/vendor/heic-to/"
+              },
+              {
+                "glob": "LICENSE",
+                "input": "node_modules/heic-to",
+                "output": "assets/vendor/heic-to/"
+              },
+              {
                 "glob": "kept-push-sw.js",
                 "input": "src",
                 "output": "/"
@@ -117,6 +127,16 @@
               "src/favicon.ico",
               "src/manifest.webmanifest",
               "src/assets",
+              {
+                "glob": "libheif-without-unsafe-eval.js",
+                "input": "node_modules/heic-to/src/lib",
+                "output": "assets/vendor/heic-to/"
+              },
+              {
+                "glob": "LICENSE",
+                "input": "node_modules/heic-to",
+                "output": "assets/vendor/heic-to/"
+              },
               {
                 "glob": "kept-push-sw.js",
                 "input": "src",

@@ -86,14 +86,10 @@ export class AuthService implements OnDestroy {
   private legacyBrowserToken = '';
   private lastSessionExpiredNoticeAt = 0;
   private suppressSessionExpiredUntil = 0;
-  private lastCloudSuspendedNoticeAt = 0;
+  private lastCloudSuspendedNoticeAt = -Infinity;
+  private cloudSuspensionScreenOpen = false;
   currentUser$ = new BehaviorSubject<AuthSessionI | null>(this.getStoredSession());
-  // True once a response carrying the managed-hosting suspension shape
-  // (HTTP 402, code CLOUD_SUSPENDED) has been seen. A managed-hosting
-  // provider's suspension gateway sends this when billing is inactive;
-  // it is not specific to any one provider, any of them can use the
-  // same shape.
-  cloudSuspended$ = new BehaviorSubject<boolean>(false);
+  readonly cloudSuspensionNotice$ = new BehaviorSubject<{ accountUrl: string | null } | null>(null);
   private mediaUrls = new Map<string, string>();
   private mediaCanonical = new Map<string, string>();
   private mediaRequests = new Map<string, Promise<string>>();
@@ -247,26 +243,34 @@ export class AuthService implements OnDestroy {
     return error instanceof HttpErrorResponse && error.status === 402 && error.error?.code === 'CLOUD_SUSPENDED';
   }
 
-  // Distinct from notifySessionExpired: a suspended managed-hosting
-  // subscription is not a network failure or an expired login, and should
-  // read as a billing/sync-paused state rather than either of those.
-  // providerName is supplied by the caller (from managed-hosting metadata)
-  // so this stays provider-agnostic rather than naming any one vendor.
-  notifyCloudSuspended(error?: unknown, providerName?: string) {
-    if (error && !this.isCloudSuspendedError(error)) return false;
-    this.cloudSuspended$.next(true);
+  notifyCloudSuspended(error: unknown) {
+    if (!this.isCloudSuspendedError(error)) return false;
+    const platform = Capacitor.getPlatform();
+    // iOS presents its own native suspension screen. Never open a second one.
+    if (platform === 'ios') return true;
+    if (platform === 'android' && !Capacitor.isPluginAvailable('KeptManagedHosting')) return true;
     const now = Date.now();
-    if (now - this.lastCloudSuspendedNoticeAt < 4000) return true;
+    if (this.cloudSuspensionScreenOpen || now - this.lastCloudSuspendedNoticeAt < 30000) return true;
     this.lastCloudSuspendedNoticeAt = now;
-    const who = providerName ? `${providerName} sync` : 'Sync';
+    if (platform === 'android') {
+      this.cloudSuspensionScreenOpen = true;
+      void Promise.resolve().then(() => registerPlugin<{ start(): Promise<void> }>('KeptManagedHosting').start())
+        .catch(error => console.warn('Could not open the subscription screen', error))
+        .finally(() => { this.cloudSuspensionScreenOpen = false; });
+      return true;
+    }
+    let accountUrl: string | null = null;
     try {
-      (window as any).Snackbar?.show({
-        pos: 'bottom-left',
-        text: `${who} is paused because the subscription is inactive.`,
-        duration: 5200
-      });
-    } catch {}
+      const value = (error as HttpErrorResponse).error?.accountUrl;
+      const url = typeof value === 'string' ? new URL(value) : null;
+      if (url && ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) accountUrl = url.href;
+    } catch { /* Show the notice without a link if the response has no valid account URL. */ }
+    this.zone.run(() => this.cloudSuspensionNotice$.next({ accountUrl }));
     return true;
+  }
+
+  dismissCloudSuspensionNotice() {
+    this.cloudSuspensionNotice$.next(null);
   }
 
   canonicalImageUrl(value: string) {
@@ -514,6 +518,8 @@ export class AuthService implements OnDestroy {
       avatarDataUrl: result.user.avatarDataUrl || '',
       avatarPreset: result.user.avatarPreset || 'cat',
       showPastReminders: result.user.showPastReminders === true,
+      inheritSharedLabels: result.user.inheritSharedLabels !== false,
+      inheritSharedBinders: result.user.inheritSharedBinders !== false,
       totpEnabled: result.user.totpEnabled,
       hasBackupCodes: result.user.hasBackupCodes,
       demoNotesCreatedAt: result.user.demoNotesCreatedAt ?? null
@@ -554,7 +560,7 @@ export class AuthService implements OnDestroy {
     return user;
   }
 
-  async updateAccountPreferences(patch: { theme?: UserTheme; followSystemTheme?: boolean; showPastReminders?: boolean }) {
+  async updateAccountPreferences(patch: { theme?: UserTheme; followSystemTheme?: boolean; showPastReminders?: boolean; inheritSharedLabels?: boolean; inheritSharedBinders?: boolean }) {
     if (this.isLocal) return this.workspace.updatePreferences(patch);
     if (this.currentUser) {
       const workspace = await this.offlineStore.ensureServerWorkspace(this.offlineStore.partition(this.currentUser.id));
@@ -636,7 +642,7 @@ export class AuthService implements OnDestroy {
 
   applyWorkspacePreferences(preferences: Partial<UserI>) {
     if (!this.currentUser) return;
-    if (['theme','followSystemTheme','showPastReminders'].every(key => (this.currentUser as any)[key] === (preferences as any)[key])) return;
+    if (['theme','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders'].every(key => (this.currentUser as any)[key] === (preferences as any)[key])) return;
     this.mergeAccountPreferences({...this.currentUser,...preferences});
   }
 
@@ -647,8 +653,15 @@ export class AuthService implements OnDestroy {
       ...current,
       theme: user.theme || current.theme,
       followSystemTheme: user.followSystemTheme ?? current.followSystemTheme ?? false,
+      inheritSharedLabels: user.inheritSharedLabels ?? current.inheritSharedLabels ?? true,
+      inheritSharedBinders: user.inheritSharedBinders ?? current.inheritSharedBinders ?? true,
       showPastReminders: user.showPastReminders === true
     };
+    // Older cached preferences can omit newer fields. Compare the effective
+    // settings after defaults are applied, or each sync re-emits the session
+    // and starts another sync even though nothing has actually changed.
+    if (['theme','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders']
+      .every(key => (session as any)[key] === (current as any)[key])) return;
     localStorage.setItem(this.sessionKey, JSON.stringify(session));
     this.currentUser$.next(session);
   }
@@ -696,6 +709,12 @@ export class AuthService implements OnDestroy {
         if (this.usesBrowserSession && !this.isAuthExpiredError(error)) throw error;
       }
     }
+    return this.forgetServerAndRestart();
+  }
+
+  // Offline-safe native reset. Keep local libraries and pending edits intact.
+  // Callers signing out normally must attempt server logout before this step.
+  async forgetServerAndRestart(): Promise<boolean> {
     localStorage.removeItem(this.sessionKey);
     this.currentUser$.next(null);
     if (!Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('KeptWorkspace')) return false;
@@ -704,7 +723,7 @@ export class AuthService implements OnDestroy {
     } catch (error) {
       // Older native bridges retain their existing sign-in screen behavior.
       if ((error as { code?: string })?.code === 'UNIMPLEMENTED') return false;
-      throw Object.assign(new Error('Signed out, but could not reset the server connection. Please try signing out again.'), { name: 'KeptServerResetError' });
+      throw Object.assign(new Error('Could not reset the server connection. Please try again.'), { name: 'KeptServerResetError' });
     }
     window.location.replace('/');
     return true;

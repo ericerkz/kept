@@ -171,6 +171,41 @@
   -webkit-user-select: none;
   user-select: none;
 
+  .note-swipe-background {
+    display: none;
+    position: absolute;
+    inset: 0;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 24px;
+    border-radius: 8px;
+    background: #d3e3fd;
+    color: #174ea6;
+    pointer-events: none;
+  }
+
+  &.note-swiping {
+    z-index: 100;
+
+    > .note-swipe-background { display: flex; }
+    > .note-main {
+      z-index: 1;
+      background-color: #202124;
+      transform: translate3d(var(--note-swipe-offset, 0px), 0, 0);
+      transition: none;
+      will-change: transform;
+      pointer-events: none;
+    }
+  }
+
+  &.note-swipe-right > .note-swipe-background { justify-content: flex-start; }
+  &.note-swipe-ready > .note-swipe-background { background: #a8c7fa; }
+  &.note-swipe-leaving > .note-main { transition: transform 160ms ease-out; }
+
+  @media (prefers-reduced-motion: reduce) {
+    &.note-swipe-leaving > .note-main { transition: none; }
+  }
+
   // While the user is touch-dragging this card, disable native scroll and
   // gestures on it so our custom drag handler owns the touch stream and
   // preventDefault() actually works.
@@ -865,6 +900,8 @@
 }
 
 :host-context(.light-theme) {
+  .note-container.note-swiping > .note-main { background-color: #fff; }
+
   .reminder-chip {
     background: rgba(251, 188, 4, 0.15);
     color: #b06000;

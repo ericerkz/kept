@@ -298,6 +298,31 @@ a:hover {
   margin: 14px 0 0;
 }
 
+.kept-cloud-callout {
+  background: #fffbef;
+  border-color: #ead99d;
+}
+
+.kept-cloud-button {
+  align-items: center;
+  border-radius: 16px;
+  box-shadow: 0 3px 10px rgb(128 99 19 / 10%);
+  display: inline-flex;
+  max-width: 100%;
+  transition: box-shadow 0.2s;
+}
+
+.kept-cloud-button img {
+  display: block;
+  height: auto;
+  margin: 0;
+  max-width: 100%;
+  width: 260px;
+}
+
+.kept-cloud-button:hover { box-shadow: 0 5px 16px rgb(128 99 19 / 20%); }
+.kept-cloud-button:focus-visible { outline: 3px solid var(--primary); outline-offset: 4px; }
+
 /* Code */
 code {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -367,6 +392,7 @@ details p, details pre {
 }
 
 .hero-actions {
+  align-items: center;
   margin-top: 32px;
   display: flex;
   flex-wrap: wrap;

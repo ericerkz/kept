@@ -1,3 +1,4 @@
+import { prepareNoteImage } from '../utils/note-images';
 import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
 import { Injectable, NgZone, OnDestroy } from '@angular/core';
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
@@ -30,6 +31,8 @@ type SyncChange = ResourceChange;
 @Injectable({ providedIn: 'root' })
 export class OfflineSyncService implements OnDestroy {
   readonly state$ = new BehaviorSubject<OfflineSyncState>(navigator.onLine ? 'saved' : 'offline');
+  readonly storageBlocked$ = new BehaviorSubject(false);
+  readonly storageFullMessage = "Your server's storage is full - please upgrade or delete some files/images.";
   readonly cacheChanged$ = new Subject<void>();
   private readonly apiUrl = environment.apiUrl;
   private readonly syncRequestTimeoutMs = 12000;
@@ -79,6 +82,7 @@ export class OfflineSyncService implements OnDestroy {
       }
       if (previous !== this.currentPartition) {
         this.clearRetryTimer();
+        this.storageBlocked$.next(false);
         this.retryAttempt = 0;
         this.degradedUntil = 0;
         this.connectionUnavailable = !navigator.onLine;
@@ -220,6 +224,7 @@ export class OfflineSyncService implements OnDestroy {
       const state = await this.store.getSyncState(this.currentPartition);
       const cachedNotes = bootstrapIfEmpty ? await this.store.listNotes(this.currentPartition) : [];
       const pending = await this.store.listOutbox(this.currentPartition);
+      this.storageBlocked$.next(pending.some(entry => entry.blockedBy === 'storage'));
       if (!pending.length && (state.cursor === 0 || (bootstrapIfEmpty && cachedNotes.length === 0))) {
         await this.bootstrap();
       }
@@ -279,19 +284,49 @@ export class OfflineSyncService implements OnDestroy {
     if (!this.currentPartition) return;
     let entries = await this.store.listOutbox(this.currentPartition);
     const workspace = this.activeContext?.workspace || await this.workspace();
-    for (const entry of entries.filter(entry => entry.type === 'image.upload')) {
-      const payload = entry.payload as any;
-      const blob = await this.store.getBlob(workspace.partition, `media:${payload.url}`);
+    for (let entry of entries.filter(entry => entry.type === 'image.upload')) {
+      let payload = entry.payload as any;
+      let blob = await this.store.getBlob(workspace.partition, `media:${payload.url}`);
       if (!blob) throw new Error('An outgoing image is missing from device storage.');
+      // Normalize legacy failed uploads too. Preserve already-supported JPEG
+      // bytes so retrying an accepted upload keeps its original content hash.
+      const prepared = await prepareNoteImage(blob, payload.filename || 'image', { keepJpegBytes: true });
+      if (prepared.changed) {
+        entry = await this.store.prepareQueuedImage(workspace, entry, prepared.blob, prepared.name);
+        payload = entry.payload as any; blob = prepared.blob;
+      }
       const form = new FormData(); form.append('image',blob,payload.filename || 'image'); form.append('operationId',entry.operationId);
-      const uploaded = await this.withTimeout(firstValueFrom(this.http.post<{url:string}>(`${this.apiUrl}/uploads/images`,form,{headers:this.auth.authHeaders()})),this.syncRequestTimeoutMs);
-      await this.store.acknowledgeImage(workspace,entry,uploaded.url);
+      try {
+        const uploaded = await this.withTimeout(firstValueFrom(this.http.post<{url:string}>(`${this.apiUrl}/uploads/images`,form,{headers:this.requestHeaders()})),this.syncRequestTimeoutMs);
+        await this.store.acknowledgeImage(workspace,entry,uploaded.url);
+      } catch (error) {
+        await this.keepStorageBlockedUpload(error, workspace, entry);
+      }
     }
     entries = await this.store.listOutbox(workspace.partition);
     const uploads = entries.filter(entry => entry.type === 'attachment.upload' || entry.type === 'attachment.upsert');
-    const mutations = entries.filter(entry => !['image.upload','attachment.upload','attachment.upsert'].includes(entry.type));
+    // A note cannot publish device-only image URLs. Keep dependent changes
+    // queued until their image uploads succeed, while unrelated edits proceed.
+    const imageUrls = entries.filter(entry => entry.type === 'image.upload').map(entry => (entry.payload as { url: string }).url);
+    const deferredNotes = new Set(entries.filter(entry => entry.type === 'note.upsert' &&
+      imageUrls.some(url => JSON.stringify(entry.payload).includes(url))).map(entry => entry.syncId));
+    const mutations = entries.filter(entry => !['image.upload','attachment.upload','attachment.upsert'].includes(entry.type) &&
+      !(entry.type === 'note.upsert' && deferredNotes.has(entry.syncId)) &&
+      !deferredNotes.has((entry.payload as any)?.noteSyncId));
     for (let offset = 0; offset < mutations.length; offset += 500) await this.flushMutations(mutations.slice(offset,offset + 500));
     if (uploads.length) await this.flushAttachmentUploads(uploads);
+    const remaining = await this.store.listOutbox(workspace.partition);
+    this.requestHeaders();
+    this.storageBlocked$.next(remaining.some(entry => entry.blockedBy === 'storage'));
+  }
+
+  private async keepStorageBlockedUpload(error: unknown, workspace: Workspace, entry: OutboxEntry) {
+    if (!(error instanceof HttpErrorResponse) || error.status !== 507) throw error;
+    // A 507 proves the server is reachable. It is neither a network outage nor
+    // a reason to discard local media or stop syncing other notes.
+    this.requestHeaders();
+    this.clearConnectionDegraded();
+    if (await this.store.markUploadStorageBlocked(workspace, entry)) this.storageBlocked$.next(true);
   }
 
   private async flushMutations(entries: OutboxEntry[]) {
@@ -353,17 +388,21 @@ export class OfflineSyncService implements OnDestroy {
       formData.append('file', blob, payload.filename || (payload as any).originalName || 'attachment');
       formData.append('operationId', entry.operationId);
       formData.append('syncId', entry.syncId);
-      const attachment = await this.withTimeout(
-        firstValueFrom(this.http.post<NoteAttachmentI>(
-          `${this.apiUrl}/notes/${note.id}/attachments?syncId=${encodeURIComponent(entry.syncId)}`,
-          formData,
-          { headers: this.requestHeaders() }
-        )),
-        this.syncRequestTimeoutMs
-      );
-      await this.store.putBlob(workspace.partition, `attachment:${entry.syncId}`, blob);
-      await this.store.reconcile(workspace,{sent:[entry],results:[{ok:true,operationId:entry.operationId,canonical:attachment as any}]});
-      this.cacheChanged$.next();
+      try {
+        const attachment = await this.withTimeout(
+          firstValueFrom(this.http.post<NoteAttachmentI>(
+            `${this.apiUrl}/notes/${note.id}/attachments?syncId=${encodeURIComponent(entry.syncId)}`,
+            formData,
+            { headers: this.requestHeaders() }
+          )),
+          this.syncRequestTimeoutMs
+        );
+        await this.store.putBlob(workspace.partition, `attachment:${entry.syncId}`, blob);
+        await this.store.reconcile(workspace,{sent:[entry],results:[{ok:true,operationId:entry.operationId,canonical:attachment as any}]});
+        this.cacheChanged$.next();
+      } catch (error) {
+        await this.keepStorageBlockedUpload(error, workspace, entry);
+      }
     }
   }
 

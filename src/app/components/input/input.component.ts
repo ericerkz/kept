@@ -1,3 +1,4 @@
+import { MAX_FILE_BYTES, isNoteImageFile } from '../../utils/note-images';
 import { createNoteHtmlContainer, sanitizeNoteHtml } from '../../utils/note-html';
 import { NoteI, CheckboxI, NoteImageI, NoteAttachmentI } from '../../interfaces/notes';
 import { Component, OnInit, ViewChild, ElementRef, ChangeDetectorRef, Input, HostBinding, HostListener } from '@angular/core';
@@ -309,7 +310,9 @@ export class InputComponent implements OnInit {
       this.inputLength.next({ title: 0, body: 0, cb: 0 })
       document.addEventListener('mousedown', this.mouseDownEvent)
     }
-    this.labels = JSON.parse(JSON.stringify(this.Shared.label.list))
+    // Cached/note-derived catalogs can contain another note's selection flags.
+    // Start unselected; innerData applies only the opened note's own labels.
+    this.labels = this.Shared.label.list.map(label => ({ ...label, added: false }))
     this.labelsDirty = false
     if (!this.isEditing) this.preselectRouteLabel()
     this.binderName = this.isEditing ? (this.noteToEdit.binder || '') : this.currentRouteBinder()
@@ -1138,7 +1141,7 @@ export class InputComponent implements OnInit {
       .map(item => item.getAsFile())
       .filter((file): file is File => !!file)
     if (files.length) return files
-    return Array.from(event.clipboardData?.files || []).filter(file => file.type.startsWith('image/'))
+    return Array.from(event.clipboardData?.files || []).filter(file => isNoteImageFile(file))
   }
 
   @HostListener('document:selectionchange')
@@ -1208,7 +1211,7 @@ export class InputComponent implements OnInit {
 
   async addImageFiles(fileList: FileList | File[] | null, event?: DragEvent) {
     if (!fileList?.length) return
-    const files = Array.from(fileList).filter(file => file.type.startsWith('image/'))
+    const files = Array.from(fileList).filter(file => isNoteImageFile(file))
     if (!files.length) return
     if (this.isCbox.value) {
       this.isCbox.next(false)
@@ -1251,9 +1254,9 @@ export class InputComponent implements OnInit {
       this.showAttachmentMessage('That file type is not supported.')
       return
     }
-    const oversized = files.find(file => file.size > 25 * 1024 * 1024)
+    const oversized = files.find(file => file.size > MAX_FILE_BYTES)
     if (oversized) {
-      this.showAttachmentMessage('Attachments must be 25 MB or smaller.')
+      this.showAttachmentMessage('Attachments must be 100 MiB or smaller.')
       return
     }
 
@@ -2125,7 +2128,7 @@ export class InputComponent implements OnInit {
   }
 
   private decorateLinksForEditor(html: string) {
-    if (!this.preferences.value.richLinkPreviews) return this.auth.authenticatedImageHtml(html || '')
+    if (!this.preferences.value.richLinkPreviews || this.noteToEdit?.linkPreviews === false) return this.auth.authenticatedImageHtml(html || '')
     const div = createNoteHtmlContainer()
     div.innerHTML = sanitizeNoteHtml(this.auth.authenticatedImageHtml(html || ''))
     this.removePreviewMarkup(div)
@@ -2283,7 +2286,7 @@ export class InputComponent implements OnInit {
   private decorateCurrentBodyLinks() {
     const body = this.noteBody?.nativeElement
     if (!body || this.destroyed) return
-    if (!this.preferences.value.richLinkPreviews) {
+    if (!this.preferences.value.richLinkPreviews || this.noteToEdit?.linkPreviews === false) {
       if (body.querySelector('.editor-link-preview-slot')) {
         this.editorPreviewGeneration++
         body.innerHTML = sanitizeNoteHtml(this.auth.authenticatedImageHtml(this.cleanEditorBodyForSave(body.innerHTML)))
@@ -2307,7 +2310,7 @@ export class InputComponent implements OnInit {
   }
 
   private hydrateEditorLinkPreviews() {
-    if (!this.preferences.value.richLinkPreviews) return
+    if (!this.preferences.value.richLinkPreviews || this.noteToEdit?.linkPreviews === false) return
     const body = this.noteBody?.nativeElement
     if (!body || this.destroyed) return
     this.ensureEditorLinkCaretLines(body)
@@ -3622,6 +3625,7 @@ export class InputComponent implements OnInit {
   }
 
   async addLabelFromMenu(input: HTMLInputElement) {
+    if (this.inheritsSharedOrganization('labels')) return
     const name = input.value.trim()
     if (!name) return
 
@@ -3654,12 +3658,14 @@ export class InputComponent implements OnInit {
   }
 
   toggleLabel(label: LabelI) {
+    if (this.inheritsSharedOrganization('labels')) return
     label.added = !label.added
     this.labelsDirty = true
     this.queueAutosave()
   }
 
   async addBinderFromMenu(input: HTMLInputElement) {
+    if (this.inheritsSharedOrganization('binders')) return
     const name = input.value.trim()
     if (!name) return
     const existing = this.Shared.binder.list.find(binder => binder.name.toLowerCase() === name.toLowerCase())
@@ -3667,6 +3673,7 @@ export class InputComponent implements OnInit {
       this.binderName = existing.name
       input.value = ''
       this.binderMenuError = ''
+      this.queueAutosave()
       return
     }
     try {
@@ -3674,12 +3681,14 @@ export class InputComponent implements OnInit {
       this.binderName = name
       input.value = ''
       this.binderMenuError = ''
+      this.queueAutosave()
     } catch {
       this.binderMenuError = 'Could not create binder'
     }
   }
 
   selectBinder(name: string, tooltipEl?: HTMLDivElement) {
+    if (this.inheritsSharedOrganization('binders')) return
     this.binderName = String(name || '').trim()
     this.queueAutosave()
     if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
@@ -3687,6 +3696,20 @@ export class InputComponent implements OnInit {
 
   isSelectedBinder(name: string) {
     return (this.binderName || '') === (name || '')
+  }
+
+  sharedOrganizationHint(kind: 'labels' | 'binders') {
+    const note = this.noteToEdit;
+    if (!note?.ownerUserId || note.ownerUserId === this.auth.currentUser?.id) return '';
+    return this.inheritsSharedOrganization(kind)
+      ? `Using the owner's ${kind === 'binders' ? 'binder' : 'labels'}. You can change this in Settings.`
+      : 'Only changes your organization.';
+  }
+
+  inheritsSharedOrganization(kind: 'labels' | 'binders') {
+    const note = this.noteToEdit;
+    return !!note?.ownerUserId && note.ownerUserId !== this.auth.currentUser?.id &&
+      (kind === 'labels' ? this.auth.currentUser?.inheritSharedLabels !== false : this.auth.currentUser?.inheritSharedBinders !== false);
   }
 
   isSharedNoteForCurrentUser() {

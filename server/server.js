@@ -1,3 +1,9 @@
+const { plainText, imageSources, validateEmail, stripTrailingSlashes } = require('./text-utils');
+const { createRequestLimits, createExclusiveTask } = require('./request-limits');
+const { StorageQuota } = require('./storage-quota');
+const { maxFileBytes: MAX_FILE_BYTES } = require('../shared/upload-limits.json');
+const { createSharedNoteOrganization } = require('./shared-note-organization');
+const { createManagedNoticePoller } = require('./managed-notice');
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
@@ -28,6 +34,11 @@ const mailer = require('./mailer');
 const { createIntegrationRequests } = require('./integration-requests');
 const integrationRequests = createIntegrationRequests();
 const fullBackup = require('./full-backup');
+const { readTakeoutZip } = require('./takeout-zip');
+
+// Upload clients send flat metadata fields. Never interpret nested objects or
+// attacker-chosen array indexes while parsing multipart field names.
+const MULTIPART_FIELD_LIMITS = { fieldNestingDepth: 0, fieldArrayIndexLimit: 0, fields: 20, fieldSize: 1024 * 1024 };
 
 const app = express();
 app.set('trust proxy', 1);
@@ -70,11 +81,17 @@ const STORAGE_QUOTA_BYTES = (() => {
   const raw = Number(process.env.KEPT_STORAGE_QUOTA_BYTES);
   return Number.isFinite(raw) && raw > 0 ? raw : null;
 })();
+const storageQuota = new StorageQuota(STORAGE_QUOTA_BYTES);
 const SETUP_TOKEN = String(process.env.KEPT_SETUP_TOKEN || '');
 const SETUP_TOKEN_EXPIRES_AT = String(process.env.KEPT_SETUP_TOKEN_EXPIRES_AT || '');
 // Optional monitoring access is read-only and scoped to metrics endpoints;
 // it grants no write access and no note content.
 const METRICS_TOKEN = String(process.env.KEPT_METRICS_TOKEN || '');
+const managedNotice = createManagedNoticePoller({
+  managed: MANAGED_HOSTING_ENABLED,
+  url: process.env.KEPT_MANAGED_NOTICE_URL,
+  token: METRICS_TOKEN
+});
 
 function setupTokenExpired() {
   if (!SETUP_TOKEN_EXPIRES_AT) return false;
@@ -127,6 +144,7 @@ async function directorySizeBytes(dir) {
 // Covers the meaningful live tenant data (DB + attachments + uploaded
 // images), not offsite backups, staging, or Docker image layers.
 async function getStorageUsageBytes() {
+  if (storageQuota.enabled) return storageQuota.usedBytes;
   let dbBytes = 0;
   for (const suffix of ['', '-wal', '-shm']) {
     try { dbBytes += fs.statSync(dbPath + suffix).size; } catch {}
@@ -142,6 +160,7 @@ async function getStorageUsageBytes() {
 // before this runs); additionalBytes lets callers account for bytes not
 // yet written, e.g. an estimated Takeout import size.
 async function assertWithinStorageQuota(additionalBytes = 0) {
+  if (storageQuota.enabled) return storageQuota.assertAdditional(additionalBytes);
   if (!STORAGE_QUOTA_BYTES) return; // no quota configured: unlimited, as today
   const used = await getStorageUsageBytes();
   if (used + additionalBytes > STORAGE_QUOTA_BYTES) {
@@ -245,7 +264,7 @@ const vapidSubject = process.env.VAPID_SUBJECT || 'https://example.com';
 webPush.setVapidDetails(vapidSubject, vapidKeys.publicKey, vapidKeys.privateKey);
 
 const upload = multer({
-  storage: multer.diskStorage({
+  storage: storageQuota.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadDir),
     filename: (_req, file, cb) => {
       const ext = SAFE_IMAGE_TYPES.get(String(file.mimetype || '').toLowerCase());
@@ -253,7 +272,7 @@ const upload = multer({
       cb(null, `${Date.now()}-${randomHex(12)}${ext}`);
     }
   }),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { ...MULTIPART_FIELD_LIMITS, fileSize: MAX_FILE_BYTES },
   fileFilter: (_req, file, cb) => {
     if (!SAFE_IMAGE_TYPES.has(String(file.mimetype || '').toLowerCase())) {
       return cb(new Error('Only PNG, JPG, GIF, and WEBP uploads are supported.'));
@@ -263,7 +282,7 @@ const upload = multer({
 });
 
 const uploadAttachment = multer({
-  storage: multer.diskStorage({
+  storage: storageQuota.diskStorage({
     destination: (_req, _file, cb) => cb(null, attachmentDir),
     filename: (_req, file, cb) => {
       const ext = safeAttachmentExtension(file);
@@ -272,7 +291,7 @@ const uploadAttachment = multer({
       cb(null, `att-${Date.now()}-${randomHex(16)}${ext}`);
     }
   }),
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB max
+  limits: { ...MULTIPART_FIELD_LIMITS, fileSize: MAX_FILE_BYTES }, // 100 MiB per file (inclusive in Multer 2.5)
   fileFilter: (_req, file, cb) => {
     if (!safeAttachmentExtension(file)) {
       return cb(new Error('This file type is not allowed. Supported formats: PDF, Office documents, text files, and archives.'));
@@ -283,24 +302,46 @@ const uploadAttachment = multer({
 
 // ─── Backup Logic ──────────────────────────────────────────────────────────
 
+let backupInProgress = false;
+async function backupTask(operation) {
+  if (backupInProgress) throw Object.assign(new Error('Another backup is already in progress.'), {status:409});
+  backupInProgress = true;
+  try { return await operation(); } finally { backupInProgress = false; }
+}
+
 async function performBackup(isManual = false) {
-  const backupDir = path.join(dataDir, 'backups');
-  fs.mkdirSync(backupDir, { recursive: true });
+  return backupTask(async () => {
+    const backupDir = path.join(dataDir, 'backups');
+    fs.mkdirSync(backupDir, { recursive: true });
 
-  const now = new Date().toISOString();
-  const timestamp = now.replace(/[:.]/g, '-');
-  const filename = `backup-${timestamp}${isManual ? '-manual' : ''}.sqlite`;
-  const destPath = path.join(backupDir, filename);
+    const now = new Date().toISOString();
+    const timestamp = now.replace(/[:.]/g, '-');
+    const filename = `backup-${timestamp}${isManual ? '-manual' : ''}.sqlite`;
+    const destPath = path.join(backupDir, filename);
 
-  try {
-    await withDatabaseLock(() => rawRun(db, 'VACUUM INTO ?', [destPath]));
-  } catch (error) {
-    await fs.promises.rm(destPath, { force: true });
-    throw error;
+    try {
+      await withDatabaseLock(() => rawRun(db, 'VACUUM INTO ?', [destPath]));
+    } catch (error) {
+      await fs.promises.rm(destPath, { force: true });
+      throw error;
+    }
+    const setting = isManual ? 'lastManualBackupAt' : 'lastAutomatedBackupAt';
+    await setAppSetting(setting, now);
+    await pruneQuotaBackups();
+    return filename;
+  });
+}
+
+async function pruneQuotaBackups() {
+  if (!STORAGE_QUOTA_BYTES) return;
+  // Backups are outside the live-data allocation. Keep their disk use bounded
+  // on quota-managed instances: one manual download and two scheduled copies.
+  const directory = path.join(dataDir, 'backups');
+  const names = (await fs.promises.readdir(directory)).filter(name => /^backup-.*\.(?:sqlite|zip)$/.test(name)).sort().reverse();
+  for (const manual of [true, false]) {
+    const group = names.filter(name => /-manual\.sqlite$|-full\.zip$/.test(name) === manual);
+    for (const name of group.slice(manual ? 1 : 2)) await fs.promises.unlink(path.join(directory,name));
   }
-  const setting = isManual ? 'lastManualBackupAt' : 'lastAutomatedBackupAt';
-  await setAppSetting(setting, now);
-  return filename;
 }
 
 
@@ -378,21 +419,73 @@ function rawRun(connection, sql, params = []) {
   });
 }
 
+async function databaseAllocation(connection) {
+  const pragma = name => new Promise((resolve, reject) => connection.get(`PRAGMA ${name}`, (error, row) => error ? reject(error) : resolve(Object.values(row)[0])));
+  // Free SQLite pages are reusable, so deleting content must release allocation
+  // without requiring an expensive VACUUM after every save/delete.
+  return ((await pragma('page_count')) - (await pragma('freelist_count'))) * (await pragma('page_size'));
+}
+
+function quotaWrite(sql) {
+  const table = sql.match(/^\s*(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM)\s+[`"]?(\w+)/i)?.[1]?.toLowerCase();
+  if (!table) return false;
+  // Only bounded session/recovery bookkeeping may use the small reserve.
+  // OAuth requests, audit logs, imports and profiles still consume allocation.
+  if (['sessions','browser_sessions','app_settings'].includes(table)) return 'essential';
+  if (table === 'users' && /^\s*UPDATE/i.test(sql) && !/avatarDataUrl|displayName|email/i.test(sql)) return 'essential';
+  return 'content';
+}
+
+function executeDatabase(sql, operation) {
+  const transaction = databaseTransactionContext.getStore();
+  if (storageQuota.enabled && quotaWrite(sql) && !transaction?.active) {
+    return withDatabaseTransaction(() => executeDatabase(sql, operation));
+  }
+  if (transaction?.active && !transaction.exclusive && quotaWrite(sql)) {
+    transaction.quotaChanged = true;
+    if (quotaWrite(sql) !== 'essential') transaction.quotaEssentialOnly = false;
+  }
+  return queryDatabase(async connection => {
+    const result = await operation(connection);
+    if (storageQuota.enabled && !transaction?.active && /^\s*(?:INSERT|UPDATE|DELETE|REPLACE)/i.test(sql)) {
+      storageQuota.databaseBytes = await databaseAllocation(connection);
+    }
+    return result;
+  });
+}
+
 async function withDatabaseTransaction(operation) {
+  // Initialization during restore already owns the exclusive database lock.
+  // Reuse it (or an enclosing transaction) instead of waiting behind ourselves.
+  if (databaseTransactionContext.getStore()?.active) return operation();
   let committedEffects = [];
   const result = await withDatabaseLock(async () => {
-    await rawRun(db, 'BEGIN IMMEDIATE');
-    const transaction = { connection: db, afterCommit: [], active: true };
+    if (storageQuota.enabled) storageQuota.databaseBytes = await databaseAllocation(db);
+    const beforeBytes = storageQuota.usedBytes;
+    const transaction = { connection: db, afterCommit: [], afterRollback: [], releasedFiles: new Set(), quotaEssentialOnly: true, active: true };
+    let began = false;
     try {
+      await rawRun(db, 'BEGIN IMMEDIATE');
+      began = true;
       const result = await databaseTransactionContext.run(transaction, operation);
+      if (storageQuota.enabled) {
+        const bytes = await databaseAllocation(db);
+        const released = [...transaction.releasedFiles].reduce((sum, filename) => sum + (storageQuota.files.get(path.resolve(filename)) || 0), 0);
+        if (transaction.quotaChanged) storageQuota.checkDatabase(bytes, beforeBytes, released, transaction.quotaEssentialOnly);
+        else storageQuota.databaseBytes = bytes;
+      }
       await rawRun(db, 'COMMIT');
       transaction.active = false;
       committedEffects = transaction.afterCommit;
       return result;
     } catch (error) {
       transaction.active = false;
-      try { await rawRun(db, 'ROLLBACK'); }
+      try { if (began) await rawRun(db, 'ROLLBACK'); }
       catch (rollbackError) { console.error('SQLite rollback failed:', rollbackError.message); }
+      for (const effect of transaction.afterRollback.reverse()) {
+        try { await effect(); } catch (rollbackError) { console.error('File rollback failed:', rollbackError.message); }
+      }
+      if (storageQuota.enabled) storageQuota.databaseBytes = await databaseAllocation(db);
       throw error;
     }
   });
@@ -404,14 +497,19 @@ async function withDatabaseTransaction(operation) {
 }
 
 async function withDatabaseExclusive(operation) {
-  return withDatabaseLock(async () => {
-    const context = { connection: db, afterCommit: [], active: true, exclusive: true };
+  let effects = [];
+  const result = await withDatabaseLock(async () => {
+    const context = { connection: db, afterCommit: [], afterRollback: [], releasedFiles: new Set(), active: true, exclusive: true };
     try {
-      return await databaseTransactionContext.run(context, () => operation(connection => { context.connection = connection; }));
+      const result = await databaseTransactionContext.run(context, () => operation(connection => { context.connection = connection; }));
+      effects = context.afterCommit;
+      return result;
     } finally {
       context.active = false;
     }
   });
+  for (const effect of effects) await effect();
+  return result;
 }
 
 function afterDatabaseCommit(effect) {
@@ -420,18 +518,28 @@ function afterDatabaseCommit(effect) {
   else effect();
 }
 
+function afterDatabaseRollback(effect) {
+  const transaction = databaseTransactionContext.getStore();
+  if (transaction?.active) transaction.afterRollback.push(effect);
+}
+
+function removeFileAfterCommit(filename) {
+  databaseTransactionContext.getStore()?.releasedFiles?.add(filename);
+  afterDatabaseCommit(() => storageQuota.removeSync(filename));
+}
+
 function run(sql, params = []) {
-  return queryDatabase(connection => rawRun(connection, sql, params));
+  return executeDatabase(sql, connection => rawRun(connection, sql, params));
 }
 
 function get(sql, params = []) {
-  return queryDatabase(connection => new Promise((resolve, reject) => {
+  return executeDatabase(sql, connection => new Promise((resolve, reject) => {
     connection.get(sql, params, (error, row) => error ? reject(error) : resolve(row));
   }));
 }
 
 function all(sql, params = []) {
-  return queryDatabase(connection => new Promise((resolve, reject) => {
+  return executeDatabase(sql, connection => new Promise((resolve, reject) => {
     connection.all(sql, params, (error, rows) => error ? reject(error) : resolve(rows));
   }));
 }
@@ -469,20 +577,6 @@ function sendJsonWithPerf(res, trace, payload) {
   trace.end({ bytes: Buffer.byteLength(body) });
 }
 
-function plainText(value) {
-  return String(value || '')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 async function init() {
   await run('PRAGMA journal_mode = WAL');
@@ -990,6 +1084,7 @@ async function init() {
     )
   `);
   await run(`CREATE INDEX IF NOT EXISTS sync_changes_user_sequence_idx ON sync_changes(userId, sequence)`);
+  await sharedOrganization.init();
   await backfillImportedNoteLabels();
   await run(`
     CREATE TABLE IF NOT EXISTS note_collaborator_rejoin_grants (
@@ -1079,7 +1174,18 @@ async function init() {
   await validateOidcOnlyConfiguration({ get });
   await browserSessions.init();
   await workspaceSync.init();
+  if (STORAGE_QUOTA_BYTES) {
+    await run('CREATE INDEX IF NOT EXISTS sync_changes_resource_idx ON sync_changes(userId,resourceType,resourceSyncId,sequence)');
+    await run(`DELETE FROM sync_changes WHERE sequence NOT IN
+      (SELECT MAX(sequence) FROM sync_changes GROUP BY userId,resourceType,resourceSyncId)`);
+  }
   await workspaceImport.init();
+  await storageQuota.initialize(await databaseAllocation(db), [uploadDir, attachmentDir, takeoutTmpDir, path.join(dataDir, 'imports', 'workspaces')]);
+  await workspaceImport.prune();
+  if (await getAppSetting('rejoinGrantsOwnerRevocationFixed', '') !== '1') {
+    await run('DELETE FROM note_collaborator_rejoin_grants');
+    await setAppSetting('rejoinGrantsOwnerRevocationFixed', '1');
+  }
   const originalAdminUserId = await getAppSetting('originalAdminUserId', '');
   if (!originalAdminUserId) {
     const firstUser = await get('SELECT id FROM users ORDER BY id LIMIT 1');
@@ -1102,6 +1208,8 @@ function publicUser(user) {
     avatarDataUrl: user.avatarDataUrl || '',
     avatarPreset: user.avatarPreset || 'cat',
     showPastReminders: !!user.showPastReminders,
+    inheritSharedLabels: user.inheritSharedLabels !== 0,
+    inheritSharedBinders: user.inheritSharedBinders !== 0,
     totpEnabled: !!user.totpEnabled,
     hasBackupCodes: !!user.totpBackupCodes,
     email: user.email || '',
@@ -1159,14 +1267,7 @@ async function deleteAttachmentFilesForNote(noteId) {
     if (attachment.syncId) await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
       WHERE resourceType = 'attachment' AND resourceSyncId = ? AND state = 'active'`, [new Date().toISOString(), attachment.syncId]);
   }
-  afterDatabaseCommit(() => {
-    for (const attachment of attachments) {
-      const filePath = attachmentPath(attachment.storedFilename);
-      if (fs.existsSync(filePath)) {
-        try { fs.unlinkSync(filePath); } catch {}
-      }
-    }
-  });
+  for (const attachment of attachments) removeFileAfterCommit(attachmentPath(attachment.storedFilename));
 }
 
 function generateBackupCodes() {
@@ -1201,19 +1302,17 @@ const browserSessions = createBrowserSessions({
   ttlMs: SESSION_TTL_DAYS * 24 * 60 * 60 * 1000
 });
 
+const sharedOrganization = createSharedNoteOrganization({ run, get, all, compareLwwStamp, serverLwwStamp,
+  normalizeLabelsForUser, getAccessibleNote, recordNoteSyncChange, broadcastRealtime, withDatabaseTransaction });
+
 const workspaceSync = createWorkspaceSync({ run, get, all, appendSyncChange, normalizeLwwStamp,
   compareLwwStamp, serverLwwStamp, publicUser, noteSyncSnapshot, enrichReminderResponse,
-  parseLocationSavedPlacePayload, recordNoteSyncChange, updateNoteLabelReferencesForUser, withDatabaseTransaction, attachmentResponse, getAccessibleNote });
+  parseLocationSavedPlacePayload, recordNoteSyncChange, updateNoteLabelReferencesForUser, withDatabaseTransaction, attachmentResponse, getAccessibleNote, sharedOrganization, compactReceipts: !!STORAGE_QUOTA_BYTES });
 
 const workspaceImport = createWorkspaceImport({ run,get,all,withDatabaseTransaction,dataDir,uploadDir,attachmentDir,
   workspaceSync,serverLwwStamp,applyNote:applySyncNoteMutation,applyReminder:applySyncReminderMutation,
-  safeImageTypes:SAFE_IMAGE_TYPES,safeAttachmentExtension,safeDownloadName,recordAttachmentSyncChange,afterDatabaseCommit });
+  safeImageTypes:SAFE_IMAGE_TYPES,safeAttachmentExtension,safeDownloadName,recordAttachmentSyncChange,afterDatabaseCommit,afterDatabaseRollback,storageQuota,removeFileAfterCommit });
 
-function validateEmail(email) {
-  if (!email) return true; // optional for admin-created users
-  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return re.test(String(email).trim());
-}
 
 async function getAppSetting(key, defaultValue) {
   const row = await get('SELECT value FROM app_settings WHERE key = ?', [key]);
@@ -1245,7 +1344,7 @@ async function deleteOwnedFilesForUser(userId) {
     if (stillUsed) continue;
     await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
       WHERE userId = ? AND resourceType = 'image' AND resourceSyncId = ? AND state = 'active'`, [new Date().toISOString(), userId, filename]);
-    afterDatabaseCommit(() => { try { fs.unlinkSync(path.join(uploadDir, filename)); } catch {} });
+    removeFileAfterCommit(path.join(uploadDir, filename));
   }
 }
 
@@ -1261,6 +1360,7 @@ async function createUser({ username, displayName, password, role, email, enable
   const cleanPassword = String(password || '');
   const cleanEmail = email ? String(email).trim() : null;
 
+  if (cleanUsername.length > 80 || cleanDisplayName.length > 160 || cleanPassword.length > 4096) throw Object.assign(new Error('Account details are too long.'), { status: 400 });
   if (cleanUsername.length < 3) {
     const error = new Error('Username must be at least 3 characters.');
     error.status = 400;
@@ -1361,7 +1461,7 @@ const KNOWN_NOTE_FIELDS = new Set([
   'completedChecklistCollapsed', 'archived', 'trashed', 'trashedAt', 'sortOrder', 'createdAt', 'updatedAt',
   'lwwPhysicalMs', 'lwwLogical', 'lwwDeviceId', 'lwwOperationId', 'collaborators', 'ownerDisplayName',
   'ownerUsername', 'ownerAvatarDataUrl', 'ownerAvatarPreset', 'lastEditorUserId', 'lastEditorDisplayName',
-  'isDemo', 'extraFields'
+  'isDemo', 'extraFields', 'sharedOrganization'
 ]);
 
 function noteExtraFields(payload) {
@@ -1390,35 +1490,60 @@ function canonicalizeNotePayload(payload) {
 // (or a restarted provisioning job) can't create it twice.
 async function createManagedWelcomeNoteIfNeeded(user, baseUrl) {
   if (!MANAGED_HOSTING_ENABLED) return;
-  const already = await getAppSetting('managedWelcomeNoteCreated', '');
-  if (already === '1') return;
+  await withDatabaseTransaction(async () => {
+    if (await getAppSetting('managedWelcomeNoteCreated', '') === '1') return;
+    const providerName = MANAGED_PROVIDER_NAME || 'your hosting provider';
+    const provider = escapeHtml(providerName);
+    const origin = escapeHtml(stripTrailingSlashes(baseUrl || ''));
+    const parts = [
+      '<p>Your Kept space is ready. Make yourself at home!</p>',
+      '<h3>🌐 Your Kept address</h3>',
+      `<p><a href="${origin}" target="_blank">${origin}</a></p>`,
+      '<p>Use this address to open Kept in your browser or connect a mobile app.</p>',
+      '<h3>📱 Take Kept with you</h3>',
+      '<p><a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank">Get Kept for iPhone &amp; iPad</a><br>' +
+        '<a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank">Get Kept for Android</a></p>',
+      '<p>Connect to the Kept address above to keep your notes with you across devices.</p>',
+      '<h3>☁️ Your space, taken care of</h3>'
+    ];
+    if (STORAGE_QUOTA_BYTES) {
+      const gib = Math.round(STORAGE_QUOTA_BYTES / (1024 * 1024 * 1024));
+      parts.push(`<p>Your plan includes <strong>${gib} GB of storage</strong>.</p>`);
+    }
+    parts.push(`<p>Photos and attachments can be up to <strong>${MAX_FILE_BYTES / (1024 * 1024)} MiB each</strong>.</p>`);
+    parts.push(`<p>${provider} handles server backups and updates automatically, so you can focus on your notes.</p>`);
+    if (MANAGED_ACCOUNT_URL) {
+      parts.push(`<p><a href="${escapeHtml(MANAGED_ACCOUNT_URL)}" target="_blank">Manage your subscription</a></p>`);
+    }
+    const now = new Date().toISOString();
+    const syncId = `note-${crypto.randomUUID()}`;
+    const result = await run(
+      `INSERT INTO notes
+        (ownerUserId, syncId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        user.id, syncId, `Welcome to ${provider}!`, sanitizeNoteHtml(parts.join('')),
+        '', '', '[]', '[]', 0, '[]', '', JSON.stringify({ linkPreviews: false }), 0, '', '', 0, 0, null, Date.now(), now, now, user.id, 0
+      ]
+    );
+    await run('INSERT INTO user_pins(userId,noteId) VALUES(?,?)', [user.id,result.id]);
+    await setAppSetting('managedWelcomeNoteId', String(result.id));
+    await setAppSetting('managedWelcomeNoteCreated', '1');
+    await recordNoteSyncChange(result.id, 'upsert', [user.id]);
+    broadcastRealtime([user.id], { type: 'notes-changed' });
+  });
+}
 
-  const providerName = MANAGED_PROVIDER_NAME || 'your hosting provider';
-  const origin = String(baseUrl || '').replace(/\/+$/, '');
-  const parts = [`<p>Your Kept web address:<br><a href="${origin}">${origin}</a></p>`];
-  if (MANAGED_ACCOUNT_URL) {
-    parts.push(`<p>Manage your subscription with ${providerName}:<br><a href="${MANAGED_ACCOUNT_URL}">${MANAGED_ACCOUNT_URL}</a></p>`);
-  }
-  if (STORAGE_QUOTA_BYTES) {
-    const gib = Math.round(STORAGE_QUOTA_BYTES / (1024 * 1024 * 1024));
-    parts.push(`<p>Your plan includes ${gib} GB of storage.</p>`);
-  }
-  parts.push(`<p>This server is backed up and updated automatically by ${providerName}.</p>`);
-
-  const now = new Date().toISOString();
-  const syncId = `note-${crypto.randomUUID()}`;
-  const result = await run(
-    `INSERT INTO notes
-      (ownerUserId, syncId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      user.id, syncId, `Welcome to ${providerName} ☁️`, parts.join(''),
-      '', '', '[]', '[]', 0, '[]', '', '{}', 0, '', '', 0, 0, null, Date.now(), now, now, user.id, 0
-    ]
-  );
-  await setAppSetting('managedWelcomeNoteCreated', '1');
-  await recordNoteSyncChange(result.id, 'upsert', [user.id]);
-  broadcastRealtime([user.id], { type: 'notes-changed' });
+// Starter notes arrive after setup. Keep their pinned example below the welcome
+// note without imposing a permanent priority on subsequent user pins or reorders.
+async function positionStarterBelowManagedWelcome(noteId, userId) {
+  if (!MANAGED_HOSTING_ENABLED) return;
+  const welcomeId = Number(await getAppSetting('managedWelcomeNoteId', ''));
+  if (!welcomeId || welcomeId === noteId) return;
+  const welcome = await getAccessibleNote(welcomeId, userId);
+  if (!welcome || welcome.ownerUserId !== userId || !welcome.userPinned || welcome.trashed || welcome.archived) return;
+  await run('INSERT OR REPLACE INTO user_note_positions(userId,noteId,sortOrder) VALUES(?,?,?)',
+    [userId,noteId,Number(welcome.effectiveSortOrder || welcome.sortOrder) - 1]);
 }
 
 function imageMimeType(filename) {
@@ -1433,8 +1558,8 @@ function imageMimeType(filename) {
 function extractNoteImageFilenames(note) {
   const filenames = new Set();
   const body = String(note?.noteBody || '');
-  for (const match of body.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
-    const filename = localImageFilenameFromUrl(match[1]);
+  for (const source of imageSources(body)) {
+    const filename = localImageFilenameFromUrl(source);
     if (filename) filenames.add(filename);
   }
   for (const image of Array.isArray(note?.images) ? note.images : []) {
@@ -1445,6 +1570,7 @@ function extractNoteImageFilenames(note) {
 }
 
 function dbNoteToApi(row) {
+  row = sharedOrganization.project(row);
   const pinned = row.userPinned !== undefined ? row.userPinned : row.pinned;
   return sanitizeNoteContent({
     ...parseJson(row.extraFields || '{}', {}),
@@ -1459,6 +1585,7 @@ function dbNoteToApi(row) {
     checkBoxes: parseJson(row.checkBoxes, []),
     images: parseJson(row.images || '[]', []),
     isCbox: Boolean(row.isCbox),
+    sharedOrganization: row.sharedOrganization,
     labels: appliedNoteLabels(parseJson(row.labels, [])),
     binder: row.binder || '',
     locked: Boolean(row.locked),
@@ -1528,6 +1655,9 @@ function compareLwwStamp(left, right) {
 }
 
 async function appendSyncChange(userIds, resourceType, resourceSyncId, operation, payload, stamp) {
+  if (STORAGE_QUOTA_BYTES && !databaseTransactionContext.getStore()?.active) {
+    return withDatabaseTransaction(() => appendSyncChange(userIds, resourceType, resourceSyncId, operation, payload, stamp));
+  }
   const changedAt = new Date().toISOString();
   for (const userId of [...new Set((userIds || []).map(Number).filter(Boolean))]) {
     await run(
@@ -1547,6 +1677,13 @@ async function appendSyncChange(userIds, resourceType, resourceSyncId, operation
         changedAt
       ]
     );
+    if (STORAGE_QUOTA_BYTES) {
+      // Changes carry complete LWW snapshots. Keep the latest per resource,
+      // including deletes, so even old cursors receive its current state.
+      await run(`DELETE FROM sync_changes WHERE userId = ? AND resourceType = ? AND resourceSyncId = ?
+        AND sequence < (SELECT MAX(sequence) FROM sync_changes WHERE userId = ? AND resourceType = ? AND resourceSyncId = ?)`,
+      [userId,resourceType,resourceSyncId,userId,resourceType,resourceSyncId]);
+    }
   }
 }
 
@@ -1657,7 +1794,8 @@ function searchOperatorsFromQuery(query) {
   return operators;
 }
 
-function noteOperatorWhere(operators) {
+function noteOperatorWhere(operators, organizationVisible = false) {
+  const labelField = organizationVisible ? 'visibleLabels' : 'labels';
   const clauses = [];
   const params = [];
   if (operators.hasImage) {
@@ -1669,7 +1807,7 @@ function noteOperatorWhere(operators) {
   }
   if (operators.hasCheckbox) clauses.push(`(isCbox = 1 OR (COALESCE(checkBoxes, '') <> '' AND COALESCE(checkBoxes, '') <> '[]'))`);
   if (operators.hasDrawing) clauses.push(`LOWER(COALESCE(images, '')) LIKE '%"id":"drawing"%'`);
-  if (operators.hasAnyLabel) clauses.push(`COALESCE(labels, '') <> '' AND COALESCE(labels, '') <> '[]'`);
+  if (operators.hasAnyLabel) clauses.push(`COALESCE(${labelField}, '') <> '' AND COALESCE(${labelField}, '') <> '[]'`);
   if (operators.hasUrl) {
     clauses.push(`(
       LOWER(COALESCE(noteTitle, '')) LIKE '%http://%'
@@ -1680,13 +1818,15 @@ function noteOperatorWhere(operators) {
   }
   if (operators.hasAttachment) clauses.push(`attachmentCount > 0`);
   for (const label of operators.labels) {
-    clauses.push(`LOWER(REPLACE(COALESCE(labels, ''), ' ', '-')) LIKE ?`);
+    clauses.push(`LOWER(REPLACE(COALESCE(${labelField}, ''), ' ', '-')) LIKE ?`);
     params.push(`%${label}%`);
   }
   return { clauses, params };
 }
 
 function noteSearchWhere(tokens, options = {}) {
+  const labelField = options.organizationVisible ? 'visibleLabels' : 'labels';
+  const binderField = options.organizationVisible ? 'visibleBinder' : 'binder';
   const params = [];
   const conditions = tokens.map(token => {
     const like = `%${token}%`;
@@ -1695,14 +1835,14 @@ function noteSearchWhere(tokens, options = {}) {
       return `(
         (locked = 1 AND (
           LOWER(COALESCE(noteTitle, '')) LIKE ?
-          OR LOWER(COALESCE(labels, '')) LIKE ?
-          OR LOWER(COALESCE(binder, '')) LIKE ?
+          OR LOWER(COALESCE(${labelField}, '')) LIKE ?
+          OR LOWER(COALESCE(${binderField}, '')) LIKE ?
         ))
         OR (locked = 0 AND (
           LOWER(COALESCE(noteTitle, '')) LIKE ?
           OR LOWER(COALESCE(noteBody, '')) LIKE ?
           OR LOWER(COALESCE(checkBoxes, '')) LIKE ?
-          OR LOWER(COALESCE(labels, '')) LIKE ?
+          OR LOWER(COALESCE(${labelField}, '')) LIKE ?
           OR LOWER(COALESCE(attachmentNames, '')) LIKE ?
         ))
       )`;
@@ -1711,7 +1851,7 @@ function noteSearchWhere(tokens, options = {}) {
     return `(LOWER(COALESCE(noteTitle, '')) LIKE ?
       OR LOWER(COALESCE(noteBody, '')) LIKE ?
       OR LOWER(COALESCE(checkBoxes, '')) LIKE ?
-      OR LOWER(COALESCE(labels, '')) LIKE ?
+      OR LOWER(COALESCE(${labelField}, '')) LIKE ?
       OR LOWER(COALESCE(attachmentNames, '')) LIKE ?)`;
   });
   return { clause: conditions.join(' AND '), params };
@@ -1735,6 +1875,7 @@ function cardNoteBody(row, previewText) {
 }
 
 function cardSearchText(row) {
+  row = sharedOrganization.project(row);
   if (row.locked) return [row.noteTitle || '', row.labels || '', row.binder || ''].join(' ');
   return [
     row.noteTitle || '',
@@ -1747,6 +1888,7 @@ function cardSearchText(row) {
 }
 
 function dbNoteToCard(row, options = {}) {
+  row = sharedOrganization.project(row);
   const includeSearchText = !!options.includeSearchText;
   const locked = Boolean(row.locked);
   const pinned = row.userPinned !== undefined ? row.userPinned : row.pinned;
@@ -1770,8 +1912,10 @@ function dbNoteToCard(row, options = {}) {
     checkBoxes: locked ? [] : (Array.isArray(checkBoxes) ? checkBoxes.slice(0, 8) : []),
     images: locked ? [] : images,
     hasMoreImages: false,
+    ...(parseJson(row.extraFields || '{}', {}).linkPreviews === false ? { linkPreviews: false } : {}),
     isCbox: Boolean(row.isCbox),
     labels,
+    sharedOrganization: row.sharedOrganization,
     binder: row.binder || '',
     locked,
     lockSalt: row.lockSalt || '',
@@ -1803,6 +1947,7 @@ function dbNoteToCard(row, options = {}) {
 }
 
 function noteSummaryFromRow(row) {
+  row = sharedOrganization.project(row);
   const locked = Boolean(row.locked);
   const checkBoxes = parseJson(row.checkBoxes || '[]', []);
   const labels = appliedNoteLabels(parseJson(row.labels || '[]', []));
@@ -1817,6 +1962,7 @@ function noteSummaryFromRow(row) {
     bodyPreview: locked ? '' : notePreviewText(row),
     type: hasDrawing ? 'drawing' : (row.isCbox || hasChecklist ? 'todo' : 'text'),
     labels,
+    sharedOrganization: row.sharedOrganization,
     binder: row.binder || '',
     locked: Boolean(row.locked),
     lockSalt: row.lockSalt || '',
@@ -1837,7 +1983,7 @@ async function accessibleNoteSummaryRows(userId, options = {}) {
   const query = String(options.query || '').trim();
   const noteId = Number(options.noteId || 0);
   const searchTokens = searchTokensFromQuery(query);
-  const searchWhere = noteSearchWhere(searchTokens, { protectLockedContent: !!options.protectLockedContent });
+  const searchWhere = noteSearchWhere(searchTokens, { protectLockedContent: !!options.protectLockedContent, organizationVisible: true });
   const whereClauses = [];
   const params = [userId, userId, userId, userId];
 
@@ -1853,7 +1999,7 @@ async function accessibleNoteSummaryRows(userId, options = {}) {
 
   return await all(
     `WITH accessible_notes AS (
-      SELECT notes.*,
+      SELECT notes.*, ${sharedOrganization.fields(userId)},
              COALESCE(pos.sortOrder, notes.sortOrder, notes.id) AS effectiveSortOrder,
              CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
              (SELECT GROUP_CONCAT(nc.userId) FROM note_collaborators nc WHERE nc.noteId = notes.id) AS collaboratorIds,
@@ -2267,16 +2413,17 @@ async function smartCreateNote(userId, action, options = {}) {
   const checkBoxes = isTodo
     ? (action.items || []).map((item, index) => ({ id: Date.now() + index, data: item, done: false }))
     : [];
+  const content = sanitizeNoteContent({ noteTitle: action.title, noteBody: action.text, checkBoxes });
   const result = await run(
     `INSERT INTO notes
 	     (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
 	     VALUES (?, ?, ?, ?, '', ?, '[]', ?, ?, '', 0, 0, NULL, ?, ?, ?, ?, 0)`,
 	    [
 	      userId,
-	      action.title || '',
-	      isTodo ? (action.text || '') : (action.text || ''),
+	      content.noteTitle,
+	      content.noteBody,
 	      String(action.bgColor || ''),
-	      JSON.stringify(checkBoxes),
+	      JSON.stringify(content.checkBoxes),
       isTodo ? 1 : 0,
       JSON.stringify(labels),
       Date.now(),
@@ -2292,7 +2439,7 @@ async function smartAppendToNote(userId, noteId, text) {
   const note = await getAccessibleNote(noteId, userId);
   if (!note) throw new Error(`Note ${noteId} is not accessible.`);
   const separator = note.noteBody && String(note.noteBody).trim() ? '<br>' : '';
-  const nextBody = `${note.noteBody || ''}${separator}${escapeHtml(text)}`;
+  const nextBody = sanitizeNoteHtml(`${note.noteBody || ''}${separator}${escapeHtml(text)}`);
   await run('UPDATE notes SET noteBody = ?, updatedAt = ?, lastEditorUserId = ? WHERE id = ?', [
     nextBody,
     new Date().toISOString(),
@@ -2309,7 +2456,7 @@ async function smartAddChecklistItems(userId, noteId, items) {
   const base = Date.now();
   const next = [
     ...current,
-    ...items.map((item, index) => ({ id: base + index, data: item, done: false }))
+    ...items.map((item, index) => ({ id: base + index, data: sanitizeNoteHtml(item), done: false }))
   ];
   await run('UPDATE notes SET checkBoxes = ?, isCbox = 1, updatedAt = ?, lastEditorUserId = ? WHERE id = ?', [
     JSON.stringify(next),
@@ -2552,7 +2699,7 @@ function decodeNotesCursor(cursor) {
 async function cleanupUnusedLabels(userId, candidateIds = []) {
   if (!Array.isArray(candidateIds) || !candidateIds.length) return;
   try {
-    const notes = await all('SELECT labels FROM notes WHERE ownerUserId = ?', [userId]);
+    const notes = await all('SELECT labels FROM notes WHERE ownerUserId = ? UNION ALL SELECT labels FROM user_note_organization WHERE userId = ?', [userId,userId]);
     const usedLabelNames = new Set();
     notes.forEach(note => {
       const labels = parseJson(note.labels, []);
@@ -2577,6 +2724,7 @@ async function cleanupUnusedLabels(userId, candidateIds = []) {
 }
 
 async function updateNoteLabelReferencesForUser(userId, labelId, labelValue, options = {}) {
+  await sharedOrganization.renameLabel(userId, labelId, labelValue, options.oldName, options.stamp);
   const oldName = String(options.oldName || '').trim().toLowerCase();
   const rows = await all('SELECT id, labels FROM notes WHERE ownerUserId = ?', [userId]);
   const recipientIds = new Set([userId]);
@@ -2691,7 +2839,7 @@ async function syncNoteImagesForNote(noteId, ownerUserId, note) {
     await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
       WHERE resourceType = 'image' AND resourceSyncId = ? AND state = 'active'`, [new Date().toISOString(), row.storedFilename]);
     const filename = safeStoredImageFilename(row.storedFilename);
-    if (filename) afterDatabaseCommit(() => { try { fs.unlinkSync(path.join(uploadDir, filename)); } catch {} });
+    if (filename) removeFileAfterCommit(path.join(uploadDir, filename));
   }
   for (const filename of filenames) {
     const filePath = path.join(uploadDir, filename);
@@ -2738,7 +2886,7 @@ async function deleteImageFilesForNote(noteId) {
     if (stillUsed) continue;
     await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
       WHERE userId = ? AND resourceType = 'image' AND resourceSyncId = ? AND state = 'active'`, [new Date().toISOString(), row.ownerUserId, filename]);
-    afterDatabaseCommit(() => { try { fs.unlinkSync(path.join(uploadDir, filename)); } catch {} });
+    removeFileAfterCommit(path.join(uploadDir, filename));
   }
 }
 
@@ -2785,31 +2933,33 @@ function asyncRoute(handler) {
   return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 }
 
-// ─── Rate limiting ─────────────────────────────────────────────────────────
-const rateBuckets = new Map();
-function rateLimit({ windowMs, max, key }) {
-  return (req, res, next) => {
-    const bucketKey = `${key}:${(typeof key === 'function' ? key(req) : req.ip)}`;
-    const now = Date.now();
-    let bucket = rateBuckets.get(bucketKey);
-    if (!bucket || bucket.resetAt <= now) {
-      bucket = { count: 0, resetAt: now + windowMs };
-      rateBuckets.set(bucketKey, bucket);
+// JSON/empty write routes must commit before acknowledging success. Holding the
+// database queue for the whole handler also makes their permission checks atomic.
+function databaseRoute(handler) {
+  return asyncRoute(async (req, res) => {
+    const send = res.send, end = res.end;
+    let reply;
+    const rejected = Symbol('rejected response');
+    res.send = (...args) => { reply = () => send.apply(res, args); return res; };
+    res.end = (...args) => { reply = () => end.apply(res, args); return res; };
+    try {
+      await withDatabaseTransaction(async () => {
+        await handler(req, res);
+        if (res.statusCode >= 400) throw rejected;
+      });
+    } catch (error) {
+      if (error !== rejected) throw error;
+    } finally {
+      res.send = send;
+      res.end = end;
     }
-    bucket.count += 1;
-    if (bucket.count > max) {
-      const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
-      res.setHeader('Retry-After', String(retryAfter));
-      return res.status(429).json({ error: 'Too many requests. Please slow down.' });
-    }
-    next();
-  };
+    if (reply) reply();
+  });
 }
-// Periodically prune stale buckets to keep memory bounded.
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of rateBuckets) if (v.resetAt <= now) rateBuckets.delete(k);
-}, 60_000).unref?.();
+
+// ─── Rate limiting ─────────────────────────────────────────────────────────
+const { rateLimit, prune: pruneRateLimits } = createRequestLimits();
+setInterval(pruneRateLimits, 60_000).unref?.();
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, key: 'login' });
 const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, key: 'register' });
@@ -2817,6 +2967,12 @@ const setupLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, key: 'setup'
 const oauthRegistrationLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 30, key: 'oauth-register' });
 const inviteLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, key: 'invite' });
 const inviteAcceptLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, key: 'invite-accept' });
+const credentialChangeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, key: 'credential-change', perUser: true });
+const backupLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 6, key: 'backup', perUser: true });
+const importLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 6, key: 'takeout-import', perUser: true });
+const previewLimiter = rateLimit({ windowMs: 60 * 1000, max: 600, key: 'outbound-preview', perUser: true });
+const integrationLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, key: 'integration-test', perUser: true });
+const oauthTokenLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, key: 'oauth-token' });
 
 const totpFailures = new Map(); // userId -> { count, lockedUntil }
 function checkTotpLock(userId) {
@@ -2886,7 +3042,7 @@ function hasOAuthScope(access, scope) {
 }
 
 function sendAuthenticationRequired(req, res) {
-  const origin = String(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+  const origin = stripTrailingSlashes(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`);
   res.set('WWW-Authenticate', `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api"`);
   return res.status(401).json({ error: 'Authentication required.' });
 }
@@ -2975,7 +3131,7 @@ function requireAdmin(req, res, next) {
 
 async function getAccessibleNote(noteId, userId) {
   return await get(
-    `SELECT notes.*,
+    `SELECT notes.*, ${sharedOrganization.fields(userId)},
      COALESCE(pos.sortOrder, notes.sortOrder, notes.id) AS effectiveSortOrder,
      CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
      COALESCE(view_state.completedChecklistCollapsed, 0) AS completedChecklistCollapsed,
@@ -3676,7 +3832,9 @@ app.use('/api', (_req, res, next) => {
   });
   next();
 });
-app.use(express.json({ limit: '25mb' }));
+const parseJsonBody = express.json({ limit: '25mb' });
+// Remote MCP authenticates before parsing its body and applies its own limit.
+app.use((req, res, next) => /^\/mcp\/?$/i.test(req.path) ? next() : parseJsonBody(req, res, next));
 app.use(browserSessions.middleware);
 app.get('/api/auth/browser/session', asyncRoute(browserSessions.status));
 app.post('/api/auth/browser/adopt', browserSessions.protect, requireAuth, asyncRoute(async (req, res) => {
@@ -3687,7 +3845,7 @@ app.post('/api/auth/browser/adopt', browserSessions.protect, requireAuth, asyncR
 mountOAuthAndMcpRoutes(app, {
   get, all, run, asyncRoute, requireAuth, createSession, browserSessions,
   createUser, getAppSetting, withDatabaseTransaction, registerLimiter,
-  oauthRegistrationLimiter, internalBaseUrl: `http://127.0.0.1:${port}`
+  oauthRegistrationLimiter, oauthTokenLimiter, internalBaseUrl: `http://127.0.0.1:${port}`
 });
 
 app.get('/api/setup/status', asyncRoute(async (_req, res) => {
@@ -3727,7 +3885,7 @@ app.post('/api/setup/admin', setupLimiter, asyncRoute(async (req, res) => {
 }));
 
 const RESTORE_MAX_BYTES = parseByteSize(process.env.KEPT_BACKUP_UPLOAD_MAX, 20 * 1024 ** 3);
-const restoreUpload = multer({ dest: path.join(dataDir, 'backups'), limits: { fileSize: RESTORE_MAX_BYTES, files: 1, fields: 0 } }).single('backup');
+const restoreUpload = multer({ dest: path.join(dataDir, 'backups'), limits: { ...MULTIPART_FIELD_LIMITS, fileSize: RESTORE_MAX_BYTES, files: 1, fields: 0 } }).single('backup');
 let restoreInProgress = false;
 app.post('/api/setup/restore', setupLimiter, asyncRoute(async (req, res, next) => {
   // Check these before accepting any bytes, then recheck users under the
@@ -3780,6 +3938,7 @@ app.post('/api/setup/restore', setupLimiter, asyncRoute(async (req, res, next) =
         } finally {
           db = configureDatabase(new sqlite3.Database(dbPath));
           setConnection(db);
+          await storageQuota.initialize(await databaseAllocation(db), [uploadDir, attachmentDir, takeoutTmpDir, path.join(dataDir, 'imports', 'workspaces')]);
         }
         throw error;
       }
@@ -3868,7 +4027,7 @@ app.get('/api/setup/2fa/generate', asyncRoute(async (req, res) => {
   res.json({ secret, qrCodeUrl });
 }));
 
-app.get('/api/auth/2fa/generate', requireAuth, asyncRoute(async (req, res) => {
+app.get('/api/auth/2fa/generate', requireAuth, credentialChangeLimiter, asyncRoute(async (req, res) => {
   const secret = generateTotpSecret();
   const otpauthUrl = buildTotpKeyUri(req.user.username, 'Kept', secret);
   const qrCodeUrl = await qrcode.toDataURL(otpauthUrl);
@@ -3876,7 +4035,7 @@ app.get('/api/auth/2fa/generate', requireAuth, asyncRoute(async (req, res) => {
   res.json({ secret, qrCodeUrl });
 }));
 
-app.post('/api/auth/2fa/enable', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/auth/2fa/enable', requireAuth, credentialChangeLimiter, asyncRoute(async (req, res) => {
   const { secret, token } = req.body;
   if (!secret || !token) return res.status(400).json({ error: 'Secret and token required.' });
 
@@ -3890,7 +4049,7 @@ app.post('/api/auth/2fa/enable', requireAuth, asyncRoute(async (req, res) => {
   res.json({ success: true, backupCodes });
 }));
 
-app.delete('/api/auth/2fa/disable', requireAuth, asyncRoute(async (req, res) => {
+app.delete('/api/auth/2fa/disable', requireAuth, credentialChangeLimiter, asyncRoute(async (req, res) => {
   await run('UPDATE users SET totpSecret = NULL, totpEnabled = 0, totpBackupCodes = NULL WHERE id = ?', [req.user.id]);
   res.json({ success: true });
 }));
@@ -3933,12 +4092,20 @@ app.patch('/api/users/me/preferences', requireAuth, asyncRoute(async (req, res) 
     assignments.push('showPastReminders = ?');
     params.push(req.body.showPastReminders ? 1 : 0);
   }
+  for (const field of ['inheritSharedLabels', 'inheritSharedBinders']) {
+    if (req.body[field] === undefined) continue;
+    if (typeof req.body[field] !== 'boolean') return res.status(400).json({ error: `${field} must be a boolean.` });
+    assignments.push(`${field} = ?`); params.push(Number(req.body[field]));
+  }
   if (assignments.length) {
     params.push(req.user.id);
     await run(`UPDATE users SET ${assignments.join(', ')} WHERE id = ?`, params);
   }
   const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
-  await withDatabaseTransaction(() => workspaceSync.capture(req.user.id));
+  await withDatabaseTransaction(async () => {
+    await workspaceSync.capture(req.user.id);
+    await sharedOrganization.preferencesChanged(req.user.id, req.body);
+  });
   res.json(publicUser(user));
 }));
 
@@ -3995,8 +4162,7 @@ app.get('/api/users/me/mcp-access', requireAuth, asyncRoute(async (req, res) => 
 app.post('/api/users/me/mcp-access/enable', requireAuth, asyncRoute(async (req, res) => {
   const rawToken = `kept_mcp_${randomHex(32)}`;
   const now = new Date().toISOString();
-  await run('BEGIN IMMEDIATE');
-  try {
+  await withDatabaseTransaction(async () => {
     await run(
       `DELETE FROM external_unlock_challenges
        WHERE principalType = 'mcp' AND principalId IN (SELECT id FROM mcp_tokens WHERE userId = ?)`,
@@ -4008,11 +4174,7 @@ app.post('/api/users/me/mcp-access/enable', requireAuth, asyncRoute(async (req, 
       [req.user.id, mcpTokenHash(rawToken), `${rawToken.slice(0, 17)}…`, now]
     );
     await run('UPDATE users SET mcpEnabled = 1 WHERE id = ?', [req.user.id]);
-    await run('COMMIT');
-  } catch (error) {
-    await run('ROLLBACK');
-    throw error;
-  }
+  });
   const user = await get('SELECT * FROM users WHERE id = ?', [req.user.id]);
   const token = await get('SELECT tokenPrefix, createdAt, lastUsedAt FROM mcp_tokens WHERE userId = ? ORDER BY id DESC LIMIT 1', [req.user.id]);
   res.status(201).json({ ...mcpAccessResponse(user, token), accessToken: rawToken });
@@ -4060,8 +4222,7 @@ app.patch('/api/users/me/external-access/capabilities', requireAuth, asyncRoute(
 }));
 
 app.delete('/api/users/me/mcp-access', requireAuth, asyncRoute(async (req, res) => {
-  await run('BEGIN IMMEDIATE');
-  try {
+  await withDatabaseTransaction(async () => {
     await run(
       `DELETE FROM external_unlock_challenges
        WHERE principalType = 'mcp' AND principalId IN (SELECT id FROM mcp_tokens WHERE userId = ?)`,
@@ -4069,11 +4230,7 @@ app.delete('/api/users/me/mcp-access', requireAuth, asyncRoute(async (req, res) 
     );
     await run('DELETE FROM mcp_tokens WHERE userId = ?', [req.user.id]);
     await run('UPDATE users SET mcpEnabled = 0 WHERE id = ?', [req.user.id]);
-    await run('COMMIT');
-  } catch (error) {
-    await run('ROLLBACK');
-    throw error;
-  }
+  });
   res.status(204).end();
 }));
 
@@ -4093,21 +4250,15 @@ app.delete('/api/users/me/oauth-access/connections/:grantId', requireAuth, async
   if (!Number.isInteger(grantId) || grantId <= 0) return res.status(400).json({ error: 'Invalid OAuth connection.' });
   const grant = await get('SELECT id FROM oauth_grants WHERE id = ? AND userId = ?', [grantId, req.user.id]);
   if (!grant) return res.status(404).json({ error: 'OAuth connection not found.' });
-  await run('BEGIN IMMEDIATE');
-  try {
+  await withDatabaseTransaction(async () => {
     await run("DELETE FROM external_unlock_challenges WHERE principalType = 'oauth' AND principalId = ?", [grantId]);
     await run('DELETE FROM oauth_grants WHERE id = ? AND userId = ?', [grantId, req.user.id]);
-    await run('COMMIT');
-  } catch (error) {
-    await run('ROLLBACK');
-    throw error;
-  }
+  });
   res.status(204).end();
 }));
 
 app.delete('/api/users/me/oauth-access', requireAuth, asyncRoute(async (req, res) => {
-  await run('BEGIN IMMEDIATE');
-  try {
+  await withDatabaseTransaction(async () => {
     await run(
       `DELETE FROM external_unlock_challenges
        WHERE principalType = 'oauth' AND principalId IN (SELECT id FROM oauth_grants WHERE userId = ?)`,
@@ -4115,11 +4266,7 @@ app.delete('/api/users/me/oauth-access', requireAuth, asyncRoute(async (req, res
     );
     await run('DELETE FROM oauth_grants WHERE userId = ?', [req.user.id]);
     await run('UPDATE users SET oauthEnabled = 0 WHERE id = ?', [req.user.id]);
-    await run('COMMIT');
-  } catch (error) {
-    await run('ROLLBACK');
-    throw error;
-  }
+  });
   res.status(204).end();
 }));
 
@@ -4135,8 +4282,9 @@ app.post('/api/users/me/mark-demo-notes-created', requireAuth, asyncRoute(async 
   res.json(publicUser(user));
 }));
 
-app.patch('/api/users/me/profile', requireAuth, asyncRoute(async (req, res) => {
+app.patch('/api/users/me/profile', requireAuth, databaseRoute(async (req, res) => {
   const displayName = String(req.body.displayName || req.user.displayName).trim() || req.user.username;
+  if (displayName.length > 160) return res.status(400).json({error:'Display name is too long.'});
   const avatarDataUrl = String(req.body.avatarDataUrl || '');
   const avatarPreset = req.body.avatarPreset ? String(req.body.avatarPreset) : req.user.avatarPreset;
 
@@ -4157,7 +4305,7 @@ app.patch('/api/users/me/profile', requireAuth, asyncRoute(async (req, res) => {
   res.json(publicUser(user));
 }));
 
-app.delete('/api/users/me', requireAuth, asyncRoute(async (req, res) => {
+app.delete('/api/users/me', requireAuth, credentialChangeLimiter, asyncRoute(async (req, res) => {
   const currentPassword = String(req.body.currentPassword || '');
   const confirmation = String(req.body.confirmation || '');
   if (confirmation !== 'DELETE') {
@@ -4203,7 +4351,7 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, asyncRoute(async (req, r
   res.status(204).end();
 }));
 
-app.patch('/api/users/me/password', requireAuth, asyncRoute(async (req, res) => {
+app.patch('/api/users/me/password', requireAuth, credentialChangeLimiter, asyncRoute(async (req, res) => {
   const currentPassword = String(req.body.currentPassword || '');
   const newPassword = String(req.body.newPassword || '');
 
@@ -4222,7 +4370,7 @@ app.patch('/api/users/me/password', requireAuth, asyncRoute(async (req, res) => 
   res.json({ success: true });
 }));
 
-app.patch('/api/users/:id/reset-password', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+app.patch('/api/users/:id/reset-password', requireAuth, requireAdmin, credentialChangeLimiter, asyncRoute(async (req, res) => {
   const userId = Number(req.params.id);
   const newPassword = String(req.body.newPassword || '');
 
@@ -4264,12 +4412,14 @@ app.patch('/api/users/:id/toggle-enabled', requireAuth, requireAdmin, asyncRoute
 // since it contains no secrets. All fields are blank/false for ordinary
 // self-hosting, where no KEPT_MANAGED_* env vars are set.
 app.get('/api/settings/managed-hosting', asyncRoute(async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
   res.json({
     managed: MANAGED_HOSTING_ENABLED,
     providerName: MANAGED_HOSTING_ENABLED ? MANAGED_PROVIDER_NAME : '',
     accountUrl: MANAGED_HOSTING_ENABLED ? MANAGED_ACCOUNT_URL : '',
     externalBackups: MANAGED_EXTERNAL_BACKUPS,
-    quotaBytes: STORAGE_QUOTA_BYTES
+    quotaBytes: STORAGE_QUOTA_BYTES,
+    notice: managedNotice.notice
   });
 }));
 
@@ -4376,7 +4526,7 @@ app.post('/api/users/invite', requireAuth, requireAdmin, inviteLimiter, requireP
     [email, role, mcpTokenHash(token), req.user.id, now.toISOString(), expiresAt]
   );
 
-  const baseUrl = String(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+  const baseUrl = stripTrailingSlashes(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`);
   const acceptUrl = `${baseUrl}/invite/${token}`;
   await mailer.sendMail({
     to: email,
@@ -4458,20 +4608,20 @@ app.post('/api/admin/backup/schedule', requireAuth, requireAdmin, asyncRoute(asy
 }));
 
 
-app.post('/api/admin/backup/now', requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
+const runManualBackup = createExclusiveTask('Another backup is already in progress.');
+const manualBackupRoute = handler => asyncRoute((req, res) => runManualBackup(handler, req, res));
+
+app.post('/api/admin/backup/now', requireAuth, requireAdmin, backupLimiter, manualBackupRoute(async (_req, res) => {
   try {
     const filename = await performBackup(true);
     res.json({ success: true, filename });
   } catch (e) {
-    res.status(500).json({ error: 'Backup failed: ' + e.message });
+    res.status(e.status || 500).json({ error: 'Backup failed: ' + e.message });
   }
 }));
 
-let fullBackupInProgress = false;
-app.post('/api/admin/backup/full', requireAuth, requireAdmin, asyncRoute(async (_req, res) => {
-  if (fullBackupInProgress) return res.status(409).json({ error: 'Another full backup is already in progress.' });
-  fullBackupInProgress = true;
-  try {
+app.post('/api/admin/backup/full', requireAuth, requireAdmin, backupLimiter, manualBackupRoute(async (_req, res) => {
+  await backupTask(async () => {
     const result = await fullBackup.createFullBackup({
       backupDir: path.join(dataDir, 'backups'), uploadDir, attachmentDir, version: KEPT_VERSION, vapidKeys,
       snapshot: (destination, copyMedia) => withDatabaseLock(async () => {
@@ -4480,11 +4630,12 @@ app.post('/api/admin/backup/full', requireAuth, requireAdmin, asyncRoute(async (
       })
     });
     await setAppSetting('lastManualBackupAt', new Date().toISOString());
+    await pruneQuotaBackups();
     res.json({ success: true, ...result });
-  } finally { fullBackupInProgress = false; }
+  });
 }));
 
-app.post('/api/admin/users/:id/disable-2fa', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+app.post('/api/admin/users/:id/disable-2fa', requireAuth, requireAdmin, credentialChangeLimiter, asyncRoute(async (req, res) => {
   const userId = parseInt(req.params.id);
   const user = await get('SELECT * FROM users WHERE id = ?', [userId]);
   if (!user) return res.status(404).json({ error: 'User not found.' });
@@ -4785,7 +4936,7 @@ app.post('/api/mcp/locked-notes/:noteId/unlock', requireAuth, asyncRoute(async (
     return null;
   });
   if (limited) return sendExternalUnlockLimit(res, limited);
-  const publicOrigin = String(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+  const publicOrigin = stripTrailingSlashes(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`);
   res.status(201).json({
     unlocked: false,
     unlockUrl: `${publicOrigin}/api/mcp/unlock/${challenge}`,
@@ -4870,13 +5021,13 @@ app.get('/api/labels', requireAuth, asyncRoute(async (req, res) => {
   res.json(await all('SELECT id, name, sortOrder FROM labels WHERE userId = ? ORDER BY sortOrder IS NULL, sortOrder, name COLLATE NOCASE, id', [req.user.id]));
 }));
 
-app.post('/api/labels/find-or-create', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/labels/find-or-create', requireAuth, databaseRoute(async (req, res) => {
   const label = await findOrCreateLabelForUser(req.user.id, req.body.name);
   await withDatabaseTransaction(() => workspaceSync.capture(req.user.id));
   res.status(200).json(label);
 }));
 
-app.post('/api/labels', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/labels', requireAuth, databaseRoute(async (req, res) => {
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Label name is required.' });
   const result = await run('INSERT INTO labels (name, userId) VALUES (?, ?)', [name, req.user.id]);
@@ -4884,7 +5035,7 @@ app.post('/api/labels', requireAuth, asyncRoute(async (req, res) => {
   res.status(201).json({ id: result.id, name });
 }));
 
-app.patch('/api/labels/:id', requireAuth, asyncRoute(async (req, res) => {
+app.patch('/api/labels/:id', requireAuth, databaseRoute(async (req, res) => {
   const labelId = Number(req.params.id);
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Label name is required.' });
@@ -4909,7 +5060,7 @@ app.patch('/api/labels/:id', requireAuth, asyncRoute(async (req, res) => {
   res.json({ id: labelId, name, sortOrder: sortOrder === undefined ? label.sortOrder : sortOrder });
 }));
 
-app.delete('/api/labels/:id', requireAuth, asyncRoute(async (req, res) => {
+app.delete('/api/labels/:id', requireAuth, databaseRoute(async (req, res) => {
   const labelId = Number(req.params.id);
   const label = await get('SELECT id, name FROM labels WHERE id = ? AND userId = ?', [labelId, req.user.id]);
   if (!label) return res.status(404).json({ error: 'Label not found.' });
@@ -4925,12 +5076,12 @@ app.post('/api/uploads/images', requireAuth, upload.single('image'), asyncRoute(
   try {
     await assertWithinStorageQuota();
   } catch (quotaError) {
-    fs.unlink(req.file.path, () => undefined);
+    storageQuota.remove(req.file.path).catch(() => undefined);
     return res.status(quotaError.status || 500).json({ error: quotaError.message });
   }
   const uploadOperationId = String(req.body?.operationId || '').trim();
   if (uploadOperationId && (uploadOperationId.length > 160 || !/^[a-zA-Z0-9._:-]+$/.test(uploadOperationId))) {
-    fs.unlink(req.file.path, () => undefined);
+    storageQuota.remove(req.file.path).catch(() => undefined);
     return res.status(400).json({ error: 'Invalid image upload operation ID.' });
   }
   const now = new Date().toISOString();
@@ -4987,13 +5138,13 @@ app.post('/api/uploads/images', requireAuth, upload.single('image'), asyncRoute(
       return res.status(201).json(response);
     }
     if (result.error) {
-      fs.unlink(req.file.path, () => undefined);
+      storageQuota.remove(req.file.path).catch(() => undefined);
       return res.status(result.status).json({ error: result.error });
     }
-    if (result.status !== 201) fs.unlink(req.file.path, () => undefined);
+    if (result.status !== 201) storageQuota.remove(req.file.path).catch(() => undefined);
     res.status(result.status).json(result.payload);
   } catch (error) {
-    fs.unlink(req.file.path, () => undefined);
+    storageQuota.remove(req.file.path).catch(() => undefined);
     throw error;
   }
 }));
@@ -5054,7 +5205,7 @@ app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single(
   try {
     await assertWithinStorageQuota();
   } catch (quotaError) {
-    fs.unlink(req.file.path, () => undefined);
+    storageQuota.remove(req.file.path).catch(() => undefined);
     return res.status(quotaError.status || 500).json({ error: quotaError.message });
   }
 
@@ -5062,7 +5213,7 @@ app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single(
   const syncId = String(req.body?.syncId || req.query?.syncId || `attachment-${crypto.randomUUID()}`).trim();
   const operationId = String(req.body?.operationId || req.query?.operationId || syncId).trim();
   if (!syncId || syncId.length > 160 || !/^[a-zA-Z0-9._:-]+$/.test(syncId) || !operationId || operationId.length > 160 || !/^[a-zA-Z0-9._:-]+$/.test(operationId)) {
-    fs.unlink(req.file.path, () => undefined);
+    storageQuota.remove(req.file.path).catch(() => undefined);
     return res.status(400).json({ error: 'Invalid attachment operation or sync ID.' });
   }
   const now = new Date().toISOString();
@@ -5084,7 +5235,7 @@ app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single(
         if (!existingAttachment || !fs.existsSync(attachmentPath(existingAttachment.storedFilename))) {
           return { status: 410, error: 'This attachment upload is no longer available.' };
         }
-        return { status: 200, payload: attachmentResponse(existingAttachment), fileRetained: true };
+        return { status: 200, payload: attachmentResponse(existingAttachment), fileRetained: false };
       }
 
       const existing = await get(
@@ -5105,7 +5256,7 @@ app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single(
           (userId, operationId, resourceType, resourceSyncId, noteId, contentHash, payload, state, createdAt, updatedAt)
           VALUES (?, ?, 'attachment', ?, ?, ?, ?, 'active', ?, ?)`,
         [req.user.id, operationId, syncId, noteId, contentHash, JSON.stringify(existingPayload), now, now]);
-        return { status: 200, payload: existingPayload, fileRetained: true };
+        return { status: 200, payload: existingPayload, fileRetained: false };
       }
 
       const stamp = serverLwwStamp();
@@ -5128,10 +5279,10 @@ app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single(
       return { status: 201, payload: receiptPayload, fileRetained: true };
     });
   } catch (error) {
-    fs.unlink(req.file.path, () => undefined);
+    storageQuota.remove(req.file.path).catch(() => undefined);
     throw error;
   }
-  if (!result.fileRetained) fs.unlink(req.file.path, () => undefined);
+  if (!result.fileRetained) storageQuota.remove(req.file.path).catch(() => undefined);
   if (result.error) return res.status(result.status).json({ error: result.error });
   res.status(result.status).json(result.payload);
 }));
@@ -5166,7 +5317,7 @@ app.get('/api/attachments/:attachmentId', requireAuth, asyncRoute(async (req, re
   res.sendFile(filePath);
 }));
 
-app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, asyncRoute(async (req, res) => {
+app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, databaseRoute(async (req, res) => {
   const noteId = Number(req.params.noteId);
   const attachmentId = Number(req.params.attachmentId);
 
@@ -5206,7 +5357,7 @@ app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, asyncRou
     return true;
   });
   if (!deleted) return res.status(404).json({ error: 'Attachment not found.' });
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  removeFileAfterCommit(filePath);
 
   res.status(204).end();
 }));
@@ -5214,7 +5365,7 @@ app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, asyncRou
 
 async function syncSnapshotForUser(userId) {
   const notes = await all(
-    `SELECT notes.*,
+    `SELECT notes.*, ${sharedOrganization.fields(userId)},
             COALESCE(pos.sortOrder, notes.sortOrder) AS effectiveSortOrder,
             CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
             COALESCE(view_state.completedChecklistCollapsed, 0) AS completedChecklistCollapsed,
@@ -5329,6 +5480,11 @@ app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
 async function applySyncNoteMutation(userId, mutation) {
   const type = String(mutation.type || '');
   const payload = mutation.payload || {};
+  if (type === 'note.organization') {
+    const row = await get('SELECT id FROM notes WHERE syncId = ?', [mutation.syncId]);
+    if (!row) return { ok: false, status: 404, error: 'Note not found.' };
+    return sharedOrganization.update(userId, row.id, payload, normalizeLwwStamp(mutation.lww || {}));
+  }
   if (type === 'note.view-state') {
     const syncId = String(mutation.syncId || payload.syncId || '');
     const row = await get('SELECT id FROM notes WHERE syncId = ? OR id = ?', [syncId, Number(payload.noteId || mutation.id || 0)]);
@@ -5450,6 +5606,7 @@ async function applySyncNoteMutation(userId, mutation) {
       ]
     );
     if (noteData.pinned) await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [userId, result.id]);
+    if (noteData.isDemo && noteData.pinned) await positionStarterBelowManagedWelcome(result.id, userId);
     await syncNoteImagesForNote(result.id, userId, noteData);
     await recordNoteSyncChange(result.id, 'upsert', [userId]);
     broadcastRealtime([userId], { type: 'notes-changed', action: 'created', noteId: result.id, syncId });
@@ -5741,7 +5898,7 @@ async function applySyncAttachmentMutation(userId, mutation) {
   await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
     WHERE userId = ? AND resourceType = 'attachment' AND resourceSyncId = ? AND state = 'active'`,
   [new Date().toISOString(), userId, syncId]);
-  afterDatabaseCommit(() => { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); });
+  removeFileAfterCommit(filePath);
   await run('DELETE FROM note_attachments WHERE id = ?', [attachment.id]);
   await recordAttachmentSyncChange({
     ...attachment,
@@ -5922,7 +6079,7 @@ app.post('/api/sync/mutations', requireAuth, asyncRoute(async (req, res) => {
       results[index] = await executeSyncMutation(req.user.id, mutation);
     } catch (error) {
       console.error('Sync mutation failed:', error);
-      results[index] = { ok: false, status: 500, error: error.message || 'Sync mutation failed.', type: mutation.type };
+      results[index] = { ok: false, status: error.status || 500, ...(error.code === 'STORAGE_QUOTA_EXCEEDED' ? {code:error.code} : {}), error: error.message || 'Sync mutation failed.', type: mutation.type };
     }
   }
   const snapshot = await withDatabaseTransaction(async () => {
@@ -5951,9 +6108,9 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     const limit = Math.min(Math.max(Number(req.query.limit) || 80, 1), 200);
     const cursor = decodeNotesCursor(req.query.cursor);
     const searchTokens = searchTokensFromQuery(req.query.q);
-    const searchWhere = noteSearchWhere(searchTokens, { protectLockedContent: !!req.mcpToken });
+    const searchWhere = noteSearchWhere(searchTokens, { protectLockedContent: !!req.mcpToken, organizationVisible: true });
     const searchOperators = searchOperatorsFromQuery(req.query.q);
-    const operatorWhere = noteOperatorWhere(searchOperators);
+    const operatorWhere = noteOperatorWhere(searchOperators, true);
     const whereClauses = [];
     if (req.mcpToken && (searchOperators.hasImage || searchOperators.hasCheckbox || searchOperators.hasDrawing || searchOperators.hasUrl || searchOperators.hasAttachment)) {
       whereClauses.push('locked = 0');
@@ -6008,7 +6165,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
       const pageIds = pageKeys.map(row => row.id);
       const idPlaceholders = pageIds.map(() => '?').join(',');
       const rows = await all(
-        `SELECT notes.*,
+        `SELECT notes.*, ${sharedOrganization.fields(req.user.id)},
                 COALESCE(pos.sortOrder, notes.sortOrder, notes.id) AS effectiveSortOrder,
                 CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
                 COALESCE(view_state.completedChecklistCollapsed, 0) AS completedChecklistCollapsed,
@@ -6035,7 +6192,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     } else {
       const rows = await all(
         `WITH accessible_notes AS (
-          SELECT notes.*,
+          SELECT notes.*, ${sharedOrganization.fields(req.user.id)},
                  COALESCE(
                    pos.sortOrder,
                    notes.sortOrder,
@@ -6172,7 +6329,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
   // user with hundreds of imported notes and a high-res avatar. Instead we
   // fetch avatars once per distinct user and let the client merge them in.
   const rows = await all(
-    `SELECT notes.*,
+    `SELECT notes.*, ${sharedOrganization.fields(req.user.id)},
             COALESCE(pos.sortOrder, notes.sortOrder) AS effectiveSortOrder,
             CASE WHEN user_pins.noteId IS NOT NULL THEN 1 ELSE 0 END AS userPinned,
             COALESCE(view_state.completedChecklistCollapsed, 0) AS completedChecklistCollapsed,
@@ -6321,7 +6478,7 @@ app.get('/api/ai/context', requireAuth, asyncRoute(async (req, res) => {
   });
 }));
 
-app.post('/api/ai/action-plan/validate', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/ai/action-plan/validate', requireAuth, databaseRoute(async (req, res) => {
   const transcript = String(req.body.transcript || '');
   const actionPlan = req.body.actionPlan;
   const validation = await validateKeptActionPlan(req.user.id, transcript, actionPlan);
@@ -6335,7 +6492,7 @@ app.post('/api/ai/action-plan/validate', requireAuth, asyncRoute(async (req, res
   res.json(validation);
 }));
 
-app.post('/api/ai/action-plan/execute', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/ai/action-plan/execute', requireAuth, databaseRoute(async (req, res) => {
   const transcript = String(req.body.transcript || '');
   const actionPlan = req.body.actionPlan;
   const executeOptions = req.body.executeOptions || req.body.options || {};
@@ -6371,21 +6528,20 @@ app.post('/api/ai/action-plan/execute', requireAuth, asyncRoute(async (req, res)
   const executed = [];
   const failed = [];
 
-  await run('BEGIN IMMEDIATE TRANSACTION');
   try {
-    for (let index = 0; index < actions.length; index += 1) {
-      const action = actions[index];
-      try {
-        const result = await executeSmartAction(req.user.id, action, state);
-        executed.push({ index, ...result });
-      } catch (error) {
-        failed.push({ index, type: action.type, error: error.message || 'Action failed.' });
-        if (!allowPartial) throw error;
+    await withDatabaseTransaction(async () => {
+      for (let index = 0; index < actions.length; index += 1) {
+        const action = actions[index];
+        try {
+          const result = await executeSmartAction(req.user.id, action, state);
+          executed.push({ index, ...result });
+        } catch (error) {
+          failed.push({ index, type: action.type, error: error.message || 'Action failed.' });
+          if (!allowPartial) throw error;
+        }
       }
-    }
-    await run('COMMIT');
+    });
   } catch (error) {
-    await run('ROLLBACK');
     await insertAiActionHistory(req.user.id, transcript, actionPlan, { executed, failed }, 'failed');
     return res.status(400).json({
       ok: false,
@@ -6414,7 +6570,7 @@ app.post('/api/ai/action-plan/execute', requireAuth, asyncRoute(async (req, res)
   for (const noteId of state.updatedNoteIds) await broadcastNoteChange(noteId, 'updated');
   for (const share of state.shareBroadcasts) await broadcastNoteChange(share.noteId, 'collaborators-updated', share.previousRecipients);
   if (state.createdLabelIds.size) await cleanupUnusedLabels(req.user.id, Array.from(state.createdLabelIds));
-  await syncSmartReminderIntegrations(req.user.id, state.remindersToSync);
+  afterDatabaseCommit(() => syncSmartReminderIntegrations(req.user.id, state.remindersToSync));
 
   res.status(failed.length ? 207 : 200).json(response);
 }));
@@ -6480,7 +6636,7 @@ app.get('/api/notes/:id/collaborators', requireAuth, asyncRoute(async (req, res)
   res.json(await getCollaboratorsForNote(Number(req.params.id)));
 }));
 
-app.put('/api/notes/:id/collaborators', requireAuth, asyncRoute(async (req, res) => {
+app.put('/api/notes/:id/collaborators', requireAuth, databaseRoute(async (req, res) => {
   const noteId = Number(req.params.id);
   const note = await getOwnedNote(noteId, req.user.id);
   if (!note) return res.status(404).json({ error: 'Note not found.' });
@@ -6510,18 +6666,8 @@ app.put('/api/notes/:id/collaborators', requireAuth, asyncRoute(async (req, res)
     }
   }
   await moveNoteToTopForUsers(noteId, newlyAddedUserIds);
-  // Track removed collaborators so they can be re-added via the rejoin endpoint
-  // (the snackbar undo flow). Without a grant, rejoin would let any user attach
-  // themselves to any note id.
-  const grantedAt = new Date().toISOString();
-  for (const row of previousCollaborators) {
-    if (!nextSet.has(row.userId)) {
-      await run(
-        'INSERT OR REPLACE INTO note_collaborator_rejoin_grants (noteId, userId, grantedAt) VALUES (?, ?, ?)',
-        [noteId, row.userId, grantedAt]
-      );
-    }
-  }
+  // Owner revocation is final, including a previous voluntary-removal Undo.
+  await run('DELETE FROM note_collaborator_rejoin_grants WHERE noteId = ?', [noteId]);
 
   const collaborators = await getCollaboratorsForNote(noteId);
   const nextRecipients = await getNoteRecipientIds(noteId);
@@ -6548,15 +6694,15 @@ app.put('/api/notes/:id/collaborators', requireAuth, asyncRoute(async (req, res)
   res.json(collaborators);
 }));
 
-app.post('/api/notes/:id/collaborators/rejoin', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/notes/:id/collaborators/rejoin', requireAuth, databaseRoute(async (req, res) => {
   const noteId = Number(req.params.id);
   const note = await get('SELECT id FROM notes WHERE id = ?', [noteId]);
   if (!note) return res.status(404).json({ error: 'Note not found.' });
 
   // Only allow rejoin if this user was recently a collaborator on this note
-  // (granted at self-removal or owner-removal). Without this check any
+  // (granted only for voluntary self-removal). Without this check any
   // authenticated user could attach themselves to any note id.
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const grant = await get(
     'SELECT noteId FROM note_collaborator_rejoin_grants WHERE noteId = ? AND userId = ? AND grantedAt >= ?',
     [noteId, req.user.id, cutoff]
@@ -6573,7 +6719,7 @@ app.post('/api/notes/:id/collaborators/rejoin', requireAuth, asyncRoute(async (r
   res.status(204).end();
 }));
 
-app.patch('/api/notes/reorder', requireAuth, asyncRoute(async (req, res) => {
+app.patch('/api/notes/reorder', requireAuth, databaseRoute(async (req, res) => {
   const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
   if (!ids.length) return res.status(400).json({ error: 'No note ids provided.' });
 
@@ -6604,7 +6750,7 @@ app.patch('/api/notes/reorder', requireAuth, asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
-app.post('/api/notes', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/notes', requireAuth, databaseRoute(async (req, res) => {
   const noteData = canonicalizeNotePayload(req.body);
   const now = new Date().toISOString();
   const trashedAt = noteData.trashed ? now : null;
@@ -6643,13 +6789,21 @@ app.post('/api/notes', requireAuth, asyncRoute(async (req, res) => {
   if (noteData.pinned) {
     await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [req.user.id, result.id]);
   }
+  if (noteData.isDemo && noteData.pinned) await positionStarterBelowManagedWelcome(result.id, req.user.id);
   await broadcastNoteChange(result.id, 'created', [req.user.id], { syncId });
   const created = await getAccessibleNote(result.id, req.user.id);
   const response = dbNoteToApi(created);
   res.status(201).json(req.mcpToken ? mcpNoteResponse(response, true) : response);
 }));
 
-app.put('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
+app.patch('/api/notes/:id/organization', requireAuth, asyncRoute(async (req, res) => {
+  const result = await withDatabaseTransaction(() => sharedOrganization.update(req.user.id, Number(req.params.id), req.body));
+  if (!result.ok) return res.status(result.status || 400).json({ error: result.error });
+  const note = await noteSyncSnapshot(result.id, req.user.id);
+  res.json(req.mcpToken ? mcpNoteResponse(note, !note.locked || await mcpNoteIsUnlocked(req, note.id)) : note);
+}));
+
+app.put('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
   const note = await getAccessibleNote(Number(req.params.id), req.user.id);
   if (!note) return res.status(404).json({ error: 'Note not found.' });
   if (req.mcpToken && note.locked && !await mcpNoteIsUnlocked(req, note.id)) {
@@ -6712,7 +6866,7 @@ app.put('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
-app.patch('/api/notes/:id/view-state', requireAuth, asyncRoute(async (req, res) => {
+app.patch('/api/notes/:id/view-state', requireAuth, databaseRoute(async (req, res) => {
   const noteId = Number(req.params.id);
   const note = await getAccessibleNote(noteId, req.user.id);
   if (!note) return res.status(404).json({ error: 'Note not found.' });
@@ -6731,7 +6885,7 @@ app.patch('/api/notes/:id/view-state', requireAuth, asyncRoute(async (req, res) 
   res.status(204).end();
 }));
 
-app.patch('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
+app.patch('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
   const existing = await getAccessibleNote(Number(req.params.id), req.user.id);
   if (!existing) return res.status(404).json({ error: 'Note not found.' });
   if (req.mcpToken && existing.locked && !await mcpNoteIsUnlocked(req, existing.id)) {
@@ -6795,7 +6949,7 @@ app.patch('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
-app.post('/api/notes/:id/clone', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/notes/:id/clone', requireAuth, databaseRoute(async (req, res) => {
   const row = await getAccessibleNote(Number(req.params.id), req.user.id);
   if (!row) return res.status(404).json({ error: 'Note not found.' });
 
@@ -6837,7 +6991,7 @@ app.post('/api/notes/:id/clone', requireAuth, asyncRoute(async (req, res) => {
   res.status(201).json({ id: result.id });
 }));
 
-app.post('/api/notes/merge', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/notes/merge', requireAuth, databaseRoute(async (req, res) => {
   const orderedIds = Array.isArray(req.body.orderedIds)
     ? req.body.orderedIds.map(Number).filter(Boolean)
     : [];
@@ -6904,8 +7058,7 @@ app.post('/api/notes/merge', requireAuth, asyncRoute(async (req, res) => {
   const isCbox = mergedCheckBoxes.length > 0 ? 1 : 0;
 
   const now = new Date().toISOString();
-  await run('BEGIN IMMEDIATE TRANSACTION');
-  try {
+  const newNoteId = await withDatabaseTransaction(async () => {
     const result = await run(
       `INSERT INTO notes
        (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo)
@@ -6980,9 +7133,9 @@ app.post('/api/notes/merge', requireAuth, asyncRoute(async (req, res) => {
         const caldav = await get('SELECT * FROM caldav_settings WHERE userId = ? AND enabled = 1', [req.user.id]);
         for (const r of dropFull) {
           if (caldav) {
-            deleteReminderFromCaldav(caldav, r.id).catch(err => console.error('CalDAV delete failed during merge:', err.message));
+            afterDatabaseCommit(() => deleteReminderFromCaldav(caldav, r.id).catch(err => console.error('CalDAV delete failed during merge:', err.message)));
           }
-          gcalDeleteReminder(req.user.id, r).catch(err => console.error('GCal delete failed during merge:', err.message));
+          afterDatabaseCommit(() => gcalDeleteReminder(req.user.id, r).catch(err => console.error('GCal delete failed during merge:', err.message)));
         }
       }
     }
@@ -6998,26 +7151,24 @@ app.post('/api/notes/merge', requireAuth, asyncRoute(async (req, res) => {
       [req.user.id, ...orderedIds]
     );
 
-    await run('COMMIT');
+    return newNoteId;
+  });
 
-    const recipients = new Set([req.user.id]);
-    for (const id of orderedIds) {
-      const r = await getNoteRecipientIds(id);
-      r.forEach(uid => recipients.add(uid));
-    }
-    await broadcastNoteChange(newNoteId, 'created', [req.user.id]);
-    for (const id of orderedIds) {
-      await broadcastNoteChange(id, 'updated', Array.from(recipients));
-    }
-
-    res.status(201).json({ id: newNoteId });
-  } catch (error) {
-    await run('ROLLBACK');
-    throw error;
+  const recipients = new Set([req.user.id]);
+  for (const id of orderedIds) {
+    const r = await getNoteRecipientIds(id);
+    r.forEach(uid => recipients.add(uid));
   }
+  await broadcastNoteChange(newNoteId, 'created', [req.user.id]);
+  for (const id of orderedIds) {
+    await broadcastNoteChange(id, 'updated', Array.from(recipients));
+  }
+
+  res.status(201).json({ id: newNoteId });
+
 }));
 
-app.patch('/api/notes/labels/:labelId', requireAuth, asyncRoute(async (req, res) => {
+app.patch('/api/notes/labels/:labelId', requireAuth, databaseRoute(async (req, res) => {
   const labelId = Number(req.params.labelId);
   const labelValue = String(req.body.name || '');
   const rows = await all('SELECT id, labels FROM notes WHERE ownerUserId = ?', [req.user.id]);
@@ -7039,7 +7190,7 @@ app.patch('/api/notes/labels/:labelId', requireAuth, asyncRoute(async (req, res)
   res.status(204).end();
 }));
 
-app.delete('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
+app.delete('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
   const noteId = Number(req.params.id);
   const note = await getAccessibleNote(noteId, req.user.id);
   if (!note) return res.status(404).json({ error: 'Note not found.' });
@@ -7391,15 +7542,20 @@ app.get('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
 
 // ─── ICS feed routes ───────────────────────────────────────────────────────
 
+function publicApiUrl(req, path) {
+  const baseUrl = stripTrailingSlashes(process.env.BASE_URL || `${req.protocol}://${req.get('host')}`);
+  return `${baseUrl}/api/${path}`;
+}
+
 app.get('/api/reminders/ics-token', requireAuth, asyncRoute(async (req, res) => {
   const token = await getOrCreateIcsFeedToken(req.user.id);
-  res.json({ token });
+  res.json({ token, url: publicApiUrl(req, `reminders/ics/${token}/kept-reminders.ics`) });
 }));
 
 app.post('/api/reminders/ics-token', requireAuth, asyncRoute(async (req, res) => {
   const token = randomHex(20);
   await run('UPDATE users SET icsFeedToken = ? WHERE id = ?', [token, req.user.id]);
-  res.json({ token });
+  res.json({ token, url: publicApiUrl(req, `reminders/ics/${token}/kept-reminders.ics`) });
 }));
 
 // Shared handler for both ICS feed URL shapes. The "trailing filename"
@@ -7462,7 +7618,7 @@ app.get('/api/push/vapid-public-key', requireAuth, (_req, res) => {
   res.json({ publicKey: vapidKeys.publicKey });
 });
 
-app.post('/api/push/subscriptions', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/push/subscriptions', requireAuth, integrationLimiter, asyncRoute(async (req, res) => {
   const subscription = await integrationRequests.validatePushSubscription(req.body.subscription);
 
   const now = new Date().toISOString();
@@ -7565,7 +7721,7 @@ app.delete('/api/location-saved-places/:id', requireAuth, asyncRoute(async (req,
   res.status(204).end();
 }));
 
-app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/reminders', requireAuth, databaseRoute(async (req, res) => {
   const payload = normalizeReminderPayload(req.body || {});
   if (!payload.dueAtUtc && !payload.locationName) return res.status(400).json({ error: 'Either dueAtUtc or locationName is required.' });
   if (payload.dueAtUtc && !Number.isFinite(Date.parse(payload.dueAtUtc))) return res.status(400).json({ error: 'dueAtUtc must be a valid date.' });
@@ -7654,7 +7810,7 @@ app.post('/api/reminders', requireAuth, asyncRoute(async (req, res) => {
   res.status(existing ? 200 : 201).json(enrichedReminder);
 }));
 
-app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
+app.patch('/api/reminders/:id', requireAuth, databaseRoute(async (req, res) => {
   const reminder = await get('SELECT * FROM reminders WHERE id = ? AND userId = ?', [Number(req.params.id), req.user.id]);
   if (!reminder) return res.status(404).json({ error: 'Reminder not found.' });
   if (!(await reminderIsVisibleToUser(reminder, req.user.id))) return res.status(404).json({ error: 'Reminder not found.' });
@@ -7718,7 +7874,7 @@ app.patch('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
   res.json(enrichedUpdated);
 }));
 
-app.delete('/api/reminders/:id', requireAuth, asyncRoute(async (req, res) => {
+app.delete('/api/reminders/:id', requireAuth, databaseRoute(async (req, res) => {
   const reminder = await get('SELECT * FROM reminders WHERE id = ? AND userId = ?', [Number(req.params.id), req.user.id]);
   if (!reminder) return res.status(404).json({ error: 'Reminder not found.' });
   const stamp = serverLwwStamp();
@@ -7743,7 +7899,7 @@ app.get('/api/caldav/settings', requireAuth, asyncRoute(async (req, res) => {
   res.json({ serverUrl: s.serverUrl, calendarUrl: s.calendarUrl, username: s.username, enabled: Boolean(s.enabled) });
 }));
 
-app.put('/api/caldav/settings', requireAuth, asyncRoute(async (req, res) => {
+app.put('/api/caldav/settings', requireAuth, integrationLimiter, asyncRoute(async (req, res) => {
   const { serverUrl, username, password, enabled } = req.body;
   let { calendarUrl } = req.body;
   if (!calendarUrl || !username || !password) {
@@ -7802,7 +7958,7 @@ app.delete('/api/caldav/settings', requireAuth, asyncRoute(async (req, res) => {
   res.status(204).end();
 }));
 
-app.post('/api/caldav/test', requireAuth, asyncRoute(async (req, res) => {
+app.post('/api/caldav/test', requireAuth, integrationLimiter, asyncRoute(async (req, res) => {
   const { calendarUrl, username, password } = req.body;
   if (!calendarUrl || !username || !password) {
     return res.status(400).json({ error: 'calendarUrl, username, and password are required.' });
@@ -7823,7 +7979,8 @@ app.get('/api/google-calendar/status', requireAuth, asyncRoute(async (req, res) 
     hasCredentials: !!row,
     connected: !!(row?.accessToken),
     enabled: !!(row?.enabled),
-    clientId: row?.clientId || null
+    clientId: row?.clientId || null,
+    redirectUrl: publicApiUrl(req, 'auth/google/callback')
   });
 }));
 
@@ -7856,8 +8013,7 @@ app.post('/api/auth/google/initiate', requireAuth, asyncRoute(async (req, res) =
   if (!row?.clientId) return res.status(400).json({ error: 'Google credentials not configured.' });
   const state = randomHex(16);
   oauthStates.set(state, { userId: req.user.id, createdAt: Date.now() });
-  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-  const redirectUri = `${baseUrl}/api/auth/google/callback`;
+  const redirectUri = publicApiUrl(req, 'auth/google/callback');
   const params = new URLSearchParams({
     client_id: row.clientId,
     redirect_uri: redirectUri,
@@ -7884,8 +8040,7 @@ app.get('/api/auth/google/callback', asyncRoute(async (req, res) => {
   if (!row) {
     return res.redirect('/settings?google=error&message=' + encodeURIComponent('Credentials not found. Please save them first.'));
   }
-  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-  const redirectUri = `${baseUrl}/api/auth/google/callback`;
+  const redirectUri = publicApiUrl(req, 'auth/google/callback');
   try {
     const tokens = await exchangeGoogleCode(row.clientId, row.clientSecret, String(code), redirectUri);
     const expiry = new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString();
@@ -8367,7 +8522,7 @@ function parseOgMeta(html, baseUrl) {
   };
 }
 
-app.get('/api/link-preview', requireAuth, asyncRoute(async (req, res) => {
+app.get('/api/link-preview', requireAuth, previewLimiter, asyncRoute(async (req, res) => {
   const { url } = req.query;
   if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url is required' });
   let parsed;
@@ -8399,7 +8554,7 @@ app.get('/api/link-preview', requireAuth, asyncRoute(async (req, res) => {
   }
 }));
 
-mountImageProxyRoutes(app, { requireAuthOrQueryToken: requireAuth, asyncRoute, publicRequestOptions, absolutizeUrl });
+mountImageProxyRoutes(app, { requireAuthOrQueryToken: requireAuth, asyncRoute, publicRequestOptions, absolutizeUrl, previewLimiter });
 
 // ─── Google Takeout import ───────────────────────────────────────────────────
 
@@ -8446,14 +8601,14 @@ const TAKEOUT_UPLOAD_MAX_BYTES = parseByteSize(
 );
 
 const uploadZip = multer({
-  storage: multer.diskStorage({
+  storage: storageQuota.diskStorage({
     destination: (_req, _file, cb) => cb(null, takeoutTmpDir),
     filename: (_req, file, cb) => {
       const originalExt = path.extname(file.originalname || '').toLowerCase() || '.zip';
       cb(null, `takeout-${Date.now()}-${randomHex(12)}${originalExt}`);
     }
   }),
-  limits: { fileSize: TAKEOUT_UPLOAD_MAX_BYTES },
+  limits: { ...MULTIPART_FIELD_LIMITS, fileSize: TAKEOUT_UPLOAD_MAX_BYTES },
   fileFilter: (_req, file, cb) => {
     const ok = file.mimetype === 'application/zip'
       || file.mimetype === 'application/x-zip-compressed'
@@ -8465,7 +8620,7 @@ const uploadZip = multer({
 function googleTakeoutUpload(req, res, next) {
   uploadZip.single('takeout')(req, res, (error) => {
     if (!error) return next();
-    if (req.file?.path) fs.promises.unlink(req.file.path).catch(() => {});
+    if (req.file?.path) storageQuota.remove(req.file.path).catch(() => {});
     if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({
         error: `Google Takeout ZIP is too large for this Kept server. The current Takeout upload limit is ${formatBytes(TAKEOUT_UPLOAD_MAX_BYTES)}. If this failed below that size, your proxy/CDN may be rejecting the upload before Kept receives it. Try importing over a direct LAN/SSH connection or raise your proxy upload limit.`
@@ -8486,37 +8641,12 @@ async function cleanupStaleTakeoutUploads(maxAgeMs = 24 * 60 * 60 * 1000) {
       const filePath = path.join(takeoutTmpDir, file);
       const stat = await fs.promises.stat(filePath).catch(() => null);
       if (stat?.isFile() && stat.mtimeMs < cutoff) {
-        await fs.promises.unlink(filePath).catch(() => {});
+        await storageQuota.remove(filePath).catch(() => {});
       }
     }));
   } catch (error) {
     console.warn('Takeout temp cleanup failed:', error.message);
   }
-}
-
-// Limits for Google Takeout zips. Real Keep exports are usually well under
-// these caps; the goal is to prevent zip bombs and path-traversal entries
-// without breaking large legitimate exports.
-const TAKEOUT_MAX_ENTRIES = 100_000;
-const TAKEOUT_MAX_PER_ENTRY_BYTES = 250 * 1024 * 1024;     // 250 MB per file
-const TAKEOUT_MAX_TOTAL_BYTES = 10 * 1024 * 1024 * 1024;   // 10 GB combined
-const TAKEOUT_MAX_FILENAME_LEN = 1024;
-
-function normalizeZipEntryName(name) {
-  return String(name || '').replace(/\\/g, '/').replace(/^\/+/, '');
-}
-
-function isUnsafeZipPath(name) {
-  // Reject any traversal segments or absolute paths. We don't write entry
-  // names to disk (we generate our own filenames), but we still treat unsafe
-  // paths as a strong signal the upload is malicious.
-  if (!name || name.length > TAKEOUT_MAX_FILENAME_LEN) return true;
-  if (name.startsWith('/') || /^[A-Za-z]:[\\/]/.test(name)) return true;
-  for (const segment of name.split('/')) {
-    if (segment === '..' || segment === '.' && false) return true;
-    if (segment === '..') return true;
-  }
-  return false;
 }
 
 function isKeepJsonEntry(entry) {
@@ -8594,79 +8724,23 @@ function importedKeepChecklistItems(listContent, fallbackLevel = 0, state = { ne
   return checkBoxes;
 }
 
-async function readZipEntries(filePath) {
-  let admZipError;
-  let rawEntries;
-  let getRawData;
-  try {
-    const AdmZip = require('adm-zip');
-    const zip = new AdmZip(filePath);
-    rawEntries = zip.getEntries();
-    getRawData = (entry) => entry.getData();
-  } catch (error) {
-    admZipError = error;
-  }
-
-  if (!rawEntries) {
-    try {
-      const unzipper = require('unzipper');
-      const directory = await unzipper.Open.file(filePath);
-      rawEntries = directory.files.map(file => ({
-        entryName: file.path,
-        isDirectory: file.type === 'Directory' || /\/$/.test(file.path),
-        _file: file
-      }));
-      getRawData = (entry) => entry._file.buffer();
-    } catch (error) {
-      console.error('Takeout ZIP parse error:', admZipError?.message || admZipError, error?.message || error);
-      throw new Error('Invalid ZIP file. Upload the Google Takeout ZIP itself, with the stock Takeout/Keep folder inside it.');
-    }
-  }
-
-  if (rawEntries.length > TAKEOUT_MAX_ENTRIES) {
-    throw new Error(`ZIP has too many entries (${rawEntries.length}, max ${TAKEOUT_MAX_ENTRIES}).`);
-  }
-
-  let totalExtracted = 0;
-  const entries = [];
-  for (const raw of rawEntries) {
-    const rawName = raw.entryName ?? raw.path ?? '';
-    const normalized = normalizeZipEntryName(rawName);
-    if (isUnsafeZipPath(normalized)) {
-      throw new Error('ZIP contains an unsafe entry path. Aborting.');
-    }
-    entries.push({
-      entryName: normalized,
-      isDirectory: !!(raw.isDirectory ?? raw.type === 'Directory'),
-      // Uncompressed size from the ZIP's own metadata, used only as an
-      // upfront storage-quota estimate before extraction; never trusted
-      // for the actual per-entry/total extraction limits enforced below.
-      size: Number(raw.header?.size ?? raw.uncompressedSize ?? raw._file?.uncompressedSize ?? 0) || 0,
-      getData: async () => {
-        const data = await getRawData(raw);
-        if (!data) return Buffer.alloc(0);
-        if (data.length > TAKEOUT_MAX_PER_ENTRY_BYTES) {
-          throw new Error(`Entry "${normalized}" is too large (${formatBytes(data.length)}). Max ${formatBytes(TAKEOUT_MAX_PER_ENTRY_BYTES)}.`);
-        }
-        totalExtracted += data.length;
-        if (totalExtracted > TAKEOUT_MAX_TOTAL_BYTES) {
-          throw new Error(`ZIP expands beyond the safe extraction limit (${formatBytes(TAKEOUT_MAX_TOTAL_BYTES)}).`);
-        }
-        return data;
-      }
-    });
-  }
-  return entries;
-}
-
-app.post('/api/import/google-takeout', requireAuth, googleTakeoutUpload, asyncRoute(async (req, res) => {
+let takeoutImportInProgress = false;
+app.post('/api/import/google-takeout', requireAuth, importLimiter, googleTakeoutUpload, asyncRoute(async (req, res) => {
   const tempPath = req.file?.path;
+  const importedFiles = [];
+  let committed = false;
+  let ownsImport = false;
+  let archive;
   try {
     if (!req.file || !tempPath) return res.status(400).json({ error: 'No file uploaded.' });
+    if (takeoutImportInProgress) return res.status(409).json({ error: 'Another Takeout import is already in progress. Please try again when it finishes.' });
+    takeoutImportInProgress = true;
+    ownsImport = true;
 
     let entries;
     try {
-      entries = await readZipEntries(tempPath);
+      archive = await readTakeoutZip(tempPath);
+      entries = archive.entries;
     } catch (error) {
       return res.status(400).json({ error: error.message });
     }
@@ -8702,121 +8776,125 @@ app.post('/api/import/google-takeout', requireAuth, googleTakeoutUpload, asyncRo
       existingFingerprints.add(fp);
     }
 
-    await run('BEGIN IMMEDIATE TRANSACTION');
     try {
-      for (const entry of jsonEntries) {
-        try {
-          let note;
-          try { note = JSON.parse((await entry.getData()).toString('utf8')); }
-          catch (e) {
-            if (e && /zip bomb|too many entries|too large|unsafe entry/i.test(e.message)) throw e;
-            errors++; continue;
-          }
-
-          if (note.isTrashed) { skipped++; continue; }
-
-          const bgColor = KEEP_COLOR_MAP[note.color] ?? '';
-
-          let noteBody = '';
-          if (note.textContent) {
-            noteBody = note.textContent
-              .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-              .replace(/\n/g, '<br>');
-          }
-          if (note.annotations?.length) {
-            const links = note.annotations
-              .filter(a => a.url)
-              .map(a => `<a href="${escapeHtml(safeUrl(a.url))}" target="_blank" rel="noopener">${escapeHtml(a.title || a.url)}</a>`)
-              .join('<br>');
-            if (links) noteBody = noteBody ? `${noteBody}<br>${links}` : links;
-          }
-
-          noteBody = sanitizeNoteHtml(noteBody);
-          let isCbox = 0, checkBoxes = [];
-          if (note.listContent?.length) {
-            isCbox = 1;
-            checkBoxes = importedKeepChecklistItems(note.listContent);
-          }
-
-          const images = [];
-          for (const att of (note.attachments || [])) {
-            const attMimeType = String(att.mimetype || '').toLowerCase();
-            if (!SAFE_IMAGE_TYPES.has(attMimeType)) continue;
-            const basename = path.basename(att.filePath || '');
-            const attEntry = attachmentsByName[basename];
-            if (!attEntry) continue;
-            try {
-              const ext = SAFE_IMAGE_TYPES.get(attMimeType);
-              const filename = `${Date.now()}-${randomHex(12)}${ext}`;
-              const data = await attEntry.getData();
-              fs.writeFileSync(path.join(uploadDir, filename), data);
-              images.push({ id: `img-${Date.now()}`, dataUrl: `${PRIVATE_IMAGE_PREFIX}${filename}`, name: basename, placement: 'top' });
-            } catch (e) {
-              if (e && /zip bomb|too many entries|too large|unsafe entry/i.test(e.message)) throw e;
-              /* skip image */
+      await withDatabaseTransaction(async () => {
+        for (const entry of jsonEntries) {
+          try {
+            let note;
+            try { note = JSON.parse((await entry.getData()).toString('utf8')); }
+            catch (e) {
+              if (e?.code === 'TAKEOUT_LIMIT' || e && /zip bomb|too many entries|too large|unsafe entry/i.test(e.message)) throw e;
+              errors++; continue;
             }
-          }
 
-          const labels = [];
-          const seenLabels = new Set();
-          for (const rawLabel of (note.labels || [])) {
-            const labelName = String(rawLabel?.name || '').trim();
-            if (!labelName) continue;
-            const labelKey = labelName.toLowerCase();
-            if (seenLabels.has(labelKey)) continue;
-            seenLabels.add(labelKey);
-            const label = await findOrCreateLabelForUser(req.user.id, labelName);
-            labels.push({ id: label.id, name: label.name, added: true });
-          }
-          const createdAt = note.createdTimestampUsec ? new Date(note.createdTimestampUsec / 1000).toISOString() : now;
-          const updatedAt = note.userEditedTimestampUsec ? new Date(note.userEditedTimestampUsec / 1000).toISOString() : now;
+            if (note.isTrashed) { skipped++; continue; }
 
-          // Skip notes that look like a re-import of something already present.
-          const noteTitle = escapeHtml(plainText(note.title || ''));
-          const fingerprint = `${createdAt}|${noteTitle.slice(0, 200)}|${noteBody.slice(0, 200)}`;
-          if (existingFingerprints.has(fingerprint)) { deduped++; continue; }
-          existingFingerprints.add(fingerprint);
+            const bgColor = KEEP_COLOR_MAP[note.color] ?? '';
 
-          // Google Keep Takeout uses `isPinned`; older or third-party exports
-          // sometimes use `pinned`. Accept either to avoid silently dropping pins.
-          if ('isPinned' in note) fieldPresence.isPinned++;
-          if ('pinned' in note) fieldPresence.pinned++;
-          if ('isArchived' in note) fieldPresence.isArchived++;
-          if ('archived' in note) fieldPresence.archived++;
-          const pinnedFlag = (note.isPinned || note.pinned) ? 1 : 0;
-          const archivedFlag = (note.isArchived || note.archived) ? 1 : 0;
-          if (pinnedFlag) pinnedCount++;
-          // Keep imported notes in their original Keep recency order instead of
-          // treating the import itself as the note date.
-          const importSortOrder = new Date(updatedAt || createdAt || now).getTime() || Date.now();
-          const lww = serverLwwStamp();
-          const insertResult = await run(
-            `INSERT INTO notes (ownerUserId, syncId, noteTitle, noteBody, pinned, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, archived, trashed, sortOrder, createdAt, updatedAt, lastEditorUserId, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
-             VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, '', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [req.user.id, `note-${crypto.randomUUID()}`, noteTitle, noteBody, pinnedFlag, bgColor,
-              JSON.stringify(checkBoxes), JSON.stringify(images), isCbox, JSON.stringify(labels),
-              JSON.stringify(noteExtraFields(note)), archivedFlag, importSortOrder, createdAt, updatedAt, req.user.id,
-             lww.physicalMs, lww.logical, lww.deviceId, lww.operationId]
-          );
-          // The /api/notes endpoint resolves `pinned` from the per-user
-          // `user_pins` table, not the legacy `notes.pinned` column. Without
-          // this insert, takeout-imported pinned notes would never appear
-          // pinned in the UI.
-          if (pinnedFlag) {
-            await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [req.user.id, insertResult.id]);
+            let noteBody = '';
+            if (note.textContent) {
+              noteBody = note.textContent
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/\n/g, '<br>');
+            }
+            if (note.annotations?.length) {
+              const links = note.annotations
+                .filter(a => a.url)
+                .map(a => `<a href="${escapeHtml(safeUrl(a.url))}" target="_blank" rel="noopener">${escapeHtml(a.title || a.url)}</a>`)
+                .join('<br>');
+              if (links) noteBody = noteBody ? `${noteBody}<br>${links}` : links;
+            }
+
+            noteBody = sanitizeNoteHtml(noteBody);
+            let isCbox = 0, checkBoxes = [];
+            if (note.listContent?.length) {
+              isCbox = 1;
+              checkBoxes = importedKeepChecklistItems(note.listContent);
+            }
+
+            const images = [];
+            for (const att of (note.attachments || [])) {
+              const attMimeType = String(att.mimetype || '').toLowerCase();
+              if (!SAFE_IMAGE_TYPES.has(attMimeType)) continue;
+              const basename = path.basename(att.filePath || '');
+              const attEntry = attachmentsByName[basename];
+              if (!attEntry) continue;
+              try {
+                const ext = SAFE_IMAGE_TYPES.get(attMimeType);
+                const filename = `${Date.now()}-${randomHex(12)}${ext}`;
+                const data = await attEntry.getData();
+                const destination = path.join(uploadDir, filename);
+                storageQuota.resize(destination, data.length);
+                importedFiles.push(destination);
+                fs.writeFileSync(destination, data);
+                images.push({ id: `img-${Date.now()}`, dataUrl: `${PRIVATE_IMAGE_PREFIX}${filename}`, name: basename, placement: 'top' });
+              } catch (e) {
+                if (e?.code === 'TAKEOUT_LIMIT' || e && /zip bomb|too many entries|too large|unsafe entry/i.test(e.message)) throw e;
+                /* skip image */
+              }
+            }
+
+            const labels = [];
+            const seenLabels = new Set();
+            for (const rawLabel of (note.labels || [])) {
+              const labelName = String(rawLabel?.name || '').trim();
+              if (!labelName) continue;
+              const labelKey = labelName.toLowerCase();
+              if (seenLabels.has(labelKey)) continue;
+              seenLabels.add(labelKey);
+              const label = await findOrCreateLabelForUser(req.user.id, labelName);
+              labels.push({ id: label.id, name: label.name, added: true });
+            }
+            const createdAt = note.createdTimestampUsec ? new Date(note.createdTimestampUsec / 1000).toISOString() : now;
+            const updatedAt = note.userEditedTimestampUsec ? new Date(note.userEditedTimestampUsec / 1000).toISOString() : now;
+
+            // Skip notes that look like a re-import of something already present.
+            const noteTitle = escapeHtml(plainText(note.title || ''));
+            const fingerprint = `${createdAt}|${noteTitle.slice(0, 200)}|${noteBody.slice(0, 200)}`;
+            if (existingFingerprints.has(fingerprint)) { deduped++; continue; }
+            existingFingerprints.add(fingerprint);
+
+            // Google Keep Takeout uses `isPinned`; older or third-party exports
+            // sometimes use `pinned`. Accept either to avoid silently dropping pins.
+            if ('isPinned' in note) fieldPresence.isPinned++;
+            if ('pinned' in note) fieldPresence.pinned++;
+            if ('isArchived' in note) fieldPresence.isArchived++;
+            if ('archived' in note) fieldPresence.archived++;
+            const pinnedFlag = (note.isPinned || note.pinned) ? 1 : 0;
+            const archivedFlag = (note.isArchived || note.archived) ? 1 : 0;
+            if (pinnedFlag) pinnedCount++;
+            // Keep imported notes in their original Keep recency order instead of
+            // treating the import itself as the note date.
+            const importSortOrder = new Date(updatedAt || createdAt || now).getTime() || Date.now();
+            const lww = serverLwwStamp();
+            const insertResult = await run(
+              `INSERT INTO notes (ownerUserId, syncId, noteTitle, noteBody, pinned, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, archived, trashed, sortOrder, createdAt, updatedAt, lastEditorUserId, lwwPhysicalMs, lwwLogical, lwwDeviceId, lwwOperationId)
+               VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, '', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [req.user.id, `note-${crypto.randomUUID()}`, noteTitle, noteBody, pinnedFlag, bgColor,
+                JSON.stringify(checkBoxes), JSON.stringify(images), isCbox, JSON.stringify(labels),
+                JSON.stringify(noteExtraFields(note)), archivedFlag, importSortOrder, createdAt, updatedAt, req.user.id,
+               lww.physicalMs, lww.logical, lww.deviceId, lww.operationId]
+            );
+            // The /api/notes endpoint resolves `pinned` from the per-user
+            // `user_pins` table, not the legacy `notes.pinned` column. Without
+            // this insert, takeout-imported pinned notes would never appear
+            // pinned in the UI.
+            if (pinnedFlag) {
+              await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [req.user.id, insertResult.id]);
+            }
+            await syncNoteImagesForNote(insertResult.id, req.user.id, { noteBody, images });
+            await recordNoteSyncChange(insertResult.id, 'upsert', [req.user.id]);
+            imported++;
+          } catch (e) {
+            if (e?.code === 'TAKEOUT_LIMIT' || e?.code === 'STORAGE_QUOTA_EXCEEDED') throw e;
+            console.error('Takeout import error:', entry.entryName, e.message);
+            errors++;
           }
-          await syncNoteImagesForNote(insertResult.id, req.user.id, { noteBody, images });
-          await recordNoteSyncChange(insertResult.id, 'upsert', [req.user.id]);
-          imported++;
-        } catch (e) {
-          console.error('Takeout import error:', entry.entryName, e.message);
-          errors++;
         }
-      }
-      await run('COMMIT');
+      });
+      committed = true;
     } catch (error) {
-      await run('ROLLBACK');
-      if (error && /zip bomb|too many entries|too large|unsafe entry/i.test(error.message)) {
+      if (error?.code === 'TAKEOUT_LIMIT' || error && /zip bomb|too many entries|too large|unsafe entry/i.test(error.message)) {
         return res.status(400).json({ error: error.message });
       }
       throw error;
@@ -8830,8 +8908,13 @@ app.post('/api/import/google-takeout', requireAuth, googleTakeoutUpload, asyncRo
     broadcastRealtime([req.user.id], { type: 'notes-changed' });
     res.json({ imported, skipped, deduped, errors, pinnedCount, total: jsonEntries.length, fieldPresence });
   } finally {
-    if (tempPath) {
-      fs.promises.unlink(tempPath).catch(() => {});
+    try {
+      await archive?.close();
+    } finally {
+      try {
+        if (!committed) await Promise.all(importedFiles.map(filename => storageQuota.remove(filename).catch(() => {})));
+        if (tempPath) await storageQuota.remove(tempPath).catch(() => {});
+      } finally { if (ownsImport) takeoutImportInProgress = false; }
     }
   }
 }));
@@ -8863,14 +8946,16 @@ app.use((error, _req, res, _next) => {
   }
 
   console.error(error);
-  res.status(error.status || 500).json({ error: error.message || 'Server error.' });
+  res.status(error.status || 500).json({ error: error.message || 'Server error.', ...(error.code === 'STORAGE_QUOTA_EXCEEDED' ? {code:error.code} : {}) });
 });
 
 init().then(() => {
+  void managedNotice.start();
   setupRealtime();
   if (process.env.KEPT_TEST_MODE !== '1') startReminderScheduler();
   startBackupScheduler();
   cleanupStaleTakeoutUploads();
+  setInterval(() => workspaceImport.prune().catch(error => console.error('Transfer cleanup failed:', error.message)), 30 * 60 * 1000).unref?.();
   server.listen(port, () => {
     console.log(`Keep API listening on http://127.0.0.1:${port}`);
     console.log(`Keep realtime listening on ws://127.0.0.1:${port}/api/realtime`);
