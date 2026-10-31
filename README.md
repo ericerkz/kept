@@ -25,7 +25,7 @@ Kept is a notes app built for quick capture: text notes, checklists, images, dra
 
 <p>
   <a href="https://cloud.keepitkept.xyz/">
-    <img src="docs/assets/images/kept-cloud-button.svg?v=branded-button" alt="Get Kept Cloud — sync across your devices" width="360" height="110">
+    <img src="docs/assets/images/kept-cloud-button.svg?v=b1ee644e564b" alt="Get Kept Cloud — sync across your devices" width="360" height="110">
   </a>
 </p>
 
@@ -99,7 +99,7 @@ Kept stores its database, uploads, attachments, and generated server data in `./
 
 Want web access, sharing, and sync across devices without setting up Docker or managing a server? Kept Cloud runs and maintains your own private Kept server for you.
 
-[![Get Kept Cloud — sync across your devices](docs/assets/images/kept-cloud-button.svg?v=branded-button)](https://cloud.keepitkept.xyz/)
+[![Get Kept Cloud — sync across your devices](docs/assets/images/kept-cloud-button.svg?v=b1ee644e564b)](https://cloud.keepitkept.xyz/)
 
 - Hosting, automatic backups, and updates are handled for you.
 - Use Kept on iOS, Android, and the web at your own server address.
