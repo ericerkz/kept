@@ -60,10 +60,6 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Optional OpenID Connect (OIDC) single sign-on alongside Kept's local accounts.
 - Device-only notes on iOS and Android or Server-connected for syncing across devices - the choice is yours.
 
-<img src="docs/assets/images/nested-checklist.webp" alt="A Kept checklist with nested items, drag handles, and a collapsible completed-items section" width="560">
-
-*Organize checklist items into nested steps.*
-
 ## Use Kept Locally Without a Server
 
 With the native iOS and Android apps, you can start using Kept without Docker, a server, or a Kept account:
