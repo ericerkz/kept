@@ -39,7 +39,7 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 
 ## Features
 
-- Text notes, checklists, image notes, drawings, links, and file attachments.
+- Text notes, nested checklists, image notes, drawings, links, and file attachments.
 - Drag-and-drop note ordering and checklist item ordering.
 - Labels, binders, colors, background images, pinned notes, archive, and trash.
 - Search and filters, including note type, labels, and date-style queries.
@@ -59,6 +59,10 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - OAuth 2.1 access for scoped third-party API integrations and remote MCP clients.
 - Optional OpenID Connect (OIDC) single sign-on alongside Kept's local accounts.
 - Device-only notes on iOS and Android or Server-connected for syncing across devices - the choice is yours.
+
+<img src="docs/assets/images/nested-checklist.webp" alt="A Kept checklist with nested items, drag handles, and a collapsible completed-items section" width="560">
+
+*Organize checklist items into nested steps.*
 
 ## Use Kept Locally Without a Server
 
@@ -131,6 +135,10 @@ Kept remains free to self-host on any platform that supports Docker. Device-only
 - Home screen widgets for recent notes, pinned notes, filtered labels/binders, quick note creation, and a single selected note.
 - On-device Smart Capture using Android's native Gemini Nano when available, or Kept's local Gemma fallback model on Android devices that need it.
 - Move device-only notes to a Kept server later.
+
+<img src="docs/assets/images/android-widget.webp" alt="Kept's Android home screen widget showing recent notes and shortcuts to create a note, checklist, drawing, or photo note" width="360">
+
+*Browse recent notes and capture something new from your Android home screen.*
 
 ## PWA / Mobile Browser
 
