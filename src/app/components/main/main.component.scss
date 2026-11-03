@@ -336,6 +336,11 @@
 }
 
 @media (max-width: 599px) {
+  .main-section:not(.native-phone-layout) {
+    // Reserve the fixed web toolbar's 48px height and 8px top/bottom padding.
+    padding-top: 64px;
+  }
+
   .padding {
     padding: 0 12px;
   }
