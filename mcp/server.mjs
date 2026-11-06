@@ -186,9 +186,9 @@ export function createKeptMcpServer(client, { oauth = false, scopes = null } = {
   server.registerTool('kept_manage_checklist', {
     title: 'Manage a Kept checklist', description: 'Add, edit, complete, indent, reorder, or remove checklist items without replacing the rest of the note.',
     inputSchema: {
-      noteId: noteIdSchema, action: z.enum(['add', 'update', 'delete', 'move']), itemId: z.number().int().positive().optional(),
+      noteId: noteIdSchema, action: z.enum(['add', 'update', 'delete', 'move']), itemId: z.number().int().nonnegative().optional(),
       text: z.string().max(20_000).optional(), format: bodyFormatSchema.optional().default('plain_text'), done: z.boolean().optional(),
-      indentLevel: z.number().int().min(0).max(4).optional(), beforeItemId: z.number().int().positive().nullable().optional()
+      indentLevel: z.number().int().min(0).max(4).optional(), beforeItemId: z.number().int().nonnegative().nullable().optional()
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
   }, safely(async ({ noteId, action, itemId, text, format, done, indentLevel, beforeItemId }) => {
@@ -199,6 +199,7 @@ export function createKeptMcpServer(client, { oauth = false, scopes = null } = {
       if (!text?.trim()) throw new Error('text is required when adding an item.');
       items.push({ id: Math.max(Date.now(), ...items.map(item => Number(item.id) + 1)), data: noteHtml(text, format), done: !!done, indentLevel: indentLevel || 0 });
     } else {
+      if (itemId === undefined) throw new Error('itemId is required when updating, deleting, or moving a checklist item.');
       const index = items.findIndex(item => Number(item.id) === Number(itemId));
       if (index < 0) throw new Error('Checklist item not found.');
       if (action === 'delete') items.splice(index, 1);
