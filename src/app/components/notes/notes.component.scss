@@ -77,6 +77,12 @@
   }
 }
 
+@media (max-width: 599px) {
+  .main-container:not(.native-phone-layout) {
+    margin-top: 8px;
+  }
+}
+
 @media (orientation: landscape) {
   .main-container.native-phone-layout.grid-view {
     box-sizing: border-box;
