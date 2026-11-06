@@ -1,3 +1,5 @@
+@use '../../../assets/scss/drawing-paper' as paper;
+
 .main-container {
   border-radius: 8px;
   margin: 24px auto 16px auto;
@@ -751,11 +753,24 @@
   }
 }
 
+.drawing-background-tool {
+  // Anchor to the whole toolbar rather than a button near the screen edge.
+  position: static;
+}
+
 .background-picker {
-  gap: 8px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
   left: 50%;
+  max-height: calc(100dvh - 96px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px;
+  top: calc(100% + 4px);
   transform: translateX(-50%);
+  width: min(360px, calc(100% - 16px));
 
   button {
     align-items: center;
@@ -767,7 +782,12 @@
     display: grid;
     gap: 6px;
     justify-items: center;
-    padding: 8px 12px;
+    min-width: 0;
+    font: 400 14px/1.3 Roboto, Arial, sans-serif;
+    overflow-wrap: anywhere;
+    padding: 8px 4px;
+
+    .bg-preview { aspect-ratio: 1; height: auto; width: min(48px, 100%); }
 
     &.active,
     &:hover {
@@ -974,20 +994,7 @@
   align-items: center;
   justify-content: center;
 
-  &.bg-square {
-    background-image: linear-gradient(#e0e0e0 1px, transparent 1px), linear-gradient(90deg, #e0e0e0 1px, transparent 1px);
-    background-size: 28px 28px;
-  }
-
-  &.bg-dots {
-    background-image: radial-gradient(#d2d6e8 1.5px, transparent 1.5px);
-    background-size: 22px 22px;
-  }
-
-  &.bg-rules {
-    background-image: linear-gradient(#e0e0e0 1px, transparent 1px);
-    background-size: 100% 32px;
-  }
+  @include paper.drawing-paper;
 
   canvas {
     display: block;

@@ -1,3 +1,5 @@
+@use '../../../assets/scss/drawing-paper' as paper;
+
 .main-container {
   margin-top: 45px;
   margin-bottom: 45px;
@@ -14,11 +16,11 @@
   --preview-title-min-height: 38px;
   --preview-body-margin: 4px 16px 12px 16px;
   --preview-body-min-height: 30px;
-  --preview-cboxes-margin: 8px 12px 12px 18px;
+  --preview-cboxes-margin: 4px 12px 8px 12px;
   --preview-cboxes-right-margin: 12px;
-  --preview-cbox-row-padding: 5px 0;
-  --preview-cbox-note-padding-left: 10px;
-  --preview-cbox-more-margin: 6px 0 4px 34px;
+  --preview-cbox-row-padding: 2px 0;
+  --preview-cbox-note-padding-left: 6px;
+  --preview-cbox-more-margin: 4px 0 2px 30px;
 
   &.preview-text-compact {
     --preview-title-size: 0.86rem;
@@ -34,11 +36,11 @@
     --preview-title-min-height: 28px;
     --preview-body-margin: 2px 12px 8px 12px;
     --preview-body-min-height: 20px;
-    --preview-cboxes-margin: 5px 8px 8px 12px;
+    --preview-cboxes-margin: 3px 8px 6px 10px;
     --preview-cboxes-right-margin: 8px;
-    --preview-cbox-row-padding: 2px 0;
-    --preview-cbox-note-padding-left: 7px;
-    --preview-cbox-more-margin: 4px 0 2px 27px;
+    --preview-cbox-row-padding: 1px 0;
+    --preview-cbox-note-padding-left: 6px;
+    --preview-cbox-more-margin: 3px 0 1px 30px;
   }
 
   &.preview-text-large {
@@ -311,14 +313,20 @@
 
       .note-images:empty + .body-segments {
         padding-top: 8px;
+
+        // Keep only the top corner clear for the pin; lower lines can use
+        // the full card width. The outer .body retains preview line clamping.
+        > .body:first-child > .body-content::before {
+          content: '';
+          float: right;
+          height: 36px;
+          margin-left: 4px;
+          width: 40px;
+        }
       }
 
       .note-images:empty + .cboxes {
         margin-top: 12px;
-      }
-
-      .body {
-        margin-right: 44px;
       }
 
       .cboxes {
@@ -416,6 +424,11 @@
       object-fit: cover;
       border-radius: 6px;
       background-color: rgb(0 0 0 / 14%);
+
+      &[data-drawing-background] {
+        background-color: #fff;
+        @include paper.drawing-paper;
+      }
     }
   }
 
@@ -546,6 +559,10 @@
     display: none;
   }
 
+  .body > .body-content {
+    margin: 0;
+  }
+
   .cboxes.min {
     margin: var(--preview-cboxes-margin);
   }
@@ -564,10 +581,12 @@
   }
 
   .overview-cbox-note-container {
+    flex: 1 1 0;
     width: auto;
   }
 
   .overview-cbox-note {
+    box-sizing: border-box;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
@@ -1010,6 +1029,7 @@
     --preview-title-margin: 8px 42px 0 10px;
     --preview-title-min-height: 28px;
     --preview-body-margin: 4px 10px 8px 10px;
+    --preview-cboxes-margin: 4px 10px 8px 10px;
 
     &.preview-text-compact {
       --preview-title-size: 0.76rem;
@@ -1066,10 +1086,6 @@
 
       .note-images:empty + .cboxes {
         margin-top: 8px;
-      }
-
-      .body {
-        margin-right: 40px;
       }
 
       .cboxes {

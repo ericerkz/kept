@@ -6,7 +6,7 @@ const { isPublicAddress } = require('./integration-requests');
 // Downloads are independent of the Kept API connection: no session, proxy
 // credentials, private-origin exceptions, or pooled sockets are inherited.
 function createPublicFileDownloader({ lookup = (host, options) => dns.promises.lookup(host, options), request = https.request } = {}) {
-  return async function download(rawUrl, { maxBytes, timeoutMs = 10000 }) {
+  return async function download(rawUrl, { maxBytes, timeoutMs = 10000, maxRedirects = 3, accept = '*/*', requiredStatus, includeHeaders = false }) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error('File download timed out.')), timeoutMs);
     const interrupted = new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true }));
@@ -14,7 +14,7 @@ function createPublicFileDownloader({ lookup = (host, options) => dns.promises.l
     interrupted.catch(() => {});
     try {
       let target = rawUrl;
-      for (let hop = 0; hop <= 3; hop++) {
+      for (let hop = 0; hop <= maxRedirects; hop++) {
         let url;
         try { url = new URL(target); } catch { throw new Error('The file download URL is invalid.'); }
         if (url.protocol !== 'https:' || url.username || url.password || url.hash) throw new Error('File download URLs must use HTTPS without credentials or fragments.');
@@ -27,7 +27,7 @@ function createPublicFileDownloader({ lookup = (host, options) => dns.promises.l
         const response = await Promise.race([new Promise((resolve, reject) => {
           const req = request(url, {
             method: 'GET', agent: false, signal: controller.signal,
-            headers: { Accept: '*/*' },
+            headers: { Accept: accept },
             // Keep the original URL/hostname for Host, SNI and certificate checks.
             lookup: (_host, options, callback) => {
               const done = typeof options === 'function' ? options : callback;
@@ -40,11 +40,12 @@ function createPublicFileDownloader({ lookup = (host, options) => dns.promises.l
         }), interrupted]);
         try {
           if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
-            if (hop === 3 || !response.headers.location) throw new Error('Too many redirects while downloading the selected file.');
+            if (hop === maxRedirects || !response.headers.location) throw new Error('Too many redirects while downloading the selected file.');
             target = new URL(response.headers.location, url).href;
             continue;
           }
           if (response.statusCode < 200 || response.statusCode >= 300) throw new Error(`Could not download the selected file (HTTP ${response.statusCode}).`);
+          if (requiredStatus !== undefined && response.statusCode !== requiredStatus) throw new Error(`Unexpected download status (HTTP ${response.statusCode}).`);
           if (Number(response.headers['content-length'] || 0) > maxBytes) throw new Error('The selected file is too large for Kept.');
           const chunks = [];
           let size = 0;
@@ -53,7 +54,8 @@ function createPublicFileDownloader({ lookup = (host, options) => dns.promises.l
             if (size > maxBytes) throw new Error('The selected file is too large for Kept.');
             chunks.push(chunk);
           }
-          return Buffer.concat(chunks, size);
+          const body = Buffer.concat(chunks, size);
+          return includeHeaders ? { body, headers: response.headers } : body;
         } finally { response.destroy(); }
       }
     } finally { clearTimeout(timer); controller.abort(); }

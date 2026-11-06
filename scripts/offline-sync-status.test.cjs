@@ -45,6 +45,8 @@ function harness(t, platform = 'web', initiallyOnline = true) {
   const window = new EventTarget();
   const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
   const navigator = { onLine: initiallyOnline };
+  const values = new Map();
+  const localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
   const callbacks = new Map();
   const app = {
     async addListener(event, callback) {
@@ -64,7 +66,7 @@ function harness(t, platform = 'web', initiallyOnline = true) {
     setSyncState: async () => {},
     listNotes: async () => [{ id: 1, syncId: 'baseline', noteTitle: 'Existing note' }],
     replaceSnapshot: async () => {},
-    listOutbox: async () => [...queued],
+    listOutbox: async partition => queued.filter(entry => entry.partition === partition),
     nextStamp: () => ({ operationId: `op-${++sequence}`, physicalMs: clock.now, logical: 0, deviceId: 'test' }),
     enqueue: async (partition, type, syncId, payload, lww) => queued.push({
       key: lww.operationId, operationId:lww.operationId, partition, type, syncId, payload, lww
@@ -103,7 +105,7 @@ function harness(t, platform = 'web', initiallyOnline = true) {
   })]));
   const errors = [];
   const sandbox = {
-    exports: {}, navigator, window, document, Blob, FormData,
+    exports: {}, navigator, window, document, Blob, FormData, localStorage,
     console: { error: (...args) => errors.push(args), warn: (...args) => errors.push(args) },
     Date: { now: () => clock.now }, queueMicrotask,
     setTimeout: clock.setTimeout.bind(clock), clearTimeout: clock.clearTimeout.bind(clock),
@@ -126,7 +128,7 @@ function harness(t, platform = 'web', initiallyOnline = true) {
   service.state$.subscribe(state => states.push(state));
   t.after(() => service.ngOnDestroy());
   return {
-    service, auth, states, store, queued, requests, clock, navigator, window, document, callbacks, errors,
+    service, auth, states, store, queued, requests, clock, navigator, window, document, callbacks, errors, localStorage,
     respond: handler => { respond = handler; },
     login: async () => { auth.currentUser$.next({ id: 1 }); await settle(); },
     logout: async () => { auth.currentUser$.next(null); await settle(); },
@@ -413,6 +415,8 @@ for (const platform of ['web', 'ios', 'android']) {
     test(`${platform}: a 507 on ${type} keeps media queued while text and incoming changes sync`, async t => {
       const h = harness(t, platform);
       await h.login();
+      const lastSyncedAt = h.service.lastSyncedAt$.value;
+      await h.clock.advance(1000);
       h.requests.length = 0;
       await h.store.enqueue(h.service.partition, type, 'media', type === 'image.upload'
         ? { url: '/__kept_local_media/photo', filename: 'photo.png' }
@@ -428,6 +432,7 @@ for (const platform of ['web', 'ios', 'android']) {
       assert.equal(h.queued[0].type, type);
       assert.equal(h.queued[0].blockedBy, 'storage');
       assert.equal(h.service.storageBlocked$.value, true);
+      assert.equal(h.service.lastSyncedAt$.value, lastSyncedAt, 'blocked media must not advance the full-sync timestamp');
       assert.match(h.service.storageFullMessage, /storage is full.*upgrade or delete some files\/images/);
       assert.equal(h.service.state$.value, 'saved');
       assert.equal(h.service.isConnectionDegraded(), false);
@@ -444,6 +449,7 @@ for (const platform of ['web', 'ios', 'android']) {
       assert.equal(h.queued.length, 0);
       assert.equal(h.service.storageBlocked$.value, false);
       assert.equal(h.service.state$.value, 'saved');
+      assert.equal(h.service.lastSyncedAt$.value, h.clock.now);
     });
   }
 }
@@ -522,4 +528,171 @@ test('logout and service teardown cancel retries and lifecycle listeners', async
   h.document.dispatchEvent(new Event('visibilitychange'));
   await settle();
   assert.equal(h.requests.length, 1);
+});
+
+test('last-synced time advances only after outgoing edits and the incoming pull finish', async t => {
+  const h = harness(t);
+  assert.equal(h.service.lastSyncedAt$.value, null);
+  await h.login();
+  const previous = h.service.lastSyncedAt$.value;
+  assert.equal(previous, h.clock.now);
+  await h.clock.advance(1000);
+  await h.store.enqueue(h.service.partition, 'note.upsert', 'edited', { noteTitle: 'Changed' }, h.store.nextStamp());
+  const incoming = new rx.Subject();
+  h.respond((method, _url, body) => method === 'POST'
+    ? rx.of({ results: body.mutations.map(() => ({ ok: true })), serverTime: h.clock.now })
+    : incoming);
+  const sync = h.service.syncNow();
+  await settle();
+  assert.equal(h.queued.length, 0);
+  assert.equal(h.service.state$.value, 'syncing');
+  assert.equal(h.service.lastSyncedAt$.value, previous);
+  incoming.next({ changes: [], cursor: 2, hasMore: false, serverTime: h.clock.now });
+  incoming.complete();
+  await sync;
+  assert.equal(h.service.lastSyncedAt$.value, h.clock.now);
+  assert.equal(h.service.state$.value, 'saved');
+});
+
+test('outages, authentication and persistence failures never advance last-synced time', async t => {
+  for (const status of [0, 401, 503]) {
+    const h = harness(t);
+    await h.login();
+    const previous = h.service.lastSyncedAt$.value;
+    await h.clock.advance(1000);
+    h.respond(() => failure(status));
+    await h.service.syncNow();
+    assert.equal(h.service.lastSyncedAt$.value, previous);
+    assert.equal(h.service.state$.value, status === 401 ? 'error' : 'offline');
+  }
+  const h = harness(t);
+  await h.login();
+  const previous = h.service.lastSyncedAt$.value;
+  await h.clock.advance(1000);
+  h.store.reconcile = async () => { throw new Error('Device storage failed'); };
+  await h.service.syncNow();
+  assert.equal(h.service.state$.value, 'error');
+  assert.equal(h.service.lastSyncedAt$.value, previous);
+});
+
+test('a coalesced follow-up sync finishes before last-synced time advances', async t => {
+  const h = harness(t);
+  await h.login();
+  const previous = h.service.lastSyncedAt$.value;
+  await h.clock.advance(1000);
+  const first = new rx.Subject();
+  const second = new rx.Subject();
+  let pulls = 0;
+  h.respond(() => ++pulls === 1 ? first : second);
+  const sync = h.service.syncNow();
+  await settle();
+  await h.service.syncNow();
+  first.next({ changes: [], cursor: 2, hasMore: false });
+  first.complete();
+  await sync;
+  await settle();
+  assert.equal(pulls, 2);
+  assert.equal(h.service.state$.value, 'syncing');
+  assert.equal(h.service.lastSyncedAt$.value, previous);
+  second.next({ changes: [], cursor: 3, hasMore: false });
+  second.complete();
+  await settle();
+  assert.equal(h.service.state$.value, 'saved');
+  assert.equal(h.service.lastSyncedAt$.value, h.clock.now);
+});
+
+test('last-synced time is cleared on account changes, logout and device-only mode', async t => {
+  const h = harness(t);
+  await h.login();
+  assert.equal(h.service.lastSyncedAt$.value, h.clock.now);
+  h.respond(() => failure(503));
+  h.auth.currentUser$.next({ id: 2 });
+  await settle();
+  assert.equal(h.service.lastSyncedAt$.value, null);
+  await h.logout();
+  assert.equal(h.service.lastSyncedAt$.value, null);
+  h.auth.isLocal = true;
+  h.auth.workspace.local = { partition: 'local:test' };
+  h.auth.currentUser$.next({ id: 0 });
+  await settle();
+  assert.equal(h.service.state$.value, 'saved');
+  assert.equal(h.service.lastSyncedAt$.value, null);
+});
+
+test('pending count includes persisted and newly saved edits during a physical outage', async t => {
+  const h = harness(t, 'ios', false);
+  for (const id of ['one', 'two', 'three']) {
+    await h.store.enqueue('account:1', 'note.upsert', id, { noteTitle: id }, h.store.nextStamp());
+  }
+  await h.login();
+  assert.equal(h.service.pendingCount$.value, 3);
+  assert.equal(h.service.state$.value, 'offline');
+  assert.equal(h.requests.length, 0);
+  await h.service.enqueue('note.upsert', 'four', { noteTitle: 'Four' });
+  assert.equal(h.service.pendingCount$.value, 4);
+  await h.logout();
+  assert.equal(h.service.pendingCount$.value, 0);
+});
+
+test('pending count follows partial acknowledgements and clears after successful retry', async t => {
+  const h = harness(t);
+  await h.login();
+  for (const id of ['one', 'two']) await h.store.enqueue(h.service.partition, 'note.upsert', id, {}, h.store.nextStamp());
+  h.respond(() => rx.of({ results: [{ ok: true }, { ok: false, error: 'Rejected mutation' }] }));
+  await h.service.syncNow();
+  assert.equal(h.service.pendingCount$.value, 1);
+  assert.equal(h.service.state$.value, 'error');
+  h.respond((method, _url, body) => rx.of(method === 'POST'
+    ? { results: body.mutations.map(() => ({ ok: true })) }
+    : { changes: [], cursor: 2, hasMore: false }));
+  await h.service.syncNow({ recovery: true });
+  assert.equal(h.service.pendingCount$.value, 0);
+  assert.equal(h.service.state$.value, 'saved');
+});
+
+test('queued counts never carry over to another account or device-only workspace', async t => {
+  const h = harness(t, 'android', false);
+  await h.login();
+  await h.service.enqueue('note.upsert', 'one', {});
+  assert.equal(h.service.pendingCount$.value, 1);
+  h.auth.currentUser$.next({ id: 2 });
+  await settle();
+  assert.equal(h.service.pendingCount$.value, 0);
+  h.auth.isLocal = true;
+  h.auth.workspace.local = { partition: 'local:test' };
+  h.auth.currentUser$.next({ id: 0 });
+  await settle();
+  assert.equal(h.service.pendingCount$.value, 0);
+});
+
+test('a late queued-count read cannot replace the count for a newly selected account', async t => {
+  const h = harness(t, 'ios', false);
+  await h.login();
+  await h.service.enqueue('note.upsert', 'old-account', {});
+  const original = h.store.listOutbox;
+  let finishRead;
+  h.store.listOutbox = partition => partition === 'account:1'
+    ? new Promise(resolve => { finishRead = resolve; }) : original(partition);
+  const pending = h.service.syncNow();
+  h.auth.currentUser$.next({ id: 2 });
+  await settle();
+  assert.equal(h.service.pendingCount$.value, 0);
+  finishRead([{ partition: 'account:1' }]);
+  await pending;
+  assert.equal(h.service.pendingCount$.value, 0);
+});
+
+test('last good sync time survives offline reopening and stays scoped to its account', async t => {
+  const h = harness(t, 'ios');
+  await h.login();
+  const time = h.service.lastSyncedAt$.value;
+  await h.logout();
+  h.respond(() => failure(0));
+  await h.clock.advance(1000);
+  await h.login();
+  assert.equal(h.service.state$.value, 'offline');
+  assert.equal(h.service.lastSyncedAt$.value, time);
+  h.auth.currentUser$.next({ id: 2 });
+  await settle();
+  assert.equal(h.service.lastSyncedAt$.value, null);
 });

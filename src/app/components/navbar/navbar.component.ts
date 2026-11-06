@@ -5,6 +5,8 @@ import { SharedService } from 'src/app/services/shared.service';
 import { bgColors, bgImages } from 'src/app/interfaces/tooltip';
 import { LabelI } from 'src/app/interfaces/labels';
 import { NoteI } from 'src/app/interfaces/notes';
+import { OfflineSyncService } from 'src/app/services/offline-sync.service';
+import { describeSyncStatus } from 'src/app/utils/sync-status';
 
 
 @Component({
@@ -32,13 +34,18 @@ export class NavbarComponent implements OnInit {
   konamiIndex = 0;
   wasdIndex = 0;
 
-  constructor(public Shared: SharedService, public auth: AuthService, private router: Router, private cdr: ChangeDetectorRef) { }
+  constructor(public Shared: SharedService, public auth: AuthService, private router: Router, private cdr: ChangeDetectorRef,
+    public offlineSync: OfflineSyncService) { }
 
   @ViewChild("form23zSaZ") form23zSaZ?: ElementRef<HTMLDivElement>
   @ViewChild("searchInput") searchInput?: ElementRef<HTMLInputElement>
   @ViewChild("filtersContainer") filtersContainer?: ElementRef<HTMLElement>
+  @ViewChild('accountMenuButton') accountMenuButton?: ElementRef<HTMLButtonElement>
+  @ViewChild('displayNameInput') displayNameInput?: ElementRef<HTMLInputElement>
   @HostBinding('class.scrolled') isScrolled = false
   isProfileOpen = false
+  isEditingProfile = false
+  manualSyncing = false
   profileError = ''
   labelMenuError = ''
   binderMenuError = ''
@@ -365,6 +372,7 @@ export class NavbarComponent implements OnInit {
     this.avatarPreview = this.auth.currentUser?.avatarDataUrl || ''
     this.avatarPresetPreview = this.auth.currentUser?.avatarPreset || 'cat'
     this.isProfileOpen = true
+    this.isEditingProfile = false
   }
 
   toggleProfile(event: Event) {
@@ -394,6 +402,36 @@ export class NavbarComponent implements OnInit {
 
   closeProfile() {
     this.isProfileOpen = false
+    this.isEditingProfile = false
+    this.showPasswordReset = false
+    this.currentPassword = ''
+    this.newPassword = ''
+    this.confirmNewPassword = ''
+  }
+
+  @HostListener('document:keydown.escape')
+  closeAccountOnEscape() {
+    const wasOpen = this.isProfileOpen;
+    this.closeProfile();
+    if (wasOpen) this.accountMenuButton?.nativeElement.focus();
+  }
+
+  editProfile() {
+    this.isEditingProfile = true;
+    this.cdr.detectChanges();
+    this.displayNameInput?.nativeElement.focus();
+  }
+
+  syncStatus(state = this.offlineSync.state$.value, pending = this.offlineSync.pendingCount$.value,
+    lastSyncedAt = this.offlineSync.lastSyncedAt$.value, storageBlocked = this.offlineSync.storageBlocked$.value) {
+    return describeSyncStatus(state, pending, lastSyncedAt, storageBlocked, this.manualSyncing);
+  }
+
+  async syncAccount() {
+    if (this.manualSyncing || this.offlineSync.state$.value === 'syncing') return;
+    this.manualSyncing = true;
+    try { await this.offlineSync.syncNow({ recovery: true, bootstrapIfEmpty: true }); }
+    finally { this.manualSyncing = false; }
   }
 
   uploadAvatar(event: Event) {

@@ -1,3 +1,4 @@
+const { secretValue } = require('./secret-files');
 const { plainText, imageSources, validateEmail, stripTrailingSlashes } = require('./text-utils');
 const { createRequestLimits, createExclusiveTask } = require('./request-limits');
 const { StorageQuota } = require('./storage-quota');
@@ -82,11 +83,11 @@ const STORAGE_QUOTA_BYTES = (() => {
   return Number.isFinite(raw) && raw > 0 ? raw : null;
 })();
 const storageQuota = new StorageQuota(STORAGE_QUOTA_BYTES);
-const SETUP_TOKEN = String(process.env.KEPT_SETUP_TOKEN || '');
+const SETUP_TOKEN = secretValue('KEPT_SETUP_TOKEN');
 const SETUP_TOKEN_EXPIRES_AT = String(process.env.KEPT_SETUP_TOKEN_EXPIRES_AT || '');
 // Optional monitoring access is read-only and scoped to metrics endpoints;
 // it grants no write access and no note content.
-const METRICS_TOKEN = String(process.env.KEPT_METRICS_TOKEN || '');
+const METRICS_TOKEN = secretValue('KEPT_METRICS_TOKEN');
 const managedNotice = createManagedNoticePoller({
   managed: MANAGED_HOSTING_ENABLED,
   url: process.env.KEPT_MANAGED_NOTICE_URL,
@@ -239,10 +240,12 @@ function buildTotpKeyUri(username, issuer, secret) {
 }
 
 function getVapidKeys() {
-  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  const publicKey = secretValue('VAPID_PUBLIC_KEY');
+  const privateKey = secretValue('VAPID_PRIVATE_KEY');
+  if (publicKey && privateKey) {
     return {
-      publicKey: process.env.VAPID_PUBLIC_KEY,
-      privateKey: process.env.VAPID_PRIVATE_KEY
+      publicKey,
+      privateKey
     };
   }
 
@@ -2965,6 +2968,7 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, key: 'login'
 const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, key: 'register' });
 const setupLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, key: 'setup' });
 const oauthRegistrationLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 30, key: 'oauth-register' });
+const oauthAuthorizationLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, key: 'oauth-authorize' });
 const inviteLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, key: 'invite' });
 const inviteAcceptLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 20, key: 'invite-accept' });
 const credentialChangeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, key: 'credential-change', perUser: true });
@@ -3845,7 +3849,7 @@ app.post('/api/auth/browser/adopt', browserSessions.protect, requireAuth, asyncR
 mountOAuthAndMcpRoutes(app, {
   get, all, run, asyncRoute, requireAuth, createSession, browserSessions,
   createUser, getAppSetting, withDatabaseTransaction, registerLimiter,
-  oauthRegistrationLimiter, oauthTokenLimiter, internalBaseUrl: `http://127.0.0.1:${port}`
+  oauthRegistrationLimiter, oauthAuthorizationLimiter, oauthTokenLimiter, internalBaseUrl: `http://127.0.0.1:${port}`
 });
 
 app.get('/api/setup/status', asyncRoute(async (_req, res) => {

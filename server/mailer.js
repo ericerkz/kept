@@ -1,4 +1,5 @@
 const fs = require('fs');
+const { secretValue } = require('./secret-files');
 const nodemailer = require('nodemailer');
 
 // Test-only hook: with this set, every send is appended as a JSON line to
@@ -18,11 +19,12 @@ const testCaptureFile = process.env.KEPT_TEST_MAIL_CAPTURE_FILE || null;
 function buildTransport() {
   const host = process.env.KEPT_SMTP_HOST;
   if (!host) return null;
+  const user = secretValue('KEPT_SMTP_USER');
   return nodemailer.createTransport({
     host,
     port: Number(process.env.KEPT_SMTP_PORT || 587),
     secure: process.env.KEPT_SMTP_SECURE === '1',
-    auth: process.env.KEPT_SMTP_USER ? { user: process.env.KEPT_SMTP_USER, pass: process.env.KEPT_SMTP_PASS } : undefined
+    auth: user ? { user, pass: secretValue('KEPT_SMTP_PASS') } : undefined
   });
 }
 

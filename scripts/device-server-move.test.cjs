@@ -8,7 +8,7 @@ const source = ts.transpileModule(fs.readFileSync('src/app/services/device-serve
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, experimentalDecorators: true }
 }).outputText;
 
-function harness({ native = true, pluginAvailable = true, offering = true, local = true, values = new Map(), storageFails = false, signupError } = {}) {
+function harness({ native = true, pluginAvailable = true, offering = true, price, trialDays, offeringError, local = true, values = new Map(), storageFails = false, signupError } = {}) {
   const calls = [];
   const workspace = {
     ready: Promise.resolve(), canUseLocal: native, isLocal: local,
@@ -20,7 +20,10 @@ function harness({ native = true, pluginAvailable = true, offering = true, local
     removeItem: key => values.delete(key)
   };
   const plugin = {
-    getOffering: async () => ({ available: offering }),
+    getOffering: async () => {
+      if (offeringError) throw offeringError;
+      return { available: offering, price, trialDays };
+    },
     start: async () => {
       calls.push(['signup', JSON.parse(values.get('kept_device_cloud_move'))]);
       if (signupError) throw signupError;
@@ -38,6 +41,35 @@ function harness({ native = true, pluginAvailable = true, offering = true, local
   const service = new exports.DeviceServerMoveService(workspace, { navigate: async (...args) => { calls.push(['navigate', ...args]); return true; } });
   return { service, workspace, calls, values };
 }
+
+test('migration keeps the localized store price and never supplies a fallback price', async () => {
+  for (const price of ['$2.99', 'CA$3.99', '2,99 €']) {
+    const h = harness({ price }); await h.service.ready;
+    assert.equal(h.service.cloudAvailable, true);
+    assert.equal(h.service.cloudPrice, price);
+  }
+  for (const options of [{}, { native: false, price: '$2.99' }, { pluginAvailable: false }, { offeringError: new Error('Store unavailable') }]) {
+    const h = harness(options); await h.service.ready;
+    assert.equal(h.service.cloudPrice, undefined);
+  }
+});
+
+test('migration shows a trial only when the native store reports a positive integer duration', async () => {
+  for (const trialDays of [1, 7, 14]) {
+    const h = harness({ trialDays, price: 'CA$3.99' }); await h.service.ready;
+    assert.equal(h.service.cloudTrialDays, trialDays);
+    assert.equal(h.service.cloudPrice, 'CA$3.99');
+  }
+  const eligibleWithoutPrice = harness({ trialDays: 7 }); await eligibleWithoutPrice.service.ready;
+  assert.equal(eligibleWithoutPrice.service.cloudTrialDays, 7);
+  assert.equal(eligibleWithoutPrice.service.cloudPrice, undefined);
+  for (const options of [{}, { trialDays: null }, { trialDays: 0 }, { trialDays: -7 }, { trialDays: 1.5 }, { trialDays: '7' },
+    { native: false, trialDays: 7 }, { pluginAvailable: false, trialDays: 7 }, { offering: false, trialDays: 7 },
+    { offeringError: new Error('Store timeout'), trialDays: 7 }]) {
+    const h = harness(options); await h.service.ready;
+    assert.equal(h.service.cloudTrialDays, undefined);
+  }
+});
 
 test('invitation is claimed only once for the install, including after relaunch or a restored/different library', async () => {
   const first = harness(); await first.service.ready;

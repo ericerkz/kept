@@ -191,15 +191,6 @@
     color: #b3261e;
   }
 
-  &.storage-full {
-    width: max-content;
-    max-width: min(480px, calc(100vw - 32px));
-    box-sizing: border-box;
-    border-radius: 12px;
-    line-height: 1.4;
-
-    .material-symbols-outlined { flex-shrink: 0; }
-  }
 }
 
 .mobile-compose-fab,

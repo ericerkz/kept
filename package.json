@@ -1,6 +1,6 @@
 {
   "name": "keep",
-  "version": "1.9.3",
+  "version": "1.9.4",
   "scripts": {
     "ng": "ng",
     "start": "concurrently \"npm run api\" \"npm run client\"",
@@ -17,7 +17,7 @@
     "test:backup": "node --test server/full-backup.test.js scripts/server-backup.test.cjs",
     "test:invite": "node server/invite.test.js",
     "test:integration-requests": "node --test server/integration-requests.test.js",
-    "test:offline-sync-status": "node --test scripts/offline-sync-status.test.cjs",
+    "test:offline-sync-status": "node --test scripts/offline-sync-status.test.cjs scripts/sync-status.test.cjs",
     "test:uuid": "node --test src/app/utils/uuid.test.ts",
     "test:uuid:http": "node scripts/uuid-http-test.mjs",
     "test:native": "node server/native-client.test.js",
@@ -33,6 +33,9 @@
     "test:reminder-navigation": "node --test scripts/reminder-navigation.test.cjs",
     "mcp": "node mcp/index.mjs",
     "test:mcp": "node --test mcp/*.test.mjs",
+    "test:oauth-metadata": "node --test mcp/oauth-client-metadata.test.mjs server/oauth-client-metadata.test.js server/public-file-download.test.js",
+    "test:secret-files": "node --test server/secret-files.test.js",
+    "test:store-offerings": "node --test scripts/welcome-offering.test.cjs scripts/device-server-move.test.cjs",
     "purgecss": "purgecss -c purgecss.config.js",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",

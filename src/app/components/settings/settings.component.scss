@@ -839,6 +839,15 @@ h1 { margin-bottom: 0; }
       strong { display: block; font-size: 16px; }
       small { display: block; font: 400 14px/1.5 Roboto, Arial, sans-serif; margin-top: 4px; }
       .move-cloud { background: #514325; border-color: #a78028; color: #ffdf87; }
+      .move-option-heading { align-items: center; display: flex; flex-wrap: wrap; gap: 6px 8px; }
+      .move-price-badge, .move-trial-badge {
+        border-radius: 999px;
+        font: 700 13px/1.3 Roboto, Arial, sans-serif;
+        padding: 3px 9px;
+        white-space: nowrap;
+      }
+      .move-price-badge { background: #6c531b; color: #ffdc89; }
+      .move-trial-badge { background: #294b43; color: #c7eadf; }
     }
   }
 }
@@ -847,6 +856,8 @@ h1 { margin-bottom: 0; }
   button:focus-visible { outline-color: #1a73e8; }
   .move-prompt { border-color: #dadce0; }
   .move-prompt .move-destinations .move-cloud { background: #fff2c2; border-color: #ead99d; color: #202124; }
+  .move-prompt .move-destinations .move-price-badge { background: #ffe49b; color: #705000; }
+  .move-prompt .move-destinations .move-trial-badge { background: #dcefe8; color: #2d6252; }
   .btn-primary {
     background: #1a73e8;
     color: #fff;

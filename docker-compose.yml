@@ -31,6 +31,8 @@ services:
       # - KEPT_OIDC_ISSUER=https://id.example.com
       # - KEPT_OIDC_CLIENT_ID=kept
       # - KEPT_OIDC_CLIENT_SECRET=
+      # Or mount a Docker secret and use its path instead (see README):
+      # - KEPT_OIDC_CLIENT_SECRET_FILE=/run/secrets/oidc_client_secret
       # - KEPT_OIDC_NAME=Single sign-on
       # - KEPT_OIDC_SCOPES=openid profile email
       # Optional: require SSO after configuring OIDC and linking/testing all

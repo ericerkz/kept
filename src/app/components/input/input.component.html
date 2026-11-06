@@ -82,8 +82,9 @@
               <ng-container [ngTemplateOutlet]="drawingToolMenuTemplate" [ngTemplateOutletContext]="{ tool: 'highlighter' }"></ng-container>
             }
           </div>
-          <div class="drawing-tool-menu">
+          <div class="drawing-tool-menu drawing-background-tool">
             <button type="button" class="drawing-icon grid" [class.active]="showDrawingBackgroundMenu" aria-label="Canvas background"
+              [attr.aria-expanded]="showDrawingBackgroundMenu"
               (click)="showDrawingBackgroundMenu = !showDrawingBackgroundMenu; showDrawingMoreMenu = false">
               <span class="material-symbols-outlined">grid_on</span>
             </button>

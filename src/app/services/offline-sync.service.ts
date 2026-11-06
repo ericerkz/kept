@@ -31,6 +31,8 @@ type SyncChange = ResourceChange;
 @Injectable({ providedIn: 'root' })
 export class OfflineSyncService implements OnDestroy {
   readonly state$ = new BehaviorSubject<OfflineSyncState>(navigator.onLine ? 'saved' : 'offline');
+  readonly lastSyncedAt$ = new BehaviorSubject<number | null>(null);
+  readonly pendingCount$ = new BehaviorSubject(0);
   readonly storageBlocked$ = new BehaviorSubject(false);
   readonly storageFullMessage = "Your server's storage is full - please upgrade or delete some files/images.";
   readonly cacheChanged$ = new Subject<void>();
@@ -48,6 +50,7 @@ export class OfflineSyncService implements OnDestroy {
   protocolVersion = 1;
   private activeContext?: { partition: string; userId?: number; workspace: Workspace; epoch: number; headers: HttpHeaders };
   private epoch = 0;
+  private pendingRead = 0;
   private serverGeneration = '';
   get generation() {return this.auth.isLocal ? this.auth.workspace.local?.generation : this.serverGeneration;}
   get writesLocally() { return this.auth.isLocal || this.protocolVersion >= 2; }
@@ -83,10 +86,14 @@ export class OfflineSyncService implements OnDestroy {
       if (previous !== this.currentPartition) {
         this.clearRetryTimer();
         this.storageBlocked$.next(false);
+        this.lastSyncedAt$.next(this.readLastSyncedAt());
+        this.pendingRead++;
+        this.pendingCount$.next(0);
         this.retryAttempt = 0;
         this.degradedUntil = 0;
         this.connectionUnavailable = !navigator.onLine;
         this.bootstrapIfEmptyRequested = false;
+        if (this.currentPartition && !this.auth.isLocal) void this.refreshPendingCount();
       }
       if (!user && previous && !previous.startsWith('local:') && !this.currentPartition) {
         this.store.listOutbox(previous).then(pending => { if (!pending.length) return this.store.purgePartition(previous); return undefined; }).catch(console.error);
@@ -149,13 +156,44 @@ export class OfflineSyncService implements OnDestroy {
       const value = await this.store.commitMutation(await this.workspace(), type, syncId, payload, options);
       this.cacheChanged$.next();
       if (this.auth.isLocal) this.state$.next('saved');
-      else void this.syncNow().catch(console.error);
+      else {
+        await this.readPending();
+        void this.syncNow().catch(console.error);
+      }
       return value;
     } catch (error) { this.state$.next('error'); throw error; }
   }
 
   isConnectionDegraded() {
     return this.connectionUnavailable || Date.now() < this.degradedUntil;
+  }
+
+  private async readPending(partition = this.currentPartition, epoch = this.epoch) {
+    if (!partition || this.auth.isLocal || this.destroyed || partition !== this.currentPartition || epoch !== this.epoch) return [];
+    const read = ++this.pendingRead;
+    const entries = await this.store.listOutbox(partition);
+    if (!this.destroyed && !this.auth.isLocal && partition === this.currentPartition && epoch === this.epoch && read === this.pendingRead) {
+      this.pendingCount$.next(entries.length);
+    }
+    return entries;
+  }
+
+  private readLastSyncedAt() {
+    if (!this.currentPartition || this.auth.isLocal) return null;
+    try {
+      const time = Number(localStorage.getItem(`kept_last_synced_at:${this.currentPartition}`));
+      return Number.isSafeInteger(time) && time > 0 && time <= Date.now() ? time : null;
+    } catch { return null; }
+  }
+
+  private async refreshPendingCount(partition = this.currentPartition, epoch = this.epoch) {
+    try { await this.readPending(partition, epoch); }
+    catch (error) {
+      if (!this.destroyed && partition === this.currentPartition && epoch === this.epoch) {
+        this.state$.next('error');
+        console.error('Could not read queued changes', error);
+      }
+    }
   }
 
   markConnectionDegraded(durationMs = 10000) {
@@ -185,6 +223,7 @@ export class OfflineSyncService implements OnDestroy {
       const syncState = await this.store.getSyncState(this.currentPartition);
       const stamp = this.store.nextStamp(syncState.serverOffsetMs);
       await this.store.enqueue(this.currentPartition, type, syncId, payload, stamp);
+      await this.readPending();
       this.syncNow().catch(console.error);
       return stamp;
     } catch (error) {
@@ -199,6 +238,7 @@ export class OfflineSyncService implements OnDestroy {
     if (options.bootstrapIfEmpty) this.bootstrapIfEmptyRequested = true;
     if (!navigator.onLine) {
       this.markConnectionDegraded();
+      await this.refreshPendingCount();
       return;
     }
     if (this.running) {
@@ -207,6 +247,7 @@ export class OfflineSyncService implements OnDestroy {
     }
     if (this.connectionUnavailable && !options.recovery) {
       this.scheduleDegradedRetries();
+      await this.refreshPendingCount();
       return;
     }
     this.clearRetryTimer();
@@ -223,23 +264,35 @@ export class OfflineSyncService implements OnDestroy {
       this.activeContext = {...identity,workspace};
       const state = await this.store.getSyncState(this.currentPartition);
       const cachedNotes = bootstrapIfEmpty ? await this.store.listNotes(this.currentPartition) : [];
-      const pending = await this.store.listOutbox(this.currentPartition);
+      const pending = await this.readPending(identity.partition, identity.epoch);
       this.storageBlocked$.next(pending.some(entry => entry.blockedBy === 'storage'));
       if (!pending.length && (state.cursor === 0 || (bootstrapIfEmpty && cachedNotes.length === 0))) {
         await this.bootstrap();
       }
       await this.flushOutbox();
       await this.pullChanges();
-      if (this.destroyed) return;
+      const remaining = await this.readPending(identity.partition, identity.epoch);
+      if (this.destroyed || identity.epoch !== this.epoch || identity.partition !== this.currentPartition) return;
       if (!navigator.onLine) this.markConnectionDegraded();
       else {
         this.clearConnectionDegraded();
         this.retryAttempt = 0;
         this.clearRetryTimer();
-        if (!this.rerun) this.state$.next('saved');
+        if (!this.rerun) {
+          // A reachable server isn't enough: pending media or another pass
+          // must finish before we claim that everything has synchronized.
+          if (!remaining.length) {
+            const time = Date.now();
+            this.lastSyncedAt$.next(time);
+            // Optional UI history only; failure here must not fail a saved note.
+            try { localStorage.setItem(`kept_last_synced_at:${identity.partition}`, String(time)); } catch {}
+          }
+          this.state$.next('saved');
+        }
       }
     } catch (error) {
-      if (this.destroyed || (error instanceof Error && error.name === 'StaleSyncResponse')) return;
+      if (this.destroyed || identity.epoch !== this.epoch || identity.partition !== this.currentPartition ||
+          (error instanceof Error && error.name === 'StaleSyncResponse')) return;
       this.bootstrapIfEmptyRequested ||= bootstrapIfEmpty;
       if (this.isOfflineError(error)) {
         this.markConnectionDegraded();
@@ -250,6 +303,7 @@ export class OfflineSyncService implements OnDestroy {
         this.state$.next('error');
         console.error('Offline sync failed', error);
       }
+      await this.refreshPendingCount(identity.partition, identity.epoch);
     } finally {
       this.running = false;
       this.activeContext = undefined;

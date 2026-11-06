@@ -1,6 +1,8 @@
 const { stripTrailingSlashes } = require('./text-utils');
+const { secretValue } = require('./secret-files');
 const crypto = require('crypto');
 const express = require('express');
+const { createClientMetadataResolver, validRedirectUri, redirectUriMatches } = require('./oauth-client-metadata');
 
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -47,19 +49,6 @@ function parseScopes(value) {
 function validScopes(value) {
   const scopes = parseScopes(value);
   return scopes.length > 0 && scopes.every(scope => SUPPORTED_SCOPES.includes(scope));
-}
-
-function validRedirectUri(value) {
-  try {
-    const url = new URL(value);
-    if (url.hash || url.username || url.password) return false;
-    if (url.protocol === 'https:') return true;
-    if (url.protocol === 'http:') return ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
-    return /^[a-z][a-z0-9+.-]*:$/.test(url.protocol)
-      && !['data:', 'file:', 'javascript:'].includes(url.protocol);
-  } catch {
-    return false;
-  }
 }
 
 function appendRedirect(urlValue, values) {
@@ -195,7 +184,7 @@ function oidcSettings() {
   const clientId = String(process.env.KEPT_OIDC_CLIENT_ID || '').trim();
   return {
     enabled: !!(issuer && clientId), issuer, clientId,
-    clientSecret: String(process.env.KEPT_OIDC_CLIENT_SECRET || ''),
+    clientSecret: secretValue('KEPT_OIDC_CLIENT_SECRET'),
     name: String(process.env.KEPT_OIDC_NAME || 'Single sign-on').trim() || 'Single sign-on',
     scopes: String(process.env.KEPT_OIDC_SCOPES || 'openid profile email').trim()
   };
@@ -267,43 +256,13 @@ async function oidcClient(settings) {
   return { client, config: await oidcConfigPromise };
 }
 
-// Hosted clients whose client ID metadata documents Kept will fetch.
-const TRUSTED_CLIENT_METADATA_DOCUMENTS = [
-  { hostname: 'chatgpt.com', pathname: /^\/oauth\/(?:client|[^/]+\/client)\.json$/, clientName: 'ChatGPT' },
-  { hostname: 'claude.ai', pathname: /^\/oauth\/mcp-oauth-client-metadata$/, clientName: 'Claude' }
-];
-
-function trustedClientMetadataDocument(clientId) {
-  let metadataUrl;
-  try { metadataUrl = new URL(clientId); } catch { return null; }
-  if (metadataUrl.protocol !== 'https:') return null;
-  if (metadataUrl.username || metadataUrl.password || metadataUrl.search || metadataUrl.hash) return null;
-  const trusted = TRUSTED_CLIENT_METADATA_DOCUMENTS.find(document => document.hostname === metadataUrl.hostname && document.pathname.test(metadataUrl.pathname));
-  return trusted ? { metadataUrl, clientName: trusted.clientName } : null;
-}
-
-async function resolveClient(clientId, { get }) {
-  const stored = await get('SELECT * FROM oauth_clients WHERE clientId = ?', [clientId]);
-  if (stored) return { clientId, clientName: stored.clientName, redirectUris: safeJson(stored.redirectUris, []) };
-  const trusted = trustedClientMetadataDocument(clientId);
-  if (!trusted) return null;
-  try {
-    const response = await fetch(trusted.metadataUrl, { signal: AbortSignal.timeout(5000), redirect: 'error' });
-    if (!response.ok) return null;
-    const metadata = await response.json();
-    if (metadata.client_id !== clientId || !Array.isArray(metadata.redirect_uris)) return null;
-    return { clientId, clientName: metadata.client_name || trusted.clientName, redirectUris: metadata.redirect_uris.filter(validRedirectUri) };
-  } catch {
-    return null;
-  }
-}
-
 function mountOAuthAndMcpRoutes(app, dependencies) {
   const { get, all, run, asyncRoute, requireAuth, createSession, browserSessions, oauthRegistrationLimiter, oauthTokenLimiter, internalBaseUrl,
-    createUser, getAppSetting, withDatabaseTransaction, registerLimiter } = dependencies;
+    createUser, getAppSetting, withDatabaseTransaction, registerLimiter, oauthAuthorizationLimiter = (_req, _res, next) => next(),
+    resolveClient = createClientMetadataResolver() } = dependencies;
   const urlencoded = express.urlencoded({ extended: false, limit: '32kb' });
 
-  app.use('/oauth/authorize', (_req, res, next) => {
+  app.use('/oauth/authorize', oauthAuthorizationLimiter, (_req, res, next) => {
     res.set({
       'Cache-Control': 'no-store',
       'Content-Security-Policy': "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
@@ -354,14 +313,15 @@ function mountOAuthAndMcpRoutes(app, dependencies) {
     return get('SELECT * FROM oauth_pending_authorizations WHERE requestHash = ? AND expiresAt > ?', [sha256(rawRequest), new Date().toISOString()]);
   }
 
-  function consentPage(requestId, pending, clientName) {
+  function consentPage(requestId, pending, client) {
     const safeRequest = JSON.stringify(requestId).replace(/</g, '\\u003c');
     const scopes = new Set(parseScopes(pending?.scope));
     const scopeItems = [
       scopes.has('kept.read') ? '<li><strong>Read</strong> your notes, labels, reminders, images, and attachments</li>' : '',
       scopes.has('kept.write') ? '<li><strong>Change</strong> notes, checklists, reminders, collaborators, and attachments</li>' : ''
     ].join('');
-    return htmlPage('Connect', `<h1>Connect ${escapeHtml(clientName)}?</h1><p>This client is requesting access to your Kept account.</p><ul class="scopes">${scopeItems}</ul><p>Locked notes and permanent deletion still follow your External Access settings.</p><p id="message"></p><div class="actions"><button id="cancel">Cancel</button><button class="primary" id="approve">Connect</button></div>`, `
+    const domain = client.clientDomain ? `<p>Client domain: <strong>${escapeHtml(client.clientDomain)}</strong></p>` : '';
+    return htmlPage('Connect', `<h1>Connect ${escapeHtml(client.clientName)}?</h1>${domain}<p>This client is requesting access to your Kept account.</p><ul class="scopes">${scopeItems}</ul><p>Locked notes and permanent deletion still follow your External Access settings.</p><p id="message"></p><div class="actions"><button id="cancel">Cancel</button><button class="primary" id="approve">Connect</button></div>`, `
 const requestId=${safeRequest};const message=document.getElementById('message');
 const browserSession=fetch('/api/auth/browser/session').then(r=>r.json()).then(data=>{if(!data.authenticated)location.href='/login?oauth_request='+encodeURIComponent(requestId);return data});
 document.getElementById('cancel').onclick=()=>location.href='/oauth/authorize/cancel?request='+encodeURIComponent(requestId);
@@ -373,7 +333,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     const clientId = String(req.query.client_id || '');
     const client = await resolveClient(clientId, { get });
     const redirectUri = String(req.query.redirect_uri || '');
-    if (!client || !client.redirectUris.includes(redirectUri)) return res.status(400).send(htmlPage('Invalid request', '<h1>Invalid OAuth request</h1><p>The client or redirect address is not registered with this Kept server.</p>'));
+    if (!client || !redirectUriMatches(redirectUri, client.redirectUris)) return res.status(400).send(htmlPage('Invalid request', '<h1>Invalid OAuth request</h1><p>The client metadata could not be verified, or its redirect address is not allowed.</p>'));
     if (req.query.response_type !== 'code') return res.redirect(appendRedirect(redirectUri, { error: 'unsupported_response_type', state: req.query.state }));
     if (req.query.code_challenge_method !== 'S256' || !/^[A-Za-z0-9_-]{43,128}$/.test(String(req.query.code_challenge || ''))) return res.redirect(appendRedirect(redirectUri, { error: 'invalid_request', error_description: 'PKCE S256 is required.', state: req.query.state }));
     const resource = stripTrailingSlashes(req.query.resource || `${issuer}/api`);
@@ -383,7 +343,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     const requestId = randomToken('kept_oauth_request_');
     const pending = { scope };
     await run(`INSERT INTO oauth_pending_authorizations (requestHash, clientId, redirectUri, state, codeChallenge, resource, scope, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [sha256(requestId), clientId, redirectUri, String(req.query.state || ''), String(req.query.code_challenge), resource, scope, new Date().toISOString(), addSeconds(PENDING_TTL_SECONDS)]);
-    res.type('html').send(consentPage(requestId, pending, client.clientName));
+    res.type('html').send(consentPage(requestId, pending, client));
   }));
 
   app.get('/oauth/authorize/resume', asyncRoute(async (req, res) => {
@@ -391,7 +351,8 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     const pending = await loadPending(requestId);
     if (!pending) return res.status(400).send(htmlPage('Expired request', '<h1>This connection request expired</h1><p>Return to the client and try connecting again.</p>'));
     const client = await resolveClient(pending.clientId, { get });
-    res.type('html').send(consentPage(requestId, pending, client?.clientName || 'this client'));
+    if (!client || !redirectUriMatches(pending.redirectUri, client.redirectUris)) return res.status(400).send(htmlPage('Invalid request', '<h1>This OAuth client is no longer available</h1><p>Return to the client and try connecting again.</p>'));
+    res.type('html').send(consentPage(requestId, pending, client));
   }));
 
   app.get('/oauth/authorize/cancel', asyncRoute(async (req, res) => {
@@ -410,7 +371,7 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
     if (!pending) return res.status(400).json({ error: 'This connection request expired.' });
     if (!user.oauthEnabled) return res.status(403).json({ error: 'Enable OAuth app access in Kept settings before connecting this client.' });
     const client = await resolveClient(pending.clientId, { get });
-    if (!client) return res.status(400).json({ error: 'This OAuth client is no longer available.' });
+    if (!client || !redirectUriMatches(pending.redirectUri, client.redirectUris)) return res.status(400).json({ error: 'This OAuth client or redirect address is no longer available.' });
     const code = randomToken('kept_code_');
     const now = new Date().toISOString();
     await withDatabaseTransaction(async () => {
@@ -761,5 +722,5 @@ document.getElementById('approve').onclick=async()=>{const button=document.getEl
   }));
 }
 
-module.exports = { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken, trustedClientMetadataDocument, SUPPORTED_SCOPES,
+module.exports = { initOAuthTables, mountOAuthAndMcpRoutes, oauthTokenCanCallApi, resolveOAuthAccessToken, SUPPORTED_SCOPES,
   passwordLoginDisabled, requirePasswordLoginEnabled, validateOidcOnlyConfiguration };

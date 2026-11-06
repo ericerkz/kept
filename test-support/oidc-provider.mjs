@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import { createServer } from 'node:http';
 
-export async function startProvider() {
+export async function startProvider({ clientSecret } = {}) {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const jwk = publicKey.export({ format: 'jwk' });
   Object.assign(jwk, { kid: 'test-key', use: 'sig', alg: 'RS256' });
@@ -47,6 +47,10 @@ export async function startProvider() {
       let body = '';
       for await (const chunk of req) body += chunk;
       const params = new URLSearchParams(body);
+      if (clientSecret !== undefined && params.get('client_secret') !== clientSecret) {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'invalid_client' }));
+      }
       const record = codes.get(params.get('code'));
       if (!record || record.redirectUri !== params.get('redirect_uri')) {
         res.writeHead(400, { 'content-type': 'application/json' });

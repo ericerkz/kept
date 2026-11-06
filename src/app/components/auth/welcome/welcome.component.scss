@@ -14,6 +14,8 @@
   --welcome-cloud-copy: #ece0be;
   --welcome-price: #6c531b;
   --welcome-price-text: #ffdc89;
+  --welcome-trial: #294b43;
+  --welcome-trial-text: #c7eadf;
   --welcome-included: #3c4043;
   --welcome-shadow: 0 18px 40px rgb(0 0 0 / 22%);
 }
@@ -33,6 +35,8 @@
   --welcome-cloud-copy: #4d5055;
   --welcome-price: #ffe49b;
   --welcome-price-text: #705000;
+  --welcome-trial: #dcefe8;
+  --welcome-trial-text: #2d6252;
   --welcome-included: #f2f1ee;
   --welcome-shadow: 0 18px 36px rgb(32 33 36 / 12%);
 }
@@ -139,6 +143,7 @@ h1 {
 .sync-option-group { border: 1.5px solid var(--welcome-border); border-radius: 18px; overflow: hidden; }
 .option-badge { border-radius: 999px; font: 700 13px / 1.3 Roboto, Arial, sans-serif; padding: 3px 9px; white-space: nowrap; }
 .price-badge { background: var(--welcome-price); color: var(--welcome-price-text); }
+.trial-badge { background: var(--welcome-trial); color: var(--welcome-trial-text); }
 .included-badge { background: var(--welcome-included); color: var(--welcome-copy); }
 
 .cloud-option {

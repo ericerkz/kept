@@ -21,13 +21,10 @@
       </aside>
     }
     @if ((offlineSync.state$ | async); as syncState) {
-      @let storageBlocked = (offlineSync.storageBlocked$ | async) && syncState !== 'offline' && syncState !== 'error';
-      <!-- Device-only libraries are always "saved on this device", which isn't worth a permanent pill;
-           show it only when saving needs attention. Server libraries keep every non-saved state. -->
-      @if (auth.isLocal ? syncState === 'error' : syncState !== 'saved' || storageBlocked) {
-        <div class="offline-sync-state" [class.is-error]="syncState === 'error' || storageBlocked" [class.storage-full]="storageBlocked" role="status">
-          <span class="material-symbols-outlined">{{ storageBlocked ? 'storage' : syncState === 'offline' ? 'cloud_off' : syncState === 'error' ? 'sync_problem' : 'sync' }}</span>
-          <span>{{ storageBlocked ? offlineSync.storageFullMessage : syncState === 'error' ? (auth.isLocal ? 'Save needs attention' : 'Sync needs attention') : auth.isLocal ? 'Saved on this device' : syncState === 'offline' ? 'Saved offline' : 'Syncing' }}</span>
+      @if (auth.isLocal && syncState === 'error') {
+        <div class="offline-sync-state is-error" role="status">
+          <span class="material-symbols-outlined" aria-hidden="true">sync_problem</span>
+          <span>Save needs attention</span>
         </div>
       }
     }

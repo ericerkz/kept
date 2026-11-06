@@ -26,14 +26,24 @@
       <div class="sync-option-group">
         @if (managedHostingSignupEnabled && managedHostingOffering?.available) {
           <button type="button" class="welcome-option cloud-option" [disabled]="busy" (click)="startManagedHosting()"
-            aria-labelledby="cloud-option-title cloud-option-price" aria-describedby="cloud-option-description cloud-option-benefit">
+            [attr.aria-labelledby]="cloudOptionLabelledBy" aria-describedby="cloud-option-description cloud-option-benefit">
             <span class="option-icon"><span class="material-symbols-outlined" aria-hidden="true">cloud</span></span>
             <span class="option-content">
               <span class="option-heading">
                 <strong class="option-title" id="cloud-option-title">Kept Cloud</strong>
-                <span class="option-badge price-badge" id="cloud-option-price">$3.99/mo</span>
+                @if (managedHostingOffering?.price; as price) {
+                  <span class="option-badge price-badge" id="cloud-option-price">{{ price }}/mo</span>
+                }
+                @if (managedHostingOffering?.trialDays; as days) {
+                  <span class="option-badge trial-badge" id="cloud-option-trial">{{ days }} {{ days === 1 ? 'day' : 'days' }} free</span>
+                }
               </span>
-              <span class="option-description" id="cloud-option-description">Sync across phone, desktop and web with no setup. We run and maintain your Kept server for you.</span>
+              <span class="option-description" id="cloud-option-description">
+                @if (managedHostingOffering?.trialDays && managedHostingOffering?.price) {
+                  Try for {{ managedHostingOffering!.trialDays }} {{ managedHostingOffering!.trialDays === 1 ? 'day' : 'days' }} free, then {{ managedHostingOffering!.price }}/month.
+                }
+                Sync across phone, desktop and web with no setup. We run and maintain your Kept server for you.
+              </span>
               <span class="cloud-benefit" id="cloud-option-benefit">
                 <span class="material-symbols-outlined" aria-hidden="true">group</span>
                 <span>Add unlimited people. Everyone shares one subscription and 5 GB.</span>

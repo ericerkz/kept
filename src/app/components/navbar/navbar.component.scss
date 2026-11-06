@@ -589,6 +589,8 @@
 
       .user-pic-container {
         padding: 4px 6px;
+        background: transparent;
+        border: 0;
         display: inline-block;
         position: relative;
 
@@ -604,18 +606,25 @@
       .profile-menu {
         background: #313235;
         border: 1px solid #5f6368;
-        border-radius: 8px;
+        border-radius: 20px;
         box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
         color: #e8eaed;
         display: grid;
         font-family: "Google Sans", Roboto, Arial, sans-serif;
-        gap: 12px;
-        padding: 18px 18px 16px;
+        gap: 0;
+        padding: 0;
         position: absolute;
-        right: 0;
-        top: 44px;
-        width: 292px;
+        right: calc(max(12px, env(safe-area-inset-right, 0px)) + var(--kept-cutout-right, 0px));
+        top: 56px;
+        width: 340px;
+        max-width: calc(100vw - 24px - var(--kept-cutout-right, 0px) - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+        max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 96px);
+        box-sizing: border-box;
+        overflow-y: auto;
+        overscroll-behavior: contain;
         z-index: 1000;
+
+        .profile-edit-panel { display: grid; gap: 12px; padding: 12px 18px 16px; }
 
         .profile-avatar-row {
           position: relative;
@@ -732,32 +741,6 @@
           font-size: 0.8125rem;
         }
 
-        .profile-refresh-btn {
-          align-items: center;
-          background: rgba(154, 160, 166, 0.1);
-          border: 1px solid #5f6368;
-          border-radius: 6px;
-          color: #e8eaed;
-          cursor: pointer;
-          display: flex;
-          font-family: "Google Sans", Roboto, Arial, sans-serif;
-          font-size: 13px;
-          font-weight: 500;
-          gap: 8px;
-          height: 34px;
-          justify-content: center;
-          padding: 0 12px;
-          width: 100%;
-
-          .material-symbols-outlined {
-            font-size: 18px;
-          }
-
-          &:hover {
-            background: rgba(154, 160, 166, 0.2);
-            border-color: #bdc1c6;
-          }
-        }
 
         .profile-actions {
           display: flex;
@@ -1256,17 +1239,6 @@
             }
           }
 
-          .profile-refresh-btn {
-            background: #f1f3f4;
-            border-color: #dadce0;
-            color: #3c4043;
-
-            &:hover {
-              background: #e8eaed;
-              color: #202124;
-              border-color: #bdc1c6;
-            }
-          }
         }
       }
 
@@ -1274,6 +1246,98 @@
   }
 }
 
+
+.main-container .navbar .th-col {
+  .account-avatar {
+    display: inline-flex;
+    height: 37px;
+    position: relative;
+    vertical-align: middle;
+    width: 37px;
+
+    &.is-syncing::after {
+      animation: account-sync-turn 1.2s linear infinite;
+      border: 2px solid transparent;
+      border-right-color: #fbbc04;
+      border-top-color: #fbbc04;
+      border-radius: 50%;
+      content: '';
+      inset: -4px;
+      pointer-events: none;
+      position: absolute;
+    }
+
+    .user-pic { border-radius: 50%; display: block; height: 100%; margin: 0; object-fit: cover; width: 100%; }
+  }
+
+  .avatar-sync-dot {
+    background: #e78100;
+    border: 2px solid var(--account-surface, #2d2e30);
+    border-radius: 50%;
+    bottom: -1px;
+    box-sizing: border-box;
+    height: 13px;
+    pointer-events: none;
+    position: absolute;
+    right: -1px;
+    width: 13px;
+  }
+
+  .profile-menu {
+    --account-surface: #313235;
+    --account-muted: #bdc1c6;
+    --account-subtle: #9aa0a6;
+    --account-line: #4b4d50;
+    --account-action: #8ab4f8;
+    --account-action-hover: rgb(138 180 248 / 12%);
+    --account-warning: #ffb74d;
+
+    button:focus-visible { outline: 2px solid var(--account-action); outline-offset: -3px; }
+
+    .account-header { align-items: center; display: flex; flex-wrap: wrap; gap: 14px; padding: 22px 20px 16px; }
+    .account-avatar { height: 48px; width: 48px; }
+    .account-avatar-button { background: transparent; border: 0; border-radius: 50%; cursor: pointer; flex-shrink: 0; padding: 0; }
+    .account-identity {
+      display: grid; flex: 1; min-width: 110px;
+      strong { font: 500 16px/1.4 "Google Sans", Roboto, Arial, sans-serif; overflow-wrap: anywhere; }
+    }
+    .account-edit { align-items: center; background: transparent; border: 0; border-radius: 6px; color: var(--account-muted); cursor: pointer; display: flex; flex-shrink: 0; font: 500 13px/1.4 Roboto, Arial, sans-serif; gap: 5px; margin-left: auto; min-height: 36px; padding: 4px 6px; white-space: nowrap; }
+    .account-edit .material-symbols-outlined { font-size: 18px; }
+    .account-sync { border-bottom: 1px solid var(--account-line); padding: 0 20px 16px; }
+    .account-sync-row { align-items: center; display: flex; gap: 12px; }
+    .account-sync-copy { display: grid; flex: 1; gap: 4px; min-width: 0; }
+    .account-sync-label { align-items: center; color: var(--account-subtle); display: flex; font: 400 13px/1.4 Roboto, Arial, sans-serif; gap: 5px; }
+    .account-sync-label .material-symbols-outlined { flex-shrink: 0; font-size: 16px; }
+    .account-sync-detail { color: var(--account-subtle); font: 400 13px/1.4 Roboto, Arial, sans-serif; padding-left: 21px; }
+    .needs-attention .account-sync-label { color: var(--account-warning); }
+    .account-sync-action { background: transparent; border: 0; border-radius: 6px; color: var(--account-action); cursor: pointer; flex-shrink: 0; font: 500 13px/1.4 Roboto, Arial, sans-serif; min-height: 36px; padding: 6px 8px; }
+    .account-sync-action:not(:disabled):hover, .account-sync-action:focus-visible { background: var(--account-action-hover); }
+    .account-sync-action:disabled { color: var(--account-subtle); cursor: default; }
+    .account-sync-warning { color: var(--account-warning); font: 400 13px/1.5 Roboto, Arial, sans-serif; margin: 10px 0 0; }
+    .account-menu-actions { padding: 8px 12px 12px; }
+    .account-menu-item { align-items: center; background: transparent; border: 0; border-radius: 8px; color: inherit; cursor: pointer; display: flex; font: 400 16px/1.4 Roboto, Arial, sans-serif; gap: 18px; min-height: 48px; padding: 10px 12px; text-align: left; width: 100%; }
+    .account-menu-item .material-symbols-outlined { color: var(--account-muted); font-size: 23px; }
+    .account-menu-item:hover, .account-edit:hover { background: rgb(154 160 166 / 12%); }
+  }
+}
+
+:host-context(.light-theme) .main-container .navbar .th-col {
+  .avatar-sync-dot { --account-surface: #fff; }
+  .profile-menu {
+    --account-surface: #fff;
+    --account-muted: #5f6368;
+    --account-subtle: #80868b;
+    --account-line: #e5e7eb;
+    --account-action: #1a73e8;
+    --account-action-hover: #e8f0fe;
+    --account-warning: #b95c00;
+  }
+}
+
+@keyframes account-sync-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .main-container .navbar .th-col .account-avatar.is-syncing::after { animation: none; border-color: #fbbc04; }
+}
 
 %icons {
   height: 48px;

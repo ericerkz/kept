@@ -25,7 +25,8 @@ Remote access uses OAuth 2.1 authorization code flow with PKCE. In ChatGPT,
 create an MCP app/connector with that URL and choose OAuth authentication.
 Kept publishes the required authorization-server and protected-resource
 metadata automatically, and supports both dynamic client registration and
-ChatGPT client metadata documents.
+public HTTPS Client ID Metadata Documents (CIMD), including those used by
+ChatGPT, Claude, and OpenCode.
 
 When connecting, sign in to Kept and approve the request. The Kept user must
 already have **OAuth app access** enabled. ChatGPT receives a short-lived,

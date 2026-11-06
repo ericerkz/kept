@@ -207,6 +207,7 @@
                 @for (image of note.images || []; track image.id) {
                   @if (image.placement === 'top') {
                     <img [src]="imageSrc(image.dataUrl)" [alt]="image.name" decoding="async"
+                      [attr.data-drawing-background]="drawingPreviewBackground(image)"
                       (contextmenu)="downloadImage(image.dataUrl, image.name, $event)">
                   }
                 }
@@ -215,7 +216,11 @@
               <section class="body-segments" [class.min]="note.noteBody!.length > 68">
                 @for (segment of noteBodySegments(note); track trackBodySegment($index, segment)) {
                   @if (segment.type === 'html') {
-                    <div class="body" [innerHTML]="segment.value" (contextmenu)="downloadInlineImage($event)"></div>
+                    @if (!noteHasTitle && $first && segment.value) {
+                      <div class="body" (contextmenu)="downloadInlineImage($event)"><div class="body-content" [innerHTML]="segment.value"></div></div>
+                    } @else {
+                      <div class="body" [innerHTML]="segment.value" (contextmenu)="downloadInlineImage($event)"></div>
+                    }
                   } @else {
                     <div class="link-previews">
                       <app-link-preview [url]="segment.value"></app-link-preview>
@@ -266,6 +271,7 @@
               @for (image of note.images || []; track image.id) {
                 @if (image.placement === 'bottom') {
                   <img [src]="imageSrc(image.dataUrl)" [alt]="image.name" decoding="async"
+                    [attr.data-drawing-background]="drawingPreviewBackground(image)"
                     (contextmenu)="downloadImage(image.dataUrl, image.name, $event)">
                 }
               }

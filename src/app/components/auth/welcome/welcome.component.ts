@@ -9,6 +9,8 @@ interface ManagedHostingOffering {
   available: boolean;
   title: string;
   description: string;
+  price?: string;
+  trialDays?: number;
   priceLabel?: string;
   badge?: string;
 }
@@ -31,11 +33,23 @@ export class WelcomeComponent implements OnInit {
   managedHostingOffering: ManagedHostingOffering | null = null;
   constructor(public workspace: WorkspaceService, private router: Router) {}
 
+  get cloudOptionLabelledBy() {
+    return 'cloud-option-title'
+      + (this.managedHostingOffering?.price ? ' cloud-option-price' : '')
+      + (this.managedHostingOffering?.trialDays ? ' cloud-option-trial' : '');
+  }
+
   async ngOnInit() {
     if (!this.managedHostingSignupEnabled || !Capacitor.isNativePlatform() || !Capacitor.isPluginAvailable('KeptManagedHosting')) return;
     try {
       const offering = await registerPlugin<ManagedHostingPlugin>('KeptManagedHosting').getOffering();
-      if (offering?.available) this.managedHostingOffering = offering;
+      if (offering?.available) {
+        this.managedHostingOffering = {
+          ...offering,
+          trialDays: typeof offering.trialDays === 'number' && Number.isSafeInteger(offering.trialDays) && offering.trialDays > 0
+            ? offering.trialDays : undefined
+        };
+      }
     } catch { /* no managed-hosting option configured on this build */ }
   }
 

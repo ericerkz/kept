@@ -1,4 +1,5 @@
 import { isNoteImageFile } from '../../utils/note-images';
+import { drawingPreviewBackground } from '../../utils/drawing-background';
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
 import { BinderDropService } from 'src/app/services/binder-drop.service';
 import { NativeWorkspaceService } from 'src/app/services/native-workspace.service';
@@ -61,6 +62,7 @@ const KeptWidgetIntents = registerPlugin<KeptWidgetIntentsPlugin>('KeptWidgetInt
     standalone: false
 })
 export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
+  readonly drawingPreviewBackground = drawingPreviewBackground;
   activeNote: NoteI | null = null
   get nativePhoneLayout() {
     return isNativePhonePlatform()

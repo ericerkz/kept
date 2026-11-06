@@ -55,6 +55,14 @@ curl -X POST https://kept.example.com/oauth/register \
 
 Use the returned `client_id` in the authorization-code flow. Web redirect URIs must use HTTPS, except loopback localhost URIs used during local development. Installed applications may register a private-use callback scheme and must follow the native-app guidance in RFC 8252.
 
+## Client ID Metadata Documents
+
+Clients can also use a public HTTPS metadata URL as their `client_id`, without first registering through `/oauth/register`. Kept advertises this support through `client_id_metadata_document_supported` in discovery. This works across providers, including ChatGPT, Claude, and OpenCode.
+
+The JSON document must identify its own URL exactly in `client_id`, provide a `client_name` and `redirect_uris`, and support public-client authentication (`none`). The consent screen shows the client's domain alongside its name. Redirect URIs must match the document; HTTP loopback callbacks may vary only their port so desktop clients can listen on an available local port. Token exchange remains bound to the exact callback approved for that authorization request.
+
+Metadata must be served directly with HTTP 200 and a JSON content type. Kept blocks private/internal metadata destinations and redirects, limits downloads to 5 KiB and five seconds, and caches successful documents according to their HTTP freshness headers, capped at one hour. Dynamic registration remains available for clients that use it.
+
 ## Revocation
 
 Applications should send access or refresh tokens to `/oauth/revoke` when disconnected. Kept also lists authorized apps in **Settings > External Access**, where the user can revoke one connection or disable OAuth app access to revoke all OAuth grants. These actions do not change the separate local MCP token.

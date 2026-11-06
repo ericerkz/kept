@@ -289,6 +289,29 @@ CalDAV and web-push delivery block private, loopback, link-local, and reserved d
 
 These settings govern outgoing integration requests, not the address used to access Kept. They do not require an HTTP/LAN Kept installation to change its own URL or reverse-proxy setup.
 
+### Docker secrets
+
+Secret values can come from mounted files instead of environment variables. For example, add this to your Compose configuration:
+
+```yaml
+services:
+  kept:
+    environment:
+      KEPT_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+    secrets:
+      - oidc_client_secret
+
+secrets:
+  oidc_client_secret:
+    file: ./secrets/oidc_client_secret.txt
+```
+
+Put the secret value in that file and keep it out of version control. This example shows only the additions; keep your existing image, ports, volumes, and other settings. If your existing `environment` uses list syntax, add `- KEPT_OIDC_CLIENT_SECRET_FILE=/run/secrets/oidc_client_secret` there instead.
+
+The `_FILE` alternative is supported for `KEPT_OIDC_CLIENT_SECRET`, `KEPT_SMTP_USER`, `KEPT_SMTP_PASS`, `KEPT_SETUP_TOKEN`, `KEPT_METRICS_TOKEN`, `VAPID_PUBLIC_KEY`, and `VAPID_PRIVATE_KEY`. Existing direct variables continue to work. Set only one source per value; an empty direct variable is treated as unset.
+
+Files are read once at startup and must be readable by the runtime user configured through `PUID`/`PGID`. Kept removes trailing line endings while preserving spaces. Missing, unreadable, empty, invalid UTF-8, oversized (over 64 KiB), or conflicting secrets stop startup with an error naming the setting, without printing the value. Restart Kept after replacing a secret. The example's `secrets/` directory is excluded from Git and Docker builds; if you use another location, keep it out of version control and the Docker build context too.
+
 ### Inviting users by email (optional)
 
 Admins can always create accounts directly from User Management. If you'd rather send someone a link they set their own username/password from, configure an SMTP relay and an admin can turn on "Invite by email" in User Management — the option is hidden entirely until SMTP is configured, and off by default even then.

@@ -1,0 +1,15 @@
+// Render paper beneath the transparent drawing without changing its pixels.
+@mixin drawing-paper {
+  &.bg-square, &[data-drawing-background='square'] {
+    background-image: linear-gradient(#e0e0e0 1px, transparent 1px), linear-gradient(90deg, #e0e0e0 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+  &.bg-dots, &[data-drawing-background='dots'] {
+    background-image: radial-gradient(#d2d6e8 1.5px, transparent 1.5px);
+    background-size: 22px 22px;
+  }
+  &.bg-rules, &[data-drawing-background='rules'] {
+    background-image: linear-gradient(#e0e0e0 1px, transparent 1px);
+    background-size: 100% 32px;
+  }
+}

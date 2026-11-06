@@ -24,6 +24,8 @@ KEPT_OIDC_NAME=Your provider name
 
 `KEPT_OIDC_CLIENT_SECRET` is optional for public clients when the provider permits PKCE without a secret. The issuer must exactly match the `issuer` value in the provider's OIDC discovery document, including any trailing slash; it is not merely the provider's login page. Kept discovers the remaining provider metadata from that issuer.
 
+For Docker secrets, set `KEPT_OIDC_CLIENT_SECRET_FILE=/run/secrets/oidc_client_secret` instead of `KEPT_OIDC_CLIENT_SECRET`, and mount the secret into the container. See the [Docker secrets example](../README.md#docker-secrets). Files must be readable by Kept's runtime user; restart Kept after changing a secret.
+
 The default scopes are `openid profile email`. Override them with `KEPT_OIDC_SCOPES` if your provider requires different scopes.
 
 ## Google

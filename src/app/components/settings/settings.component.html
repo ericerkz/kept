@@ -48,7 +48,23 @@
                 <div class="move-destinations">
                   <button type="button" class="btn-secondary move-cloud" [disabled]="deviceBusy || !deviceMove.cloudAvailable" (click)="setUpCloudMove()">
                     <span class="material-symbols-outlined" aria-hidden="true">cloud</span>
-                    <span><strong>Kept Cloud</strong><small>We host and maintain your Kept server. Sync across devices with no setup.</small></span>
+                    <span>
+                      <span class="move-option-heading">
+                        <strong>Kept Cloud</strong>
+                        @if (deviceMove.cloudPrice; as price) {
+                          <span class="move-price-badge">{{price}}/mo</span>
+                        }
+                        @if (deviceMove.cloudTrialDays; as days) {
+                          <span class="move-trial-badge">{{days}} {{days === 1 ? 'day' : 'days'}} free</span>
+                        }
+                      </span>
+                      <small>
+                        @if (deviceMove.cloudTrialDays && deviceMove.cloudPrice) {
+                          Try for {{deviceMove.cloudTrialDays}} {{deviceMove.cloudTrialDays === 1 ? 'day' : 'days'}} free, then {{deviceMove.cloudPrice}}/month.
+                        }
+                        We host and maintain your Kept server. Sync across devices with no setup.
+                      </small>
+                    </span>
                     <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
                   </button>
                   <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="moveDevice()">

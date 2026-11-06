@@ -5,7 +5,7 @@ import { WorkspaceService } from './workspace.service';
 
 interface CloudMove { workspaceId: string; generation: string; }
 interface HostingSignupPlugin {
-  getOffering(): Promise<{ available: boolean }>;
+  getOffering(): Promise<{ available: boolean; price?: string; trialDays?: number }>;
   start(): Promise<void>;
 }
 
@@ -19,14 +19,25 @@ export class DeviceServerMoveService {
     ? registerPlugin<HostingSignupPlugin>('KeptManagedHosting') : null;
   readonly ready: Promise<void>;
   cloudAvailable = false;
+  cloudPrice?: string;
+  cloudTrialDays?: number;
 
   constructor(private workspace: WorkspaceService, private router: Router) {
     this.ready = this.loadOffering();
   }
 
   private async loadOffering() {
-    try { this.cloudAvailable = !!(await this.plugin?.getOffering())?.available; }
-    catch { this.cloudAvailable = false; }
+    try {
+      const offering = await this.plugin?.getOffering();
+      this.cloudAvailable = !!offering?.available;
+      this.cloudPrice = offering?.price;
+      this.cloudTrialDays = this.cloudAvailable && typeof offering?.trialDays === 'number'
+        && Number.isSafeInteger(offering.trialDays) && offering.trialDays > 0 ? offering.trialDays : undefined;
+    } catch {
+      this.cloudAvailable = false;
+      this.cloudPrice = undefined;
+      this.cloudTrialDays = undefined;
+    }
   }
 
   private readMove(): CloudMove | null {

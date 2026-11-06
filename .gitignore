@@ -16,6 +16,7 @@ yarn-error.log
 .codex-ng-serve.*.log
 .codex-dev.*.log
 /data
+/secrets/
 
 # IDEs and editors
 .idea/
