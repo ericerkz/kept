@@ -22,6 +22,12 @@ try {
       const page = await context.newPage();
       await page.goto(fixture.origin);
       await page.locator('[sideBar]').waitFor({ state: 'attached' });
+      // Keep transitions alive long enough to sample their midpoint on busy machines.
+      await page.addStyleTag({ content: `
+        @media (prefers-reduced-motion: no-preference) {
+          .main-sidebar, .sidebar-backdrop { transition-duration: 2s, 0s !important; }
+        }
+      ` });
 
       async function sample(action, halfway = false) {
         return page.evaluate(async ({ action, halfway }) => {
