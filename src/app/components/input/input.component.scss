@@ -388,29 +388,19 @@
         opacity: 0.25;
       }
 
-      .material-symbols-outlined {
-        font-family: 'Material Symbols Outlined' !important;
-        font-size: 24px;
-        font-feature-settings: 'liga';
-        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-        line-height: 1;
-        text-transform: none;
-      }
-
       .glyph {
-        width: 24px;
-        height: 24px;
-        background-repeat: no-repeat;
-        background-position: center;
-        background-size: 20px;
-        opacity: 1; // Full opacity for clarity
-        filter: grayscale(1) brightness(0.4); // Force dark grey for SVG backgrounds
+        width: 20px;
+        height: 20px;
+        background-color: currentColor;
+        -webkit-mask: var(--icon) center / contain no-repeat;
+        mask: var(--icon) center / contain no-repeat;
 
-        &.picture { background-image: url(/assets/images/svg/picture.svg); }
-        &.colab { background-image: url(/assets/images/svg/col.svg); }
-        &.paint { background-image: url(/assets/images/svg/paint.svg); }
-        &.check { background-image: url(/assets/images/svg/check.svg); }
-        &.attachment { background-image: url(/assets/images/svg/attachment.svg); }
+        &.picture { --icon: url(/assets/images/svg/image.svg); }
+        &.colab { --icon: url(/assets/images/svg/col.svg); }
+        &.check { --icon: url(/assets/images/svg/check.svg); }
+        &.attachment { --icon: url(/assets/images/svg/attachment.svg); }
+        &.color { --icon: url(/assets/images/svg/bg.svg); }
+        &.more { --icon: url(/assets/images/svg/more.svg); }
       }
     }
 

@@ -326,14 +326,14 @@
           <div class="glyph check"></div>
         </div>
         <div #colorMenuTtBtnMobile class="mobile-icon color" (click)="openTooltip(colorMenuTtBtnMobile,colorMenuTt)" title="Background options">
-          <span class="material-symbols-outlined">palette</span>
+          <div class="glyph color"></div>
         </div>
       </div>
       <div class="timestamp">
         {{lastEditedTime || 'Edited just now'}}
       </div>
       <div #moreMenuTtBtnMobile class="mobile-icon more" (click)="openTooltip(moreMenuTtBtnMobile,moreMenuTt)" title="More">
-        <span class="material-symbols-outlined">more_vert</span>
+        <div class="glyph more"></div>
       </div>
     </div>
   } @else if (isTrashed) {
