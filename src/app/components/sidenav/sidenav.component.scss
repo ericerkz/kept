@@ -265,6 +265,10 @@
       &.trash { mask-image: url(/assets/images/svg/trash.svg); -webkit-mask-image: url(/assets/images/svg/trash.svg); }
       &.users { mask-image: url(/assets/images/svg/settings.svg); -webkit-mask-image: url(/assets/images/svg/settings.svg); }
       &.col { mask-image: url(/assets/images/svg/col.svg); -webkit-mask-image: url(/assets/images/svg/col.svg); }
+      &.attachment { mask-image: url(/assets/images/svg/attachment.svg); -webkit-mask-image: url(/assets/images/svg/attachment.svg); }
+      &.logout { mask-image: url(/assets/images/svg/logout.svg); -webkit-mask-image: url(/assets/images/svg/logout.svg); }
+      &.dark-mode { mask-image: url(/assets/images/svg/dark-mode.svg); -webkit-mask-image: url(/assets/images/svg/dark-mode.svg); }
+      &.light-mode { mask-image: url(/assets/images/svg/light-mode.svg); -webkit-mask-image: url(/assets/images/svg/light-mode.svg); }
     }
 
     .text {
