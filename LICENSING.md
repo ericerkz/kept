@@ -10,8 +10,8 @@ Kept is licensed under the GNU Affero General Public License, version 3 only
 ("AGPLv3"). You may use, copy, modify, and distribute Kept under the terms of
 the AGPLv3.
 
-A copy of the AGPLv3 should be included with this repository. If it is not,
-you can find the official license text here:
+The full text of the AGPLv3 is in the `LICENSE` file in this repository. The
+official license text is also available here:
 
 https://www.gnu.org/licenses/agpl-3.0.en.html
 
