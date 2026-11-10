@@ -10,7 +10,7 @@
       <span class="text">Reminders</span>
     </div>
     <div [class.active]="router.url === '/attachments'" class="item" routerLink="/attachments" (click)="onNavItemClick()">
-      <span class="material-pic material-symbols-outlined" aria-hidden="true">&#xe226;</span>
+      <span class="pic attachment" aria-hidden="true"></span>
       <span class="text">Attachments</span>
     </div>
     <div [hidden]="auth.isLocal" [class.active]="router.url === '/shared'" class="item" routerLink="/shared" (click)="onNavItemClick()">
@@ -98,14 +98,12 @@
       </div>
     }
     <div class="item mobile-only-item" (click)="toggleTheme()">
-      <span class="material-pic material-symbols-outlined" aria-hidden="true">
-        {{auth.effectiveTheme === 'light' ? 'dark_mode' : 'light_mode'}}
-      </span>
+      <span class="pic" [ngClass]="auth.effectiveTheme === 'light' ? 'dark-mode' : 'light-mode'" aria-hidden="true"></span>
       <span class="text">{{auth.effectiveTheme === 'light' ? 'Use dark mode' : 'Use light mode'}}</span>
     </div>
     @if (!auth.isLocal) {
     <div class="item" (click)="logout()">
-      <span class="material-pic material-symbols-outlined" aria-hidden="true">logout</span>
+      <span class="pic logout" aria-hidden="true"></span>
       <span class="text">Sign out</span>
     </div>
     }
