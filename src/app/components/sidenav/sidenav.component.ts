@@ -27,6 +27,10 @@ export class NavComponent implements OnInit, OnDestroy {
     return isNativePhonePlatform();
   }
 
+  get drawerClosed() {
+    return this.usesDrawerSidebar() && !this.isMobileOpen;
+  }
+
   installHelpOpen = false;
 
   bindersExpanded = true;

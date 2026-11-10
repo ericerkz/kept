@@ -322,6 +322,6 @@ export class AppComponent implements OnInit, OnDestroy {
 
   private isSidebarOpen() {
     const sidebar = document.querySelector<HTMLElement>('[sideBar]');
-    return !!sidebar && !sidebar.classList.contains('close') && !!document.querySelector('.sidebar-backdrop');
+    return !!sidebar && !sidebar.classList.contains('close') && !!document.querySelector('.sidebar-backdrop.is-open');
   }
 }
