@@ -12,6 +12,7 @@
     "test:note-swipe:ui": "node scripts/note-swipe-ui-test.mjs",
     "test:mobile-header:ui": "node scripts/mobile-header-layout-test.mjs",
     "test:sidebar:ui": "node scripts/sidebar-animation-test.mjs",
+    "test:mobile-editor-icons:ui": "node scripts/mobile-editor-icons-test.mjs",
     "test:images": "node --test scripts/note-images.test.cjs server/image-uploads.test.js",
     "test:shared-organization": "node --test server/shared-note-organization.test.js scripts/shared-note-organization.test.cjs",
     "test:sync": "node server/sync-smoke.test.js",
