@@ -9,7 +9,7 @@
 
 </div>
 
-Kept is a notes app built for quick capture: text notes, checklists, images, drawings, links, attachments, labels, colors, and reminders. Use the native iOS or Android app entirely on your device without setting up a server, or connect to Kept Cloud or your own Kept server for web access, sharing, and sync across devices.
+Kept is an open-source notes app for the web, iOS and Android. Fast, colourful, offline-first, and designed to stay simple.
 
 <p>
   <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473">
@@ -29,37 +29,109 @@ Kept is a notes app built for quick capture: text notes, checklists, images, dra
   </a>
 </p>
 
-## Screenshot
+<p>
+  <a href="#self-hosting">Self-host Kept</a> ·
+  <a href="#technical-documentation">Technical documentation</a>
+</p>
 
-<img src="src/assets/images/ui-showcase.png" alt="Kept UI showing the sidebar, search, and a grid of colorful note cards">
+## Kept on the web
 
-## Why Kept Exists
+<img src="docs/assets/images/web-overview.png" alt="Kept's web interface showing the sidebar, search, and a grid of colourful notes, checklists, images and attachments">
 
-I wanted something that felt like Google Keep: fast, colorful, easy to glance at, and never too heavy for a quick thought. Most self-hosted notes apps I tried were either powerful but fiddly, or simple but missing the feel I wanted. Kept is my attempt at replicating the simplicity of Google Keep, while keeping the data on a server you control.
+## Use Kept your way
 
-## Features
+### Your own server
 
-- Text notes, nested checklists, image notes, drawings, links, and file attachments.
-- Drag-and-drop note ordering and checklist item ordering.
-- Labels, binders, colors, background images, pinned notes, archive, and trash.
-- Share entire binders with other users on your server, including notes you add later. Manage access from **Edit binders**.
-- Search and filters, including note type, labels, and date-style queries.
-- Link previews and inline images.
-- Time reminders with browser push notifications.
-- Location-based reminders through the native iOS and Android apps.
-- Quick share to Kept from the native iOS and Android share sheets.
-- Android home screen widgets for recent notes, pinned notes, specific labels/binders, quick note creation, and a single selected note.
-- Real-time collaborative sharing of notes between users on the same instance.
-- Device-only mode in the native iOS and Android apps, with no server or account required.
-- Offline viewing/editing of downloaded notes in server mode, with automatic sync when the server is reachable again.
-- Complete device backups, restore on another mobile device, and a local-to-server transfer when you want to use Kept Cloud or self-host.
-- Google Keep Takeout data import.
-- Built-in database backups and restore flow.
-- Local user accounts, optional 2FA, and user management.
-- Local and remote MCP server options for authenticated agent access without direct database access.
-- OAuth 2.1 access for scoped third-party API integrations and remote MCP clients.
-- Optional OpenID Connect (OIDC) single sign-on alongside Kept's local accounts.
-- Device-only notes on iOS and Android or Server-connected for syncing across devices - the choice is yours.
+Run Kept with Docker and keep control of your data. Access your notes in a browser or sync with the native mobile apps.
+
+### Kept Cloud
+
+Add sync, backups, collaboration and web access without maintaining your own infrastructure.
+
+### On your device
+
+Keep notes on your device with no account or server. Use the native app offline, back up your notes, or move them to a server later.
+
+## Notes in action
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Drawings</strong><br>
+      Sketch directly in a note, with pens, a highlighter and a choice of paper backgrounds.
+      <p><img src="docs/assets/images/web-drawing.png" width="360" alt="Kept's web drawing editor showing a flower sketch on dotted paper"></p>
+    </td>
+    <td width="50%" valign="top">
+      <strong>Nested checklists</strong><br>
+      Group items, drag to reorder, and tuck completed items away.
+      <p><img src="docs/assets/images/web-nested-checklist.png" width="360" alt="A packing checklist in Kept's web editor, with several levels of nesting and completed items"></p>
+    </td>
+  </tr>
+</table>
+
+## More than basic notes
+
+- Text and rich notes
+- Rich hyperlinks - copy and paste just a URL and a pretty whole-card preview will get created
+- Nested checklists with drag-to-reorder
+- Images, drawings, links and file attachments
+- Labels, binders, colours and backgrounds
+- Customisable appearance, note density, checklist behaviour and shared-note organization
+- Time-based (one-off or recurring) and location-based reminders.
+- Native iOS and Android widgets
+- Native sharing - share links, photos, files to kept on iOS or Android and they will automatically make a note with that captured
+- Real-time collaboration and shared binders
+- Offline-first sync
+- Google Keep Takeout import
+- Full backup and restore
+- Automated scheduled database backups
+- OIDC / SSO
+- OAuth 2.1
+- Local and remote MCP access
+- On-device Smart Capture on supported phones
+
+<details>
+<summary>See recurring reminders and rich link previews</summary>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Reminders that fit your routine</strong><br>
+      Set a time, choose a repeat schedule, and have the note float to the top when it fires.
+      <p><img src="docs/assets/images/web-reminder.png" width="360" alt="Kept's web reminder calendar with daily recurrence and the float-to-top option enabled"></p>
+    </td>
+    <td width="50%" valign="top">
+      <strong>Links worth keeping</strong><br>
+      Paste URLs into a note to see rich previews alongside your text.
+      <p><img src="docs/assets/images/web-link-previews.png" width="360" alt="A Kept note showing embedded link previews for NASA and Colossal"></p>
+    </td>
+  </tr>
+</table>
+
+</details>
+
+<details>
+<summary>Customise Kept's appearance and editing behaviour</summary>
+
+Adjust the theme, note density, checklist behaviour, link previews, and how shared notes use labels and binders.
+
+<p align="center">
+  <img src="docs/assets/images/display-editing-settings.png" width="760" alt="Kept's Display and Editing settings, including theme, time format, shared-note organization, checklist behaviour, link previews and note density">
+</p>
+
+</details>
+
+## Capture from anywhere
+
+Share links, photos, text and files into Kept from other apps. On iOS and Android, Home Screen widgets let you browse notes, tick off checklist items and quickly capture something new.
+
+## Open source, by design
+
+Built in the open, with the immediacy of Google Keep and control over where your notes live.
+
+---
+
+# Technical documentation
 
 ## Use Kept Locally Without a Server
 
@@ -76,6 +148,8 @@ In **Settings → Notes on this device**, use **Save a complete backup** to save
 If you decide to sync across devices later, choose **Move my notes to a server** in the same section, then choose Kept Cloud or your own server. This transfers your entire local library, including images and attachments.
 
 
+
+<a id="self-hosting"></a>
 
 ## Install a Server With Docker
 
@@ -121,6 +195,12 @@ Kept remains free to self-host on any platform that supports Docker. Device-only
 - Quick share into Kept from the iOS share sheet.
 - On-device Smart Capture using Apple Intelligence.
 - Move device-only notes to a Kept server later.
+
+<p align="center">
+  <img src="docs/assets/images/03-reminders.png" width="220" alt="Kept on iOS: set time reminders or get a reminder when you arrive at or leave a place">
+  &nbsp;&nbsp;
+  <img src="docs/assets/images/05-checklists.png" width="220" alt="Kept on iOS: reorder checklist items and tuck completed items away">
+</p>
 
 ## Native Android App
 
@@ -248,6 +328,15 @@ For device-only notes, use **Settings → Notes on this device → Save a comple
 For servers, admins can choose **User management → Download a full backup** to save a ZIP containing a consistent SQLite snapshot, uploaded images, attachments, and web-push keys for all accounts. This is a server-wide backup containing private data for every user; store it somewhere private. Server environment variables and reverse-proxy configuration must be configured separately on the destination. If you supply VAPID keys through environment variables, configure those consistently on the destination too.
 
 Scheduled daily, weekly, or monthly backups remain database-only SQLite snapshots. The readable JSON/CSV/Markdown exports in Settings are per-user exports, exclude media files, and cannot be imported back into Kept.
+
+<details>
+<summary>See automated backup settings</summary>
+
+<p align="center">
+  <img src="docs/assets/images/scheduled-backups.png" width="760" alt="Kept's automated database snapshot settings showing a daily backup schedule and the last completed backup">
+</p>
+
+</details>
 
 To restore from a backup during setup:
 
