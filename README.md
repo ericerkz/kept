@@ -9,9 +9,11 @@
 
 </div>
 
-Kept is an open-source notes app for the web, iOS and Android. Fast, colourful, offline-first, and designed to stay simple.
+<p align="center">
+  Kept is an open-source notes app for the web, iOS and Android. Fast, colourful, offline-first, and designed to stay simple.
+</p>
 
-<p>
+<p align="center">
   <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473">
     <img src="https://img.shields.io/badge/App%20Store-Kept%20Notes-000000?logo=apple&logoColor=white" alt="Download Kept Notes on the App Store">
   </a>
@@ -23,13 +25,13 @@ Kept is an open-source notes app for the web, iOS and Android. Fast, colourful, 
   </a>
 </p>
 
-<p>
+<p align="center">
   <a href="https://cloud.keepitkept.xyz/">
     <img src="docs/assets/images/kept-cloud-button.svg?v=b1ee644e564b" alt="Get Kept Cloud — sync across your devices" width="360" height="110">
   </a>
 </p>
 
-<p>
+<p align="center">
   <a href="#self-hosting">Self-host Kept</a> ·
   <a href="#technical-documentation">Technical documentation</a>
 </p>
