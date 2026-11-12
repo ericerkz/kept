@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { isNoteImageFile } from '../utils/note-images';
 import { NativeWorkspaceService } from './native-workspace.service';
 import { Injectable, NgZone } from '@angular/core';
@@ -211,10 +212,10 @@ export class ShareIntentsService {
       await this.createNoteFromIntent(intent);
       await KeptShareIntents.markProcessed({ intentId: intent.intentId });
       this.clearPendingNoteId(intent.intentId);
-      this.showMessage('Added to Kept');
+      this.showMessage(uiText('share_intents.added_to_kept'));
     } catch (error) {
       console.warn('Could not add shared item to Kept', error);
-      this.showMessage('Could not add shared item to Kept');
+      this.showMessage(uiText('share_intents.could_not_add_shared_item_to_kept'));
     } finally {
       this.processingIntentIds.delete(intent.intentId);
     }

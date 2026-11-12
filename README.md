@@ -42,6 +42,7 @@ I wanted something that felt like Google Keep: fast, colorful, easy to glance at
 - Text notes, nested checklists, image notes, drawings, links, and file attachments.
 - Drag-and-drop note ordering and checklist item ordering.
 - Labels, binders, colors, background images, pinned notes, archive, and trash.
+- Share entire binders with other users on your server, including notes you add later. Manage access from **Edit binders**.
 - Search and filters, including note type, labels, and date-style queries.
 - Link previews and inline images.
 - Time reminders with browser push notifications.
@@ -347,6 +348,10 @@ Useful scripts:
 - `npm run test:proxy-image:browser` (run `npx playwright install chromium` once first)
 - `npm run api`
 - `npm run client`
+
+## Translations
+
+Help translate Kept’s web/in-app UI and native Android/iOS screens together in this repository. See the [translation contribution guide](translations/README.md). English is currently the only shipped language.
 
 ## Build It Yourself
 

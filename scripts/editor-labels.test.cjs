@@ -10,6 +10,7 @@ function loadClass(path, name) {
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, experimentalDecorators: true }
   }).outputText, { exports, console, document: { addEventListener() {} }, require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
     if (name === '@angular/core') return { Injectable: decorator, Component: decorator, ViewChild: () => () => {}, Input: () => () => {}, HostBinding: () => () => {}, HostListener: () => () => {} };
     if (name === '@capacitor/core') return { registerPlugin: () => ({}), Capacitor: { getPlatform: () => 'ios' } };
     if (name.endsWith('/note-html')) return { sanitizeNoteHtml: text => text };

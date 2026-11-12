@@ -17,6 +17,13 @@ export function safeNoteUrl(value: unknown, image = false): string {
   } catch { return ''; }
 }
 
+// Older saves could concatenate visually separate preview cards. Keep the
+// complete string readable instead of concealing later URLs in one card.
+// A URL in a query or fragment can be intentional (for example a redirect).
+export function hasJoinedNoteUrls(value: string): boolean {
+  return /https?:\/\/.+https?:\/\//i.test(value.split(/[?#]/, 1)[0]);
+}
+
 purifier.addHook('uponSanitizeAttribute', (_node, data) => {
   if (data.attrName === 'href' || data.attrName === 'src') {
     data.attrValue = safeNoteUrl(data.attrValue, data.attrName === 'src');

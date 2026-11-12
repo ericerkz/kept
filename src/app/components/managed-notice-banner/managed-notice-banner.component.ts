@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { AfterViewInit, Component, ElementRef, NgZone, OnDestroy, OnInit } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { environment } from 'src/environments/environment';
@@ -56,13 +57,9 @@ export class ManagedNoticeBannerComponent implements OnInit, AfterViewInit, OnDe
   get message() {
     if (!this.notice) return '';
     if (this.auth.isAdmin) {
-      return this.notice.kind === 'ending'
-        ? `Your ${this.info?.providerName || 'hosting'} plan ends on ${this.formatDate(this.notice.endsAt)}. Download a backup, or keep your plan.`
-        : `${this.info?.providerName || 'Your hosting provider'} couldn’t take your last payment. Update your billing to keep this server.`;
+      return this.notice.kind === 'ending' ? (uiText('managed_notice_banner.your_value0_plan_ends_on_value1_download_a_backup_or_keep_your_pl', { value0: (this.info?.providerName || 'hosting'), value1: (this.formatDate(this.notice.endsAt)) })) : (uiText('managed_notice_banner.value0_couldn_t_take_your_last_payment_update_your_billing_to_kee', { value0: (this.info?.providerName || 'Your hosting provider') }));
     }
-    return this.notice.kind === 'ending'
-      ? `This server’s plan ends on ${this.formatDate(this.notice.endsAt)}. Save a copy of your notes, or ask the server’s owner.`
-      : 'This server’s plan has a payment problem. Ask the server’s owner to update it.';
+    return this.notice.kind === 'ending' ? (uiText('managed_notice_banner.this_server_s_plan_ends_on_value0_save_a_copy_of_your_notes_or_as', { value0: (this.formatDate(this.notice.endsAt)) })) : (uiText('managed_notice_banner.this_server_s_plan_has_a_payment_problem_ask_the_server_s_owner_t'));
   }
 
   ngOnInit() {

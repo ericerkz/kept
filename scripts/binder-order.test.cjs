@@ -13,6 +13,7 @@ function catalogService(store, workspace, type) {
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(`src/app/services/${type}s.service.ts`, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, experimentalDecorators: true }
   }).outputText, { exports, console, localStorage: { getItem: () => null }, require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
     if (name === '@angular/core') return { Injectable: () => target => target };
     if (name === 'rxjs') return require('rxjs');
     if (name.endsWith('/environment')) return { environment: { apiUrl: '/api' } };
@@ -26,7 +27,7 @@ function catalogService(store, workspace, type) {
   if (type === 'binder') return new exports.BindersService(store, sync, { isLocal: true });
   const service = new exports.LabelsService({}, { isLocal: true, accessChanges$: new Subject() }, store, sync);
   return {
-    items$: service.labelsList$, load: () => service.load(),
+    items$: service.labelsList$, load: () => service.load(), noteCounts: () => service.noteCounts(),
     save: (name, oldName) => oldName ? service.update({ name }, service.labelsList$.value.find(item => item.name === oldName).id) : service.add({ name }),
     reorder: names => service.reorder(names.map(name => service.labelsList$.value.find(item => item.name === name) || { name })),
     delete: name => service.delete(service.labelsList$.value.find(item => item.name === name).id)
@@ -149,3 +150,16 @@ test(`${type} order upgrades existing databases, syncs to another client and sur
   } finally { await fixture.close(); }
 });
 }
+
+
+test('local label counts use the complete device library, with one count per applied label and note',async()=>{
+  const store=createStore(),workspace=await localWorkspace(store);
+  const labels=catalogService(store,workspace,'label');
+  for(const note of [
+    {id:1,syncId:'active',labels:[{name:'Beer',added:true},{name:'Beer',added:true},{name:'Unchecked',added:false}]},
+    {id:2,syncId:'archived',archived:true,labels:[{name:'Beer',added:true}]},
+    {id:3,syncId:'trash',trashed:true,labels:[{name:'Beer',added:true}]},
+    {id:4,syncId:'shared',labels:[{name:'Stale',added:true}],sharedOrganization:{ownerLabels:[{name:'Travel',added:true}],personalLabels:[]}}
+  ])await store.putNote(workspace.partition,note);
+  assert.deepEqual(JSON.parse(JSON.stringify(await labels.noteCounts())),{Beer:2,Travel:1});
+});

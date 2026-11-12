@@ -75,6 +75,13 @@ async function main() {
       body: JSON.stringify({ username: 'selfhost-admin', displayName: 'Admin', password: 'test-password-123' })
     });
     assert.strictEqual(setup.status, 201, 'self-host setup should succeed without any setup token');
+    const login = await request(base, '/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username: 'selfhost-admin', password: 'test-password-123' })
+    });
+    const notes = await request(base, '/notes', { headers: { Authorization: `Bearer ${login.body.token}` } });
+    assert.strictEqual(notes.status, 200);
+    assert.strictEqual(notes.body.length, 0, 'ordinary self-host setup must not create a managed welcome note');
 
     const health = await request(base, '/health');
     assert.strictEqual(health.status, 200);
@@ -87,6 +94,7 @@ async function main() {
     KEPT_SETUP_TOKEN: 'secret-token-abc',
     KEPT_MANAGED_HOSTING: '1',
     KEPT_MANAGED_PROVIDER_NAME: 'Acme Hosting',
+    BASE_URL: 'https://mossy-quarry-wombat.cloud.example.test:8443/kept/',
     KEPT_MANAGED_ACCOUNT_URL: 'https://cloud.example.test/account',
     KEPT_STORAGE_QUOTA_BYTES: String(5 * 1024 * 1024 * 1024)
   }, async base => {
@@ -125,7 +133,7 @@ async function main() {
     const notes = await request(base, '/notes', { headers: authHeaders });
     assert.strictEqual(notes.status, 200);
     assert.ok(
-      notes.body.some(note => /Welcome to Acme Hosting/.test(note.noteTitle)),
+      notes.body.filter(note => /Welcome to Acme Hosting/.test(note.noteTitle)).length === 1,
       'a managed welcome note should exist exactly once after setup'
     );
     const welcome = notes.body.find(note => note.noteTitle === 'Welcome to Acme Hosting!');
@@ -137,6 +145,16 @@ async function main() {
     assert.match(welcome.noteBody, /play\.google\.com\/store\/apps\/details\?id=xyz\.keepitkept\.app/);
     assert.match(welcome.noteBody, /100 MiB/);
     assert.match(welcome.noteBody, /5 GB of storage/);
+    const sharingHeading = '<h3>👪 Share it with friends and family</h3>';
+    assert.ok(welcome.noteBody.includes(sharingHeading));
+    assert.ok(welcome.noteBody.indexOf(sharingHeading) > welcome.noteBody.indexOf('📱 Take Kept with you'));
+    assert.ok(welcome.noteBody.indexOf(sharingHeading) < welcome.noteBody.indexOf('☁️ Your space, taken care of'));
+    assert.ok(welcome.noteBody.includes('<strong>Users</strong> in the menu (Add a user)'));
+    assert.ok(welcome.noteBody.includes('choose a username and password for each of them.'));
+    assert.ok(welcome.noteBody.includes('tap <strong>Acme Hosting</strong>'));
+    assert.ok(welcome.noteBody.includes("<strong>Joining someone else's Acme Hosting?</strong>"));
+    assert.ok(welcome.noteBody.includes("your server's name: <strong>mossy-quarry-wombat</strong>"));
+    assert.ok(welcome.noteBody.includes('Then they sign in with the username and password you chose.'));
     // Browser and offline-first starter creation must both keep the welcome
     // note first, even when the starter was created with a newer sortOrder.
     const demo = await request(base, '/notes', { method:'POST', headers:authHeaders,
@@ -153,7 +171,8 @@ async function main() {
     const bootstrap = await request(base, '/sync/bootstrap?protocolVersion=2', {headers:authHeaders});
     assert.strictEqual(bootstrap.body.notes[0].id,welcome.id,'native offline snapshots preserve first position');
     // The welcome note remains a normal note the user can unpin.
-    await request(base, `/notes/${welcome.id}`, {method:'PATCH',headers:authHeaders,body:JSON.stringify({pinned:false})});
+    await request(base, `/notes/${welcome.id}`, {method:'PATCH',headers:authHeaders,
+      body:JSON.stringify({pinned:false,noteBody:'Personalized welcome note'})});
     assert.strictEqual((await request(base, `/notes/${welcome.id}`, {headers:authHeaders})).body.pinned,false);
 
     const reusedToken = await request(base, '/setup/admin', {
@@ -162,12 +181,36 @@ async function main() {
       body: JSON.stringify({ username: 'second-admin', displayName: 'Admin 2', password: 'test-password-123' })
     });
     assert.strictEqual(reusedToken.status, 409, 'the setup token must be useless once the original admin exists');
+    const retainedNotes = await request(base, '/notes', { headers: authHeaders });
+    const retainedWelcome = retainedNotes.body.filter(note => note.id === welcome.id);
+    assert.strictEqual(retainedWelcome.length, 1, 'setup retries must not replace or duplicate the welcome note');
+    assert.strictEqual(retainedWelcome[0].noteBody, 'Personalized welcome note');
 
     const storage = await request(base, '/settings/storage', { headers: authHeaders });
     assert.strictEqual(storage.status, 200);
     assert.strictEqual(typeof storage.body.usedBytes, 'number');
     assert.strictEqual(storage.body.quotaBytes, 5 * 1024 * 1024 * 1024);
     assert.strictEqual(typeof storage.body.percentUsed, 'number');
+  });
+
+  // Invalid public addresses fall back to the full address, safely escaped.
+  await withServer({
+    KEPT_MANAGED_HOSTING: '1',
+    KEPT_MANAGED_PROVIDER_NAME: 'Acme & Family <Hosting>',
+    BASE_URL: 'mossy-quarry-wombat/<household>?a=1&b=2'
+  }, async base => {
+    const credentials = { username: 'fallback-admin', password: 'test-password-123' };
+    assert.strictEqual((await request(base, '/setup/admin', {
+      method: 'POST', body: JSON.stringify(credentials)
+    })).status, 201);
+    const login = await request(base, '/auth/login', { method: 'POST', body: JSON.stringify(credentials) });
+    const notes = await request(base, '/notes', { headers: { Authorization: `Bearer ${login.body.token}` } });
+    assert.strictEqual(notes.status, 200);
+    assert.strictEqual(notes.body.length, 1);
+    const body = notes.body[0].noteBody;
+    assert.ok(body.includes("<strong>Joining someone else's Acme &amp; Family &lt;Hosting&gt;?</strong>"));
+    assert.ok(body.includes('<strong>mossy-quarry-wombat/&lt;household&gt;?a=1&amp;b=2</strong>'));
+    assert.ok(!body.includes('<household>') && !body.includes('<Hosting>'));
   });
 
   // ── Storage quota: exceeding it rejects uploads with 507 ────────────────

@@ -9,6 +9,7 @@ import { CatalogReorderDirective } from './components/sidenav/catalog-reorder.di
 import { NavbarComponent } from './components/navbar/navbar.component';
 import { NotesComponent } from './components/notes/notes.component';
 import { InputComponent } from './components/input/input.component';
+import { NoteAppearancePickerComponent } from './components/note-appearance-picker/note-appearance-picker.component';
 import { ph } from './pipes/ph.pipe';
 import { AppRoutingModule } from './app-routing.module';
 import { CboxSortPipe } from './pipes/cbox-sort.pipe';
@@ -30,13 +31,20 @@ import { AuthService } from './services/auth.service';
 import { WelcomeComponent } from './components/auth/welcome/welcome.component';
 import { ConnectionHeadersInterceptor } from './services/connection-headers.interceptor';
 import { LocationMapPickerComponent } from './components/location-map-picker/location-map-picker.component';
+import { TranslatePipe, provideTranslateService } from '@ngx-translate/core';
+import { BundledTranslationLoader, I18nService } from './i18n/i18n.service';
+import { UiTextPipe, UiPluralPipe, UiDatePipe } from './i18n/ui-text.pipe';
 
 @NgModule({ declarations: [
         AppComponent,
+        UiTextPipe,
+        UiPluralPipe,
+        UiDatePipe,
         WelcomeComponent,
         MainComponent,
         NavComponent,
         CatalogReorderDirective,
+        NoteAppearancePickerComponent,
         NavbarComponent,
         NotesComponent,
         InputComponent,
@@ -57,10 +65,12 @@ import { LocationMapPickerComponent } from './components/location-map-picker/loc
         ManagedNoticeBannerComponent,
         MergeDialogComponent,
     ],
-    bootstrap: [AppComponent], imports: [BrowserModule,
+    bootstrap: [AppComponent], imports: [BrowserModule, TranslatePipe,
         FormsModule,
         AppRoutingModule], providers: [
         { provide: APP_INITIALIZER, useFactory: (auth: AuthService) => () => auth.initializeBrowserSession(), deps: [AuthService], multi: true },
+        provideTranslateService({ fallbackLang: 'en', lang: 'en', loader: BundledTranslationLoader }),
+        { provide: APP_INITIALIZER, useFactory: (i18n: I18nService) => () => i18n.initialize(), deps: [I18nService], multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: ConnectionHeadersInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: AuthExpiredInterceptor, multi: true },
         provideHttpClient(withInterceptorsFromDi())

@@ -365,7 +365,7 @@ export class OfflineSyncService implements OnDestroy {
     const deferredNotes = new Set(entries.filter(entry => entry.type === 'note.upsert' &&
       imageUrls.some(url => JSON.stringify(entry.payload).includes(url))).map(entry => entry.syncId));
     const mutations = entries.filter(entry => !['image.upload','attachment.upload','attachment.upsert'].includes(entry.type) &&
-      !(entry.type === 'note.upsert' && deferredNotes.has(entry.syncId)) &&
+      !(entry.type.startsWith('note.') && deferredNotes.has(entry.syncId)) &&
       !deferredNotes.has((entry.payload as any)?.noteSyncId));
     for (let offset = 0; offset < mutations.length; offset += 500) await this.flushMutations(mutations.slice(offset,offset + 500));
     if (uploads.length) await this.flushAttachmentUploads(uploads);

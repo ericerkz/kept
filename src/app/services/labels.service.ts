@@ -40,6 +40,20 @@ export class LabelsService {
     }
   }
 
+  async noteCounts(): Promise<Record<string,number>> {
+    if (!this.sync.writesLocally) return firstValueFrom(this.http.get<Record<string,number>>(`${this.apiUrl}/counts`,{headers:this.auth.authHeaders()}));
+    const notes=await this.store.listNotes(this.sync.partition);
+    const counts=new Map<string,number>();
+    for (const note of notes) {
+      if (note.trashed) continue;
+      const organization=note.sharedOrganization;
+      const labels=organization ? (this.auth.currentUser?.inheritSharedLabels===false ? organization.personalLabels : organization.ownerLabels) : note.labels;
+      const names=new Set((Array.isArray(labels) ? labels : []).filter(label=>label?.added===true).map(label=>label.name));
+      for (const name of names) counts.set(name,(counts.get(name) || 0)+1);
+    }
+    return Object.fromEntries(counts);
+  }
+
   async add(labelObj: LabelI) {
     const name = String(labelObj.name || '').trim();
     if (!name) throw new Error('Label name is required');

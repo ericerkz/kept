@@ -5,48 +5,48 @@
         <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
         <span>Kept</span>
       </div>
-      <h1>Create an account</h1>
+      <h1>{{ 'register.create_an_account' | translate }}</h1>
 
       @if (successMessage) {
-        <div class="success">{{successMessage}}</div>
+        <div class="success">{{(successMessage) | uiText}}</div>
         <p class="helper" style="margin-top: 16px;">
-          <a routerLink="/login" style="color: #fbbc04;">← Back to sign in</a>
+          <a routerLink="/login" style="color: #fbbc04;">{{ 'register.back_to_sign_in' | translate }}</a>
         </p>
       } @else {
         <form (ngSubmit)="submit()" #registerForm="ngForm" class="auth-form">
           <label>
-            <span>Username</span>
-            <input name="username" [ngModel]="username" (ngModelChange)="onUsernameChange($event)" autocomplete="username" minlength="3" required>
-            <small class="hint">Minimum 3 characters</small>
+            <span>{{ 'common.username' | translate }}</span>
+            <input name="username" [ngModel]="username" (ngModelChange)="onUsernameChange($event)" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" minlength="3" required>
+            <small class="hint">{{ 'auth.username_minimum_length' | translate }}</small>
           </label>
           <label>
-            <span>Display name</span>
-            <input name="displayName" [(ngModel)]="displayName" (input)="onDisplayNameInput()" autocomplete="name" placeholder="Defaults to your username — change it to anything you'd like">
+            <span>{{ 'common.display_name' | translate }}</span>
+            <input name="displayName" [(ngModel)]="displayName" (input)="onDisplayNameInput()" autocomplete="name" [attr.placeholder]="'auth.display_name_hint' | translate">
           </label>
           <label>
-            <span>Email</span>
+            <span>{{ 'common.email' | translate }}</span>
             <input name="email" [(ngModel)]="email" autocomplete="email" type="email" required>
           </label>
           <label>
-            <span>Password</span>
+            <span>{{ 'common.password' | translate }}</span>
             <input name="password" [(ngModel)]="password" autocomplete="new-password" type="password" minlength="8" required>
-            <small class="hint">Minimum 8 characters</small>
+            <small class="hint">{{ 'auth.password_minimum_length' | translate }}</small>
           </label>
           <label>
-            <span>Confirm password</span>
+            <span>{{ 'auth.confirm_password' | translate }}</span>
             <input name="confirmPassword" [(ngModel)]="confirmPassword" autocomplete="new-password" type="password" minlength="8" required>
-            <small class="hint">Must match password</small>
+            <small class="hint">{{ 'auth.must_match_password' | translate }}</small>
           </label>
 
           @if (error) {
-            <div class="error">{{error}}</div>
+            <div class="error">{{(error) | uiText}}</div>
           }
           <button type="submit" [disabled]="registerForm.invalid || isRegistering">
-            {{isRegistering ? 'Creating account...' : 'Create account'}}
+            {{(isRegistering) ? ('register.creating_account' | translate) : ('register.create_account' | translate)}}
           </button>
         </form>
         <div class="footer-tagline">
-          Already have an account? <a routerLink="/login" style="color: #fbbc04;">Sign in</a>
+          {{ 'register.already_have_an_account' | translate }} <a routerLink="/login" style="color: #fbbc04;">{{ 'common.sign_in' | translate }}</a>
         </div>
       }
     </section>

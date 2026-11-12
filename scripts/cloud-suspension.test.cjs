@@ -19,6 +19,7 @@ function harness(platform = 'android', available = true) {
       console: { warn: (...args) => warnings.push(args) },
       window: { location: { origin: platform === 'web' ? 'https://server.test' : 'https://localhost' } },
       require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
         if (name === '@angular/core') return { Injectable: () => target => target };
         if (name === '@angular/common/http') return { HttpErrorResponse };
         if (name === '@capacitor/core') return {

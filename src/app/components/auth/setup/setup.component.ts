@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { Component } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from 'src/app/services/auth.service';
@@ -66,11 +67,11 @@ export class SetupComponent {
   async submit() {
     this.error = '';
     if (this.password !== this.confirmPassword) {
-      this.error = 'Passwords do not match.';
+      this.error = uiText('auth.passwords_do_not_match');
       return;
     }
     if (this.enable2fa && !this.totpToken) {
-      this.error = 'Please enter the 6-digit code from your authenticator app.';
+      this.error = uiText('setup.please_enter_the_6_digit_code_from_your_authenticator_app');
       return;
     }
 
@@ -98,7 +99,7 @@ export class SetupComponent {
       this.selectedBackupFile = file;
       this.error = '';
     } else {
-      this.error = 'Please select a full server backup (.zip) or a database backup (.sqlite).';
+      this.error = uiText('setup.please_select_a_full_server_backup_zip_or_a_database_backup_sqlit');
       this.selectedBackupFile = null;
     }
   }

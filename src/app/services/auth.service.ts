@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { OfflineStoreService } from './offline-store.service';
 import { createNoteHtmlContainer, sanitizeNoteHtml } from '../utils/note-html';
 import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
@@ -228,7 +229,7 @@ export class AuthService implements OnDestroy {
     try {
       (window as any).Snackbar?.show({
         pos: 'bottom-left',
-        text: 'Session expired. Please sign in again before saving.',
+        text: uiText('auth.session_expired_please_sign_in_again_before_saving'),
         duration: 5200
       });
     } catch {}
@@ -515,6 +516,8 @@ export class AuthService implements OnDestroy {
       role: result.user.role,
       theme: result.user.theme || 'light',
       followSystemTheme: result.user.followSystemTheme === true,
+      language: result.user.language || 'system',
+      languagePreferencesSupported: result.user.languagePreferencesSupported === true,
       avatarDataUrl: result.user.avatarDataUrl || '',
       avatarPreset: result.user.avatarPreset || 'cat',
       showPastReminders: result.user.showPastReminders === true,
@@ -560,7 +563,7 @@ export class AuthService implements OnDestroy {
     return user;
   }
 
-  async updateAccountPreferences(patch: { theme?: UserTheme; followSystemTheme?: boolean; showPastReminders?: boolean; inheritSharedLabels?: boolean; inheritSharedBinders?: boolean }) {
+  async updateAccountPreferences(patch: { theme?: UserTheme; followSystemTheme?: boolean; showPastReminders?: boolean; inheritSharedLabels?: boolean; inheritSharedBinders?: boolean; language?: string }) {
     if (this.isLocal) return this.workspace.updatePreferences(patch);
     if (this.currentUser) {
       const workspace = await this.offlineStore.ensureServerWorkspace(this.offlineStore.partition(this.currentUser.id));
@@ -642,8 +645,9 @@ export class AuthService implements OnDestroy {
 
   applyWorkspacePreferences(preferences: Partial<UserI>) {
     if (!this.currentUser) return;
-    if (['theme','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders'].every(key => (this.currentUser as any)[key] === (preferences as any)[key])) return;
-    this.mergeAccountPreferences({...this.currentUser,...preferences});
+    if (['theme','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders','language','languagePreferencesSupported'].every(key => (this.currentUser as any)[key] === (preferences as any)[key])) return;
+    this.mergeAccountPreferences({...this.currentUser,...preferences,
+      ...(preferences.language !== undefined ? { languagePreferencesSupported: true } : {}) });
   }
 
   private mergeAccountPreferences(user: Partial<UserI>) {
@@ -652,6 +656,8 @@ export class AuthService implements OnDestroy {
     const session = {
       ...current,
       theme: user.theme || current.theme,
+      language: user.language ?? current.language ?? 'system',
+      languagePreferencesSupported: user.languagePreferencesSupported ?? current.languagePreferencesSupported ?? false,
       followSystemTheme: user.followSystemTheme ?? current.followSystemTheme ?? false,
       inheritSharedLabels: user.inheritSharedLabels ?? current.inheritSharedLabels ?? true,
       inheritSharedBinders: user.inheritSharedBinders ?? current.inheritSharedBinders ?? true,
@@ -660,7 +666,7 @@ export class AuthService implements OnDestroy {
     // Older cached preferences can omit newer fields. Compare the effective
     // settings after defaults are applied, or each sync re-emits the session
     // and starts another sync even though nothing has actually changed.
-    if (['theme','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders']
+    if (['theme','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders','language','languagePreferencesSupported']
       .every(key => (session as any)[key] === (current as any)[key])) return;
     localStorage.setItem(this.sessionKey, JSON.stringify(session));
     this.currentUser$.next(session);

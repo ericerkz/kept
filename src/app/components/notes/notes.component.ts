@@ -1,9 +1,10 @@
+import { uiLocale, uiWeekdays, uiPlural, uiText, uiTimepickerLabels } from 'src/app/i18n/messages';
 import { isNoteImageFile } from '../../utils/note-images';
 import { drawingPreviewBackground } from '../../utils/drawing-background';
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
 import { BinderDropService } from 'src/app/services/binder-drop.service';
 import { NativeWorkspaceService } from 'src/app/services/native-workspace.service';
-import { createNoteHtmlContainer, sanitizeNoteHtml } from '../../utils/note-html';
+import { createNoteHtmlContainer, hasJoinedNoteUrls, sanitizeNoteHtml } from '../../utils/note-html';
 import { CheckboxI, NoteAttachmentI, NoteI, NoteImageI } from './../../interfaces/notes';
 import { AfterViewChecked, ChangeDetectorRef, Component, HostListener, NgZone, OnDestroy, OnInit, ViewChild, ElementRef, ViewChildren, QueryList } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
@@ -105,6 +106,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     trash: false,
     label: undefined as string | undefined,
     binder: undefined as string | undefined,
+    sharedBinderId: undefined as string | undefined,
     reminders: false,
     shared: false,
     attachments: false
@@ -112,28 +114,13 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   currentPageName = ''
   labels: LabelI[] = []
   binderName = ''
-  bgColors = bgColors
-  bgImages = bgImages
-  bgImageLabels: Record<string, string> = {
-    groceries: 'Groceries',
-    tasks: 'Errands',
-    movies: 'Movies',
-    cafes: 'Cafes',
-    romantic: 'Love',
-    gym: 'Gym',
-    recipes: 'Recipes',
-    travel: 'Travel',
-    study: 'Study',
-    ideas: 'Ideas',
-    meetings: 'Meetings',
-    budget: 'Budget',
-    zNone: 'None'
-  }
   noteWidth = 240
   clickedNoteData: NoteI = {} as NoteI
   collaboratorNote?: NoteI
   collaboratorUsers: ShareUserI[] = []
   selectedCollaboratorIds: number[] = []
+  collaboratorSources: ShareUserI[] = []
+  collaboratorLoading = false
   collaboratorError = ''
   labelMenuError = ''
   binderMenuError = ''
@@ -154,7 +141,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   customPickerOpen = false
   customDate = ''
   customTime = ''
-  readonly calendarWeekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+  get calendarWeekdays() { return uiWeekdays(); }
   calendarMonth = this.startOfMonth(new Date())
   reminderRepeatType: ReminderRepeatType = 'none'
   reminderRepeatCustomDays = 2
@@ -175,7 +162,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   private masonryQueued = false
   private noteMetaCache = new WeakMap<NoteI, NoteMeta>()
   private reminderLookupCache?: { reminders: any[]; activeByNoteId: Map<number, any>; firedByNoteId: Map<number, any> }
-  private trashCountdownCache = new WeakMap<NoteI, { trashedAt: string; bucket: number; value: string }>()
+  private trashCountdownCache = new WeakMap<NoteI, { trashedAt: string; bucket: string; value: string }>()
   private reminderDateCache = new Map<string, string>()
   private pendingPermanentDeletes = new Map<number, { note: NoteI; allIndex: number; pinnedIndex: number; unpinnedIndex: number; timer: ReturnType<typeof setTimeout> }>()
   draggedNoteId?: number
@@ -347,7 +334,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const totalLinkCount = note.linkPreviews === false ? 0 : Math.max(note.linkCount || 0, urls.length)
     const hiddenLinkCount = Math.max(0, totalLinkCount - visibleUrls.length)
     const plainBody = body.replace(/<[^>]+>/g, ' ')
-    const bodyWithoutUrls = plainBody.replace(/https?:\/\/\S+/g, '').replace(/&nbsp;/g, ' ').trim()
+    const bodyWithoutUrls = plainBody.replace(/https?:\/\/\S+/g, url => hasJoinedNoteUrls(url) ? url : '').replace(/&nbsp;/g, ' ').trim()
     const linkOnly = !note.isCbox && urls.length > 0 && !title.trim() && !bodyWithoutUrls
     const isLightMode = document.body.classList.contains('light-theme');
     const defaultTextColor = isLightMode ? '#202124' : '#e8eaed';
@@ -369,6 +356,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       const text = (anchor.textContent || '').trim()
       const url = /^https?:\/\//i.test(href) ? href : (/^https?:\/\//i.test(text) ? text : '')
       if (!url) return
+      if (hasJoinedNoteUrls(url)) return
       const placeholder = document.createElement('span')
       placeholder.dataset['previewUrl'] = url.replace(/[),.;:!?]+$/, '')
       anchor.replaceWith(placeholder)
@@ -389,6 +377,11 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
         const url = rawUrl.replace(/[),.;:!?]+$/, '')
         const trailing = rawUrl.slice(url.length)
         if (start > lastIndex) fragment.append(document.createTextNode(text.slice(lastIndex, start)))
+        if (hasJoinedNoteUrls(url)) {
+          fragment.append(document.createTextNode(rawUrl))
+          lastIndex = start + rawUrl.length
+          continue
+        }
         const placeholder = document.createElement('span')
         placeholder.dataset['previewUrl'] = url
         fragment.append(placeholder)
@@ -463,7 +456,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
       const href = anchor.href || anchor.getAttribute('href') || ''
       const text = anchor.textContent || ''
-      if (/^https?:\/\//i.test(href) || /^https?:\/\//i.test(text.trim())) anchor.remove()
+      const url = /^https?:\/\//i.test(href) ? href : text.trim()
+      if (/^https?:\/\//i.test(url) && !hasJoinedNoteUrls(url)) anchor.remove()
     })
 
     const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT, {
@@ -472,7 +466,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const textNodes: Text[] = []
     while (walker.nextNode()) textNodes.push(walker.currentNode as Text)
     textNodes.forEach(node => {
-      const next = (node.textContent || '').replace(/https?:\/\/[^\s"'<>]+/g, '').replace(/[ \t]{2,}/g, ' ')
+      const next = (node.textContent || '').replace(/https?:\/\/[^\s"'<>]+/g, url => hasJoinedNoteUrls(url) ? url : '').replace(/[ \t]{2,}/g, ' ')
       node.textContent = next
     })
 
@@ -486,20 +480,20 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   trashCountdown(note: NoteI) {
-    if (!note.trashedAt) return '10 days left'
+    if (!note.trashedAt) return uiPlural('notes.days_left',10)
     // Recompute at most once per minute per note; the value only changes once per day.
-    const bucket = Math.floor(Date.now() / 60000)
+    const bucket = `${uiLocale()}|${Math.floor(Date.now() / 60000)}`
     const cached = this.trashCountdownCache.get(note)
     if (cached && cached.trashedAt === note.trashedAt && cached.bucket === bucket) return cached.value
     const trashedAt = new Date(note.trashedAt).getTime()
     if (Number.isNaN(trashedAt)) {
-      const fallback = '10 days left'
+      const fallback = uiPlural('notes.days_left',10)
       this.trashCountdownCache.set(note, { trashedAt: note.trashedAt, bucket, value: fallback })
       return fallback
     }
     const expiresAt = trashedAt + 10 * 24 * 60 * 60 * 1000
     const daysLeft = Math.max(0, Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000)))
-    const value = `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`
+    const value = uiPlural('notes.days_left',daysLeft)
     this.trashCountdownCache.set(note, { trashedAt: note.trashedAt, bucket, value })
     return value
   }
@@ -512,6 +506,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.currentPage.attachments = url.includes('attachments')
     this.currentPage.label = this.labelNameFromUrl(url)
     this.currentPage.binder = this.binderNameFromUrl(url)
+    this.currentPage.sharedBinderId = url.split('?')[0].match(/\/shared-binder\/(\d+)(?:$|\/)/)?.[1]
     this.updateCurrentPageName()
   }
 
@@ -538,7 +533,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private updateCurrentPageName() {
-    this.currentPageName = this.currentPage.binder ? `binder:${this.currentPage.binder}` : this.currentPage.label ? this.currentPage.label : this.currentPage.archive ? 'archived' : (this.currentPage.trash ? 'trashed' : this.currentPage.reminders ? 'reminders' : this.currentPage.attachments ? 'attachments' : this.currentPage.shared ? 'shared' : 'home')
+    this.currentPageName = this.currentPage.sharedBinderId ? `shared-binder:${this.currentPage.sharedBinderId}` : this.currentPage.binder ? `binder:${this.currentPage.binder}` : this.currentPage.label ? this.currentPage.label : this.currentPage.archive ? 'archived' : (this.currentPage.trash ? 'trashed' : this.currentPage.reminders ? 'reminders' : this.currentPage.attachments ? 'attachments' : this.currentPage.shared ? 'shared' : 'home')
   }
 
   private parseColor(color: string) {
@@ -570,20 +565,24 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     let containerWidth = container.clientWidth - containerPadding
     let numberOfColumns = 0
     let masonryWidth = '0px'
-    const expandedFoldableGrid = isExpandedNativeFoldable()
-      && this.Shared.noteViewType.value === 'grid'
-    const foldableColumnCount = 3
-    const foldableMinimumNoteWidth = 190
-    const foldableGridFits = containerWidth >= foldableColumnCount * foldableMinimumNoteWidth
-      + gutter * (foldableColumnCount + 1)
+    const compactColumnCount = 3
+    const compactMinimumNoteWidth = 190
+    const compactGridFits = containerWidth >= compactColumnCount * compactMinimumNoteWidth
+      + gutter * (compactColumnCount + 1)
+    // Native tablets can fit three readable cards in portrait even when three
+    // standard 240px cards would not fit beside the collapsed navigation rail.
+    // Measure the actual content area so narrower split views still use two.
+    const compactNativeGrid = isExpandedNativeFoldable()
+      || (Capacitor.isNativePlatform() && !this.nativePhoneLayout
+        && containerWidth < compactColumnCount * (240 + gutter))
     const centerLandscapePhoneGrid = this.nativePhoneLayout
       && window.matchMedia('(orientation: landscape)').matches
       && this.Shared.noteViewType.value === 'grid'
     // --
     if (this.Shared.noteViewType.value === 'grid') {
-      if (expandedFoldableGrid && foldableGridFits) {
-        numberOfColumns = foldableColumnCount
-        this.noteWidth = Math.floor((containerWidth - gutter * (foldableColumnCount + 1)) / foldableColumnCount)
+      if (compactNativeGrid && compactGridFits) {
+        numberOfColumns = compactColumnCount
+        this.noteWidth = Math.floor((containerWidth - gutter * (compactColumnCount + 1)) / compactColumnCount)
       }
       // On mobile screens, use a smaller note width so 2 columns fit.
       else if (containerWidth < 600) {
@@ -987,7 +986,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (this.destroyed || this.router.url !== requestedUrl) return
     const entry = window.history.state?.keptNoteNavigation
     if (entry && (entry.workspaceId !== workspace.id || entry.generation !== workspace.generation)) {
-      this.showMessage('This note belongs to a different account or device library.')
+      this.showMessage(uiText('notes.this_note_belongs_to_a_different_account_or_device_library'))
       await this.removeNoteFromUrl()
       return
     }
@@ -1000,7 +999,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     } catch (error) {
       if (this.destroyed || this.router.url !== requestedUrl) return
       console.error('Could not open the note from its URL', error)
-      this.showMessage('This note is unavailable.')
+      this.showMessage(uiText('notes.this_note_is_unavailable'))
       await this.removeNoteFromUrl()
     }
   }
@@ -1555,10 +1554,10 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     })
     try {
       await this.Shared.refreshData()
-      Snackbar.show({ pos: 'bottom-left', text: 'Notes refreshed', duration: 2200 })
+      Snackbar.show({ pos: 'bottom-left', text: uiText('notes.notes_refreshed'), duration: 2200 })
     } catch (error) {
       console.error(error)
-      Snackbar.show({ pos: 'bottom-left', text: 'Could not refresh notes', duration: 3000 })
+      Snackbar.show({ pos: 'bottom-left', text: uiText('notes.could_not_refresh_notes'), duration: 3000 })
     } finally {
       setTimeout(() => this.settlePullRefresh(), 350)
     }
@@ -1918,7 +1917,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.draggedNoteId = undefined
       if ((note.binder || '') === name || !note.id) return
       void this.notesService.updateKey({ binder: name }, note.id).catch(() => {
-        this.showMessage('Could not move this note to the binder. Please try again.')
+        this.showMessage(uiText('notes.could_not_move_this_note_to_the_binder_please_try_again'))
       })
     }, () => {
       restoreGridOrder()
@@ -2032,9 +2031,9 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   moreMenu(tooltipEl: HTMLDivElement) {
     let actions = {
       trash: (note: NoteI) => {
-        if (note.ownerUserId && note.ownerUserId !== this.auth.currentUser?.id) {
+        if (note.ownerUserId && note.ownerUserId !== this.auth.currentUser?.id && !note.sharedBinder) {
           const ownerName = note.ownerDisplayName || note.ownerUsername || 'the owner'
-          const ok = confirm(`This note belongs to ${ownerName}, so you can't delete it — only the owner can. Remove yourself from this shared note instead?`)
+          const ok = confirm(uiText('input.this_note_belongs_to_value0_so_you_can_t_delete_it_only_the_', { value0: (ownerName) }))
           if (!ok) return
           const userId = this.auth.currentUser?.id
           this.notesService.delete(note.id!)
@@ -2102,9 +2101,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   sharedOrganizationHint(kind: 'labels' | 'binders') {
     const note = this.activeNote;
     if (!note?.ownerUserId || note.ownerUserId === this.auth.currentUser?.id) return '';
-    return this.inheritsSharedOrganization(kind)
-      ? `Using the owner's ${kind === 'binders' ? 'binder' : 'labels'}. You can change this in Settings.`
-      : 'Only changes your organization.';
+    return this.inheritsSharedOrganization(kind) ? (uiText(kind === 'binders' ? 'organization.inherit_binder' : 'organization.inherit_labels')) : (uiText('input.only_changes_your_organization'));
   }
 
   inheritsSharedOrganization(kind: 'labels' | 'binders') {
@@ -2161,7 +2158,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.Shared.note.db.updateKey({ labels: this.selectedLabelsForSave() })
         return
       }
-      this.labelMenuError = error?.status === 409 ? 'Label already exists' : 'Could not create label'
+      this.labelMenuError = error?.status === 409 ? (uiText('labels.label_already_exists')) : (uiText('labels.could_not_create_label'))
     }
   }
 
@@ -2184,8 +2181,18 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       await this.Shared.note.db.updateKey({ binder: this.binderName })
       this.activeNote.binder = this.binderName
     } catch {
-      this.binderMenuError = 'Could not create binder'
+      this.binderMenuError = uiText('binders.could_not_create_binder')
     }
+  }
+
+  async setSharedBinderFromMenu(binder: {id:number;name:string;ownerUserId?:number;ownerDisplayName?:string;ownerUsername?:string} | null,tooltipEl: HTMLDivElement) {
+    if (!this.activeNote?.id) return;
+    try {
+      await this.notesService.moveBinder(this.activeNote.id,{binderId:binder?.id || null,binder:binder?.name || '',sharedBinder:binder ? {
+        id:binder.id,name:binder.name,ownerUserId:binder.ownerUserId!,ownerDisplayName:binder.ownerDisplayName || '',ownerUsername:binder.ownerUsername || ''
+      } : undefined});
+      this.Shared.closeTooltip(tooltipEl);
+    } catch { this.binderMenuError=uiText('binder_sharing.move_failed'); }
   }
 
   async setBinderFromMenu(name: string, tooltipEl?: HTMLDivElement) {
@@ -2202,19 +2209,20 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.Ttbutton = button
     this.collaboratorNote = note
     this.collaboratorError = ''
+    this.collaboratorLoading = true
     this.collaboratorUsers = []
-    this.selectedCollaboratorIds = (note.collaborators || []).map(user => user.id)
+    this.setCollaboratorSelection(note.collaborators || [])
     this.Shared.createTooltip(button, tooltipEl)
 
     try {
       this.collaboratorUsers = await this.Shared.note.db.listShareUsers()
       if (this.canManageCollaborators()) {
         const collaborators = await this.notesService.getCollaborators(note.id!)
-        this.selectedCollaboratorIds = collaborators.map(user => user.id)
+        this.setCollaboratorSelection(collaborators)
       }
     } catch (error: any) {
       this.collaboratorError = error?.error?.error || 'Could not load sharing options.'
-    }
+    } finally { this.collaboratorLoading = false }
   }
 
   canManageCollaborators() {
@@ -2225,12 +2233,20 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     return !!this.collaboratorNote?.ownerUserId && this.collaboratorNote.ownerUserId === userId
   }
 
+  private setCollaboratorSelection(users: ShareUserI[]) {
+    this.collaboratorSources = users;
+    this.selectedCollaboratorIds = users.filter(user => user.directShare !== false).map(user => user.id);
+  }
+  binderForCollaborator(userId: number) {
+    return this.collaboratorSources.find(user => user.id === userId)?.sharedViaBinder;
+  }
+
   isCollaboratorSelected(userId: number) {
-    return this.selectedCollaboratorIds.includes(userId)
+    return this.selectedCollaboratorIds.includes(userId) || !!this.binderForCollaborator(userId)
   }
 
   async toggleCollaborator(userId: number) {
-    if (!this.canManageCollaborators()) return
+    if (!this.canManageCollaborators() || this.collaboratorLoading || this.isSavingCollaborators || this.binderForCollaborator(userId)) return
     if (this.isCollaboratorSelected(userId)) {
       this.selectedCollaboratorIds = this.selectedCollaboratorIds.filter(id => id !== userId)
     } else {
@@ -2249,7 +2265,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   async saveCollaborators(tooltipEl: HTMLDivElement) {
-    if (!this.canManageCollaborators()) return
+    if (!this.canManageCollaborators() || this.collaboratorLoading) return
     this.isSavingCollaborators = true
     this.collaboratorError = ''
     try {
@@ -2277,7 +2293,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.Shared.snackBar(obj, { archived: !archived }, noteId)
       return true
     } catch {
-      this.showMessage(archived ? 'Could not archive this note. Please try again.' : 'Could not unarchive this note. Please try again.')
+      this.showMessage(archived ? (uiText('notes.could_not_archive_this_note_please_try_again')) : (uiText('notes.could_not_unarchive_this_note_please_try_again')))
       return false
     }
   }
@@ -2305,8 +2321,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.removePendingDeletedNoteFromView(noteId)
     Snackbar.show({
       pos: 'bottom-left',
-      text: 'Note deleted',
-      actionText: 'Undo',
+      text: uiText('notes.note_deleted'),
+      actionText: uiText('common.undo'),
       duration: 4200,
       onActionClick: () => {
         const current = this.pendingPermanentDeletes.get(noteId)
@@ -2316,7 +2332,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.restorePendingDeletedNoteToView(current)
         Snackbar.show({
           pos: 'bottom-left',
-          text: 'Note restored',
+          text: uiText('notes.note_restored'),
           duration: 3000,
         })
       }
@@ -2485,7 +2501,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const [y, m, d] = iso.split('-').map(Number)
     if (!y || !m || !d) return iso
     const date = new Date(y, m - 1, d)
-    return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    return date.toLocaleDateString(uiLocale(), { weekday: 'short', month: 'short', day: 'numeric' })
   }
 
   todayDateInput() {
@@ -2502,7 +2518,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   calendarMonthLabel() {
-    return this.calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    return this.calendarMonth.toLocaleDateString(uiLocale(), { month: 'long', year: 'numeric' })
   }
 
   calendarDays() {
@@ -2602,7 +2618,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       try {
         (window as any).Snackbar?.show({
           pos: 'bottom-left',
-          text: 'Notifications are blocked. Enable them in Settings → Notifications → Kept.',
+          text: uiText('input.notifications_are_blocked_enable_them_in_settings_notifications_k'),
           duration: 5000
         })
       } catch {}
@@ -2612,7 +2628,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       try {
         (window as any).Snackbar?.show({
           pos: 'bottom-left',
-          text: 'On iOS, open Kept from the Home Screen icon to enable reminders. (Safari tabs cannot register notifications.)',
+          text: uiText('input.on_ios_open_kept_from_the_home_screen_icon_to_enable_reminders_sa'),
           duration: 6000
         })
       } catch {}
@@ -2649,10 +2665,11 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
     const repeatRule = this.selectedReminderRepeatRule()
     this.closeReminderPicker()
+    let saved
     if (existing) {
-      await this.reminderService.update(existing.id, { dueAtUtc: date.toISOString(), status: 'pending', repeatRule })
+      saved = await this.reminderService.update(existing.id, { dueAtUtc: date.toISOString(), status: 'pending', repeatRule })
     } else {
-      await this.reminderService.create({
+      saved = await this.reminderService.create({
         noteId: note.id,
         dueAtUtc: date.toISOString(),
         timezone: tz,
@@ -2662,6 +2679,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
         imageUrl: this.firstNoteImageUrl(note) || undefined
       })
     }
+    if (saved) this.reminderService.showArchivedReminderNotice(note)
   }
 
   confirmCustom(note: NoteI, dateInp: HTMLInputElement | null, timeInp: HTMLInputElement) {
@@ -2685,6 +2703,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.customTimePickerInput = timeInput
     timeInput.value = this.customTime || this.currentTimeValue()
     this.customTimePicker = new TimepickerUI(timeInput, {
+      labels: uiTimepickerLabels(),
       clock: {
         type: this.preferences.value.useTwentyFourHourTime ? '24h' : '12h',
         currentTime: { time: new Date(), updateInput: true }
@@ -2781,7 +2800,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private currentTimeValue() {
-    return new Date().toLocaleTimeString(undefined, {
+    return new Date().toLocaleTimeString(uiLocale(), {
       hour: '2-digit',
       minute: '2-digit',
       hour12: this.preferences.value.useTwentyFourHourTime ? false : undefined
@@ -2791,8 +2810,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   fireDebugReminder(note: NoteI, event: Event) {
     event.stopPropagation()
     this.reminderService.debugFireReminder(
-      this.notePlainText(note.noteTitle) || 'Debug reminder',
-      this.notePlainText(note.noteBody) || 'Manual reminder test.'
+      this.notePlainText(note.noteTitle) || uiText('reminder.debug_reminder'),
+      this.notePlainText(note.noteBody) || uiText('notes.manual_reminder_test')
     )
   }
 
@@ -2823,7 +2842,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   formatPickerDate(date: Date): string {
-    return date.toLocaleString(undefined, {
+    return date.toLocaleString(uiLocale(), {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -2834,10 +2853,10 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   formatReminderDate(isoString: string): string {
-    const cacheKey = `${isoString}|24:${this.preferences.value.useTwentyFourHourTime ? 1 : 0}`
+    const cacheKey = `${uiLocale()}|${isoString}|24:${this.preferences.value.useTwentyFourHourTime ? 1 : 0}`
     const cached = this.reminderDateCache.get(cacheKey)
     if (cached) return cached
-    const formatted = new Date(isoString).toLocaleString(undefined, {
+    const formatted = new Date(isoString).toLocaleString(uiLocale(), {
       month: 'short',
       day: 'numeric',
       hour: this.preferences.value.useTwentyFourHourTime ? '2-digit' : 'numeric',
@@ -3080,7 +3099,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private async openPendingWidgetNote() {
-    if (Capacitor.getPlatform() !== 'android') return
+    if (!Capacitor.isPluginAvailable('KeptWidgetIntents')) return
     if (this.pendingWidgetOpenInFlight) return
     this.pendingWidgetOpenInFlight = true
     try {
@@ -3260,7 +3279,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   private showMessage(message: string) {
     try {
-      Snackbar.show({ pos: 'bottom-left', text: message, duration: 3600 })
+      Snackbar.show({ pos: 'bottom-left', text: uiText(message), duration: 3600 })
     } catch {}
   }
 }

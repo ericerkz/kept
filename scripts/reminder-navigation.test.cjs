@@ -26,6 +26,7 @@ function harness(platform = 'web') {
     }).outputText;
     vm.runInNewContext(source, { exports, window, navigator, Notification, console, setTimeout,
       require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
         if (name === '@angular/core') return { Injectable: () => target => target, Component: () => target => target, ViewChild: () => () => {} };
         if (name === '@capacitor/core') return { Capacitor: { getPlatform: () => platform }, registerPlugin: () => ({}) };
         if (name === 'rxjs') return rx;

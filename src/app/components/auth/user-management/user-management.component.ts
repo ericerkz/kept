@@ -1,3 +1,4 @@
+import { uiText, uiTimepickerLabels } from 'src/app/i18n/messages';
 import { Component, OnInit, NgZone } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -144,7 +145,7 @@ export class UserManagementComponent implements OnInit {
       this.password = '';
       this.email = '';
       this.role = 'user';
-      this.success = 'User created.';
+      this.success = uiText('user_management.user_created');
       await this.loadUsers();
     } catch (error) {
       this.error = this.getErrorMessage(error, 'Could not create user.');
@@ -167,7 +168,7 @@ export class UserManagementComponent implements OnInit {
     this.confirmDeleteUserId = null;
     try {
       await this.auth.deleteUser(user);
-      this.success = `User ${user.username} deleted.`;
+      this.success = uiText('user_management.user_value0_deleted', { value0: (user.username) });
       await this.loadUsers();
     } catch (error) {
       this.error = this.getErrorMessage(error, 'Could not delete user.');
@@ -180,7 +181,7 @@ export class UserManagementComponent implements OnInit {
     this.success = '';
     try {
       const updated = await this.auth.adminToggleUserEnabled(user.id!, !user.enabled);
-      this.success = updated.enabled ? `${user.displayName} has been approved.` : `${user.displayName} has been disabled.`;
+      this.success = updated.enabled ? (uiText('user_management.value0_has_been_approved', { value0: (user.displayName) })) : (uiText('user_management.value0_has_been_disabled', { value0: (user.displayName) }));
       await this.loadUsers();
     } catch (error) {
       this.error = this.getErrorMessage(error, 'Could not update user status.');
@@ -198,13 +199,13 @@ export class UserManagementComponent implements OnInit {
     this.resetPasswordError = '';
     this.resetPasswordSuccess = '';
     if (this.resetPasswordValue.length < 8) {
-      this.resetPasswordError = 'Password must be at least 8 characters.';
+      this.resetPasswordError = uiText('user_management.password_must_be_at_least_8_characters');
       return;
     }
     this.isResettingPassword = true;
     try {
       await this.auth.adminResetPassword(userId, this.resetPasswordValue);
-      this.resetPasswordSuccess = 'Password has been reset.';
+      this.resetPasswordSuccess = uiText('user_management.password_has_been_reset');
       this.resetPasswordValue = '';
     } catch (error) {
       this.resetPasswordError = this.getErrorMessage(error, 'Could not reset password.');
@@ -253,7 +254,7 @@ export class UserManagementComponent implements OnInit {
     this.isSendingInvite = true;
     try {
       await this.auth.inviteUser(this.inviteEmail, this.inviteRole);
-      this.inviteSuccess = `Invitation sent to ${this.inviteEmail}.`;
+      this.inviteSuccess = uiText('user_management.invitation_sent_to_value0', { value0: (this.inviteEmail) });
       this.inviteEmail = '';
       this.inviteRole = 'user';
     } catch (error) {
@@ -282,7 +283,7 @@ export class UserManagementComponent implements OnInit {
     try {
       await this.auth.saveBackupSchedule(schedule, this.backupTime);
       this.backupSchedule = schedule;
-      this.automatedBackupSuccess = `Backup schedule updated to ${schedule}.`;
+      this.automatedBackupSuccess = uiText('user_management.backup_schedule_updated_to_value0', { value0: (schedule) });
       // The time-picker input is rendered conditionally on schedule !== 'none'.
       // Re-init after the *ngIf reveals it, otherwise the picker never binds.
       if (schedule !== 'none') {
@@ -305,6 +306,7 @@ export class UserManagementComponent implements OnInit {
     this.backupTimePicker = undefined;
 
     this.backupTimePicker = new TimepickerUI(timeInput, {
+      labels: uiTimepickerLabels(),
       clock: {
         currentTime: { time: new Date(), updateInput: false }
       },
@@ -328,7 +330,7 @@ export class UserManagementComponent implements OnInit {
             
             try {
               await this.auth.saveBackupSchedule(this.backupSchedule, this.backupTime);
-              this.automatedBackupSuccess = `Backup time updated to ${data.hour}:${data.minutes} ${data.type}.`;
+              this.automatedBackupSuccess = uiText('user_management.backup_time_updated_to_value0_value1_value2', { value0: (data.hour), value1: (data.minutes), value2: (data.type) });
             } catch (error) {
               this.automatedBackupError = this.getErrorMessage(error, 'Could not update backup time.');
             }
@@ -360,7 +362,7 @@ export class UserManagementComponent implements OnInit {
     this.manualBackupSuccess = '';
     try {
       await this.serverBackup.createAndDownload();
-      this.manualBackupSuccess = 'Full backup ready. Save the downloaded file somewhere private.';
+      this.manualBackupSuccess = uiText('user_management.full_backup_ready_save_the_downloaded_file_somewhere_private');
       await this.loadBackupStatus();
     } catch (error) {
       this.manualBackupError = this.getErrorMessage(error, 'Manual backup failed.');
@@ -373,7 +375,7 @@ export class UserManagementComponent implements OnInit {
 
 
   async deleteBackup(filename: string) {
-    if (!confirm('Are you sure you want to delete this backup?')) return;
+    if (!confirm(uiText('user_management.are_you_sure_you_want_to_delete_this_backup'))) return;
     try {
       await this.auth.deleteBackup(filename);
       await this.loadBackupStatus();
@@ -410,13 +412,13 @@ export class UserManagementComponent implements OnInit {
   }
 
   async disableUser2fa(userId: number) {
-    if (!confirm('Are you sure you want to disable 2FA for this user? They will be able to log in with just their password.')) return;
+    if (!confirm(uiText('user_management.are_you_sure_you_want_to_disable_2fa_for_this_user_they_will_be_a'))) return;
     
     this.error = '';
     this.success = '';
     try {
       await this.auth.disableUser2fa(userId);
-      this.success = '2FA has been disabled for the user.';
+      this.success = uiText('user_management.2fa_has_been_disabled_for_the_user');
       await this.loadUsers();
     } catch (error) {
       this.error = this.getErrorMessage(error, 'Could not disable 2FA.');

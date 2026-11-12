@@ -1,6 +1,8 @@
+import { uiLocale, uiWeekdays, uiText, uiPlural, uiTimepickerLabels } from 'src/app/i18n/messages';
 import { NativeWorkspaceService } from 'src/app/services/native-workspace.service';
 import { WorkspaceBackupService } from 'src/app/services/workspace-backup.service';
 import { DeviceServerMoveService } from 'src/app/services/device-server-move.service';
+import { Router } from '@angular/router';
 import { Component, NgZone, OnDestroy, OnInit } from '@angular/core';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 import { Capacitor, registerPlugin } from '@capacitor/core';
@@ -152,7 +154,7 @@ export class MainComponent implements OnInit, OnDestroy {
   smartReminderActionIndex: number | null = null;
   smartReminderDate = '';
   smartReminderTime = '';
-  readonly calendarWeekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  get calendarWeekdays() { return uiWeekdays(); }
   calendarMonth = this.startOfMonth(new Date());
   private smartReminderTimePicker?: TimepickerUI;
   private smartReminderTimePickerInput?: HTMLInputElement;
@@ -182,7 +184,8 @@ export class MainComponent implements OnInit, OnDestroy {
     private ngZone: NgZone,
     public offlineSync: OfflineSyncService,
     private preferences: UserPreferencesService,
-    private deviceMove: DeviceServerMoveService
+    private deviceMove: DeviceServerMoveService,
+    private router: Router
   ) {}
 
   openMobileComposer() {
@@ -260,7 +263,7 @@ export class MainComponent implements OnInit, OnDestroy {
     this.openSmartCaptureListening();
     const plugin = this.smartVoicePlugin();
     if (!plugin?.startVoiceCapture) {
-      this.smartCaptureError = 'Smart Capture is waiting for the voice capture plugin.';
+      this.smartCaptureError = uiText('main.smart_capture_is_waiting_for_the_voice_capture_plugin');
       return;
     }
 
@@ -490,7 +493,7 @@ export class MainComponent implements OnInit, OnDestroy {
       }));
     } catch (error: any) {
       const errors = error?.error?.errors || error?.error?.failed?.map((f: any) => f.error);
-      this.smartCaptureError = Array.isArray(errors) ? errors.join(' ') : (error?.error?.error || 'Could not run Smart Capture plan.');
+      this.smartCaptureError = Array.isArray(errors) ? (errors.join(' ')) : ((error?.error?.error || 'Could not run Smart Capture plan.'));
     } finally {
       this.smartCaptureRunning = false;
     }
@@ -512,7 +515,7 @@ export class MainComponent implements OnInit, OnDestroy {
         action.bgColor = this.proposalColor(action, index);
       }
       if (action.type !== 'set_reminder' || this.smartReminderHasTrigger(action)) continue;
-      this.smartCaptureError = 'Pick a reminder date and time before running Smart Capture.';
+      this.smartCaptureError = uiText('main.pick_a_reminder_date_and_time_before_running_smart_capture');
       this.openSmartReminderPicker(index);
       return null;
     }
@@ -561,7 +564,7 @@ export class MainComponent implements OnInit, OnDestroy {
     try {
       const command = await this.commandForSmartCapturePlanning();
       if (!command) {
-        this.smartCaptureError = 'Say something first, then tap Done.';
+        this.smartCaptureError = uiText('main.say_something_first_then_tap_done');
         return;
       }
       const plugin = this.keptIntelligencePlugin();
@@ -575,14 +578,14 @@ export class MainComponent implements OnInit, OnDestroy {
           context: await this.smartCaptureContext()
         });
         if (!result?.actionPlan) {
-          this.smartCaptureError = 'Smart Capture did not return an action plan.';
+          this.smartCaptureError = uiText('main.smart_capture_did_not_return_an_action_plan');
           return;
         }
         await this.receiveSmartCapture({ transcript: result.transcript || result.text || command, actionPlan: result.actionPlan });
         return;
       }
       if (!plugin?.processTextCommand) {
-        this.smartCaptureError = 'Smart Capture is waiting for the iOS planning plugin.';
+        this.smartCaptureError = uiText('main.smart_capture_is_waiting_for_the_ios_planning_plugin');
         return;
       }
       await this.loadSmartSavedPlaces(true);
@@ -593,7 +596,7 @@ export class MainComponent implements OnInit, OnDestroy {
         context: await this.smartCaptureContext()
       });
       if (!result?.actionPlan) {
-        this.smartCaptureError = 'Smart Capture did not return an action plan.';
+        this.smartCaptureError = uiText('main.smart_capture_did_not_return_an_action_plan');
         return;
       }
       await this.receiveSmartCapture({ transcript: command, actionPlan: result?.actionPlan });
@@ -613,8 +616,8 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   smartPrimaryLabel() {
-    if (!this.smartCapturePlan) return this.smartCaptureLoading || this.smartCaptureEstimate ? 'Planning…' : 'Done';
-    return this.smartCaptureRunning ? 'Saving…' : 'Approve';
+    if (!this.smartCapturePlan) return this.smartCaptureLoading || this.smartCaptureEstimate ? (uiText('main.planning')) : (uiText('common.done'));
+    return this.smartCaptureRunning ? (uiText('settings.saving')) : (uiText('user_management.approve'));
   }
 
   smartPrimaryDisabled() {
@@ -754,9 +757,7 @@ export class MainComponent implements OnInit, OnDestroy {
       this.smartCaptureAvailable = false;
       this.smartCaptureProvider = null;
       this.showGemmaFallbackInstallPrompt = revealInstallPrompt;
-      this.gemmaFallbackError = revealInstallPrompt
-        ? (error?.message || 'Smart Capture setup is unavailable. Rebuild the Android app with the latest native plugin, then try again.')
-        : '';
+      this.gemmaFallbackError = revealInstallPrompt ? (error?.message || uiText('main.smart_capture_setup_is_unavailable_rebuild_the_android_app_with_t')) : '';
     }
   }
 
@@ -941,7 +942,7 @@ export class MainComponent implements OnInit, OnDestroy {
   }
 
   calendarMonthLabel() {
-    return this.calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    return this.calendarMonth.toLocaleDateString(uiLocale(), { month: 'long', year: 'numeric' });
   }
 
   calendarDays() {
@@ -1006,6 +1007,7 @@ export class MainComponent implements OnInit, OnDestroy {
     this.smartReminderTimePickerInput = timeInput;
     timeInput.value = this.smartReminderTime || this.currentTimeValue();
     this.smartReminderTimePicker = new TimepickerUI(timeInput, {
+      labels: uiTimepickerLabels(),
       clock: {
         type: this.preferences.value.useTwentyFourHourTime ? '24h' : '12h',
         currentTime: { time: new Date(), updateInput: true }
@@ -1103,7 +1105,7 @@ export class MainComponent implements OnInit, OnDestroy {
 
   actionMeta(action: KeptAction) {
     const noteId = (action as any).noteId;
-    return noteId ? `Note #${noteId}` : '';
+    return noteId ? (uiText('main.note_value0', { value0: (noteId) })) : ('');
   }
 
   proposalColor(action: KeptAction, _index: number) {
@@ -1375,14 +1377,14 @@ export class MainComponent implements OnInit, OnDestroy {
 
   proposalTitle(action: KeptAction) {
     const anyAction = action as any;
-    if (action.type === 'create_text_note' || action.type === 'create_todo_note') return anyAction.title || 'Untitled note';
-    if (action.type === 'append_to_note') return 'Append to note';
-    if (action.type === 'add_checklist_items') return 'Add checklist items';
-    if (action.type === 'add_labels') return 'Add labels';
-    if (action.type === 'set_reminder') return 'Set reminder';
-    if (action.type === 'share_note') return this.shareNoteTitle(action) || 'Share note';
-    if (action.type === 'archive_note') return 'Archive note';
-    if (action.type === 'trash_note') return 'Move note to trash';
+    if (action.type === 'create_text_note' || action.type === 'create_todo_note') return anyAction.title || uiText('main.untitled_note');
+    if (action.type === 'append_to_note') return uiText('main.append_to_note');
+    if (action.type === 'add_checklist_items') return uiText('main.add_checklist_items');
+    if (action.type === 'add_labels') return uiText('main.add_labels');
+    if (action.type === 'set_reminder') return uiText('reminder.set_reminder');
+    if (action.type === 'share_note') return this.shareNoteTitle(action) || uiText('main.share_note');
+    if (action.type === 'archive_note') return uiText('main.archive_note');
+    if (action.type === 'trash_note') return uiText('main.move_note_to_trash');
     return this.actionTitle(action);
   }
 
@@ -1404,7 +1406,7 @@ export class MainComponent implements OnInit, OnDestroy {
 
   private smartReminderSummary(action: any) {
     if (action?.dueAtUtc) {
-      return new Date(action.dueAtUtc).toLocaleString(undefined, {
+      return new Date(action.dueAtUtc).toLocaleString(uiLocale(), {
         month: 'numeric',
         day: 'numeric',
         year: 'numeric',
@@ -1415,9 +1417,9 @@ export class MainComponent implements OnInit, OnDestroy {
     }
     if (this.isLocationReminder(action)) {
       const trigger = action.locationTrigger === 'leave' ? 'leave' : 'arrive';
-      return `When I ${trigger}: ${action.locationName}`;
+      return uiText(trigger === 'leave' ? 'reminder.leave_at' : 'reminder.arrive_at', { place: action.locationName });
     }
-    return 'Reminder time needed';
+    return uiText('main.reminder_time_needed');
   }
 
   proposalBody(action: KeptAction) {
@@ -1426,9 +1428,9 @@ export class MainComponent implements OnInit, OnDestroy {
     if (action.type === 'append_to_note') return anyAction.text || '';
     if (action.type === 'add_labels') return (anyAction.labels || []).join(', ');
     if (action.type === 'set_reminder') return this.smartReminderSummary(anyAction);
-    if (action.type === 'share_note') return this.shareNoteTitle(action) ? '' : `${this.actionUserIds(action).length} collaborator(s)`;
-    if (action.type === 'archive_note') return 'This note will move out of the main notes view.';
-    if (action.type === 'trash_note') return 'This note will move to trash.';
+    if (action.type === 'share_note') return this.shareNoteTitle(action) ? '' : uiPlural('counts.collaborators', this.actionUserIds(action).length);
+    if (action.type === 'archive_note') return uiText('main.this_note_will_move_out_of_the_main_notes_view');
+    if (action.type === 'trash_note') return uiText('main.this_note_will_move_to_trash');
     return '';
   }
 
@@ -1440,9 +1442,9 @@ export class MainComponent implements OnInit, OnDestroy {
 
   proposalExtra(action: KeptAction) {
     const anyAction = action as any;
-    if (action.type === 'add_labels') return `${(anyAction.labels || []).length} label(s)`;
+    if (action.type === 'add_labels') return uiPlural('counts.labels', (anyAction.labels || []).length);
     if (action.type === 'set_reminder' && anyAction.timezone) return anyAction.timezone;
-    if (action.type === 'share_note') return this.shareNoteTitle(action) ? '' : 'Shared note';
+    if (action.type === 'share_note') return this.shareNoteTitle(action) ? ('') : (uiText('share_intents.shared_note'));
     return this.actionMeta(action);
   }
 

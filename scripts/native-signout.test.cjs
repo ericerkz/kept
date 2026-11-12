@@ -14,6 +14,7 @@ function harness({native=true,available=true,local=false,httpError,forgetError}=
  class HttpErrorResponse extends Error{constructor(status){super(`HTTP ${status}`);this.status=status;}}
  class HttpHeaders{constructor(headers){this.headers=headers;}}
  vm.runInNewContext(source,{exports,console,localStorage,window,require(name){
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
   if(name==='@angular/core')return{Injectable:()=>target=>target};
   if(name==='@angular/common/http')return{HttpHeaders,HttpErrorResponse};
   if(name==='@capacitor/core')return{Capacitor:{isNativePlatform:()=>native,isPluginAvailable:()=>available},registerPlugin:name=>{assert.equal(name,'KeptWorkspace');return plugin;}};

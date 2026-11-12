@@ -118,3 +118,36 @@ test('shared organization defaults to the owner, with independent account prefer
     await api(`/notes/${note.id}/organization`, { binder: 'Revoked' }, recipient.token, 'PATCH', 404);
   } finally { await fixture.close(); }
 });
+
+test('label counts include all accessible non-trashed notes and respect private label preferences',async()=>{
+  const fixture=await startFixture();let owner;
+  const password='label-counts-test-password';
+  async function api(path,body,token=owner,method=body===undefined?'GET':'POST',status=200) {
+    const response=await fetch(fixture.origin+'/api'+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:body===undefined?undefined:JSON.stringify(body)});
+    assert.equal(response.status,status,await response.clone().text());return status===204?null:response.json();
+  }
+  const label=name=>({name,added:true});
+  const create=(payload,token=owner)=>api('/notes',{noteTitle:'Counted note',noteBody:'',images:[],checkBoxes:[],...payload},token,'POST',201);
+  try {
+    await api('/setup/admin',{username:'count-owner',password},undefined,'POST',201);
+    owner=(await api('/auth/login',{username:'count-owner',password})).token;
+    const recipient=await api('/users',{username:'count-recipient',password},owner,'POST',201);
+    const recipientToken=(await api('/auth/login',{username:'count-recipient',password})).token;
+    const shared=await create({labels:[label('Beer'),label('Beer'),{name:'Unchecked',added:false}]});
+    await create({labels:[label('Beer')],archived:true});
+    await create({labels:[label('Beer')],trashed:true});
+    await create({labels:[label('Private elsewhere')]},recipientToken);
+    assert.deepEqual(await api('/labels/counts'),{Beer:2},'archive counts, trash and unchecked labels do not');
+    await api(`/notes/${shared.id}/collaborators`,{userIds:[recipient.id]},owner,'PUT');
+    assert.deepEqual(await api('/labels/counts',undefined,recipientToken),{Beer:1,'Private elsewhere':1});
+    await api('/users/me/preferences',{inheritSharedLabels:false},recipientToken,'PATCH');
+    await api(`/notes/${shared.id}/organization`,{labels:[label('My label')]},recipientToken,'PATCH');
+    assert.deepEqual(await api('/labels/counts',undefined,recipientToken),{'My label':1,'Private elsewhere':1});
+    assert.deepEqual(await api('/labels/counts'),{Beer:2},'private organization never changes another user\'s counts');
+    await api(`/notes/${shared.id}`,{trashed:true},owner,'PATCH',204);
+    assert.deepEqual(await api('/labels/counts',undefined,recipientToken),{'Private elsewhere':1});
+    await api(`/notes/${shared.id}`,{trashed:false},owner,'PATCH',204);
+    await api(`/notes/${shared.id}/collaborators`,{userIds:[]},owner,'PUT');
+    assert.deepEqual(await api('/labels/counts',undefined,recipientToken),{'Private elsewhere':1},'revoked notes are not counted');
+  } finally {await fixture.close();}
+});

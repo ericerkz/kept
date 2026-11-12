@@ -31,6 +31,7 @@ function harness({ native = true, pluginAvailable = true, offering = true, price
   };
   const exports = {};
   vm.runInNewContext(source, { exports, localStorage: storage, require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
     if (name === '@angular/core') return { Injectable: () => target => target };
     if (name === '@capacitor/core') return {
       Capacitor: { isNativePlatform: () => native, isPluginAvailable: () => pluginAvailable },

@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const { normalizeLanguage } = require('../shared/language-preference');
 
 function createWorkspaceSync(deps) {
   const { run, get, all, appendSyncChange, normalizeLwwStamp, compareLwwStamp, serverLwwStamp,
@@ -57,27 +58,30 @@ function createWorkspaceSync(deps) {
   // Capture legacy REST writes too. This runs inside the same database lock as
   // snapshots/change reads, and repairs a missed publication after a crash.
   async function capture(userId) {
-    await run("INSERT OR IGNORE INTO binders(userId,name) SELECT DISTINCT ownerUserId,binder FROM notes WHERE ownerUserId = ? AND binder <> ''", [userId]);
+    await run("INSERT OR IGNORE INTO binders(userId,name) SELECT DISTINCT ownerUserId,binder FROM notes WHERE ownerUserId = ? AND binder <> '' AND NOT EXISTS (SELECT 1 FROM binder_notes bn JOIN binders b ON b.id=bn.binderId WHERE bn.noteId=notes.id AND b.userId<>notes.ownerUserId)", [userId]);
     await run(`INSERT OR IGNORE INTO binders(userId,name)
       SELECT org.userId,org.binder FROM user_note_organization org
       JOIN note_collaborators access ON access.noteId = org.noteId AND access.userId = org.userId
       WHERE org.userId = ? AND org.binder <> ''`, [userId]);
     for (const [resourceType, table] of Object.entries(catalogs)) {
-      const rows = await all(`SELECT * FROM ${table} WHERE userId = ?`, [userId]);
+      const rows = resourceType === 'binder' ? await deps.binderSharing.rowsFor(userId) : await all(`SELECT * FROM ${table} WHERE userId = ?`, [userId]);
       const known = await all('SELECT * FROM workspace_catalog WHERE userId = ? AND resourceType = ? AND deleted = 0', [userId,resourceType]);
       const ids = new Set(rows.map(row => row.id));
       for (const row of rows) {
         const aliases = known.filter(item => item.resourceId === row.id);
-        if (!aliases.length) aliases.push({syncId:`${resourceType}-${crypto.randomUUID()}`});
+        if (!aliases.length) aliases.push({syncId:row.shared ? `shared-binder-${row.id}` : `${resourceType}-${crypto.randomUUID()}`});
         for (const previous of aliases) {
           const value = {...row,syncId:previous.syncId};
-          if (!previous.payload || JSON.stringify(value) !== previous.payload) await publish(userId,resourceType,previous.syncId,value,serverLwwStamp());
+          if (!previous.payload || JSON.stringify(value) !== previous.payload) {
+            const now = serverLwwStamp();
+            await publish(userId,resourceType,previous.syncId,value,previous.payload && compareLwwStamp(stampOf(previous),now) > 0 ? stampOf(previous) : now);
+          }
         }
       }
       for (const row of known) if (!ids.has(row.resourceId)) await publish(userId,resourceType,row.syncId,null,serverLwwStamp());
     }
     const user = await get('SELECT * FROM users WHERE id = ?', [userId]);
-    const value = { syncId: 'account-preferences', theme: user.theme || 'light', followSystemTheme: !!user.followSystemTheme, showPastReminders: !!user.showPastReminders, inheritSharedLabels: user.inheritSharedLabels !== 0, inheritSharedBinders: user.inheritSharedBinders !== 0 };
+    const value = { syncId: 'account-preferences', language: user.language || 'system', theme: user.theme || 'light', followSystemTheme: !!user.followSystemTheme, showPastReminders: !!user.showPastReminders, inheritSharedLabels: user.inheritSharedLabels !== 0, inheritSharedBinders: user.inheritSharedBinders !== 0 };
     const old = await get("SELECT * FROM workspace_catalog WHERE userId = ? AND resourceType = 'preferences'", [userId]);
     if (!old || JSON.stringify(value) !== old.payload) await publish(userId,'preferences',value.syncId,value,serverLwwStamp());
   }
@@ -112,27 +116,39 @@ function createWorkspaceSync(deps) {
     const type = mutation.type.split('.')[0];
     const syncId = mutation.syncId;
     const payload = mutation.payload || {};
+    if (type === 'binder' && syncId.startsWith('shared-binder-')) return { ok:false,error:'Only the owner can change this shared binder.' };
     const previous = await get('SELECT * FROM workspace_catalog WHERE userId = ? AND resourceType = ? AND syncId = ?', [userId,type,syncId]);
     if (previous && compareLwwStamp(stamp,stampOf(previous)) < 0) return { ok:true, skipped:true, resourceType:type, syncId, canonical:object(previous.payload) };
     if (type === 'preferences') {
       const patch = {};
+      if (payload.language !== undefined) {
+        const language = normalizeLanguage(payload.language);
+        if (!language) return { ok:false, error:'Invalid language preference.' };
+        patch.language = language;
+      }
       for (const key of ['theme','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders']) if (payload[key] !== undefined) patch[key] = payload[key];
       if ((patch.theme !== undefined && !['light','dark'].includes(patch.theme)) || ['followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders'].some(key => patch[key] !== undefined && typeof patch[key] !== 'boolean')) return { ok:false, error:'Invalid account preference.' };
       if (Object.keys(patch).length) await run(`UPDATE users SET ${Object.keys(patch).map(key => `${key} = ?`).join(',')} WHERE id = ?`, [...Object.values(patch).map(value => typeof value === 'boolean' ? Number(value) : value),userId]);
       await deps.sharedOrganization.preferencesChanged(userId, patch);
       const user = publicUser(await get('SELECT * FROM users WHERE id = ?', [userId]));
-      const value = { syncId, theme:user.theme, followSystemTheme:user.followSystemTheme, showPastReminders:user.showPastReminders,inheritSharedLabels:user.inheritSharedLabels,inheritSharedBinders:user.inheritSharedBinders };
+      const value = { syncId, language:user.language, theme:user.theme, followSystemTheme:user.followSystemTheme, showPastReminders:user.showPastReminders,inheritSharedLabels:user.inheritSharedLabels,inheritSharedBinders:user.inheritSharedBinders };
       await publish(userId,type,syncId,value,stamp);
       return { ok:true, resourceType:type,syncId,canonical:value };
     }
     const table = catalogs[type];
     if (!table) return { ok:false,error:'Unsupported catalog resource.' };
+    if (type === 'binder' && previous?.payload && object(previous.payload)?.shared) return { ok:false,error:'Only the owner can change this shared binder.' };
     const row = previous?.resourceId ? await get(`SELECT * FROM ${table} WHERE id = ? AND userId = ?`, [previous.resourceId,userId]) : null;
+    const binderRecipients = type === 'binder' && row ? await deps.binderSharing.memberIds(row.id) : [];
+    async function refreshSharedBinders() {
+      for (const id of binderRecipients) await capture(id);
+      if (binderRecipients.length) deps.broadcastRealtime(binderRecipients,{type:'notes-changed',action:'binders-updated'});
+    }
     if (mutation.type.endsWith('.delete')) {
       if (row) {
         if (type === 'binder') {
           await deps.sharedOrganization.renameBinder(userId,row.name,'',stamp);
-          const notes = await all('SELECT id FROM notes WHERE ownerUserId = ? AND binder = ?', [userId,row.name]);
+          const notes = [...await deps.binderSharing.detach(row.id),...await all('SELECT id FROM notes WHERE ownerUserId = ? AND binder = ?', [userId,row.name])];
           await run("UPDATE notes SET binder = '' WHERE ownerUserId = ? AND binder = ?", [userId,row.name]);
           for (const note of notes) await deps.recordNoteSyncChange(note.id,'upsert');
         }
@@ -143,6 +159,7 @@ function createWorkspaceSync(deps) {
       }
       if (row) for (const alias of await all('SELECT syncId FROM workspace_catalog WHERE userId = ? AND resourceType = ? AND resourceId = ? AND syncId <> ?', [userId,type,row.id,syncId])) await publish(userId,type,alias.syncId,null,stamp);
       await publish(userId,type,syncId,null,stamp);
+      await refreshSharedBinders();
       return { ok:true,resourceType:type,syncId,deleted:true,canonical:null };
     }
     let id = row?.id;
@@ -171,22 +188,24 @@ function createWorkspaceSync(deps) {
       if (type === 'label' && row && row.name !== name) await deps.updateNoteLabelReferencesForUser(userId,row.id,name,{ oldName:row.name, stamp });
       if (type === 'binder' && row && row.name !== name) {
         await deps.sharedOrganization.renameBinder(userId,row.name,name,stamp);
-        const notes = await all('SELECT id FROM notes WHERE ownerUserId = ? AND binder = ?', [userId,row.name]);
+        const notes = [...await deps.binderSharing.rename(row.id,name),...await all('SELECT id FROM notes WHERE ownerUserId = ? AND binder = ?', [userId,row.name])];
         await run('UPDATE notes SET binder = ? WHERE ownerUserId = ? AND binder = ?', [name,userId,row.name]);
         for (const note of notes) await deps.recordNoteSyncChange(note.id,'upsert');
       }
     }
-    const value = { ...await get(`SELECT * FROM ${table} WHERE id = ? AND userId = ?`, [id,userId]), syncId };
+    const value = { ...await get(`SELECT * FROM ${table} WHERE id = ? AND userId = ?`, [id,userId]),
+      ...(type === 'binder' ? { memberCount:(await deps.binderSharing.memberIds(id)).length } : {}), syncId };
     const aliases = await all('SELECT * FROM workspace_catalog WHERE userId = ? AND resourceType = ? AND resourceId = ?', [userId,type,id]);
     const effectiveStamp = aliases.reduce((latest,alias)=>compareLwwStamp(latest,stampOf(alias)) < 0 ? stampOf(alias) : latest,stamp);
     await publish(userId,type,syncId,value,effectiveStamp);
     for (const alias of aliases.filter(alias=>alias.syncId !== syncId)) await publish(userId,type,alias.syncId,{...value,syncId:alias.syncId},effectiveStamp);
+    await refreshSharedBinders();
     return { ok:true,resourceType:type,syncId,id,canonical:value };
   }
 
   // Must be called inside the existing operation's SQLite transaction.
   async function apply(userId, mutation, core) {
-    const allowed = new Set(['note.upsert','note.delete','note.organization','note.view-state','note.reorder','reminder.upsert','reminder.delete','reminder.occurrence','reminder.action','attachment.delete','label.upsert','label.delete','binder.upsert','binder.delete','savedPlace.upsert','savedPlace.delete','preferences.patch']);
+    const allowed = new Set(['note.upsert','note.delete','note.binder','note.organization','note.view-state','note.reorder','reminder.upsert','reminder.delete','reminder.occurrence','reminder.action','attachment.delete','label.upsert','label.delete','binder.upsert','binder.delete','savedPlace.upsert','savedPlace.delete','preferences.patch']);
     if (!allowed.has(mutation.type)) return {ok:false,error:'Unsupported mutation type.'};
     const operationId = mutation.operationId || mutation.lww?.operationId;
     if (typeof operationId !== 'string' || !operationId || operationId.length > 160) return { ok:false,error:'A valid operationId is required.' };

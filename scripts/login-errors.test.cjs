@@ -10,7 +10,8 @@ function load(file, {native = false, available = false} = {}) {
   const source = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, experimentalDecorators: true }
   }).outputText;
-  vm.runInNewContext(source, { exports, console, require(name) {
+  vm.runInNewContext(source, { exports, console, localStorage: {setItem() {}}, require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
     if (name === '@angular/core') return { Injectable: () => target => target, Component: () => target => target };
     if (name === '@angular/common/http') return {};
     if (name === '@capacitor/core') return { Capacitor: { isNativePlatform: () => native, isPluginAvailable: () => available } };
@@ -179,4 +180,17 @@ test('server reset errors and older bridge fallback are shown without navigating
   auth.forgetServerAndRestart = async () => false;
   await component.useDifferentServer();
   assert.match(component.error, /Update the native Kept app/);
+});
+
+ test('browser and native login retain language preference and server capability on restart', () => {
+  for (const browser of [false,true]) {
+    const auth=Object.create(AuthService.prototype);
+    Object.assign(auth,{usesBrowserSession:browser,sessionKey:'session',currentUser$:new rx.BehaviorSubject(null)});
+    auth.storeLoginResult({user:{id:1,username:'owner',language:'he',languagePreferencesSupported:true}});
+    assert.equal(auth.currentUser$.value.language,'he');
+    assert.equal(auth.currentUser$.value.languagePreferencesSupported,true);
+    auth.storeLoginResult({user:{id:1,username:'old-server'}});
+    assert.equal(auth.currentUser$.value.language,'system');
+    assert.equal(auth.currentUser$.value.languagePreferencesSupported,false);
+  }
 });

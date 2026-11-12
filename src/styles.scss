@@ -178,7 +178,7 @@ body.light-theme .tp-ui-modal[data-theme="basic"] {
   color: #fff;
   padding: 3px 9px;
   font-size: 15px;
-  font-family: 'Google Sans';
+  font-family: 'Google Sans', Roboto, "Noto Sans Hebrew", "Segoe UI", Arial, sans-serif;
   border-radius: 5px;
   z-index: 10000;
 
@@ -941,13 +941,13 @@ body.light-theme [data-tooltip="true"].labelMenu .label-list:hover {
   background-color: rgba(60, 64, 67, 0.08);
 }
 
-body.light-theme [data-tooltip="true"].colorMenu .first-row div:hover,
-body.light-theme [data-tooltip="true"].colorMenu .second-row div:hover {
-  border-color: #3c4043 !important;
-}
-
-body.light-theme [data-tooltip="true"].colorMenu .second-row div span {
-  color: #5f6368;
+body.light-theme [data-tooltip="true"].colorMenu {
+  border-color: #dadce0;
+  .appearance-tabs { background: #f1f3f4; }
+  .appearance-tabs button { color: #5f6368; }
+  .appearance-tabs button[aria-selected="true"] { background: #feefc3; color: #202124; }
+  .color-swatch:hover, .background-choice:hover .background-choice-preview { border-color: #3c4043; }
+  .background-choice { color: #5f6368; }
 }
 
 body.light-theme [data-tooltip="true"].labelMenu {
@@ -3621,4 +3621,48 @@ body [data-note-ink="#e8eaed"] .reminder-chip img { filter: brightness(0) invert
   line-height: 1.4;
   white-space: normal;
   opacity: .8;
+}
+
+// The UI language and each note's text direction are independent. Paragraph
+// direction is resolved from content without rewriting/saving the note HTML.
+app-input .note-title,
+app-input .note-body,
+app-input .note-body :is(p, div, h1, h2, h3, h4, h5, h6, li, blockquote),
+app-input .cbox-note,
+app-notes .note-container .title,
+app-notes .note-container .body,
+app-notes .note-container .body :is(p, div, h1, h2, h3, h4, h5, h6, li, blockquote),
+app-notes .overview-cbox-note {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+// Mirror UI chrome, not physical camera/safe-area offsets or drawing canvases.
+html[dir='rtl'] {
+  app-main .sidenav-sticky app-sidenav { left: auto; right: 0; }
+  app-sidenav .main-sidebar { left: auto !important; right: 0 !important; }
+  app-sidenav .main-sidebar .item { padding-left: 0; padding-right: 12px; border-radius: 25px 0 0 25px; }
+  app-sidenav .main-sidebar .item .text { margin-left: 0; margin-right: 20px; padding-left: 0; padding-right: 2px; }
+  app-sidenav .main-sidebar.close .item.active { padding: 0; margin-left: 0; margin-right: 12px; border-radius: 50%; }
+  app-sidenav .main-sidebar.native-phone-drawer { border-radius: 16px 0 0 16px; }
+  app-sidenav .main-sidebar.native-phone-drawer.close { transform: translateX(calc(100% + 16px)); }
+  @media (max-width: 599px) {
+    app-sidenav .main-sidebar { border-radius: 16px 0 0 16px; }
+    app-sidenav .main-sidebar.close { transform: translateX(calc(100% + 16px)); }
+  }
+  app-navbar .profile-menu { right: auto; left: max(12px, env(safe-area-inset-left, 0px)); }
+  app-input :is(input[type='url'], input[type='email'], input[type='password']),
+  .auth-form input[autocomplete='username'],
+  #interface-language { unicode-bidi: isolate; }
+}
+
+#interface-language {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  max-width: min(230px, 45vw);
+  min-height: 44px;
+  padding: 8px 12px;
 }

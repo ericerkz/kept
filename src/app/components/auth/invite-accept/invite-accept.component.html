@@ -7,41 +7,41 @@
       </div>
 
       @if (invalidInvite) {
-        <h1>Invitation not found</h1>
-        <p class="helper">This invitation link is invalid or has expired. Ask whoever invited you to send a new one.</p>
+        <h1>{{ 'invite_accept.invitation_not_found' | translate }}</h1>
+        <p class="helper">{{ 'invite_accept.this_invitation_link_is_invalid_or_has_expired_ask_whoever_invite' | translate }}</p>
         <p class="helper" style="margin-top: 16px;">
-          <a routerLink="/login" style="color: #fbbc04;">Go to sign in</a>
+          <a routerLink="/login" style="color: #fbbc04;">{{ 'invite_accept.go_to_sign_in' | translate }}</a>
         </p>
       } @else {
-        <h1>You're invited</h1>
-        <p class="helper">Set up your account for {{invitedEmail}} to join this Kept server.</p>
+        <h1>{{ 'invite_accept.you_re_invited' | translate }}</h1>
+        <p class="helper">{{ 'invite_accept.set_up_your_account_for_value0_to_join_this_kept_server' | translate: { value0: (invitedEmail) } }}</p>
 
         <form (ngSubmit)="submit()" #inviteForm="ngForm" class="auth-form">
           <label>
-            <span>Username</span>
-            <input name="username" [ngModel]="username" (ngModelChange)="onUsernameChange($event)" autocomplete="username" minlength="3" required>
-            <small class="hint">Minimum 3 characters</small>
+            <span>{{ 'common.username' | translate }}</span>
+            <input name="username" [ngModel]="username" (ngModelChange)="onUsernameChange($event)" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" minlength="3" required>
+            <small class="hint">{{ 'auth.username_minimum_length' | translate }}</small>
           </label>
           <label>
-            <span>Display name</span>
-            <input name="displayName" [(ngModel)]="displayName" (input)="onDisplayNameInput()" autocomplete="name" placeholder="Defaults to your username — change it to anything you'd like">
+            <span>{{ 'common.display_name' | translate }}</span>
+            <input name="displayName" [(ngModel)]="displayName" (input)="onDisplayNameInput()" autocomplete="name" [attr.placeholder]="'auth.display_name_hint' | translate">
           </label>
           <label>
-            <span>Password</span>
+            <span>{{ 'common.password' | translate }}</span>
             <input name="password" [(ngModel)]="password" autocomplete="new-password" type="password" minlength="8" required>
-            <small class="hint">Minimum 8 characters</small>
+            <small class="hint">{{ 'auth.password_minimum_length' | translate }}</small>
           </label>
           <label>
-            <span>Confirm password</span>
+            <span>{{ 'auth.confirm_password' | translate }}</span>
             <input name="confirmPassword" [(ngModel)]="confirmPassword" autocomplete="new-password" type="password" minlength="8" required>
-            <small class="hint">Must match password</small>
+            <small class="hint">{{ 'auth.must_match_password' | translate }}</small>
           </label>
 
           @if (error) {
-            <div class="error">{{error}}</div>
+            <div class="error">{{(error) | uiText}}</div>
           }
           <button type="submit" [disabled]="inviteForm.invalid || isSubmitting">
-            {{isSubmitting ? 'Setting up your account...' : 'Create account & sign in'}}
+            {{(isSubmitting) ? ('invite_accept.setting_up_your_account' | translate) : ('invite_accept.create_account_sign_in' | translate)}}
           </button>
         </form>
       }

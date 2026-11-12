@@ -38,6 +38,7 @@ function harness({ width = 390, cardWidth = 310, saveFails = false } = {}) {
   }).outputText;
   vm.runInNewContext(source, {exports,console,document,window,Date:Clock,setTimeout:timeout,clearTimeout:clear,
     require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
       if (name === '@angular/core') return {Component:()=>value=>value,ViewChild:()=>()=>{},ViewChildren:()=>()=>{},HostListener:()=>()=>{}};
       if (name.endsWith('/platform')) return {isNativePhonePlatform:()=>width<768};
       if (name === '@capacitor/core') return {registerPlugin:()=>({}),Capacitor:{getPlatform:()=> 'web'}};

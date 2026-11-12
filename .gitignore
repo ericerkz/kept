@@ -58,3 +58,6 @@ Thumbs.db
 /migrate-and-clean.js
 /scratch/
 /IOS_CLIENT_BRIEF.md
+
+# Generated from the single public translation catalogue per language.
+/src/assets/i18n/

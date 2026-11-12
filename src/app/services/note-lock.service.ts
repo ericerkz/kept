@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { OfflineSyncService } from './offline-sync.service';
 import { Injectable } from '@angular/core';
 import { WorkspaceService } from './workspace.service';
@@ -33,11 +34,11 @@ export class NoteLockService {
 
   async ensureUnlocked(note: NoteI) {
     if (!this.isLocked(note) || this.isUnlocked(note)) return true;
-    const passcode = window.prompt(`Enter this note's passcode.`);
+    const passcode = window.prompt(uiText('note_lock.enter_this_note_s_passcode'));
     if (!passcode) return false;
     const ok = await this.verify(note, passcode);
     if (!ok) {
-      window.alert('Incorrect passcode.');
+      window.alert(uiText('note_lock.incorrect_passcode'));
       return false;
     }
     this.markUnlocked(note);
@@ -45,11 +46,11 @@ export class NoteLockService {
   }
 
   async createLockFields() {
-    const passcode = window.prompt('Create a passcode for this note.');
+    const passcode = window.prompt(uiText('note_lock.create_a_passcode_for_this_note'));
     if (!passcode) return null;
-    const confirmPasscode = window.prompt('Re-enter the passcode.');
+    const confirmPasscode = window.prompt(uiText('note_lock.re_enter_the_passcode'));
     if (passcode !== confirmPasscode) {
-      window.alert('Those passcodes did not match.');
+      window.alert(uiText('note_lock.those_passcodes_did_not_match'));
       return null;
     }
     const salt = this.randomSalt();

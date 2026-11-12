@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { attachmentMimeType } from '../utils/attachments';
 import { Injectable } from '@angular/core';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
@@ -38,7 +39,7 @@ export class WorkspaceMigrationService {
     if (!source) throw new Error('Open the device workspace you want to move.');
     await this.native.ready;
     if (!this.native.plugin || !this.native.capabilities$.value?.durableActions) throw new Error('Update the native Kept app before moving notes to a server.');
-    if (!window.confirm('Sign in to your Kept server and move these notes? A copy will stay on this device until you explicitly remove it.')) return false;
+    if (!window.confirm(uiText('workspace_migration.sign_in_to_your_kept_server_and_move_these_notes_a_copy_will_stay'))) return false;
     this.busy = true;
     let snapshot: Workspace | undefined;
     let complete = false;

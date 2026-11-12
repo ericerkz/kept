@@ -6,7 +6,7 @@
     [class.refreshing]="pullRefreshState === 'refreshing'"
     [style.transform]="'translate3d(-50%, ' + pullRefreshDistance + 'px, 0)'">
     <span class="material-symbols-outlined">refresh</span>
-    <span>{{pullRefreshState === 'refreshing' ? 'Refreshing' : (pullRefreshState === 'ready' ? 'Release to refresh' : 'Pull to refresh')}}</span>
+    <span>{{ (pullRefreshState === 'refreshing' ? 'notes.refreshing' : (pullRefreshState === 'ready' ? 'notes.release_to_refresh' : 'notes.pull_to_refresh')) | translate }}</span>
   </div>
 }
 <section>
@@ -18,12 +18,12 @@
     [class.list-view]="Shared.noteViewType.value === 'list'"
     [ngClass]="notePreviewTextSizeClass">
     <div class="pb-80" [hidden]="!(Shared.note.pinned | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value:Shared.composerDraftSyncId).length">
-      <p #title _title>pinned</p>
+      <p #title _title>{{ 'notes.pinned' | translate }}</p>
       <ng-container [ngTemplateOutlet]="noteTemplate" [ngTemplateOutletContext]="{notes:Shared.note.pinned}">
       </ng-container>
     </div>
     <div [hidden]="!(Shared.note.unpinned | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value:Shared.composerDraftSyncId).length">
-      <p #title _title>other</p>
+      <p #title _title>{{ 'notes.other' | translate }}</p>
       <ng-container [ngTemplateOutlet]="noteTemplate" [ngTemplateOutletContext]="{notes:Shared.note.unpinned}">
       </ng-container>
     </div>
@@ -40,8 +40,7 @@
     <div class="no-notes">
       <div class="image"></div>
       <div>
-        <span class="text">Notes {{ currentPage.attachments ? 'with attachments' : (currentPage.reminders ? 'you created with reminders' : ('you ' + (currentPage.archive? 'archive' : ( currentPage.trash?'trash':'add'))))}}
-        appear here</span>
+        <span class="text">{{ (currentPage.attachments ? 'notes.empty_attachments' : currentPage.reminders ? 'notes.empty_reminders' : currentPage.archive ? 'notes.empty_archive' : currentPage.trash ? 'notes.empty_trash' : 'notes.empty_notes') | translate }}</span>
       </div>
     </div>
   </section>
@@ -57,15 +56,15 @@
     (click)="cancelPendingNoteDate()"></div>
   <div class="reminder-date-dialog reminder-date-dialog--note"
     (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
-    role="dialog" aria-label="Set reminder date">
-    <div class="rd-title">Set reminder</div>
-    <div class="rd-calendar" aria-label="Reminder date calendar">
+    role="dialog" [attr.aria-label]="'reminder.set_reminder_date' | translate">
+    <div class="rd-title">{{ 'reminder.set_reminder' | translate }}</div>
+    <div class="rd-calendar" [attr.aria-label]="'reminder.date_calendar' | translate">
       <div class="rd-calendar-head">
-        <button type="button" class="rd-nav" aria-label="Previous month" (click)="shiftCalendarMonth(-1)">
+        <button type="button" class="rd-nav" [attr.aria-label]="'reminder.previous_month' | translate" (click)="shiftCalendarMonth(-1)">
           <span class="material-symbols-outlined">chevron_left</span>
         </button>
         <div class="rd-month">{{calendarMonthLabel()}}</div>
-        <button type="button" class="rd-nav" aria-label="Next month" (click)="shiftCalendarMonth(1)">
+        <button type="button" class="rd-nav" [attr.aria-label]="'reminder.next_month' | translate" (click)="shiftCalendarMonth(1)">
           <span class="material-symbols-outlined">chevron_right</span>
         </button>
       </div>
@@ -87,37 +86,37 @@
         }
       </div>
     </div>
-    <div class="rd-repeat" aria-label="Repeat reminder">
-      <div class="rd-repeat-title">Repeat</div>
+    <div class="rd-repeat" [attr.aria-label]="'input.repeat_reminder' | translate">
+      <div class="rd-repeat-title">{{ 'input.repeat' | translate }}</div>
       <div class="rd-repeat-options">
         @for (option of reminderRepeatOptions; track option.value) {
           <button type="button"
             [class.active]="reminderRepeatType === option.value"
             (click)="setReminderRepeatType(option.value)">
-            {{ option.label }}
+            {{ (option.label) | uiText }}
           </button>
         }
       </div>
       @if (reminderRepeatType === 'custom_days') {
         <label class="rd-repeat-custom">
-          <span>Every</span>
+          <span>{{ 'input.every' | translate }}</span>
           <input type="number" min="1" max="365" inputmode="numeric" [(ngModel)]="reminderRepeatCustomDays">
-          <span>days</span>
+          <span>{{ 'input.days' | translate }}</span>
         </label>
       }
       <label class="rd-repeat-float">
         <span class="material-symbols-outlined rd-float-icon">vertical_align_top</span>
         <span class="rd-float-copy">
-          <strong>Float to top when it fires</strong>
-          <span>Jumps this note above the rest</span>
+          <strong>{{ 'input.float_to_top_when_it_fires' | translate }}</strong>
+          <span>{{ 'input.jumps_this_note_above_the_rest' | translate }}</span>
         </span>
         <input type="checkbox" [(ngModel)]="reminderMoveToTopOnTrigger">
         <span class="rd-switch" aria-hidden="true"></span>
       </label>
     </div>
     <div class="rd-actions">
-      <button type="button" class="rd-secondary" (click)="cancelPendingNoteDate()">Cancel</button>
-      <button type="button" class="rd-primary" [disabled]="!customDate" (click)="confirmNoteDate(activePickerNote)">Pick time</button>
+      <button type="button" class="rd-secondary" (click)="cancelPendingNoteDate()">{{ 'common.cancel' | translate }}</button>
+      <button type="button" class="rd-primary" [disabled]="!customDate" (click)="confirmNoteDate(activePickerNote)">{{ 'reminder.pick_time' | translate }}</button>
     </div>
   </div>
 }
@@ -163,9 +162,9 @@
           [class.note-main--untitled]="!noteHasTitle && !noteIsLinkOnly"
           [ngStyle]="{'background-color':note.bgColor,'border-color':note.bgColor,'background-image' : note.bgImage, 'color': noteTextColor(note)}">
           @if (note.ownerUserId && auth.currentUser?.id && note.ownerUserId !== auth.currentUser?.id) {
-            <div class="shared-indicator H pop" [attr.data-pop]="'Shared by ' + (note.ownerDisplayName || note.ownerUsername || 'another user')">
+            <div class="shared-indicator H pop" [attr.data-pop]="'accessibility.shared_by' | translate: { name: (note.ownerDisplayName || note.ownerUsername || ('notes.another_user' | translate)) }">
               @if (note.ownerAvatarDataUrl) {
-                <img [src]="note.ownerAvatarDataUrl" alt="Owner avatar">
+                <img [src]="note.ownerAvatarDataUrl" [attr.alt]="'notes.owner_avatar' | translate">
               } @else {
                 <div class="avatar-fallback animal-{{note.ownerAvatarPreset || 'cat'}}">
                   <span class="head"><i></i></span>
@@ -179,13 +178,13 @@
           <div (click)="openModal(noteEL,note)">
             @if (noteLock.lockPreviewHidden(note)) {
               @if (noteHasTitle) {
-              <div class="title">
+              <div class="title" dir="auto">
                 <span [innerHTML]="note.noteTitle"></span>
               </div>
               }
               <div class="locked-note-preview">
                 <span class="material-symbols-outlined">lock</span>
-                <span>Locked note</span>
+                <span>{{ 'notes.locked_note' | translate }}</span>
               </div>
             } @else if (noteIsLinkOnly) {
                 @let extraLinks = hiddenLinkCount(note);
@@ -195,11 +194,11 @@
                   }
                 </div>
                 @if (extraLinks) {
-                  <div class="link-overflow-chip">+{{extraLinks}} link{{extraLinks === 1 ? '' : 's'}}</div>
+                  <div class="link-overflow-chip">{{ 'counts.extra_links' | uiPlural: extraLinks }}</div>
                 }
             } @else {
             @if (noteHasTitle) {
-            <div class="title">
+            <div class="title" dir="auto">
               <span [innerHTML]="note.noteTitle"></span>
             </div>
             }
@@ -217,9 +216,9 @@
                 @for (segment of noteBodySegments(note); track trackBodySegment($index, segment)) {
                   @if (segment.type === 'html') {
                     @if (!noteHasTitle && $first && segment.value) {
-                      <div class="body" (contextmenu)="downloadInlineImage($event)"><div class="body-content" [innerHTML]="segment.value"></div></div>
+                      <div class="body" dir="auto" (contextmenu)="downloadInlineImage($event)"><div class="body-content" [innerHTML]="segment.value"></div></div>
                     } @else {
-                      <div class="body" [innerHTML]="segment.value" (contextmenu)="downloadInlineImage($event)"></div>
+                      <div class="body" dir="auto" [innerHTML]="segment.value" (contextmenu)="downloadInlineImage($event)"></div>
                     }
                   } @else {
                     <div class="link-previews">
@@ -229,7 +228,7 @@
                 }
                 @let extraLinks = hiddenLinkCount(note);
                 @if (extraLinks) {
-                  <div class="link-overflow-chip">+{{extraLinks}} link{{extraLinks === 1 ? '' : 's'}}</div>
+                  <div class="link-overflow-chip">{{ 'counts.extra_links' | uiPlural: extraLinks }}</div>
                 }
               </section>
             }
@@ -245,7 +244,7 @@
                     class="cbox-icon"></div>
                     <div class="cbox-note-container min overview-cbox-note-container">
                       <div [attr.data-id]="cb.id" [class.cbox-done]="cb.done"
-                        class="cbox-note overview-cbox-note"
+                        class="cbox-note overview-cbox-note" dir="auto"
                         [innerHTML]="cb.data">
                       </div>
                     </div>
@@ -256,13 +255,13 @@
                   </div>
                 }
                 @if (cboxPreview.more) {
-                  <div class="overview-cbox-more">+{{cboxPreview.more}} more</div>
+                  <div class="overview-cbox-more">{{ 'notes.value0_more' | translate: { value0: (cboxPreview.more) } }}</div>
                 }
                 @if (preferences.value.moveCompletedChecklistItemsToBottom && completedCboxesCount) {
                   <div class="hr min"></div>
                   <div class="cbox-done-container min">
                     <div class="cbox-arrow"></div>
-                    <span>({{completedCboxesCount}}) Completed items</span>
+                    <span>{{ 'checklist.completed' | uiPlural:completedCboxesCount }}</span>
                   </div>
                 }
               </div>
@@ -284,7 +283,7 @@
               @if (label.added) {
                 <div class="label-container">
                   <div class="label"><span>{{label.name}}</span>
-                  <div class="cancel-icon pop" data-pop="Remove Label"
+                  <div class="cancel-icon pop" [attr.data-pop]="'accessibility.remove_label' | translate"
                   (click)="removeLabel(note,label)"></div>
                 </div>
               </div>
@@ -302,7 +301,7 @@
                 <span class="material-symbols-outlined attachment-type">{{attachmentIcon(attachment)}}</span>
                 <span class="attachment-name">{{attachment.originalName}}</span>
                 <span class="attachment-size">{{formatFileSize(attachment.fileSize)}}</span>
-                <button type="button" class="attachment-download H" aria-label="Download attachment" title="Download attachment"
+                <button type="button" class="attachment-download H" [attr.aria-label]="'input.download_attachment' | translate" [attr.title]="'input.download_attachment' | translate"
                   (click)="downloadAttachment(attachment, $event)">
                   <span class="material-symbols-outlined">download</span>
                 </button>
@@ -315,7 +314,7 @@
             <div class="reminder-chip" [class.reminder-chip--past]="r.status === 'fired'"
               (mousedown)="$event.stopPropagation()" (click)="toggleReminderPicker(note, $event)">
               <img src="./assets/images/svg/clock.svg" alt="" width="12" height="12">
-              @if (r.managedExternally) { Managed in Apple Reminders } @else if (r.dueAtUtc) {
+              @if (r.managedExternally) { {{ 'notes.managed_in_apple_reminders' | translate }} } @else if (r.dueAtUtc) {
                 {{formatReminderDate(r.dueAtUtc)}}
               } @else if (r.locationName) {
                 📍 {{ r.locationName }}
@@ -326,60 +325,62 @@
             <div class="reminder-picker reminder-picker--inline"
               (mousedown)="$event.stopPropagation()" (mouseup)="$event.stopPropagation()" (click)="$event.stopPropagation()">
               @if (displayedReminder.status === 'fired') {
-                <button type="button" class="rp-clear" (click)="reschedulePastReminderForNote(note, $event)">Set new reminder</button>
+                <button type="button" class="rp-clear" (click)="reschedulePastReminderForNote(note, $event)">{{ 'input.set_new_reminder' | translate }}</button>
               }
-              <button type="button" class="rp-clear" (click)="clearReminder(note, $event)">Remove reminder</button>
+              <button type="button" class="rp-clear" (click)="clearReminder(note, $event)">{{ 'input.remove_reminder' | translate }}</button>
             </div>
           }
           <div class="icons-container min">
             <div class="icons">
-              <div class="alarm H pop" data-pop="Remind me"
+              <div class="alarm H pop" [attr.data-pop]="'accessibility.remind_me' | translate"
                 [class.alarm-active]="!!getActiveReminderForNote(note.id!)"
                 (mousedown)="$event.stopPropagation()" (click)="toggleReminderPicker(note, $event)">
               </div>
               @if (pendingNoteDateConfirm?.note?.id === note.id) {
                 <div class="date-confirm-pill date-confirm-pill--note"
                   (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
-                  role="region" aria-label="Confirm reminder date">
+                  role="region" [attr.aria-label]="'input.confirm_reminder_date' | translate">
                   <span class="dc-text"><strong>{{formatPendingDateLabel(pendingNoteDateConfirm!.date)}}</strong></span>
-                  <button type="button" class="dc-cancel" (click)="cancelPendingNoteDate()">Change</button>
-                  <button type="button" class="dc-confirm" (click)="confirmPendingNoteDate()">Pick time →</button>
+                  <button type="button" class="dc-cancel" (click)="cancelPendingNoteDate()">{{ 'common.change' | translate }}</button>
+                  <button type="button" class="dc-confirm" (click)="confirmPendingNoteDate()">{{ 'reminder.pick_time_next' | translate }}</button>
                 </div>
               }
               <!-- Reminder date dialog rendered at component root level (see
                    bottom of this file) so it escapes bricks.js's transformed
                    .note-container ancestor. -->
 
-              <div *ngIf="!auth.isLocal" #collaboratorMenuTtBtn class="colab H pop" data-pop="Collaborator"
+              <div *ngIf="!auth.isLocal" #collaboratorMenuTtBtn class="colab H pop" [attr.data-pop]="'input.collaborator' | translate"
                 (click)="openCollaboratorMenu(collaboratorMenuTtBtn,collaboratorMenuTt,note)"></div>
-              <div #colorMenuTtBtn data-toolTipType="colorMenu" data-pop="Background Options"
+              <div #colorMenuTtBtn data-toolTipType="colorMenu" [attr.data-pop]="'backgrounds.options' | translate"
                 (click)="openTooltip(colorMenuTtBtn,colorMenuTt,note)" class="color H pop">
               </div>
-              <div class="image H pop" data-pop="Add image" (click)="openModalForImage(noteEL,note,$event)"></div>
+              <div class="image H pop" [attr.data-pop]="'input.add_image' | translate" (click)="openModalForImage(noteEL,note,$event)"></div>
               <div [ngClass]="note.archived ? 'unarchive' : 'archive'" class="H pop"
                 (click)="toggleArchive(note.id!,note.archived)"
-              [attr.data-pop]="note.archived ? 'Unarchive' : 'Archive'"></div>
+              [attr.data-pop]="note.archived ? ('accessibility.unarchive' | translate) : ('common.archive' | translate)"></div>
               <div data-toolTipType="moreMenu" #moreMenuTtBtn
                 (click)="openTooltip(moreMenuTtBtn,moreMenuTt,note)" class="more H pop"
-                data-pop="More">
+                [attr.data-pop]="'common.more' | translate">
               </div>
             </div>
           </div>
           @if (note.archived) {
             <div class="icons-container min archive-actions" (mousedown)="$event.stopPropagation()" (touchstart)="$event.stopPropagation()">
               <div class="icons">
-                <div class="unarchive H pop" data-pop="Unarchive" (click)="$event.stopPropagation(); toggleArchive(note.id!, note.archived)">
+                <div class="unarchive H pop" [attr.data-pop]="'accessibility.unarchive' | translate" (click)="$event.stopPropagation(); toggleArchive(note.id!, note.archived)">
                 </div>
               </div>
             </div>
           }
         } @else {
-          <div class="trash-countdown"><img src="./assets/images/svg/exclaimwarn.svg" alt="warn"> {{trashCountdown(note)}} before permanent deletion</div>
+          <div class="trash-countdown"><img src="./assets/images/svg/exclaimwarn.svg" [attr.alt]="'notes.warn' | translate"> {{ 'notes.value0_before_permanent_deletion' | translate: { value0: (trashCountdown(note)) } }}</div>
           <div class="icons-container min trash-actions" (mousedown)="$event.stopPropagation()" (touchstart)="$event.stopPropagation()">
             <div class="icons">
-              <div class="delete H pop" data-pop="Delete forever" (click)="$event.stopPropagation(); removeNote(note)">
+              @if (!note.ownerUserId || note.ownerUserId === auth.currentUser?.id) {
+              <div class="delete H pop" [attr.data-pop]="'accessibility.delete_forever' | translate" (click)="$event.stopPropagation(); removeNote(note)">
               </div>
-              <div class="restore material-restore H pop" data-pop="Restore" (click)="$event.stopPropagation(); restoreNote(note.id!)">
+              }
+              <div class="restore material-restore H pop" [attr.data-pop]="'accessibility.restore' | translate" (click)="$event.stopPropagation(); restoreNote(note.id!)">
                 <span class="material-symbols-outlined">undo</span>
               </div>
             </div>
@@ -390,11 +391,11 @@
   <svg viewBox="0 0 18 18"><path d="m6.61 11.89l-3.11-3.11-1.06 1.06 4.17 4.16 8.95-8.95-1.06-1.05z"/></svg>
 </div>
       <div (click)="togglePin(note.id!,note.pinned)" [class.pinned]="note.pinned" class="pin-icon H pop"
-      [attr.data-pop]="!note.pinned ? 'Pin note':'Unpin note' "></div>
+      [attr.data-pop]="!note.pinned ? ('accessibility.pin_note' | translate):('accessibility.unpin_note' | translate) "></div>
     </div>
   }
   @if (canShowMoreLoadedNotes(filteredNotes)) {
-    <button type="button" class="load-more-notes" (click)="increaseVisibleNoteLimit()">Load more</button>
+    <button type="button" class="load-more-notes" (click)="increaseVisibleNoteLimit()">{{ 'notes.load_more' | translate }}</button>
   }
 </div>
 </ng-template>
@@ -407,63 +408,48 @@
 <!--? --------tooltips-------- -->
 <!--? more MENU -->
 <div #moreMenuTt data-tooltip="true" data-is-tooltip-open="false" class="moreMenu">
-  <div (click)="moreMenu(moreMenuTt).trash(activeNote!)">{{ (activeNote && activeNote.ownerUserId !== auth.currentUser?.id) ? 'Unshare this with me' : 'Delete note' }}</div>
-  <div #labelMenuBtn (click)="moreMenu(moreMenuTt).openLabelMenu(labelMenuTt)">Add label
+  <div (click)="moreMenu(moreMenuTt).trash(activeNote!)">{{ ((activeNote && activeNote.ownerUserId !== auth.currentUser?.id && !activeNote.sharedBinder)) ? ('input.unshare_this_with_me' | translate) : ('notes.delete_note' | translate) }}</div>
+  <div #labelMenuBtn (click)="moreMenu(moreMenuTt).openLabelMenu(labelMenuTt)">{{ 'labels.add_label' | translate }}
   </div>
-  <div (click)="moreMenu(moreMenuTt).openBinderMenu(binderMenuTt,labelMenuTt)">Move to binder</div>
-  <div (click)="moreMenu(moreMenuTt).clone()">Make a copy</div>
+  <div (click)="moreMenu(moreMenuTt).openBinderMenu(binderMenuTt,labelMenuTt)">{{ 'binders.move_to_binder' | translate }}</div>
+  <div (click)="moreMenu(moreMenuTt).clone()">{{ 'notes.make_a_copy' | translate }}</div>
   @if (canManageActiveNoteLock() && !activeNote?.locked) {
-    <div (click)="moreMenu(moreMenuTt).lock()">Lock note</div>
+    <div (click)="moreMenu(moreMenuTt).lock()">{{ 'input.lock_note' | translate }}</div>
   }
   @if (canManageActiveNoteLock() && activeNote?.locked) {
     @if (noteLock.isUnlocked(activeNote)) {
-      <div (click)="moreMenu(moreMenuTt).relock()">Relock note</div>
+      <div (click)="moreMenu(moreMenuTt).relock()">{{ 'input.relock_note' | translate }}</div>
     }
-    <div (click)="moreMenu(moreMenuTt).changeLock()">Change passcode</div>
-    <div (click)="moreMenu(moreMenuTt).removeLock()">Remove lock</div>
+    <div (click)="moreMenu(moreMenuTt).changeLock()">{{ 'input.change_passcode' | translate }}</div>
+    <div (click)="moreMenu(moreMenuTt).removeLock()">{{ 'input.remove_lock' | translate }}</div>
   }
 </div>
 <!--? color MENU -->
 <div #colorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="colorMenu">
-  <div class="first-row">
-    @for (color of bgColors | keyvalue; track color) {
-      <div [attr.data-bg-color]="color.key" [style.background-color]="color.value"
-        (click)="colorMenu.bgColor(color.value)" [class.nocolor]="color.value === ''">
-      </div>
-    }
-  </div>
-  <div class="second-row">
-    @for (image of bgImages | keyvalue; track image) {
-      <div [attr.data-bg-image]="image.key" [style.background-image]="image.value | ph"
-        (click)="colorMenu.bgImage(image.value)" [class.noimage]="image.value === ''">
-        @if (bgImageLabels[image.key]) {
-          <span>{{bgImageLabels[image.key]}}</span>
-        }
-      </div>
-    }
-  </div>
+  <app-note-appearance-picker (colorSelected)="colorMenu.bgColor($event)" (backgroundSelected)="colorMenu.bgImage($event)"
+    (layoutChanged)="Shared.updateTooltip(colorMenuTt)"></app-note-appearance-picker>
 </div>
 <!--? label MENU -->
 <div #labelMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu">
-  <div class="title">Label note</div>
+  <div class="title" dir="auto">{{ 'labels.label_note' | translate }}</div>
   @if (sharedOrganizationHint('labels')) {
-    <p class="organization-hint">{{sharedOrganizationHint('labels')}}</p>
+    <p class="organization-hint">{{(sharedOrganizationHint('labels')) | uiText}}</p>
   }
   @if (!inheritsSharedOrganization('labels')) {
   <div class="search">
     <div class="search-icon"></div>
-    <input #newLabelInput type="text" maxlength="50" placeholder="Enter label name"
+    <input #newLabelInput type="text" maxlength="50" [attr.placeholder]="'labels.enter_label_name' | translate"
       (keydown.enter)="addLabelFromMenu(newLabelInput); $event.preventDefault()" (blur)="addLabelFromMenu(newLabelInput)"
       (input)="labelMenuError=''">
   </div>
   @if (newLabelInput.value.trim().length) {
     <div class="label-list create-label" (mousedown)="$event.preventDefault()" (click)="addLabelFromMenu(newLabelInput)">
       <div class="check-icon"></div>
-      <div class="label-name">Create "{{newLabelInput.value.trim()}}"</div>
+      <div class="label-name">{{ 'common.create_named' | translate: { value0: (newLabelInput.value.trim()) } }}</div>
     </div>
   }
   @if (labelMenuError) {
-    <div class="label-error">{{labelMenuError}}</div>
+    <div class="label-error">{{(labelMenuError) | uiText}}</div>
   }
   <div class="label-list-container">
     @for (label of labels; track label) {
@@ -477,29 +463,29 @@
 </div>
 <!--? binder MENU -->
 <div #binderMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu binderMenu">
-  <div class="title">Move to binder</div>
+  <div class="title" dir="auto">{{ 'binders.move_to_binder' | translate }}</div>
   @if (sharedOrganizationHint('binders')) {
-    <p class="organization-hint">{{sharedOrganizationHint('binders')}}</p>
+    <p class="organization-hint">{{(sharedOrganizationHint('binders')) | uiText}}</p>
   }
   @if (!inheritsSharedOrganization('binders')) {
   <div class="search">
-    <input #newBinderInput type="text" maxlength="50" placeholder="Enter binder name"
+    <input #newBinderInput type="text" maxlength="50" [attr.placeholder]="'binders.enter_binder_name' | translate"
       (keydown.enter)="addBinderFromMenu(newBinderInput); $event.preventDefault()" (blur)="addBinderFromMenu(newBinderInput)"
       (input)="binderMenuError=''">
   </div>
   @if (newBinderInput.value.trim().length) {
     <div class="label-list create-label" (mousedown)="$event.preventDefault()" (click)="addBinderFromMenu(newBinderInput)">
       <div class="check-icon"></div>
-      <div class="label-name">Create "{{newBinderInput.value.trim()}}"</div>
+      <div class="label-name">{{ 'common.create_named' | translate: { value0: (newBinderInput.value.trim()) } }}</div>
     </div>
   }
   @if (binderMenuError) {
-    <div class="label-error">{{binderMenuError}}</div>
+    <div class="label-error">{{(binderMenuError) | uiText}}</div>
   }
   <div class="label-list-container">
     <button type="button" class="label-list binder-choice" [attr.aria-current]="!binderName ? 'true' : null" (click)="setBinderFromMenu('', binderMenuTt)">
       <span class="binder-selected material-symbols-outlined" aria-hidden="true">{{!binderName ? 'check' : ''}}</span>
-      <span class="label-name">No binder</span>
+      <span class="label-name">{{ 'binders.no_binder' | translate }}</span>
     </button>
     @for (binder of Shared.binder.list; track binder.name) {
       <button type="button" class="label-list binder-choice" [attr.aria-current]="binderName === binder.name ? 'true' : null" (click)="setBinderFromMenu(binder.name, binderMenuTt)">
@@ -509,30 +495,40 @@
     }
   </div>
   }
+  @if (activeNote?.sharedBinder) {
+    <button type="button" class="label-list binder-choice" (click)="setSharedBinderFromMenu(null,binderMenuTt)">{{ 'binder_sharing.remove_note' | translate }}</button>
+  }
+  @if (activeNote && (!activeNote.ownerUserId || activeNote.ownerUserId === auth.currentUser?.id)) {
+    @for (binder of Shared.sharedBinders; track binder.id) {
+      <button type="button" class="label-list binder-choice" (click)="setSharedBinderFromMenu(binder,binderMenuTt)">
+        <span class="label-name">{{binder.name}} <small>{{binder.ownerDisplayName || binder.ownerUsername}}</small></span>
+      </button>
+    }
+  }
 </div>
 <!--? collaborator MENU -->
 <div #collaboratorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="collaboratorMenu">
-  <div class="title">Collaborators</div>
+  <div class="title" dir="auto">{{ 'input.collaborators' | translate }}</div>
   @if (!canManageCollaborators()) {
-    <div class="hint">Shared with you. Only the owner can change access.</div>
+    <div class="hint">{{ 'input.shared_with_you_only_the_owner_can_change_access' | translate }}</div>
   }
   @if (collaboratorError) {
-    <div class="error">{{collaboratorError}}</div>
+    <div class="error">{{(collaboratorError) | uiText}}</div>
   }
   @if (!collaboratorUsers.length && !collaboratorError) {
-    <div class="hint">No other users yet.</div>
+    <div class="hint">{{ 'input.no_other_users_yet' | translate }}</div>
   }
   <div class="user-list">
     @for (user of collaboratorUsers; track user.id) {
       @let userIsOwner = isNoteOwner(user.id);
       <label class="share-user" [class.readonly]="!canManageCollaborators() || userIsOwner" [class.is-owner]="userIsOwner">
         @if (userIsOwner) {
-          <span class="owner-glyph" title="Owner of this note" aria-label="Owner">
+          <span class="owner-glyph" [attr.title]="'input.owner_of_this_note' | translate" [attr.aria-label]="'input.owner' | translate">
             <span class="material-symbols-outlined">workspace_premium</span>
           </span>
         } @else {
           <input type="checkbox" [checked]="isCollaboratorSelected(user.id)"
-            [disabled]="!canManageCollaborators()" (change)="toggleCollaborator(user.id)">
+            [disabled]="!canManageCollaborators() || collaboratorLoading || isSavingCollaborators || !!binderForCollaborator(user.id)" (change)="toggleCollaborator(user.id)">
         }
         <div class="collaborator-avatar-wrapper">
           @if (user.avatarDataUrl) {
@@ -544,16 +540,17 @@
           }
           <span class="status-dot" [class.online]="user.online"></span>
         </div>
-        <span class="user-name">{{user.displayName || user.username}}</span>
+        <span class="user-name">{{(user.displayName) || (user.username)}}</span>
+        @if (binderForCollaborator(user.id); as binder) { <small>{{ 'binder_sharing.via' | translate: { name: binder } }}</small> }
         @if (userIsOwner) {
-          <span class="owner-pill">Owner</span>
+          <span class="owner-pill">{{ 'input.owner' | translate }}</span>
         }
       </label>
     }
   </div>
   @if (canManageCollaborators()) {
     <div class="actions">
-      <button type="button" (click)="Shared.closeTooltip(collaboratorMenuTt)">Close</button>
+      <button type="button" (click)="Shared.closeTooltip(collaboratorMenuTt)">{{ 'common.close' | translate }}</button>
     </div>
   }
 </div>

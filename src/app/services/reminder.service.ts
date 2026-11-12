@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { createNoteHtmlContainer, sanitizeNoteHtml } from '../utils/note-html';
 import { Injectable, NgZone } from '@angular/core';
 import { Router } from '@angular/router';
@@ -275,7 +276,7 @@ export class ReminderService {
       const previous = (await this.offlineStore.listReminders(this.offlineSync.partition)).find(item => item.id === id);
       if (!previous?.syncId) throw new Error('This reminder is unavailable.');
       const changedSchedule = ['dueAtUtc','timezone','locationName','latitude','longitude','radiusMeters','locationTrigger'].some(field=>(data as any)[field] !== undefined && (data as any)[field] !== (previous as any)[field]) || (data.repeatRule !== undefined && this.serializeRepeatRule(data.repeatRule) !== previous.repeatRule);
-      if (previous.managedExternally && changedSchedule && !window.confirm('This schedule is managed in Apple Reminders. Replace it with the schedule selected in Kept?')) return previous;
+      if (previous.managedExternally && changedSchedule && !window.confirm(uiText('reminder.this_schedule_is_managed_in_apple_reminders_replace_it_with_the_s'))) return previous;
       const value = await this.offlineSync.commit('reminder.upsert', previous.syncId, { ...previous, ...data,
         repeatRule: data.repeatRule === undefined ? previous.repeatRule : this.serializeRepeatRule(data.repeatRule),
         scheduleVersion: Number((previous as any).scheduleVersion || 1) + Number(changedSchedule),
@@ -347,6 +348,12 @@ export class ReminderService {
 
   getFiredForNote(noteId: number): ReminderI | undefined {
     return this.reminders$.value.find(r => r.noteId === noteId && r.status === 'fired');
+  }
+
+  showArchivedReminderNotice(note: Pick<NoteI, 'archived' | 'trashed'>) {
+    if (note.archived && !note.trashed) {
+      this.showSnackbar(uiText('reminder.reminders_are_paused_while_this_note_is_archived'));
+    }
   }
 
   updateNoteLifecycle(notes: Array<{ id?: number; archived?: boolean; trashed?: boolean }>) {
@@ -451,7 +458,7 @@ export class ReminderService {
     return this.update(reminderId, { status: 'dismissed' });
   }
 
-  debugFireReminder(title = 'Debug reminder', body = 'This is a manual test reminder.') {
+  debugFireReminder(title = uiText('reminder.debug_reminder'), body = uiText('reminder.this_is_a_manual_test_reminder')) {
     this.firedReminder$.next({
       reminderId: -Date.now(),
       noteId: null,
@@ -494,7 +501,7 @@ export class ReminderService {
       return notifications.granted;
     } catch (error) {
       console.warn('Android location reminder permissions failed', error);
-      this.showSnackbar('Location reminder permissions could not be checked.', 4500);
+      this.showSnackbar(uiText('reminder.location_reminder_permissions_could_not_be_checked'), 4500);
       return false;
     }
   }
@@ -810,7 +817,7 @@ export class ReminderService {
         radiusMeters: Number(r.radiusMeters ?? 120),
         triggerType: r.locationTrigger === 'leave' ? 'leave' : 'arrive',
         status: 'pending',
-        notificationTitle: r.title || 'Kept reminder',
+        notificationTitle: r.title || uiText('reminder.kept_reminder'),
         notificationBody: r.body || '',
         deepLink: `kept://note/${r.noteId}`,
         createdAt: r.createdAt || '',
@@ -860,7 +867,7 @@ export class ReminderService {
       nativeReminders.push({
         id: String(reminder.id),
         fireAtMs,
-        title: reminder.title || 'Kept reminder',
+        title: reminder.title || uiText('reminder.kept_reminder'),
         body: reminder.body || undefined,
         deepLink: `kept://note/${reminder.noteId}`
       });
@@ -906,8 +913,8 @@ export class ReminderService {
     try {
       (window as any).Snackbar?.show({
         pos: 'bottom-left',
-        text: 'Android may delay reminders unless exact alarms are allowed.',
-        actionText: 'Settings',
+        text: uiText('reminder.android_may_delay_reminders_unless_exact_alarms_are_allowed'),
+        actionText: uiText('common.settings'),
         duration: 8000,
         onActionClick: () => {
           KeptTimeReminders!.openExactAlarmSettings().catch(console.error);

@@ -1,21 +1,21 @@
 @if (notice) {
-  <aside class="plan-notice" role="status" aria-label="Server plan notice">
+  <aside class="plan-notice" role="status" [attr.aria-label]="'managed_notice_banner.server_plan_notice' | translate">
     <span class="material-symbols-outlined plan-notice-icon" aria-hidden="true">warning</span>
     <div class="plan-notice-copy">
-      <p>{{message}}</p>
+      <p>{{(message) | uiText}}</p>
       @if (notice.deletesAt) {
-        <p class="plan-notice-deletion">After that, notes on this server are deleted on {{formatDate(notice.deletesAt)}}.</p>
+        <p class="plan-notice-deletion">{{ 'managed_notice_banner.after_that_notes_on_this_server_are_deleted_on_value0' | translate: { value0: (formatDate(notice.deletesAt)) } }}</p>
       }
     </div>
     <div class="plan-notice-actions">
       @if (auth.isAdmin) {
-        @if (notice.kind === 'ending') { <a routerLink="/users" fragment="full-server-backup">Back up</a> }
-        <a [href]="notice.actionUrl" target="_blank" rel="noopener noreferrer">Manage plan</a>
+        @if (notice.kind === 'ending') { <a routerLink="/users" fragment="full-server-backup">{{ 'managed_notice_banner.back_up' | translate }}</a> }
+        <a [href]="notice.actionUrl" target="_blank" rel="noopener noreferrer">{{ 'managed_notice_banner.manage_plan' | translate }}</a>
       } @else if (notice.kind === 'ending') {
-        <a routerLink="/settings" fragment="export-notes">Export my notes</a>
+        <a routerLink="/settings" fragment="export-notes">{{ 'managed_notice_banner.export_my_notes' | translate }}</a>
       }
     </div>
-    <button type="button" class="plan-notice-dismiss" aria-label="Dismiss plan notice for 24 hours" (click)="dismiss()">
+    <button type="button" class="plan-notice-dismiss" [attr.aria-label]="'managed_notice_banner.dismiss_plan_notice_for_24_hours' | translate" (click)="dismiss()">
       <span class="material-symbols-outlined" aria-hidden="true">close</span>
     </button>
   </aside>

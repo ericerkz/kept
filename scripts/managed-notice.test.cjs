@@ -32,6 +32,7 @@ function load(file, runtime) {
   }).outputText, {
     exports, ...runtime,
     require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
       if (name === '@angular/core') return { Injectable: () => target => target, Component: () => target => target };
       if (name === 'rxjs') return rx;
       if (name === '@capacitor/core') return runtime.capacitor;

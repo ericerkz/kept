@@ -31,6 +31,7 @@ function harness({ native = true, failChunk = -1, ignoreRange = false, badRange 
     btoa: value => Buffer.from(value, 'binary').toString('base64'),
     document: { createElement: () => link, body: { appendChild() {} } },
     require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
       if (name === '@angular/core') return { Injectable: () => target => target };
       if (name === '@capacitor/core') return { Capacitor: { isNativePlatform: () => native } };
       if (name === 'rxjs') return rx;

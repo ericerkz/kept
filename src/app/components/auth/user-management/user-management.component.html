@@ -6,41 +6,41 @@
         <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
         <span>Kept</span>
       </div>
-      <a routerLink="/">← Back to notes</a>
+      <a routerLink="/">{{ 'settings.back_to_notes' | translate }}</a>
     </div>
 
-    <h1>User management</h1>
+    <h1>{{ 'user_management.user_management' | translate }}</h1>
 
-    @if (error) { <div class="error global-msg">{{error}}</div> }
-    @if (success) { <div class="success global-msg">{{success}}</div> }
+    @if (error) { <div class="error global-msg">{{(error) | uiText}}</div> }
+    @if (success) { <div class="success global-msg">{{(success) | uiText}}</div> }
 
     <!-- ── Group: Registration ──────────────────────────────────────────── -->
     <div class="settings-group">
       <h2 class="group-title color-blue">
         <span class="material-symbols-outlined">how_to_reg</span>
-        Registration
+        {{ 'user_management.registration' | translate }}
       </h2>
 
       <section class="settings-section reg-section">
-        <div class="section-title">Sign-up policy</div>
+        <div class="section-title">{{ 'user_management.sign_up_policy' | translate }}</div>
         <p class="section-desc">
-          Control whether new visitors can register their own accounts and whether those accounts need an admin's approval before they can sign in.
+          {{ 'user_management.control_whether_new_visitors_can_register_their_own_accounts_and_' | translate }}
         </p>
 
         <div class="reg-toggles">
           <label class="reg-toggle">
             <input type="checkbox" [(ngModel)]="selfRegistrationEnabled" (change)="saveRegistrationSettings()">
             <div>
-              <strong>Allow self-registration</strong>
-              <small>New users can create their own accounts from the login page.</small>
+              <strong>{{ 'user_management.allow_self_registration' | translate }}</strong>
+              <small>{{ 'user_management.new_users_can_create_their_own_accounts_from_the_login_page' | translate }}</small>
             </div>
           </label>
           @if (selfRegistrationEnabled) {
             <label class="reg-toggle">
               <input type="checkbox" [(ngModel)]="requireApproval" (change)="saveRegistrationSettings()">
               <div>
-                <strong>Require admin approval</strong>
-                <small>New self-registered accounts must be approved by an admin before they can sign in.</small>
+                <strong>{{ 'user_management.require_admin_approval' | translate }}</strong>
+                <small>{{ 'user_management.new_self_registered_accounts_must_be_approved_by_an_admin_before_' | translate }}</small>
               </div>
             </label>
           }
@@ -52,45 +52,45 @@
     <div class="settings-group">
       <h2 class="group-title color-green">
         <span class="material-symbols-outlined">person_add</span>
-        Add a user
+        {{ 'user_management.add_a_user' | translate }}
       </h2>
 
       <section class="settings-section create-user-section">
-        <div class="section-title">Create account</div>
+        <div class="section-title">{{ 'register.create_account' | translate }}</div>
         <p class="section-desc">
-          Provision a new user directly. They'll be active immediately — no approval step.
+          {{ 'user_management.provision_a_new_user_directly_they_ll_be_active_immediately_no_ap' | translate }}
         </p>
 
         <form (ngSubmit)="createUser()" #userForm="ngForm" class="auth-form user-form">
           <label>
-            <span>Username</span>
-            <input name="username" [ngModel]="username" (ngModelChange)="onUsernameChange($event)" autocomplete="off" minlength="3" required>
-            <small class="hint">Minimum 3 characters</small>
+            <span>{{ 'common.username' | translate }}</span>
+            <input name="username" [ngModel]="username" (ngModelChange)="onUsernameChange($event)" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" minlength="3" required>
+            <small class="hint">{{ 'auth.username_minimum_length' | translate }}</small>
           </label>
           <label>
-            <span>Display name</span>
-            <input name="displayName" [(ngModel)]="displayName" (input)="onDisplayNameInput()" autocomplete="off" placeholder="Defaults to the username — change it to anything you'd like">
+            <span>{{ 'common.display_name' | translate }}</span>
+            <input name="displayName" [(ngModel)]="displayName" (input)="onDisplayNameInput()" autocomplete="off" [attr.placeholder]="'user_management.defaults_to_the_username_change_it_to_anything_you_d_like' | translate">
           </label>
           <label>
-            <span>Email</span>
-            <input name="email" [(ngModel)]="email" autocomplete="off" type="email" placeholder="user&#64;example.com">
+            <span>{{ 'common.email' | translate }}</span>
+            <input name="email" [(ngModel)]="email" autocomplete="off" type="email" [attr.placeholder]="'user_management.user_example_com' | translate">
           </label>
           <label>
-            <span>Password</span>
+            <span>{{ 'common.password' | translate }}</span>
             <input name="password" [(ngModel)]="password" autocomplete="new-password" type="password" minlength="8" required>
-            <small class="hint">Minimum 8 characters</small>
+            <small class="hint">{{ 'auth.password_minimum_length' | translate }}</small>
           </label>
           <label>
-            <span>Role</span>
+            <span>{{ 'user_management.role' | translate }}</span>
             <select name="role" [(ngModel)]="role">
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
+              <option value="user">{{ 'navbar.user' | translate }}</option>
+              <option value="admin">{{ 'user_management.admin' | translate }}</option>
             </select>
           </label>
 
           <div class="form-actions">
             <button type="submit" [disabled]="userForm.invalid || isSaving">
-              {{isSaving ? 'Creating…' : 'Create user'}}
+              {{(isSaving) ? ('user_management.creating' | translate) : ('user_management.create_user' | translate)}}
             </button>
           </div>
         </form>
@@ -105,7 +105,7 @@
       <div class="settings-group">
         <h2 class="group-title color-green">
           <span class="material-symbols-outlined">mail</span>
-          Invite by email
+          {{ 'user_management.invite_by_email' | translate }}
         </h2>
 
         <section class="settings-section">
@@ -113,30 +113,30 @@
             <label class="reg-toggle">
               <input type="checkbox" [(ngModel)]="inviteByEmailEnabled" [disabled]="isSavingInviteSetting" (change)="toggleInviteByEmail()">
               <div>
-                <strong>Allow inviting new users by email</strong>
-                <small>Lets you send someone a link to set up their own username and password, instead of choosing one for them.</small>
+                <strong>{{ 'user_management.allow_inviting_new_users_by_email' | translate }}</strong>
+                <small>{{ 'user_management.lets_you_send_someone_a_link_to_set_up_their_own_username_and_pas' | translate }}</small>
               </div>
             </label>
           </div>
 
           @if (inviteByEmailEnabled) {
-            @if (inviteError) { <div class="error global-msg" style="margin-top: 16px;">{{inviteError}}</div> }
-            @if (inviteSuccess) { <div class="success global-msg" style="margin-top: 16px;">{{inviteSuccess}}</div> }
+            @if (inviteError) { <div class="error global-msg" style="margin-top: 16px;">{{(inviteError) | uiText}}</div> }
+            @if (inviteSuccess) { <div class="success global-msg" style="margin-top: 16px;">{{(inviteSuccess) | uiText}}</div> }
             <form (ngSubmit)="sendInvite()" #inviteFormRef="ngForm" class="auth-form user-form" style="margin-top: 16px;">
               <label>
-                <span>Email</span>
-                <input name="inviteEmail" [(ngModel)]="inviteEmail" autocomplete="off" type="email" required placeholder="friend&#64;example.com">
+                <span>{{ 'common.email' | translate }}</span>
+                <input name="inviteEmail" [(ngModel)]="inviteEmail" autocomplete="off" type="email" required [attr.placeholder]="'user_management.friend_example_com' | translate">
               </label>
               <label>
-                <span>Role</span>
+                <span>{{ 'user_management.role' | translate }}</span>
                 <select name="inviteRole" [(ngModel)]="inviteRole">
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
+                  <option value="user">{{ 'navbar.user' | translate }}</option>
+                  <option value="admin">{{ 'user_management.admin' | translate }}</option>
                 </select>
               </label>
               <div class="form-actions">
                 <button type="submit" [disabled]="inviteFormRef.invalid || isSendingInvite">
-                  {{isSendingInvite ? 'Sending…' : 'Send invitation'}}
+                  {{(isSendingInvite) ? ('user_management.sending' | translate) : ('user_management.send_invitation' | translate)}}
                 </button>
               </div>
             </form>
@@ -149,7 +149,7 @@
     <div class="settings-group">
       <h2 class="group-title color-purple">
         <span class="material-symbols-outlined">group</span>
-        Users
+        {{ 'common.users' | translate }}
         <span class="user-count">{{users.length}}</span>
       </h2>
 
@@ -159,15 +159,15 @@
             <div class="user-row" [class.disabled-user]="user.enabled === false">
               <div class="user-info">
                 <div class="user-name-row">
-                  <strong>{{user.displayName || user.username}}</strong>
+                  <strong>{{(user.displayName) || (user.username)}}</strong>
                   <span class="role-pill" [class.role-admin]="user.role === 'admin'">{{user.role}}</span>
                   @if (user.totpEnabled) {
-                    <span class="mfa-badge" title="2FA Enabled">
+                    <span class="mfa-badge" [attr.title]="'user_management.2fa_enabled' | translate">
                       <span class="material-symbols-outlined" style="font-size: 14px;">shield_lock</span>
                     </span>
                   }
                   @if (user.enabled === false) {
-                    <span class="pending-badge">Pending approval</span>
+                    <span class="pending-badge">{{ 'user_management.pending_approval' | translate }}</span>
                   }
 
                 </div>
@@ -178,45 +178,45 @@
               </div>
               <div class="user-actions">
                 @if (user.enabled === false && auth.currentUser?.id !== user.id) {
-                  <button type="button" class="btn-approve" (click)="toggleUserEnabled(user)">Approve</button>
+                  <button type="button" class="btn-approve" (click)="toggleUserEnabled(user)">{{ 'user_management.approve' | translate }}</button>
                 } @else if (user.enabled !== false && auth.currentUser?.id !== user.id) {
-                  <button type="button" class="btn-secondary" (click)="toggleUserEnabled(user)">Disable</button>
+                  <button type="button" class="btn-secondary" (click)="toggleUserEnabled(user)">{{ 'user_management.disable' | translate }}</button>
                 }
                 <button type="button" class="btn-secondary" (click)="openResetPassword(user.id!)">
-                  {{resetPasswordUserId === user.id ? 'Cancel' : 'Reset password'}}
+                  {{(resetPasswordUserId === user.id) ? ('common.cancel' | translate) : ('navbar.reset_password' | translate)}}
                 </button>
                 @if (user.totpEnabled) {
                   <button type="button" class="btn-warning-link" (click)="disableUser2fa(user.id!)">
-                    Disable 2FA
+                    {{ 'user_management.disable_2fa' | translate }}
                   </button>
                 }
 
                 <button type="button" class="btn-danger" (click)="confirmDeleteUser(user)" [disabled]="auth.currentUser?.id === user.id">
-                  Delete
+                  {{ 'common.delete' | translate }}
                 </button>
               </div>
 
               @if (confirmDeleteUserId === user.id) {
                 <div class="delete-confirmation-inline">
-                  <div class="confirmation-text">Are you sure you want to delete <strong>{{user.username}}</strong>? This cannot be undone.</div>
+                  <div class="confirmation-text">{{ 'user_management.are_you_sure_you_want_to_delete' | translate }} <strong>{{user.username}}</strong>{{ 'user_management.this_cannot_be_undone' | translate }}</div>
                   <div class="confirmation-actions">
-                    <button type="button" class="btn-danger" (click)="deleteUser(user)">Confirm Delete</button>
-                    <button type="button" class="btn-secondary" (click)="cancelDeleteUser()">Cancel</button>
+                    <button type="button" class="btn-danger" (click)="deleteUser(user)">{{ 'user_management.confirm_delete' | translate }}</button>
+                    <button type="button" class="btn-secondary" (click)="cancelDeleteUser()">{{ 'common.cancel' | translate }}</button>
                   </div>
                 </div>
               }
 
               @if (resetPasswordUserId === user.id) {
                 <div class="reset-pw-inline">
-                  <input type="password" [(ngModel)]="resetPasswordValue" placeholder="New password (min. 8 chars)" autocomplete="new-password">
+                  <input type="password" [(ngModel)]="resetPasswordValue" [attr.placeholder]="'user_management.new_password_min_8_chars' | translate" autocomplete="new-password">
                   <button type="button" [disabled]="isResettingPassword || !resetPasswordValue" (click)="submitResetPassword(user.id!)">
-                    {{isResettingPassword ? 'Resetting…' : 'Set new password'}}
+                    {{(isResettingPassword) ? ('user_management.resetting' | translate) : ('user_management.set_new_password' | translate)}}
                   </button>
                   @if (resetPasswordError) {
-                    <div class="pw-inline-feedback error">{{resetPasswordError}}</div>
+                    <div class="pw-inline-feedback error">{{(resetPasswordError) | uiText}}</div>
                   }
                   @if (resetPasswordSuccess) {
-                    <div class="pw-inline-feedback success">{{resetPasswordSuccess}}</div>
+                    <div class="pw-inline-feedback success">{{(resetPasswordSuccess) | uiText}}</div>
                   }
                 </div>
               }
@@ -231,25 +231,25 @@
       <div class="settings-group">
         <h2 class="group-title color-orange">
           <span class="material-symbols-outlined">cloud</span>
-          Managed hosting
+          {{ 'settings.managed_hosting' | translate }}
         </h2>
         <section class="settings-section about-section">
           <div class="about-row">
-            <div class="about-label">Hosted by</div>
-            <div class="about-value">{{managedHosting?.providerName || 'a managed hosting provider'}}</div>
+            <div class="about-label">{{ 'user_management.hosted_by' | translate }}</div>
+            <div class="about-value">{{(managedHosting?.providerName) || ('user_management.a_managed_hosting_provider' | translate)}}</div>
           </div>
           @if (managedHosting?.accountUrl) {
             <div class="about-row">
-              <div class="about-label">Account &amp; billing</div>
+              <div class="about-label">{{ 'user_management.account_billing' | translate }}</div>
               <div class="about-value">
-                <a [href]="managedHosting?.accountUrl" target="_blank" rel="noopener">Manage subscription →</a>
+                <a [href]="managedHosting?.accountUrl" target="_blank" rel="noopener">{{ 'user_management.manage_subscription' | translate }}</a>
               </div>
             </div>
           }
           @if (managedHosting?.quotaBytes) {
             <div class="about-row">
-              <div class="about-label">Storage</div>
-              <div class="about-value">{{formatSize(managedHosting?.quotaBytes!)}} included</div>
+              <div class="about-label">{{ 'user_management.storage' | translate }}</div>
+              <div class="about-value">{{ 'user_management.value0_included' | translate: { value0: (formatSize(managedHosting?.quotaBytes!)) } }}</div>
             </div>
           }
         </section>
@@ -261,28 +261,28 @@
     <div class="settings-group">
       <h2 class="group-title color-orange">
         <span class="material-symbols-outlined">schedule_send</span>
-        Automated scheduled backups
+        {{ 'user_management.automated_scheduled_backups' | translate }}
       </h2>
 
       <section class="settings-section backup-section">
-        <div class="section-title">Recurrence and time</div>
-        @if (automatedBackupError) { <div class="error global-msg" style="margin-bottom: 16px;">{{automatedBackupError}}</div> }
-        @if (automatedBackupSuccess) { <div class="success global-msg" style="margin-bottom: 16px;">{{automatedBackupSuccess}}</div> }
+        <div class="section-title">{{ 'user_management.recurrence_and_time' | translate }}</div>
+        @if (automatedBackupError) { <div class="error global-msg" style="margin-bottom: 16px;">{{(automatedBackupError) | uiText}}</div> }
+        @if (automatedBackupSuccess) { <div class="success global-msg" style="margin-bottom: 16px;">{{(automatedBackupSuccess) | uiText}}</div> }
         <p class="section-desc">
 
 
-          Configure Kept to automatically snapshot your database. Backups are saved to: <code class="path-code">{{absolutePath}}</code>
+          {{ 'user_management.configure_kept_to_automatically_snapshot_your_database_backups_ar' | translate }} <code class="path-code">{{absolutePath}}</code>
         </p>
 
         <div class="backup-controls scheduled-controls">
           <div class="backup-config">
             <label>
-              <span>Automated schedule</span>
+              <span>{{ 'user_management.automated_schedule' | translate }}</span>
               <select [(ngModel)]="backupSchedule" (change)="changeBackupSchedule(backupSchedule)">
-                <option value="none">Disabled</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
+                <option value="none">{{ 'common.disabled' | translate }}</option>
+                <option value="daily">{{ 'common.daily' | translate }}</option>
+                <option value="weekly">{{ 'common.weekly' | translate }}</option>
+                <option value="monthly">{{ 'common.monthly' | translate }}</option>
               </select>
             </label>
           </div>
@@ -290,7 +290,7 @@
           @if (backupSchedule !== 'none') {
             <div class="backup-config time-picker-container">
               <label>
-                <span>Schedule settings</span>
+                <span>{{ 'user_management.schedule_settings' | translate }}</span>
                 <div class="timepicker-input-group" (click)="openBackupTimePicker()">
                   <input type="text" id="backupTimeInput" class="timepicker-ui-input" [value]="backupTime" readonly>
                   <span class="material-symbols-outlined clock-icon">schedule</span>
@@ -303,7 +303,7 @@
 
         @if (lastAutomatedAt) {
           <div class="last-backup-hint">
-            <strong>Last automated backup:</strong> {{lastAutomatedAt | date:'medium'}}
+            <strong>{{ 'user_management.last_automated_backup' | translate }}</strong> {{lastAutomatedAt | uiDate:'medium'}}
           </div>
         }
 
@@ -314,11 +314,11 @@
       <div class="settings-group">
         <h2 class="group-title color-orange">
           <span class="material-symbols-outlined">backup</span>
-          Backups
+          {{ 'user_management.backups' | translate }}
         </h2>
         <section class="settings-section">
           <p class="section-desc">
-            Backups are handled automatically by {{managedHosting?.providerName || 'your hosting provider'}}. There's nothing to configure here. To keep your own copy, or to move your notes to another Kept server, download a full backup below.
+            {{ 'user_management.backups_are_handled_automatically_by_value0_there_s_nothing_to_co' | translate: { value0: ((managedHosting?.providerName) || ('settings.your_hosting_provider' | translate)) } }}
           </p>
         </section>
       </div>
@@ -328,44 +328,44 @@
     <div class="settings-group" id="full-server-backup">
       <h2 class="group-title color-orange">
         <span class="material-symbols-outlined">backup</span>
-        Full server backup
+        {{ 'user_management.full_server_backup' | translate }}
       </h2>
 
       <section class="settings-section backup-section">
-        <div class="section-title">Download a full backup</div>
-        @if (manualBackupError) { <div class="error global-msg" style="margin-bottom: 16px;">{{manualBackupError}}</div> }
-        @if (manualBackupSuccess) { <div class="success global-msg" style="margin-bottom: 16px;">{{manualBackupSuccess}}</div> }
+        <div class="section-title">{{ 'user_management.download_a_full_backup' | translate }}</div>
+        @if (manualBackupError) { <div class="error global-msg" style="margin-bottom: 16px;">{{(manualBackupError) | uiText}}</div> }
+        @if (manualBackupSuccess) { <div class="success global-msg" style="margin-bottom: 16px;">{{(manualBackupSuccess) | uiText}}</div> }
         <p class="section-desc">
 
 
-          Download all accounts, notes, settings, images, and attachments in one ZIP file. Restore it during setup on another Kept server. This file contains private data for every user; keep it somewhere private. Older .sqlite backups contain the database only.
+          {{ 'user_management.download_all_accounts_notes_settings_images_and_attachments_in_on' | translate }}
         </p>
 
         <div class="backup-controls manual-controls">
           <button type="button" class="btn-primary" (click)="runBackupNow()" [disabled]="isBackingUp">
-            {{isBackingUp ? 'Preparing backup…' : 'Download a full backup'}}
+            {{(isBackingUp) ? ('user_management.preparing_backup' | translate) : ('user_management.download_a_full_backup' | translate)}}
           </button>
         </div>
 
         @if (lastManualAt) {
           <div class="last-backup-hint">
-            <strong>Last manual backup:</strong> {{lastManualAt | date:'medium'}}
+            <strong>{{ 'user_management.last_manual_backup' | translate }}</strong> {{lastManualAt | uiDate:'medium'}}
           </div>
         }
 
 
         @if (backupFiles.length > 0) {
           <div class="backup-list">
-            <h3>Recent backups</h3>
+            <h3>{{ 'user_management.recent_backups' | translate }}</h3>
             @for (file of backupFiles; track file.filename) {
               <div class="backup-row">
                 <div class="file-info">
                   <span class="filename">{{file.filename}}</span>
-                  <span class="file-meta">{{formatSize(file.size)}} • {{file.createdAt | date:'medium'}}</span>
+                  <span class="file-meta">{{formatSize(file.size)}} • {{file.createdAt | uiDate:'medium'}}</span>
                 </div>
                 <div class="file-actions">
-                  <button type="button" class="btn-secondary" (click)="downloadBackup(file.filename, file.size)">Download</button>
-                  <button type="button" class="btn-danger-link" (click)="deleteBackup(file.filename)">Delete</button>
+                  <button type="button" class="btn-secondary" (click)="downloadBackup(file.filename, file.size)">{{ 'common.download' | translate }}</button>
+                  <button type="button" class="btn-danger-link" (click)="deleteBackup(file.filename)">{{ 'common.delete' | translate }}</button>
                 </div>
               </div>
             }
@@ -378,41 +378,41 @@
     <div class="settings-group">
       <h2 class="group-title color-grey">
         <span class="material-symbols-outlined">info</span>
-        About
+        {{ 'user_management.about' | translate }}
       </h2>
 
       <section class="settings-section about-section">
         <div class="about-row">
-          <div class="about-label">Kept version</div>
+          <div class="about-label">{{ 'user_management.kept_version' | translate }}</div>
           <div class="about-value">
-            <code>{{versionInfo?.current || '—'}}</code>
+            <code>{{(versionInfo?.current) || ('—')}}</code>
             @if (managedHosting?.managed) {
-              <span class="version-tag uptodate">Updated automatically by {{managedHosting?.providerName || 'your hosting provider'}}</span>
+              <span class="version-tag uptodate">{{ 'user_management.updated_automatically_by_value0' | translate: { value0: ((managedHosting?.providerName) || ('settings.your_hosting_provider' | translate)) } }}</span>
             } @else if (versionInfo?.isOutdated && versionInfo?.latest) {
-              <span class="version-tag outdated">Update available: <code>{{versionInfo?.latest}}</code></span>
+              <span class="version-tag outdated">{{ 'user_management.update_available' | translate }} <code>{{versionInfo?.latest}}</code></span>
             } @else if (versionInfo?.latest && !versionInfo?.isOutdated) {
-              <span class="version-tag uptodate">Up to date</span>
+              <span class="version-tag uptodate">{{ 'user_management.up_to_date' | translate }}</span>
             }
           </div>
         </div>
         @if (!managedHosting?.managed && versionInfo?.releaseUrl) {
           <div class="about-row">
-            <div class="about-label">Latest release</div>
+            <div class="about-label">{{ 'user_management.latest_release' | translate }}</div>
             <div class="about-value">
-              <a [href]="versionInfo?.releaseUrl" target="_blank" rel="noopener">View on GitHub →</a>
+              <a [href]="versionInfo?.releaseUrl" target="_blank" rel="noopener">{{ 'user_management.view_on_github' | translate }}</a>
             </div>
           </div>
         }
         @if (versionInfo?.checkedAt) {
           <div class="about-row">
-            <div class="about-label">Last checked</div>
-            <div class="about-value about-muted">{{versionInfo?.checkedAt | date:'medium'}}</div>
+            <div class="about-label">{{ 'user_management.last_checked' | translate }}</div>
+            <div class="about-value about-muted">{{versionInfo?.checkedAt | uiDate:'medium'}}</div>
           </div>
         }
         @if (versionInfo?.checkError) {
           <div class="about-row">
-            <div class="about-label">Check error</div>
-            <div class="about-value about-muted">{{versionInfo?.checkError}}</div>
+            <div class="about-label">{{ 'user_management.check_error' | translate }}</div>
+            <div class="about-value about-muted">{{(versionInfo?.checkError) | uiText}}</div>
           </div>
         }
       </section>

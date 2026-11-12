@@ -5,24 +5,24 @@
       <img class="brand-wordmark" src="assets/images/keep2x_Text.png" alt="Kept" width="112" height="67">
     </div>
 
-    <h1 id="welcome-title">Your notes, your way</h1>
-    <p class="welcome-intro">Start on this device, or sync across all of them.</p>
-    @if (error) { <p class="error" role="alert">{{error}}</p> }
+    <h1 id="welcome-title">{{ 'welcome.your_notes_your_way' | translate }}</h1>
+    <p class="welcome-intro">{{ 'welcome.start_on_this_device_or_sync_across_all_of_them' | translate }}</p>
+    @if (error) { <p class="error" role="alert">{{(error) | uiText}}</p> }
 
     @if (workspace.canUseLocal) {
       <button type="button" class="welcome-option device-option" [disabled]="busy" (click)="useLocal()"
         aria-labelledby="device-option-title" aria-describedby="device-option-description">
         <span class="option-icon"><span class="material-symbols-outlined" aria-hidden="true">smartphone</span></span>
         <span class="option-content">
-          <strong class="option-title" id="device-option-title">Use on this device</strong>
-          <span class="option-description" id="device-option-description">No account or server needed. Back up or move to a server later.</span>
+          <strong class="option-title" id="device-option-title">{{ 'welcome.use_on_this_device' | translate }}</strong>
+          <span class="option-description" id="device-option-description">{{ 'welcome.no_account_or_server_needed_back_up_or_move_to_a_server_later' | translate }}</span>
         </span>
         <span class="material-symbols-outlined option-chevron" aria-hidden="true">chevron_right</span>
       </button>
     }
 
     <section class="sync-options" aria-labelledby="sync-options-title">
-      <h2 id="sync-options-title">Sync across devices</h2>
+      <h2 id="sync-options-title">{{ 'main.sync_across_devices' | translate }}</h2>
       <div class="sync-option-group">
         @if (managedHostingSignupEnabled && managedHostingOffering?.available) {
           <button type="button" class="welcome-option cloud-option" [disabled]="busy" (click)="startManagedHosting()"
@@ -32,21 +32,21 @@
               <span class="option-heading">
                 <strong class="option-title" id="cloud-option-title">Kept Cloud</strong>
                 @if (managedHostingOffering?.price; as price) {
-                  <span class="option-badge price-badge" id="cloud-option-price">{{ price }}/mo</span>
+                  <span class="option-badge price-badge" id="cloud-option-price">{{ 'settings.value0_mo' | translate: { value0: (price) } }}</span>
                 }
                 @if (managedHostingOffering?.trialDays; as days) {
-                  <span class="option-badge trial-badge" id="cloud-option-trial">{{ days }} {{ days === 1 ? 'day' : 'days' }} free</span>
+                  <span class="option-badge trial-badge" id="cloud-option-trial">{{ 'trial.badge' | uiPlural: days }}</span>
                 }
               </span>
               <span class="option-description" id="cloud-option-description">
                 @if (managedHostingOffering?.trialDays && managedHostingOffering?.price) {
-                  Try for {{ managedHostingOffering!.trialDays }} {{ managedHostingOffering!.trialDays === 1 ? 'day' : 'days' }} free, then {{ managedHostingOffering!.price }}/month.
+                  {{ 'trial.description' | uiPlural: managedHostingOffering!.trialDays!: { price: managedHostingOffering!.price! } }}
                 }
-                Sync across phone, desktop and web with no setup. We run and maintain your Kept server for you.
+                {{ 'welcome.sync_across_phone_desktop_and_web_with_no_setup_we_run_and_mainta' | translate }}
               </span>
               <span class="cloud-benefit" id="cloud-option-benefit">
                 <span class="material-symbols-outlined" aria-hidden="true">group</span>
-                <span>Add unlimited people. Everyone shares one subscription and 5 GB.</span>
+                <span>{{ 'welcome.add_unlimited_people_everyone_shares_one_subscription_and_5_gb' | translate }}</span>
               </span>
             </span>
             <span class="material-symbols-outlined option-chevron" aria-hidden="true">chevron_right</span>
@@ -58,10 +58,10 @@
           <span class="option-icon"><span class="material-symbols-outlined" aria-hidden="true">dns</span></span>
           <span class="option-content">
             <span class="option-heading">
-              <strong class="option-title" id="server-option-title">Your own server</strong>
-              <span class="option-badge included-badge" id="server-option-included">Included</span>
+              <strong class="option-title" id="server-option-title">{{ 'welcome.your_own_server' | translate }}</strong>
+              <span class="option-badge included-badge" id="server-option-included">{{ 'welcome.included' | translate }}</span>
             </span>
-            <span class="option-description" id="server-option-description">Connect a Kept server you host yourself. Every feature, fully in your control.</span>
+            <span class="option-description" id="server-option-description">{{ 'welcome.connect_a_kept_server_you_host_yourself_every_feature_fully_in_yo' | translate }}</span>
           </span>
           <span class="material-symbols-outlined option-chevron" aria-hidden="true">chevron_right</span>
         </button>
@@ -71,7 +71,7 @@
     @if (managedHostingSignupEnabled && managedHostingOffering?.available) {
       <p class="welcome-footer">
         <span class="material-symbols-outlined" aria-hidden="true">favorite_border</span>
-        <span>Cloud covers hosting and supports development. You can switch any time.</span>
+        <span>{{ 'welcome.cloud_covers_hosting_and_supports_development_you_can_switch_any_' | translate }}</span>
       </p>
     }
   </section>

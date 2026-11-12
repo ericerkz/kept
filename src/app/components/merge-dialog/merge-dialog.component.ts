@@ -1,3 +1,4 @@
+import { uiText, uiPlural } from 'src/app/i18n/messages';
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { NoteI } from 'src/app/interfaces/notes';
 
@@ -29,10 +30,10 @@ export class MergeDialogComponent {
     if (t) return t;
     const b = (note.noteBody || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
     if (b) return b.slice(0, 80);
-    if (note.checkBoxes?.length) return `${note.checkBoxes.length} checklist item${note.checkBoxes.length === 1 ? '' : 's'}`;
-    if (this.noteIsDrawing(note)) return 'Drawing';
-    if (note.images?.length) return `${note.images.length} image${note.images.length === 1 ? '' : 's'}`;
-    return '(empty note)';
+    if (note.checkBoxes?.length) return uiPlural('counts.checklist',note.checkBoxes.length);
+    if (this.noteIsDrawing(note)) return uiText('Drawing');
+    if (note.images?.length) return uiPlural('counts.images',note.images.length);
+    return uiText('merge_dialog.empty_note');
   }
 
   noteTypeLabel(note: NoteI): string {
@@ -43,7 +44,7 @@ export class MergeDialogComponent {
     if (note.images?.some(i => i.id !== 'drawing')) parts.push('Images');
     if (note.attachments?.length) parts.push('Files');
     if (!parts.length) parts.push('Note');
-    return parts.join(' · ');
+    return parts.map(part => uiText(part)).join(' · ');
   }
 
   hasDrawings(): boolean {

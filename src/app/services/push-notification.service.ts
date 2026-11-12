@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
@@ -161,13 +162,13 @@ export class PushNotificationService {
       Snackbar.show({
         pos: 'bottom-left',
         text: reason,
-        actionText: 'Enable',
+        actionText: uiText('push_notification.enable'),
         duration: 0, // Keep it visible until they act
         onActionClick: async () => {
           const permission = await Notification.requestPermission();
           if (permission === 'granted') {
             await this.ensureSubscribed();
-            Snackbar.show({ pos: 'bottom-left', text: 'Notifications enabled!', duration: 3000 });
+            Snackbar.show({ pos: 'bottom-left', text: uiText('push_notification.notifications_enabled'), duration: 3000 });
           }
         }
       });

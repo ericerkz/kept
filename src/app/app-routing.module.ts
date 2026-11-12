@@ -26,6 +26,7 @@ const routes: Routes = [
   { path: "reminders", component: MainComponent, canActivate: [AuthGuard] },
   { path: "attachments", component: MainComponent, canActivate: [AuthGuard] },
   { path: "shared", component: MainComponent, canActivate: [AuthGuard] },
+  { path: "shared-binder/:id", component: MainComponent, canActivate: [AuthGuard] },
   { path: "binder/:name", component: MainComponent, canActivate: [AuthGuard] },
   { path: "label/:name", component: MainComponent, canActivate: [AuthGuard] },
   { path: "**", redirectTo: "" },

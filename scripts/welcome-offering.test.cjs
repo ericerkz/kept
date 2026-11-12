@@ -12,6 +12,7 @@ async function load(platform, offering, { pluginAvailable = true, failed = false
   const exports = {};
   let calls = 0;
   vm.runInNewContext(source, { exports, require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
     if (name === '@angular/core') return { Component: () => target => target };
     if (name === '@capacitor/core') return {
       Capacitor: { isNativePlatform: () => platform !== 'web', isPluginAvailable: () => pluginAvailable },

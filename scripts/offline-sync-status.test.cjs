@@ -110,6 +110,7 @@ function harness(t, platform = 'web', initiallyOnline = true) {
     Date: { now: () => clock.now }, queueMicrotask,
     setTimeout: clock.setTimeout.bind(clock), clearTimeout: clock.clearTimeout.bind(clock),
     require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
   if(name.endsWith('/note-images'))return require('../test-support/note-images.cjs').loadNoteImages();
       if (name === '@angular/core') return { Injectable: () => target => target };
       if (name === '@angular/common/http') return { HttpErrorResponse };
@@ -143,6 +144,7 @@ test('older cached account preferences settle after normalization instead of con
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, experimentalDecorators: true }
   }).outputText;
   vm.runInNewContext(authSource, { exports, localStorage: { setItem() {} }, require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
     if (name === '@angular/core') return { Injectable: () => target => target };
     if (name === '@angular/common/http' || name === '@capacitor/core' || name.endsWith('/note-html')) return {};
     if (name === 'rxjs') return rx;

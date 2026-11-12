@@ -1,4 +1,6 @@
+import { uiText } from 'src/app/i18n/messages';
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
+import { I18nService } from 'src/app/i18n/i18n.service';
 import { WorkspaceBackupService, BACKUP_NOTICE } from 'src/app/services/workspace-backup.service';
 import { WorkspaceMigrationService } from 'src/app/services/workspace-migration.service';
 import { DeviceServerMoveService } from 'src/app/services/device-server-move.service';
@@ -159,7 +161,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   private visibilityListener: (() => void) | null = null;
 
+  async changeLanguage(language: string) {
+    try { await this.i18n.selectLanguage(language); }
+    catch { (window as any).Snackbar?.show({ pos: 'bottom-left', text: this.i18n.text('language.save_failed'), duration: 4500 }); }
+  }
+
   constructor(
+    public i18n: I18nService,
     private reminderService: ReminderService,
     private notesService: NotesService,
     private route: ActivatedRoute,
@@ -187,8 +195,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
   readonly backupNotice = BACKUP_NOTICE;
   async deviceTask(task: () => Promise<unknown>, message: string) {
     this.deviceBusy = true; this.error = ''; this.success = '';
-    try { const result = await task(); this.success = result === false ? '' : message; await this.loadDeviceData(); }
-    catch (error) { this.error = error instanceof Error ? error.message : 'The device operation failed. Your notes have been preserved.'; }
+    try { const result = await task(); this.success = result === false ? ('') : (message); await this.loadDeviceData(); }
+    catch (error) { this.error = error instanceof Error ? (error.message) : (uiText('settings.the_device_operation_failed_your_notes_have_been_preserved')); }
     finally { this.deviceBusy = false; }
   }
   backupDevice() { return this.deviceTask(() => this.backups.export(), 'Backup saved.'); }
@@ -219,12 +227,12 @@ export class SettingsComponent implements OnInit, OnDestroy {
     }, 'Transfer complete.');
   }
   discardStaging(workspace: Workspace) {
-    if (confirm('Remove this incomplete backup or restore? Your saved notes will be kept.')) return this.deviceTask(()=>this.offlineStore.discardStaging(workspace.id),'Incomplete staging data removed.');
+    if (confirm(uiText('settings.remove_this_incomplete_backup_or_restore_your_saved_notes_will_be'))) return this.deviceTask(()=>this.offlineStore.discardStaging(workspace.id),'Incomplete staging data removed.');
     return Promise.resolve();
   }
   async loadDeviceData() {
     const usage = await this.authService.workspace.storageUsage();
-    this.storageUsed = `${Math.round((usage.usage || 0) / 1048576)} MiB used`;
+    this.storageUsed = uiText('settings.value0_mib_used', { value0: (Math.round((usage.usage || 0) / 1048576)) });
     this.stagingWorkspaces = (await this.offlineStore.listWorkspaces()).filter(item=>item.status === 'staging');
   }
 
@@ -245,7 +253,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     const googleResult = this.route.snapshot.queryParamMap.get('google');
     const googleMessage = this.route.snapshot.queryParamMap.get('message');
     if (googleResult === 'connected') {
-      this.success = 'Google Calendar connected successfully.';
+      this.success = uiText('settings.google_calendar_connected_successfully');
       history.replaceState({}, '', '/settings');
     } else if (googleResult === 'error') {
       this.error = googleMessage || 'Google Calendar connection failed.';
@@ -303,7 +311,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.push.restoreNotificationPermissionPrompt();
     this.refreshNotificationPermissionState();
     window.dispatchEvent(new CustomEvent('kept-notification-permission-reprompt'));
-    this.success = 'Notification prompt restored.';
+    this.success = uiText('settings.notification_prompt_restored');
   }
 
   toggleTwentyFourHourTime(event: Event) {
@@ -318,7 +326,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       await this.authService.setFollowSystemTheme(input.checked);
     } catch {
       input.checked = this.authService.followsSystemTheme;
-      this.error = 'Could not save the appearance preference.';
+      this.error = uiText('settings.could_not_save_the_appearance_preference');
     } finally {
       this.isSavingThemePreference = false;
     }
@@ -341,7 +349,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       await this.preferences.updateShowPastReminders(enabled);
     } catch {
       this.refreshDisplayPreferences();
-      this.error = 'Could not save the past reminders preference.';
+      this.error = uiText('settings.could_not_save_the_past_reminders_preference');
     }
   }
 
@@ -352,7 +360,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       await this.authService.updateAccountPreferences({ [field]: input.checked });
     } catch {
       input.checked = this.authService.currentUser?.[field] !== false;
-      this.error = 'Could not save the shared note preference.';
+      this.error = uiText('settings.could_not_save_the_shared_note_preference');
     } finally { this.savingSharedOrganization = false; }
   }
 
@@ -445,7 +453,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   async disconnectOidc() {
     if (this.oidcLinkStatus?.passwordLoginEnabled === false) return;
     const provider = this.oidcLinkStatus?.providerName || 'single sign-on';
-    if (!confirm(`Disconnect ${provider}? You will no longer be able to use it to sign in to this Kept account.`)) return;
+    if (!confirm(uiText('settings.disconnect_value0_you_will_no_longer_be_able_to_use_it_to_si', { value0: (provider) }))) return;
     this.isDisconnectingOidc = true;
     this.error = '';
     try {
@@ -453,7 +461,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       if (this.oidcLinkStatus) {
         this.oidcLinkStatus = { ...this.oidcLinkStatus, connected: false, identityEmail: '', connectedAt: null };
       }
-      this.success = `${provider} disconnected.`;
+      this.success = uiText('settings.value0_disconnected', { value0: (provider) });
     } catch (e: any) {
       this.error = e?.error?.error || 'Could not disconnect the single sign-on account.';
     } finally {
@@ -469,7 +477,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       if (enabled) {
         this.mcpAccess = await this.authService.enableMcpAccess();
         this.newMcpAccessToken = this.mcpAccess.accessToken || '';
-        this.success = 'Local MCP access enabled. Save the token now.';
+        this.success = uiText('settings.local_mcp_access_enabled_save_the_token_now');
       } else {
         await this.authService.disableMcpAccess();
         this.mcpAccess = {
@@ -479,7 +487,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
           token: null
         };
         this.newMcpAccessToken = '';
-        this.success = 'Local MCP access disabled. OAuth app connections were not changed.';
+        this.success = uiText('settings.local_mcp_access_disabled_oauth_app_connections_were_not_changed');
       }
     } catch (e: any) {
       (event.target as HTMLInputElement).checked = !enabled;
@@ -490,13 +498,13 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   async regenerateMcpToken() {
-    if (!confirm('Generate a new MCP token? The current token will stop working immediately.')) return;
+    if (!confirm(uiText('settings.generate_a_new_mcp_token_the_current_token_will_stop_working_imme'))) return;
     this.isSavingMcpAccess = true;
     this.error = '';
     try {
       this.mcpAccess = await this.authService.enableMcpAccess();
       this.newMcpAccessToken = this.mcpAccess.accessToken || '';
-      this.success = 'A new MCP token was generated. Save it now.';
+      this.success = uiText('settings.a_new_mcp_token_was_generated_save_it_now');
     } catch (e: any) {
       this.error = e?.error?.error || 'Could not regenerate the MCP token.';
     } finally {
@@ -508,7 +516,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     const input = event.target as HTMLInputElement;
     const enabled = input.checked;
     if (!enabled && this.oauthAccess?.connections.length
-      && !confirm('Disable OAuth app access? All connected OAuth apps will be signed out. Local MCP access will not be changed.')) {
+      && !confirm(uiText('settings.disable_oauth_app_access_all_connected_oauth_apps_will_be_signed_'))) {
       input.checked = true;
       return;
     }
@@ -517,7 +525,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     try {
       if (enabled) {
         this.oauthAccess = await this.authService.enableOAuthAccess();
-        this.success = 'OAuth app access enabled.';
+        this.success = uiText('settings.oauth_app_access_enabled');
       } else {
         await this.authService.disableOAuthAccess();
         this.oauthAccess = {
@@ -526,7 +534,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
           allowPermanentDelete: !!this.oauthAccess?.allowPermanentDelete,
           connections: []
         };
-        this.success = 'OAuth app access disabled. Connected OAuth apps have been signed out.';
+        this.success = uiText('settings.oauth_app_access_disabled_connected_oauth_apps_have_been_signed_o');
       }
     } catch (e: any) {
       input.checked = !enabled;
@@ -537,7 +545,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
   }
 
   async revokeOAuthConnection(connectionId: number, clientName: string) {
-    if (!confirm(`Revoke ${clientName}'s access to Kept?`)) return;
+    if (!confirm(uiText('settings.revoke_value0_s_access_to_kept', { value0: (clientName) }))) return;
     this.revokingOAuthConnectionId = connectionId;
     this.error = '';
     try {
@@ -548,7 +556,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
           connections: this.oauthAccess.connections.filter(connection => connection.id !== connectionId)
         };
       }
-      this.success = `${clientName} was disconnected.`;
+      this.success = uiText('settings.value0_was_disconnected', { value0: (clientName) });
     } catch (e: any) {
       this.error = e?.error?.error || 'Could not revoke the OAuth connection.';
     } finally {
@@ -591,7 +599,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     try {
       const plugin = (window as any).Capacitor?.Plugins?.KeptIntelligence;
       if (!plugin) {
-        this.permissionsError = 'KeptIntelligence plugin not available.';
+        this.permissionsError = uiText('settings.keptintelligence_plugin_not_available');
         return;
       }
       this.permissionsStatus = await plugin.getPermissionsStatus();
@@ -654,7 +662,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       }
     } else {
       if (this.totpEnabled) {
-        if (confirm('Are you sure you want to disable Two-Factor Authentication?')) {
+        if (confirm(uiText('settings.are_you_sure_you_want_to_disable_two_factor_authentication'))) {
           await this.remove2fa();
         } else {
           // Revert checkbox state visually if they cancelled
@@ -717,7 +725,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.totpToken = '';
       this.totpSecret = '';
       this.backupCodes = null;
-      this.success = 'Two-Factor Authentication disabled.';
+      this.success = uiText('settings.two_factor_authentication_disabled');
 
       // Update session locally
       if (this.authService.currentUser) {
@@ -788,7 +796,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
     try {
       await this.reminderService.disconnectGoogleCalendar();
       if (this.googleStatus) this.googleStatus = { ...this.googleStatus, connected: false };
-      this.success = 'Google Calendar disconnected.';
+      this.success = uiText('settings.google_calendar_disconnected');
     } catch (e: any) {
       this.error = e?.error?.error || 'Could not disconnect.';
     }
@@ -800,7 +808,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.googleStatus = null;
       this.googleClientId = '';
       this.googleClientSecret = '';
-      this.success = 'Google Calendar credentials removed.';
+      this.success = uiText('settings.google_calendar_credentials_removed');
     } catch (e: any) {
       this.error = e?.error?.error || 'Could not remove credentials.';
     }
@@ -835,7 +843,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       if (e?.status === 413) {
         this.takeoutError = e?.error?.error || 'That Takeout ZIP is too large for this server or proxy. Try importing directly over LAN/SSH, or raise your proxy upload limit.';
       } else if (e?.status === 0) {
-        this.takeoutError = 'Import upload could not reach Kept. Large Takeout ZIPs may be blocked by Cloudflare, Nginx, or another proxy before Kept can read them. Try importing directly over LAN/SSH.';
+        this.takeoutError = uiText('settings.import_upload_could_not_reach_kept_large_takeout_zips_may_be_bloc');
       } else {
         this.takeoutError = e?.error?.error || 'Import failed. If this is a large Takeout ZIP, try importing directly over LAN/SSH or raise your proxy upload limit.';
       }
@@ -861,7 +869,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
         enabled: this.caldavEnabled
       });
       this.hasExistingCaldav = true;
-      this.success = 'CalDAV settings saved.';
+      this.success = uiText('settings.caldav_settings_saved');
     } catch (e: any) {
       this.error = e?.error?.error || 'Could not save settings.';
     }
@@ -896,7 +904,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
       this.password = '';
       this.caldavEnabled = false;
       this.testResult = null;
-      this.success = 'CalDAV sync removed.';
+      this.success = uiText('settings.caldav_sync_removed');
     } catch {}
   }
 
@@ -908,9 +916,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
       const notes = await this.notesService.getAll();
       const blob = new Blob([JSON.stringify(notes, null, 2)], { type: 'application/json' });
       this.downloadFile(blob, 'kept-notes-export.json');
-      this.success = 'JSON export complete.';
+      this.success = uiText('settings.json_export_complete');
     } catch (e: any) {
-      this.error = 'Failed to export JSON.';
+      this.error = uiText('settings.failed_to_export_json');
     } finally {
       this.isExporting = false;
     }
@@ -934,9 +942,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
       const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv' });
       this.downloadFile(blob, 'kept-notes-export.csv');
-      this.success = 'CSV export complete.';
+      this.success = uiText('settings.csv_export_complete');
     } catch (e: any) {
-      this.error = 'Failed to export CSV.';
+      this.error = uiText('settings.failed_to_export_csv');
     } finally {
       this.isExporting = false;
     }
@@ -985,9 +993,9 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
       const blob = await zip.generateAsync({ type: 'blob' });
       this.downloadFile(blob, 'kept-markdown-export.zip');
-      this.success = 'Markdown ZIP export complete.';
+      this.success = uiText('settings.markdown_zip_export_complete');
     } catch (e: any) {
-      this.error = 'Failed to export Markdown ZIP.';
+      this.error = uiText('settings.failed_to_export_markdown_zip');
       console.error(e);
     } finally {
       this.isExporting = false;
@@ -1008,10 +1016,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
     this.error = '';
     this.success = '';
     if (this.deleteAccountConfirmation !== 'DELETE') {
-      this.deleteAccountError = 'Type DELETE to confirm.';
+      this.deleteAccountError = uiText('settings.type_delete_to_confirm_2');
       return;
     }
-    const finalConfirm = confirm('Permanently delete your account and all notes/data you own? This cannot be undone.');
+    const finalConfirm = confirm(uiText('settings.permanently_delete_your_account_and_all_notes_data_you_own_this_c'));
     if (!finalConfirm) return;
 
     this.isDeletingAccount = true;

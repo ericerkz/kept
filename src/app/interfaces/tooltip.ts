@@ -26,7 +26,49 @@ export enum bgColors {
     pink = '#4a1a2e',
     brown = '#3a211a',
     gray = '#334155',
+    mist = '#e2e8ed',
+    sand = '#efe5d0',
+    stone = '#e5e3dd',
+    butter = '#f4ebc4',
+    citron = '#e4f571',
+    sunflower = '#ffdf4d',
+    pistachio = '#e0f4ad',
+    eucalyptus = '#d6e1c5',
+    olive = '#cfd8ae',
+    seafoam = '#bcefdc',
+    ice = '#b4e6eb',
+    seaglass = '#c8e0dd',
+    jade = '#6ce6b5',
+    turquoise = '#60dfd0',
+    fog = '#c1d1e1',
+    azure = '#80d3f9',
+    heather = '#d8d1e4',
+    periwinkle = '#c9c5f5',
+    violet = '#b6a0ff',
+    petal = '#f3d7df',
+    orchid = '#edc9e4',
+    magenta = '#e9a2ef',
+    bubblegum = '#ff9bd1',
+    coral = '#ffc2b0',
+    salmon = '#ff9f8e',
+    watermelon = '#ff8787',
+    honey = '#ffe1a0',
+    clay = '#ecc8b0',
 }
+// Family columns are explicit: KeyValuePipe's alphabetical order is unsuitable here.
+// Keep legacy enum values (including peach) unchanged so saved notes retain their colour.
+export const noteColorFamilies: ReadonlyArray<{key: string; label: string; colors: ReadonlyArray<keyof typeof bgColors>}> = [
+    {key:'neutral', label:'colors.neutral', colors:['_','mist','sand','stone','gray','darkblue']},
+    {key:'yellow', label:'colors.yellow', colors:['lemon','cream','butter','citron','sunflower','yellow']},
+    {key:'green', label:'colors.green', colors:['sage','pistachio','mint','eucalyptus','olive','green']},
+    {key:'teal', label:'colors.teal', colors:['seafoam','ice','seaglass','jade','turquoise','teal']},
+    {key:'blue', label:'colors.blue', colors:['aqua','sky','fog','cornflower','azure','blue']},
+    {key:'purple', label:'colors.purple', colors:['lilac','heather','periwinkle','lavender','violet','purple']},
+    {key:'pink', label:'colors.pink', colors:['petal','blush','orchid','magenta','bubblegum','pink']},
+    {key:'red', label:'colors.red', colors:['flamingo','rose','coral','salmon','watermelon','red']},
+    {key:'orange', label:'colors.orange', colors:['honey','apricot','clay','creamsicle','orange','brown']}
+];
+
 export enum bgImages {
     zNone = '',
     groceries = '/assets/images/backgrounds/groceries.svg',
@@ -42,3 +84,19 @@ export enum bgImages {
     meetings = '/assets/images/backgrounds/meetings.svg',
     budget = '/assets/images/backgrounds/budget.svg',
 }
+
+export const noteBackgroundChoices: ReadonlyArray<{key: keyof typeof bgImages; label: string; value: bgImages}> = [
+    {key:'zNone', label:'common.none', value:bgImages.zNone},
+    {key:'budget', label:'backgrounds.budget', value:bgImages.budget},
+    {key:'cafes', label:'backgrounds.cafes', value:bgImages.cafes},
+    {key:'groceries', label:'backgrounds.groceries', value:bgImages.groceries},
+    {key:'gym', label:'backgrounds.gym', value:bgImages.gym},
+    {key:'ideas', label:'backgrounds.ideas', value:bgImages.ideas},
+    {key:'meetings', label:'backgrounds.meetings', value:bgImages.meetings},
+    {key:'movies', label:'backgrounds.movies', value:bgImages.movies},
+    {key:'recipes', label:'backgrounds.recipes', value:bgImages.recipes},
+    {key:'romantic', label:'backgrounds.love', value:bgImages.romantic},
+    {key:'study', label:'backgrounds.study', value:bgImages.study},
+    {key:'tasks', label:'backgrounds.errands', value:bgImages.tasks},
+    {key:'travel', label:'backgrounds.travel', value:bgImages.travel}
+];

@@ -1,4 +1,4 @@
-import { applyPersonalOrganization, projectSharedOrganization } from '../utils/shared-note-organization';
+import { applyBinderMembership, applyPersonalOrganization, projectSharedOrganization } from '../utils/shared-note-organization';
 import { Capacitor } from '@capacitor/core';
 import { Injectable } from '@angular/core';
 import { environment } from 'src/environments/environment';
@@ -12,6 +12,7 @@ import { CatalogItem, MutationOutcome, NativeAction, ResourceChange, ResourceTyp
 export type SyncResourceType = ResourceType;
 export type SyncMutationType =
   | 'image.upload'
+  | 'note.binder'
   | 'note.organization'
   | 'note.upsert'
   | 'note.delete'
@@ -244,7 +245,7 @@ export class OfflineStoreService {
   async listOutbox(partition: string) {
     const priority: Record<SyncMutationType, number> = {
       'image.upload': -10,
-      'note.upsert': 0, 'note.organization': 0,
+      'note.upsert': 0, 'note.organization': 0, 'note.binder': 0,
       'note.delete': 1,
       'note.reorder': 2,
       'reminder.upsert': 3, 'reminder.occurrence': 4,
@@ -593,7 +594,13 @@ export class OfflineStoreService {
       if (options.blobs) for (const blob of options.blobs) {
         tx.objectStore('blobs').put({ key: `${partition}|${blob.key}`, partition, blobKey: blob.key, value: blob.value });
       }
-      if (type === 'note.organization') {
+      if (type === 'note.binder') {
+        const key=this.resourceKey(partition,syncId);
+        const previous=await this.request<StoredResource<NoteI> | undefined>(tx.objectStore('notes').get(key));
+        if (!previous) throw new Error('This shared note is unavailable on this device.');
+        for (const key of Object.keys(payload)) if (!['syncId','binderId','binderName','binder','sharedBinder'].includes(key)) delete payload[key];
+        tx.objectStore('notes').put({...previous,value:applyBinderMembership(previous.value,payload)});
+      } else if (type === 'note.organization') {
         const key = this.resourceKey(partition, syncId);
         const previous = await this.request<StoredResource<NoteI> | undefined>(tx.objectStore('notes').get(key));
         if (!previous?.value.sharedOrganization) throw new Error('This shared note is unavailable on this device.');
@@ -861,7 +868,7 @@ export class OfflineStoreService {
         const record = await this.request<any>(baseline.get(`${partition}|${type}|${syncId}`));
         let value = record?.value || null;
         for (const op of pending.filter(op => op.syncId === syncId && op.type.split('.')[0] === type && op.type !== 'attachment.upload')) {
-          value = op.type === 'note.organization'
+          value = op.type === 'note.binder' ? value && applyBinderMembership(value,op.payload as any) : op.type === 'note.organization'
             ? value && applyPersonalOrganization(value, op.payload as any)
             : op.type.endsWith('.delete') ? null : { ...value, ...(op.payload as any), ...(value?.id > 0 ? { id: value.id } : {}) };
         }

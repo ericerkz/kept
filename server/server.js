@@ -1,5 +1,6 @@
 const { secretValue } = require('./secret-files');
 const { plainText, imageSources, validateEmail, stripTrailingSlashes } = require('./text-utils');
+const { normalizeLanguage } = require('../shared/language-preference');
 const { createRequestLimits, createExclusiveTask } = require('./request-limits');
 const { StorageQuota } = require('./storage-quota');
 const { maxFileBytes: MAX_FILE_BYTES } = require('../shared/upload-limits.json');
@@ -23,6 +24,7 @@ const { generateSecret, verifySync, generateURI } = require('otplib');
 const qrcode = require('qrcode');
 const { sanitizeNoteHtml, sanitizeNoteContent, safeUrl } = require('./note-html');
 const { createWorkspaceSync } = require('./workspace-sync');
+const { createBinderSharing } = require('./binder-sharing');
 const { createWorkspaceImport } = require('./workspace-import');
 const { createBrowserSessions } = require('./browser-session');
 const { authenticateRealtime } = require('./realtime-auth');
@@ -638,6 +640,9 @@ async function init() {
   if (!userColumns.some(column => column.name === 'showPastReminders')) {
     await run(`ALTER TABLE users ADD COLUMN showPastReminders INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!userColumns.some(column => column.name === 'language')) {
+    await run(`ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'system'`);
+  }
   if (!userColumns.some(column => column.name === 'mcpEnabled')) {
     await run(`ALTER TABLE users ADD COLUMN mcpEnabled INTEGER NOT NULL DEFAULT 0`);
   }
@@ -1087,6 +1092,7 @@ async function init() {
     )
   `);
   await run(`CREATE INDEX IF NOT EXISTS sync_changes_user_sequence_idx ON sync_changes(userId, sequence)`);
+  await binderSharing.init();
   await sharedOrganization.init();
   await backfillImportedNoteLabels();
   await run(`
@@ -1208,6 +1214,8 @@ function publicUser(user) {
     role: user.role,
     theme: user.theme || 'light',
     followSystemTheme: !!user.followSystemTheme,
+    language: user.language || 'system',
+    languagePreferencesSupported: true,
     avatarDataUrl: user.avatarDataUrl || '',
     avatarPreset: user.avatarPreset || 'cat',
     showPastReminders: !!user.showPastReminders,
@@ -1305,12 +1313,14 @@ const browserSessions = createBrowserSessions({
   ttlMs: SESSION_TTL_DAYS * 24 * 60 * 60 * 1000
 });
 
+const binderSharing = createBinderSharing({ run,get,all,appendSyncChange,serverLwwStamp,compareLwwStamp,broadcastRealtime,moveNoteToTopForUsers,recordAttachmentSyncChange,recordReminderSyncChange });
+
 const sharedOrganization = createSharedNoteOrganization({ run, get, all, compareLwwStamp, serverLwwStamp,
-  normalizeLabelsForUser, getAccessibleNote, recordNoteSyncChange, broadcastRealtime, withDatabaseTransaction });
+  normalizeLabelsForUser, getAccessibleNote, recordNoteSyncChange, broadcastRealtime, withDatabaseTransaction, binderSharing });
 
 const workspaceSync = createWorkspaceSync({ run, get, all, appendSyncChange, normalizeLwwStamp,
   compareLwwStamp, serverLwwStamp, publicUser, noteSyncSnapshot, enrichReminderResponse,
-  parseLocationSavedPlacePayload, recordNoteSyncChange, updateNoteLabelReferencesForUser, withDatabaseTransaction, attachmentResponse, getAccessibleNote, sharedOrganization, compactReceipts: !!STORAGE_QUOTA_BYTES });
+  parseLocationSavedPlacePayload, recordNoteSyncChange, updateNoteLabelReferencesForUser, withDatabaseTransaction, attachmentResponse, getAccessibleNote, sharedOrganization, binderSharing, broadcastRealtime, compactReceipts: !!STORAGE_QUOTA_BYTES });
 
 const workspaceImport = createWorkspaceImport({ run,get,all,withDatabaseTransaction,dataDir,uploadDir,attachmentDir,
   workspaceSync,serverLwwStamp,applyNote:applySyncNoteMutation,applyReminder:applySyncReminderMutation,
@@ -1464,7 +1474,7 @@ const KNOWN_NOTE_FIELDS = new Set([
   'completedChecklistCollapsed', 'archived', 'trashed', 'trashedAt', 'sortOrder', 'createdAt', 'updatedAt',
   'lwwPhysicalMs', 'lwwLogical', 'lwwDeviceId', 'lwwOperationId', 'collaborators', 'ownerDisplayName',
   'ownerUsername', 'ownerAvatarDataUrl', 'ownerAvatarPreset', 'lastEditorUserId', 'lastEditorDisplayName',
-  'isDemo', 'extraFields', 'sharedOrganization'
+  'isDemo', 'extraFields', 'sharedOrganization', 'sharedBinder', 'binderTargetId'
 ]);
 
 function noteExtraFields(payload) {
@@ -1497,7 +1507,13 @@ async function createManagedWelcomeNoteIfNeeded(user, baseUrl) {
     if (await getAppSetting('managedWelcomeNoteCreated', '') === '1') return;
     const providerName = MANAGED_PROVIDER_NAME || 'your hosting provider';
     const provider = escapeHtml(providerName);
-    const origin = escapeHtml(stripTrailingSlashes(baseUrl || ''));
+    const address = stripTrailingSlashes(baseUrl || '');
+    const origin = escapeHtml(address);
+    let serverName = address;
+    try {
+      serverName = new URL(address).hostname.split('.')[0] || address;
+    } catch {}
+    const name = escapeHtml(serverName);
     const parts = [
       '<p>Your Kept space is ready. Make yourself at home!</p>',
       '<h3>🌐 Your Kept address</h3>',
@@ -1507,6 +1523,11 @@ async function createManagedWelcomeNoteIfNeeded(user, baseUrl) {
       '<p><a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" target="_blank">Get Kept for iPhone &amp; iPad</a><br>' +
         '<a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" target="_blank">Get Kept for Android</a></p>',
       '<p>Connect to the Kept address above to keep your notes with you across devices.</p>',
+      '<h3>👪 Share it with friends and family</h3>',
+      '<p>Add people under <strong>Users</strong> in the menu (Add a user), and choose a username and password for each of them.</p>',
+      `<p>On their phone, they install Kept, tap <strong>${provider}</strong>, then ` +
+        `<strong>Joining someone else's ${provider}?</strong>, and enter your server's name: <strong>${name}</strong>. ` +
+        'Then they sign in with the username and password you chose.</p>',
       '<h3>☁️ Your space, taken care of</h3>'
     ];
     if (STORAGE_QUOTA_BYTES) {
@@ -1589,6 +1610,7 @@ function dbNoteToApi(row) {
     images: parseJson(row.images || '[]', []),
     isCbox: Boolean(row.isCbox),
     sharedOrganization: row.sharedOrganization,
+    sharedBinder: row.sharedBinder,
     labels: appliedNoteLabels(parseJson(row.labels, [])),
     binder: row.binder || '',
     locked: Boolean(row.locked),
@@ -1710,7 +1732,8 @@ async function noteSyncSnapshot(noteId, userId) {
 }
 
 async function recordNoteSyncChange(noteId, operation, recipientIds, deletedSnapshot) {
-  const recipients = recipientIds || await getNoteRecipientIds(noteId);
+  const affected = operation === 'upsert' ? await binderSharing.reconcileNote(noteId) : [];
+  const recipients = [...new Set([...(recipientIds || await getNoteRecipientIds(noteId)),...affected])];
   if (operation === 'upsert') {
     for (const userId of recipients) {
       const payload = await noteSyncSnapshot(noteId, userId);
@@ -1919,6 +1942,7 @@ function dbNoteToCard(row, options = {}) {
     isCbox: Boolean(row.isCbox),
     labels,
     sharedOrganization: row.sharedOrganization,
+    sharedBinder: row.sharedBinder,
     binder: row.binder || '',
     locked,
     lockSalt: row.lockSalt || '',
@@ -1966,6 +1990,7 @@ function noteSummaryFromRow(row) {
     type: hasDrawing ? 'drawing' : (row.isCbox || hasChecklist ? 'todo' : 'text'),
     labels,
     sharedOrganization: row.sharedOrganization,
+    sharedBinder: row.sharedBinder,
     binder: row.binder || '',
     locked: Boolean(row.locked),
     lockSalt: row.lockSalt || '',
@@ -2573,7 +2598,8 @@ async function smartShareNote(userId, noteId, userIds) {
     const exists = await get('SELECT id FROM users WHERE id = ? AND enabled = 1', [targetUserId]);
     if (!exists) throw new Error(`User ${targetUserId} does not exist.`);
     await run(
-      'INSERT OR IGNORE INTO note_collaborators (noteId, userId, createdAt) VALUES (?, ?, ?)',
+      `INSERT INTO note_collaborators (noteId, userId, createdAt,directShare) VALUES (?, ?, ?,1)
+       ON CONFLICT(noteId,userId) DO UPDATE SET directShare = 1`,
       [noteId, targetUserId, new Date().toISOString()]
     );
   }
@@ -3156,7 +3182,9 @@ async function getOwnedNote(noteId, userId) {
 
 async function getCollaboratorsForNote(noteId) {
   const rows = await all(
-    `SELECT users.id, users.username, users.displayName, users.avatarDataUrl, users.avatarPreset
+    `SELECT users.id, users.username, users.displayName, users.avatarDataUrl, users.avatarPreset,
+       note_collaborators.directShare, (SELECT b.name FROM binder_note_grants g JOIN binders b ON b.id = g.binderId
+         WHERE g.noteId = note_collaborators.noteId AND g.userId = users.id) AS sharedViaBinder
      FROM note_collaborators
      JOIN users ON users.id = note_collaborators.userId
      WHERE note_collaborators.noteId = ?
@@ -3164,7 +3192,7 @@ async function getCollaboratorsForNote(noteId) {
     [noteId]
   );
   return rows.map(u => ({
-    ...publicCollaborator(u),
+    ...publicCollaborator(u), directShare:!!u.directShare, sharedViaBinder:u.sharedViaBinder || undefined,
     online: realtimeClients.has(u.id)
   }));
 }
@@ -3189,6 +3217,11 @@ async function hydrateNoteUserFields(rows, requesterUserId) {
     ids
   );
   const userMap = new Map(userRows.map(user => [user.id, user]));
+  const noteIds = rows.map(row => row.id);
+  const sharing = new Map((await all(`SELECT c.noteId,c.userId,c.directShare,b.name AS sharedViaBinder
+    FROM note_collaborators c LEFT JOIN binder_note_grants g ON g.noteId = c.noteId AND g.userId = c.userId
+    LEFT JOIN binders b ON b.id = g.binderId WHERE c.noteId IN (${noteIds.map(()=>'?').join(',')})`,noteIds))
+    .map(row => [`${row.noteId}:${row.userId}`,row]));
   const me = Number(requesterUserId);
 
   for (const row of rows || []) {
@@ -3208,6 +3241,8 @@ async function hydrateNoteUserFields(rows, requesterUserId) {
       if (!user) return null;
       return {
         id: user.id,
+        directShare: sharing.get(`${row.id}:${user.id}`)?.directShare !== 0,
+        sharedViaBinder: sharing.get(`${row.id}:${user.id}`)?.sharedViaBinder || undefined,
         username: user.username,
         displayName: user.displayName,
         avatarDataUrl: user.id === me ? '' : (user.avatarDataUrl || ''),
@@ -4072,6 +4107,11 @@ app.get('/api/users/me/preferences', requireAuth, asyncRoute(async (req, res) =>
 app.patch('/api/users/me/preferences', requireAuth, asyncRoute(async (req, res) => {
   const assignments = [];
   const params = [];
+  if (req.body.language !== undefined) {
+    const language = normalizeLanguage(req.body.language);
+    if (!language) return res.status(400).json({ error: 'Invalid language preference.' });
+    assignments.push('language = ?'); params.push(language);
+  }
   if (req.body.theme !== undefined) {
     if (!['light', 'dark'].includes(req.body.theme)) return res.status(400).json({ error: 'Invalid theme.' });
     assignments.push('theme = ?');
@@ -4782,6 +4822,63 @@ app.post('/api/auth/register', registerLimiter, requirePasswordLoginEnabled, asy
   }
 }));
 
+// Binder sharing uses server identities; names remain personal organization labels.
+app.get('/api/binders', requireAuth, asyncRoute(async (req,res) => {
+  const result = await withDatabaseTransaction(async () => {
+    const resources = await workspaceSync.resources(req.user.id);
+    const result = { binders:resources.binders, sharingSupported:true };
+    if (req.query.includeSharing === '1') {
+      // Edit-binder previews only expose this person's own sharing choices.
+      // Send each profile once, even when it belongs to several binders.
+      result.memberships = await all(`SELECT m.binderId,m.userId FROM binder_members m
+        JOIN binders b ON b.id=m.binderId WHERE b.userId=? ORDER BY m.binderId,m.userId`,[req.user.id]);
+      result.users = (await all(`SELECT u.* FROM users u WHERE EXISTS
+        (SELECT 1 FROM binder_members m JOIN binders b ON b.id=m.binderId WHERE m.userId=u.id AND b.userId=?)
+        ORDER BY u.displayName COLLATE NOCASE,u.username`,[req.user.id])).map(publicCollaborator);
+    }
+    return result;
+  });
+  res.json(result);
+}));
+
+async function accessibleBinder(binderId,userId,ownerOnly = false) {
+  return get(`SELECT b.*,u.displayName AS ownerDisplayName,u.username AS ownerUsername FROM binders b
+    JOIN users u ON u.id = b.userId WHERE b.id = ? AND (b.userId = ? ${ownerOnly ? '' : 'OR EXISTS (SELECT 1 FROM binder_members m WHERE m.binderId = b.id AND m.userId = ?)'} )`,
+    ownerOnly ? [binderId,userId] : [binderId,userId,userId]);
+}
+async function binderMembers(binderId) {
+  return (await all(`SELECT u.* FROM users u JOIN binder_members m ON m.userId = u.id WHERE m.binderId = ?
+    ORDER BY u.displayName COLLATE NOCASE,u.username`, [binderId])).map(publicCollaborator);
+}
+async function publishBinderSharing(binder,recipients) {
+  const notes = await all('SELECT id FROM notes WHERE (ownerUserId = ? AND lower(binder) = lower(?)) OR id IN (SELECT noteId FROM binder_notes WHERE binderId=?)', [binder.userId,binder.name,binder.id]);
+  for (const note of notes) await broadcastNoteChange(note.id,'collaborators-updated');
+  for (const userId of recipients) await workspaceSync.capture(userId);
+  broadcastRealtime(recipients,{ type:'notes-changed',action:'binders-updated' });
+}
+app.get('/api/binders/:id/members', requireAuth, asyncRoute(async (req,res) => {
+  const result = await withDatabaseTransaction(async () => {
+    const binder = await accessibleBinder(Number(req.params.id),req.user.id);
+    return binder ? { binder,members:await binderMembers(binder.id),canManage:binder.userId === req.user.id } : null;
+  });
+  if (!result) return res.status(404).json({error:'Binder not found.'});
+  res.json(result);
+}));
+app.put('/api/binders/:id/members', requireAuth, databaseRoute(async (req,res) => {
+  const binder = await accessibleBinder(Number(req.params.id),req.user.id,true);
+  if (!binder) return res.status(404).json({error:'Binder not found.'});
+  const recipients = await binderSharing.replaceMembers(binder,req.body.userIds);
+  await publishBinderSharing(binder,recipients);
+  res.json({ binder,members:await binderMembers(binder.id),canManage:true });
+}));
+app.delete('/api/binders/:id/membership', requireAuth, databaseRoute(async (req,res) => {
+  const binder = await accessibleBinder(Number(req.params.id),req.user.id);
+  if (!binder || binder.userId === req.user.id) return res.status(404).json({error:'Shared binder not found.'});
+  await run('DELETE FROM binder_members WHERE binderId = ? AND userId = ?', [binder.id,req.user.id]);
+  await publishBinderSharing(binder,[binder.userId,req.user.id]);
+  res.status(204).end();
+}));
+
 app.get('/api/sharing/users', requireAuth, asyncRoute(async (req, res) => {
   const users = await all(
     `SELECT users.id, users.username, users.displayName, users.avatarDataUrl, users.avatarPreset,
@@ -5019,6 +5116,23 @@ app.get('/api/users/search', requireAuth, asyncRoute(async (req, res) => {
     [req.user.id, like, like, like]
   );
   res.json(users.map(publicCollaborator));
+}));
+
+app.get('/api/labels/counts', requireAuth, asyncRoute(async (req,res) => {
+  const rows=await all(`SELECT CASE WHEN notes.ownerUserId=? OR
+      COALESCE((SELECT inheritSharedLabels FROM users WHERE id=?),1)=1 THEN notes.labels
+      ELSE COALESCE((SELECT labels FROM user_note_organization WHERE noteId=notes.id AND userId=?),'[]') END AS labels
+    FROM notes WHERE notes.trashed=0 AND (notes.ownerUserId=? OR EXISTS
+      (SELECT 1 FROM note_collaborators c WHERE c.noteId=notes.id AND c.userId=?))`,
+  [req.user.id,req.user.id,req.user.id,req.user.id,req.user.id]);
+  const counts=new Map();
+  for (const row of rows) {
+    const labels=parseJson(row.labels,[]);
+    if (!Array.isArray(labels)) continue;
+    const names=new Set(labels.filter(label=>label?.added===true && typeof label.name==='string').map(label=>label.name));
+    for (const name of names) counts.set(name,(counts.get(name) || 0)+1);
+  }
+  res.json(Object.fromEntries(counts));
 }));
 
 app.get('/api/labels', requireAuth, asyncRoute(async (req, res) => {
@@ -5460,6 +5574,12 @@ app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
       },
       changedAt: row.changedAt
     };
+    if (change.operation !== 'delete' && ['note','attachment'].includes(change.resourceType)) {
+      const noteId = change.resourceType === 'note' ? change.payload?.id : change.payload?.noteId;
+      if (!noteId || !await getAccessibleNote(noteId,req.user.id)) {
+        change.operation = 'delete';change.payload = null;
+      }
+    }
     if (change.resourceType === 'reminder' && change.operation !== 'delete') {
       const reminder = await get('SELECT * FROM reminders WHERE syncId = ? AND userId = ?', [change.resourceSyncId, req.user.id]);
       if (!reminder || !(await reminderIsVisibleToUser(reminder, req.user.id))) {
@@ -5484,6 +5604,13 @@ app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
 async function applySyncNoteMutation(userId, mutation) {
   const type = String(mutation.type || '');
   const payload = mutation.payload || {};
+  if (type === 'note.binder') {
+    const row=await get('SELECT id FROM notes WHERE syncId=?',[mutation.syncId]);
+    if (!row) return {ok:false,status:404,error:'Note not found.'};
+    await binderSharing.move(row.id,userId,payload.binderId,normalizeLwwStamp(mutation.lww || {}),payload.binderName);
+    await broadcastNoteChange(row.id,'updated');
+    return {ok:true,resourceType:'note',syncId:mutation.syncId,id:row.id};
+  }
   if (type === 'note.organization') {
     const row = await get('SELECT id FROM notes WHERE syncId = ?', [mutation.syncId]);
     if (!row) return { ok: false, status: 404, error: 'Note not found.' };
@@ -5611,6 +5738,7 @@ async function applySyncNoteMutation(userId, mutation) {
     );
     if (noteData.pinned) await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [userId, result.id]);
     if (noteData.isDemo && noteData.pinned) await positionStarterBelowManagedWelcome(result.id, userId);
+    if (payload.binderTargetId !== undefined) await binderSharing.move(result.id,userId,payload.binderTargetId,incomingStamp);
     await syncNoteImagesForNote(result.id, userId, noteData);
     await recordNoteSyncChange(result.id, 'upsert', [userId]);
     broadcastRealtime([userId], { type: 'notes-changed', action: 'created', noteId: result.id, syncId });
@@ -5639,7 +5767,7 @@ async function applySyncNoteMutation(userId, mutation) {
     noteData.labels = parseJson(note.labels, []);
     noteData.binder = note.binder || '';
     noteData.archived = Boolean(note.archived);
-    noteData.trashed = Boolean(note.trashed);
+    if (!await binderSharing.canTrash(note.id,userId)) noteData.trashed = Boolean(note.trashed);
     // Preserve the owner/global note value; the requester's pin state lives in user_pins.
     noteData.pinned = Boolean(note.pinned);
     noteData.isCbox = Boolean(note.isCbox);
@@ -5647,6 +5775,7 @@ async function applySyncNoteMutation(userId, mutation) {
     noteData.lockSalt = note.lockSalt || '';
     noteData.lockHash = note.lockHash || '';
   }
+  if (await binderSharing.preserveBinder(note.id)) noteData.binder = note.binder || '';
   const storedExtraFields = parseJson(note.extraFields || '{}', {});
   noteData.extraFields = isOwner
     ? { ...storedExtraFields, ...noteData.extraFields }
@@ -6063,7 +6192,7 @@ app.post('/api/sync/mutations', requireAuth, asyncRoute(async (req, res) => {
   if (!mutations.length) return res.json({ results: [], serverTime: Date.now() });
   const priority = {
     'label.upsert': -3, 'binder.upsert': -2, 'savedPlace.upsert': -1,
-    'note.upsert': 0,
+    'note.upsert': 0, 'note.binder': 0,
     'note.view-state': 1,
     'note.delete': 2,
     'note.reorder': 3,
@@ -6652,18 +6781,25 @@ app.put('/api/notes/:id/collaborators', requireAuth, databaseRoute(async (req, r
     await run('UPDATE notes SET syncId = ? WHERE id = ?', [note.syncId, noteId]);
   }
   const previousRecipients = await getNoteRecipientIds(noteId);
-  const previousCollaborators = await all('SELECT userId FROM note_collaborators WHERE noteId = ?', [noteId]);
+  const previousCollaborators = await all('SELECT userId,directShare FROM note_collaborators WHERE noteId = ?', [noteId]);
   const previousCollaboratorIds = new Set(previousCollaborators.map(row => Number(row.userId)).filter(Boolean));
 
   const userIds = Array.isArray(req.body.userIds) ? req.body.userIds.map(Number).filter(Boolean) : [];
   const nextSet = new Set(userIds.filter(userId => userId !== req.user.id));
+  const explicitDirect = Array.isArray(req.body.directUserIds) ? new Set(req.body.directUserIds.map(Number)) : null;
   const newlyAddedUserIds = [];
-  await run('DELETE FROM note_collaborators WHERE noteId = ?', [noteId]);
+  await run('UPDATE note_collaborators SET directShare = 0 WHERE noteId = ?', [noteId]);
   for (const userId of nextSet) {
     const exists = await get('SELECT id FROM users WHERE id = ?', [userId]);
     if (exists) {
+      const inherited = await get('SELECT noteId FROM binder_note_grants WHERE noteId = ? AND userId = ?', [noteId,userId]);
+      // Older clients send the effective people list back unchanged. That must
+      // not silently promote inherited binder access into a permanent share.
+      const direct = explicitDirect ? explicitDirect.has(userId) : !inherited || previousCollaborators.some(row => row.userId === userId && row.directShare);
+      if (!direct) continue;
       await run(
-        'INSERT OR IGNORE INTO note_collaborators (noteId, userId, createdAt) VALUES (?, ?, ?)',
+        `INSERT INTO note_collaborators (noteId, userId, createdAt,directShare) VALUES (?, ?, ?,1)
+       ON CONFLICT(noteId,userId) DO UPDATE SET directShare = 1`,
         [noteId, userId, new Date().toISOString()]
       );
       if (!previousCollaboratorIds.has(userId)) newlyAddedUserIds.push(userId);
@@ -6673,27 +6809,9 @@ app.put('/api/notes/:id/collaborators', requireAuth, databaseRoute(async (req, r
   // Owner revocation is final, including a previous voluntary-removal Undo.
   await run('DELETE FROM note_collaborator_rejoin_grants WHERE noteId = ?', [noteId]);
 
+  await binderSharing.reconcileNote(noteId);
   const collaborators = await getCollaboratorsForNote(noteId);
   const nextRecipients = await getNoteRecipientIds(noteId);
-  const removedUserIds = previousCollaborators
-    .map(row => Number(row.userId))
-    .filter(userId => userId && !nextSet.has(userId));
-  if (removedUserIds.length) {
-    const revokedStamp = serverLwwStamp();
-    await recordNoteSyncChange(noteId, 'delete', removedUserIds, {
-      syncId: note.syncId,
-      lwwPhysicalMs: revokedStamp.physicalMs,
-      lwwLogical: revokedStamp.logical,
-      lwwDeviceId: revokedStamp.deviceId,
-      lwwOperationId: revokedStamp.operationId
-    });
-    broadcastRealtime(removedUserIds, {
-      type: 'notes-changed',
-      action: 'access-revoked',
-      noteId,
-      syncId: note.syncId
-    });
-  }
   await broadcastNoteChange(noteId, 'collaborators-updated', nextRecipients);
   res.json(collaborators);
 }));
@@ -6714,7 +6832,8 @@ app.post('/api/notes/:id/collaborators/rejoin', requireAuth, databaseRoute(async
   if (!grant) return res.status(403).json({ error: 'Rejoin not permitted.' });
 
   await run(
-    'INSERT OR IGNORE INTO note_collaborators (noteId, userId, createdAt) VALUES (?, ?, ?)',
+    `INSERT INTO note_collaborators (noteId, userId, createdAt,directShare) VALUES (?, ?, ?,1)
+       ON CONFLICT(noteId,userId) DO UPDATE SET directShare = 1`,
     [noteId, req.user.id, new Date().toISOString()]
   );
   await moveNoteToTopForUsers(noteId, [req.user.id]);
@@ -6789,6 +6908,7 @@ app.post('/api/notes', requireAuth, databaseRoute(async (req, res) => {
       noteData.isDemo ? 1 : 0
     ]
   );
+  if (req.body.binderTargetId !== undefined) await binderSharing.move(result.id,req.user.id,req.body.binderTargetId);
   await syncNoteImagesForNote(result.id, req.user.id, noteData);
   if (noteData.pinned) {
     await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [req.user.id, result.id]);
@@ -6798,6 +6918,15 @@ app.post('/api/notes', requireAuth, databaseRoute(async (req, res) => {
   const created = await getAccessibleNote(result.id, req.user.id);
   const response = dbNoteToApi(created);
   res.status(201).json(req.mcpToken ? mcpNoteResponse(response, true) : response);
+}));
+
+app.patch('/api/notes/:id/binder', requireAuth, databaseRoute(async (req,res) => {
+  const note=await getAccessibleNote(Number(req.params.id),req.user.id);
+  if (!note) return res.status(404).json({error:'Note not found.'});
+  if (!await externalNoteAccessAllowed(req,note)) return res.status(423).json({error:'Unlock the note before moving it.'});
+  await binderSharing.move(note.id,req.user.id,req.body.binderId,serverLwwStamp(),req.body.binderName);
+  await broadcastNoteChange(note.id,'updated');
+  res.json(await noteSyncSnapshot(note.id,req.user.id));
 }));
 
 app.patch('/api/notes/:id/organization', requireAuth, asyncRoute(async (req, res) => {
@@ -6822,7 +6951,7 @@ app.put('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
     next.labels = parseJson(note.labels, []);
     next.binder = note.binder || '';
     next.archived = Boolean(note.archived);
-    next.trashed = Boolean(note.trashed);
+    if (!await binderSharing.canTrash(note.id,req.user.id)) next.trashed = Boolean(note.trashed);
     // Preserve the owner/global note value; the requester's pin state lives in user_pins.
     next.pinned = Boolean(note.pinned);
     next.isCbox = Boolean(note.isCbox);
@@ -6830,6 +6959,7 @@ app.put('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
     next.lockSalt = note.lockSalt || '';
     next.lockHash = note.lockHash || '';
   }
+  if (await binderSharing.preserveBinder(note.id)) next.binder = note.binder || '';
   const trashedAt = nextTrashedAt(note, next);
   await run(
     `UPDATE notes SET
@@ -6905,7 +7035,7 @@ app.patch('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
     next.labels = parseJson(existing.labels, []);
     next.binder = existing.binder || '';
     next.archived = Boolean(existing.archived);
-    next.trashed = Boolean(existing.trashed);
+    if (!await binderSharing.canTrash(existing.id,req.user.id)) next.trashed = Boolean(existing.trashed);
     // Preserve the owner/global note value; the requester's pin state lives in user_pins.
     next.pinned = Boolean(existing.pinned);
     next.isCbox = Boolean(existing.isCbox);
@@ -6913,6 +7043,7 @@ app.patch('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
     next.lockSalt = existing.lockSalt || '';
     next.lockHash = existing.lockHash || '';
   }
+  if (await binderSharing.preserveBinder(existing.id)) next.binder = existing.binder || '';
   const trashedAt = nextTrashedAt(existing, next);
   await run(
     `UPDATE notes SET
@@ -7222,6 +7353,9 @@ app.delete('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
     await run('DELETE FROM notes WHERE id = ?', [noteId]);
     await broadcastNoteChange(noteId, 'deleted', recipients, { deletedSnapshot });
   } else {
+    if (await get('SELECT noteId FROM binder_note_grants WHERE noteId = ? AND userId = ?', [noteId,req.user.id])) {
+      return res.status(409).json({ error:'This note belongs to a shared binder. Leave that binder to remove your access.' });
+    }
     // If not owner, just remove self as collaborator (unshare).
     // Grant a rejoin token so the snackbar undo flow can re-add them.
     const revokedStamp = serverLwwStamp();

@@ -5,11 +5,11 @@
         <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
         <span>Kept</span>
       </div>
-      <h1>Setup complete</h1>
+      <h1>{{ 'setup.setup_complete' | translate }}</h1>
       <div class="success-message">
-        <strong>Two-Factor Authentication is enabled.</strong>
+        <strong>{{ 'setup.two_factor_authentication_is_enabled' | translate }}</strong>
       </div>
-      <p>Please save these emergency backup codes in a secure location. They are one-time use tokens that will allow you to log in if you lose access to your authenticator app.</p>
+      <p>{{ 'setup.please_save_these_emergency_backup_codes_in_a_secure_location_the' | translate }}</p>
       
       <div class="backup-codes">
         @for (code of backupCodes; track code) {
@@ -18,7 +18,7 @@
       </div>
 
       <button type="button" (click)="continueToLogin()" [disabled]="isSaving">
-        {{isSaving ? 'Logging in...' : 'I have saved my backup codes. Continue.'}}
+        {{(isSaving) ? ('setup.logging_in' | translate) : ('setup.i_have_saved_my_backup_codes_continue' | translate)}}
       </button>
     </section>
   } @else {
@@ -27,73 +27,73 @@
         <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
         <span>Kept</span>
       </div>
-      <h1>Initial setup</h1>
-      <p class="helper">Create the first administrator account for this local workspace.</p>
+      <h1>{{ 'setup.initial_setup' | translate }}</h1>
+      <p class="helper">{{ 'setup.create_the_first_administrator_account_for_this_local_workspace' | translate }}</p>
 
       <form (ngSubmit)="submit()" #setupForm="ngForm" class="auth-form">
         <label>
-          <span>Username</span>
-          <input name="username" [ngModel]="username" (ngModelChange)="onUsernameChange($event)" autocomplete="username" minlength="3" required>
-          <small class="hint">Minimum 3 characters</small>
+          <span>{{ 'common.username' | translate }}</span>
+          <input name="username" [ngModel]="username" (ngModelChange)="onUsernameChange($event)" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" minlength="3" required>
+          <small class="hint">{{ 'auth.username_minimum_length' | translate }}</small>
         </label>
         <label>
-          <span>Display name</span>
-          <input name="displayName" [(ngModel)]="displayName" (input)="onDisplayNameInput()" autocomplete="name" placeholder="Defaults to your username — change it to anything you'd like">
+          <span>{{ 'common.display_name' | translate }}</span>
+          <input name="displayName" [(ngModel)]="displayName" (input)="onDisplayNameInput()" autocomplete="name" [attr.placeholder]="'auth.display_name_hint' | translate">
         </label>
         <label>
-          <span>Password</span>
+          <span>{{ 'common.password' | translate }}</span>
           <input name="password" [(ngModel)]="password" autocomplete="new-password" type="password" minlength="8"
             required>
-          <small class="hint">Minimum 8 characters</small>
+          <small class="hint">{{ 'auth.password_minimum_length' | translate }}</small>
         </label>
         <label>
-          <span>Confirm password</span>
+          <span>{{ 'auth.confirm_password' | translate }}</span>
           <input name="confirmPassword" [(ngModel)]="confirmPassword" autocomplete="new-password" type="password"
             minlength="8" required>
-          <small class="hint">Must match password</small>
+          <small class="hint">{{ 'auth.must_match_password' | translate }}</small>
         </label>
 
         <label class="option-card">
           <input name="importTakeoutAfterCreate" type="checkbox" [(ngModel)]="importTakeoutAfterCreate">
           <span>
-            <strong>Import from Google Keep</strong>
-            <small>Moving from Google Keep? Take me to the import tool after setup so I can upload my Google Takeout export.</small>
+            <strong>{{ 'settings.import_from_google_keep' | translate }}</strong>
+            <small>{{ 'setup.moving_from_google_keep_take_me_to_the_import_tool_after_setup_so' | translate }}</small>
           </span>
         </label>
 
         <label class="option-card">
           <input type="checkbox" [checked]="enable2fa" (change)="toggle2fa($event)" [disabled]="isGenerating2fa">
           <span>
-            <strong>Enable Two-Factor Authentication</strong>
-            <small>Protect your admin account with an open-source authenticator app like <a href="https://ente.io/auth/" target="_blank" rel="noopener">Ente Auth</a>, or alternatives like Authy or Google Authenticator.</small>
+            <strong>{{ 'setup.enable_two_factor_authentication' | translate }}</strong>
+            <small>{{ 'setup.protect_your_admin_account_with_an_open_source_authenticator_app_' | translate }} <a href="https://ente.io/auth/" target="_blank" rel="noopener">{{ 'settings.ente_auth' | translate }}</a>{{ 'settings.or_alternatives_like_authy_or_google_authenticator' | translate }}</small>
           </span>
         </label>
 
         @if (enable2fa && qrCodeUrl) {
           <div class="two-factor-setup">
-            <img [src]="qrCodeUrl" alt="2FA QR Code" class="qr-code">
-            <p>Scan this QR code with your authenticator app, then enter the 6-digit code below to verify.</p>
+            <img [src]="qrCodeUrl" [attr.alt]="'settings.2fa_qr_code' | translate" class="qr-code">
+            <p>{{ 'setup.scan_this_qr_code_with_your_authenticator_app_then_enter_the_6_di' | translate }}</p>
             <label>
-              <span>Authenticator Code</span>
+              <span>{{ 'settings.authenticator_code' | translate }}</span>
               <input name="totpToken" [(ngModel)]="totpToken" autocomplete="one-time-code" type="text" inputmode="numeric" pattern="[0-9]{6}" [required]="enable2fa">
             </label>
           </div>
         }
 
         @if (error) {
-          <div class="error">{{error}}</div>
+          <div class="error">{{(error) | uiText}}</div>
         }
         <button type="submit" [disabled]="setupForm.invalid || isSaving || isRestoringFromBackup">
-          {{isSaving ? 'Creating account...' : 'Create admin account'}}
+          {{(isSaving) ? ('register.creating_account' | translate) : ('setup.create_admin_account' | translate)}}
         </button>
 
-        <div class="setup-divider">OR</div>
+        <div class="setup-divider">{{ 'setup.or' | translate }}</div>
 
         <label class="option-card">
           <input type="checkbox" name="isRestoringFromBackup" [(ngModel)]="isRestoringFromBackup" (change)="error = ''">
           <span>
-            <strong>Restore from backup</strong>
-            <small>Upload a full server backup (.zip) to restore accounts, notes, settings, images, and attachments. Older .sqlite backups restore the database only. Server restores must be enabled by the administrator with KEPT_ALLOW_RESTORE=1.</small>
+            <strong>{{ 'setup.restore_from_backup' | translate }}</strong>
+            <small>{{ 'setup.upload_a_full_server_backup_zip_to_restore_accounts_notes_setting' | translate }}</small>
           </span>
         </label>
 
@@ -101,11 +101,11 @@
           <div class="restore-upload">
             <input type="file" #backupFileInput (change)="onBackupFileSelected($event)" accept=".sqlite,.zip" style="display: none;">
             <button type="button" class="btn-secondary" (click)="backupFileInput.click()">
-              {{selectedBackupFile ? selectedBackupFile.name : 'Select server backup'}}
+              {{(selectedBackupFile) ? (selectedBackupFile.name) : ('setup.select_server_backup' | translate)}}
             </button>
             @if (selectedBackupFile) {
               <button type="button" class="btn-primary" (click)="submitRestore()" [disabled]="isRestoring">
-                {{isRestoring ? 'Restoring...' : 'Restore and continue'}}
+                {{(isRestoring) ? ('setup.restoring' | translate) : ('setup.restore_and_continue' | translate)}}
               </button>
             }
           </div>

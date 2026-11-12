@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, NgZone, OnChanges, OnDestroy, Output, SimpleChanges, ViewChild } from '@angular/core';
 import type * as Leaflet from 'leaflet';
 
@@ -59,7 +60,7 @@ export class LocationMapPickerComponent implements AfterViewInit, OnChanges, OnD
         this.resizeObserver.observe(this.mapHost.nativeElement);
       });
     } catch {
-      this.error = 'The map could not open. Close it and try again.';
+      this.error = uiText('location_map_picker.the_map_could_not_open_close_it_and_try_again');
     } finally {
       if (!this.destroyed) { this.loading = false; this.cd.detectChanges(); }
     }

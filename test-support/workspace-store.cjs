@@ -16,6 +16,7 @@ function createStore(database = new IDBFactory()) {
     const exports={};cache.set(filename,exports);
     const compiled=ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText;
     vm.runInNewContext(compiled,{...globals,exports,require(name){
+    if (name.endsWith('/i18n/messages')) return require('./i18n.cjs');
       if (name === '@angular/core') return {Injectable:()=>target=>target};
       if (name === '@capacitor/core') return {Capacitor:{isNativePlatform:()=>false}};
       if (name.endsWith('/environment')) return {environment:{apiUrl:'/api'}};

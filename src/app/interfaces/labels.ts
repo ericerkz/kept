@@ -23,6 +23,7 @@ export interface LabelModelI {
         add(data: LabelI): Promise<any>
         update(data: UpdateKeyI): Promise<void>
         delete(): Promise<void>
+        noteCounts(): Promise<Record<string,number>>
         reorder(labels: LabelI[]): Promise<void>
         updateAllLabels(value: string): Promise<void>
     }

@@ -3,19 +3,19 @@
 <section class="main-container">
   @if (selectedCount) {
     <div class="selection-navbar">
-      <button class="selection-close H" type="button" aria-label="Clear selection" (click)="Shared.clearNoteSelection()">×</button>
-      <div class="selection-count">{{selectedCount}} selected</div>
+      <button class="selection-close H" type="button" [attr.aria-label]="'navbar.clear_selection' | translate" (click)="Shared.clearNoteSelection()">×</button>
+      <div class="selection-count">{{ 'navbar.value0_selected' | translate: { value0: (selectedCount) } }}</div>
       <div class="selection-actions">
-        <button type="button" class="selection-icon pin H pop" data-pop="Pin" (click)="Shared.bulkTogglePinSelected()"></button>
-        <button #selectionColorBtn type="button" class="selection-icon color H pop" data-pop="Background options"
+        <button type="button" class="selection-icon pin H pop" [attr.data-pop]="'accessibility.pin' | translate" (click)="Shared.bulkTogglePinSelected()"></button>
+        <button #selectionColorBtn type="button" class="selection-icon color H pop" [attr.data-pop]="'backgrounds.options' | translate"
           (click)="openTooltip(selectionColorBtn,selectionColorTt)"></button>
-        <button type="button" class="selection-icon reminder H pop" data-pop="Reminder"
+        <button type="button" class="selection-icon reminder H pop" [attr.data-pop]="'common.reminder' | translate"
           [class.disabled]="!canSetSelectedReminder"
           [attr.aria-disabled]="!canSetSelectedReminder"
           (click)="openSelectedReminder()"></button>
-        <button type="button" class="selection-icon archive H pop" data-pop="Archive" (click)="Shared.bulkArchiveSelected()"></button>
-        <button type="button" class="selection-icon delete H pop" data-pop="Delete" (click)="Shared.bulkTrashSelected()"></button>
-        <button #selectionMoreBtn type="button" class="selection-icon more H pop" data-pop="More"
+        <button type="button" class="selection-icon archive H pop" [attr.data-pop]="'common.archive' | translate" (click)="Shared.bulkArchiveSelected()"></button>
+        <button type="button" class="selection-icon delete H pop" [attr.data-pop]="'common.delete' | translate" (click)="Shared.bulkTrashSelected()"></button>
+        <button #selectionMoreBtn type="button" class="selection-icon more H pop" [attr.data-pop]="'common.more' | translate"
           (click)="openSelectionMore(selectionMoreBtn,selectionMoreTt)"></button>
       </div>
     </div>
@@ -23,15 +23,15 @@
     <div class="navbar" [class.search-expanded]="searchExpanded">
     <div class="first-col">
       <div class="pic-container H" (click)="closeSideBar()">
-        <img src="./assets/images/svg/menu.svg" class="menu-icon" alt="menu">
+        <img src="./assets/images/svg/menu.svg" class="menu-icon" [attr.alt]="'navbar.menu' | translate">
       </div>
       <div class="keep-img" (click)="onLogoClick($event)" style="cursor: pointer; position: relative;">
         <img src="./assets/images/keep2x.fw.png" width="49"
-          srcset="./assets/images/keep2x.fw.png 1x, ./assets/images/keep2x.fw.png 2x" alt="keep">
+          srcset="./assets/images/keep2x.fw.png 1x, ./assets/images/keep2x.fw.png 2x" [attr.alt]="'navbar.keep' | translate">
         @if (showEasterEgg) {
           <div class="rpg-speech">
             <div class="rpg-content">
-              {{ easterEggMessages[eggIndex] }}
+              {{ (easterEggMessages[eggIndex]) | uiText }}
             </div>
             <div class="rpg-arrow"></div>
           </div>
@@ -47,71 +47,71 @@
             <div class="form-container">
               <form #form23zSaZ class="form" (submit)="$event.preventDefault()">
                 <div class="input-container">
-                  <input #searchInput class="input" autocomplete="off" placeholder="Search your notes" type="text"
+                  <input #searchInput class="input" autocomplete="off" [attr.placeholder]="'navbar.search_your_notes' | translate" type="text"
                     [value]="Shared.searchQuery" (input)="updateSearch($event)"
                     (focus)="onSearchFocus()" (blur)="onSearchBlur()"
                     (keydown)="onSearchKeydown($event)">
                 </div>
-                <button class="btn" aria-label="Clear search" type="button" (click)="clearSearch()">
-                  <img class="pic H" [class.d-none]="!Shared.searchQuery" src="./assets/images/svg/x-btn.svg" alt="clear search">
+                <button class="btn" [attr.aria-label]="'navbar.clear_search' | translate" type="button" (click)="clearSearch()">
+                  <img class="pic H" [class.d-none]="!Shared.searchQuery" src="./assets/images/svg/x-btn.svg" [attr.alt]="'navbar.clear_search_7e04df' | translate">
                 </button>
-                <button class="btn left" aria-label="Search" type="button">
-                  <img class="pic H" src="./assets/images/svg/search.svg" alt="search">
+                <button class="btn left" [attr.aria-label]="'common.search' | translate" type="button">
+                  <img class="pic H" src="./assets/images/svg/search.svg" [attr.alt]="'navbar.search' | translate">
                 </button>
               </form>
             </div>
             <div #filtersContainer class="filters-toggle">
               <button class="filters-btn" [class.open]="isFiltersOpen" type="button" (click)="toggleFilters($event)">
-                <span class="btn-text">Filters</span>
+                <span class="btn-text">{{ 'navbar.filters' | translate }}</span>
                 <span class="material-symbols-outlined filter-icon">filter_list</span>
                 <span class="chevron">▾</span>
               </button>
               @if (isFiltersOpen) {
                 <div class="filters-dropdown" (click)="$event.stopPropagation()">
                   @if (isBinderRoute) {
-                    <div class="dropdown-header">Search scope</div>
+                    <div class="dropdown-header">{{ 'navbar.search_scope' | translate }}</div>
                     <div class="scope-row">
                       <button type="button" [class.active]="Shared.searchScope.value === 'all'"
-                        (click)="setSearchScope('all')">All notes</button>
+                        (click)="setSearchScope('all')">{{ 'navbar.all_notes' | translate }}</button>
                       <button type="button" [class.active]="Shared.searchScope.value === 'current'"
-                        (click)="setSearchScope('current')">This binder</button>
+                        (click)="setSearchScope('current')">{{ 'navbar.this_binder' | translate }}</button>
                     </div>
                   }
 
-                  <div class="dropdown-header">Quick Filters</div>
+                  <div class="dropdown-header">{{ 'navbar.quick_filters' | translate }}</div>
                   
                   <div class="filter-item" [class.active]="isFilterActive('!image')" (click)="toggleFilter('!image')">
                     <div class="checkbox"><div class="check-mark"></div></div>
-                    <span class="label">Images</span>
+                    <span class="label">{{ 'common.images' | translate }}</span>
                   </div>
 
                   <div class="filter-item" [class.active]="isFilterActive('!draw')" (click)="toggleFilter('!draw')">
                     <div class="checkbox"><div class="check-mark"></div></div>
-                    <span class="label">Drawings</span>
+                    <span class="label">{{ 'navbar.drawings' | translate }}</span>
                   </div>
 
                   <div class="filter-item" [class.active]="isFilterActive('!url')" (click)="toggleFilter('!url')">
                     <div class="checkbox"><div class="check-mark"></div></div>
-                    <span class="label">Links</span>
+                    <span class="label">{{ 'navbar.links' | translate }}</span>
                   </div>
 
                   <div class="filter-item" [class.active]="isFilterActive('!attachment')" (click)="toggleFilter('!attachment')">
                     <div class="checkbox"><div class="check-mark"></div></div>
-                    <span class="label">Attachments</span>
+                    <span class="label">{{ 'common.attachments' | translate }}</span>
                   </div>
 
                   <div class="filter-item" [class.active]="isFilterActive('!todo')" (click)="toggleFilter('!todo')">
                     <div class="checkbox"><div class="check-mark"></div></div>
-                    <span class="label">Checkboxes</span>
+                    <span class="label">{{ 'navbar.checkboxes' | translate }}</span>
                   </div>
 
                   <div class="filter-item" [class.active]="isFilterActive('!label')" (click)="toggleFilter('!label')">
                     <div class="checkbox"><div class="check-mark"></div></div>
-                    <span class="label">Any Label</span>
+                    <span class="label">{{ 'navbar.any_label' | translate }}</span>
                   </div>
 
                   @if (activeFilters.length > 0) {
-                    <div class="dropdown-header">Active Labels</div>
+                    <div class="dropdown-header">{{ 'navbar.active_labels' | translate }}</div>
                     @for (filter of activeFilters; track filter.code) {
                       @if (filter.code.startsWith('!label:')) {
                         <div class="filter-item active" (click)="toggleFilter(filter.code)">
@@ -123,7 +123,7 @@
                   }
 
                   <div class="filter-item" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 4px;" (click)="clearAllFilters(); isFiltersOpen = false">
-                    <span class="label" style="opacity: 0.7;">Clear All</span>
+                    <span class="label" style="opacity: 0.7;">{{ 'navbar.clear_all' | translate }}</span>
                   </div>
                 </div>
               }
@@ -132,16 +132,16 @@
           <div class="active-filters" style="display: none;"></div>
         </div>
         <div class="btns-container">
-          <div class="search H pop" data-pop="Search"></div>
+          <div class="search H pop" [attr.data-pop]="'common.search' | translate"></div>
           <div class="view H pop"
             [class.view-grid]="Shared.noteViewType.value === 'list'"
-            [attr.data-pop]="Shared.noteViewType.value === 'list' ? 'Grid view' : 'List view'"
+            [attr.data-pop]="Shared.noteViewType.value === 'list' ? ('accessibility.grid_view' | translate) : ('accessibility.list_view' | translate)"
             (click)="view()"></div>
           <button class="theme-toggle H pop" type="button"
-            [attr.data-pop]="auth.effectiveTheme === 'light' ? 'Use dark theme' : 'Use light theme'"
-            [attr.aria-label]="auth.effectiveTheme === 'light' ? 'Use dark theme' : 'Use light theme'"
+            [attr.data-pop]="auth.effectiveTheme === 'light' ? ('navbar.use_dark_theme' | translate) : ('navbar.use_light_theme' | translate)"
+            [attr.aria-label]="(auth.effectiveTheme === 'light') ? ('navbar.use_dark_theme' | translate) : ('navbar.use_light_theme' | translate)"
             (click)="toggleTheme()">
-            <span class="theme-emoji">{{auth.effectiveTheme === 'light' ? '🌙' : '☀️'}}</span>
+            <span class="theme-emoji">{{(auth.effectiveTheme === 'light') ? ('🌙') : ('☀️')}}</span>
           </button>
         </div>
       </div>
@@ -149,14 +149,14 @@
       <div class="th-col">
 
         @if (auth.isAdmin) {
-          <a routerLink="/users" class="admin-link">Users</a>
+          <a routerLink="/users" class="admin-link">{{ 'common.users' | translate }}</a>
         }
           @if (auth.isLocal) {
-            <a routerLink="/settings" aria-label="Device settings"><span class="material-symbols-outlined">settings</span></a>
+            <a routerLink="/settings" [attr.aria-label]="'navbar.device_settings' | translate"><span class="material-symbols-outlined">settings</span></a>
           }
           <button *ngIf="!auth.isLocal" #accountMenuButton type="button" class="user-pic-container" (click)="toggleProfile($event)"
             aria-haspopup="dialog" [attr.aria-expanded]="isProfileOpen" aria-controls="account-menu"
-            [attr.aria-label]="(auth.currentUser?.displayName || auth.currentUser?.username || 'User') + ' account, ' + sync.label">
+            [attr.aria-label]="'accessibility.account_status' | translate: { name: (auth.currentUser?.displayName || auth.currentUser?.username || ('navbar.user' | translate)), status: sync.label }">
             <span class="account-avatar" [class.is-syncing]="sync.syncing">
               @if (auth.currentUser?.avatarDataUrl) {
                 <img class="user-pic" [src]="auth.currentUser?.avatarDataUrl" alt="">
@@ -169,74 +169,74 @@
             </span>
           </button>
           @if (isProfileOpen && !auth.isLocal) {
-            <div class="profile-menu" id="account-menu" role="dialog" aria-label="Account" (click)="$event.stopPropagation()">
+            <div class="profile-menu" id="account-menu" role="dialog" [attr.aria-label]="'navbar.account' | translate" (click)="$event.stopPropagation()">
               @if (isEditingProfile) {
                 <div class="profile-edit-panel">
                   <button type="button" class="account-menu-item" (click)="isEditingProfile = false">
-                    <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>Back
+                    <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>{{ 'common.back' | translate }}
                   </button>
                   <div class="profile-avatar-row">
-                    <label class="profile-preview" aria-label="Change avatar">
+                    <label class="profile-preview" [attr.aria-label]="'navbar.change_avatar' | translate">
                       <input #avatarFile type="file" accept="image/*" (change)="uploadAvatar($event)">
                       @if (avatarPreview) {
-                        <img [src]="avatarPreview" alt="Avatar preview">
+                        <img [src]="avatarPreview" [attr.alt]="'navbar.avatar_preview' | translate">
                       } @else {
                         <div class="avatar-fallback large animal-{{avatarPresetPreview || 'cat'}}">
                           <span class="head"><i></i></span>
                         </div>
                       }
-                      <span class="avatar-change-indicator">Change</span>
+                      <span class="avatar-change-indicator">{{ 'common.change' | translate }}</span>
                     </label>
-                    <button type="button" class="remove-avatar-btn H pop" data-pop="Remove photo" aria-label="Remove photo" (click)="clearAvatar()">
+                    <button type="button" class="remove-avatar-btn H pop" [attr.data-pop]="'navbar.remove_photo' | translate" [attr.aria-label]="'navbar.remove_photo' | translate" (click)="clearAvatar()">
                       <span class="material-symbols-outlined">delete</span>
                     </button>
                   </div>
                   <label class="profile-field">
-                    <span>Display name</span>
+                    <span>{{ 'common.display_name' | translate }}</span>
                     <input #displayNameInput type="text" [value]="auth.currentUser?.displayName || ''">
                   </label>
                   @if (profileError) {
-                    <div class="profile-error">{{profileError}}</div>
+                    <div class="profile-error">{{(profileError) | uiText}}</div>
                   }
                   <div class="password-reset-section">
                     <button class="pw-reset-toggle" type="button" (click)="togglePasswordReset()">
                       <span class="material-symbols-outlined" aria-hidden="true">lock_reset</span>
-                      {{showPasswordReset ? 'Cancel password reset' : 'Reset password'}}
+                      {{(showPasswordReset) ? ('navbar.cancel_password_reset' | translate) : ('navbar.reset_password' | translate)}}
                     </button>
                     @if (showPasswordReset) {
                       <div class="pw-reset-form">
                         <label class="profile-field">
-                          <span>Current password</span>
-                          <input type="password" [(ngModel)]="currentPassword" autocomplete="current-password" placeholder="Enter current password">
+                          <span>{{ 'navbar.current_password' | translate }}</span>
+                          <input type="password" [(ngModel)]="currentPassword" autocomplete="current-password" [attr.placeholder]="'navbar.enter_current_password' | translate">
                         </label>
                         <label class="profile-field">
-                          <span>New password</span>
-                          <input type="password" [(ngModel)]="newPassword" autocomplete="new-password" placeholder="Min. 8 characters">
+                          <span>{{ 'navbar.new_password' | translate }}</span>
+                          <input type="password" [(ngModel)]="newPassword" autocomplete="new-password" [attr.placeholder]="'navbar.min_8_characters' | translate">
                         </label>
                         <label class="profile-field">
-                          <span>Confirm new password</span>
-                          <input type="password" [(ngModel)]="confirmNewPassword" autocomplete="new-password" placeholder="Re-enter new password">
+                          <span>{{ 'navbar.confirm_new_password' | translate }}</span>
+                          <input type="password" [(ngModel)]="confirmNewPassword" autocomplete="new-password" [attr.placeholder]="'navbar.re_enter_new_password' | translate">
                         </label>
                         @if (passwordResetError) {
-                          <div class="pw-feedback error">{{passwordResetError}}</div>
+                          <div class="pw-feedback error">{{(passwordResetError) | uiText}}</div>
                         }
                         @if (passwordResetSuccess) {
-                          <div class="pw-feedback success">{{passwordResetSuccess}}</div>
+                          <div class="pw-feedback success">{{(passwordResetSuccess) | uiText}}</div>
                         }
                         <button class="pw-save" type="button" [disabled]="isResettingPassword || !currentPassword || !newPassword || !confirmNewPassword" (click)="resetMyPassword()">
-                          {{isResettingPassword ? 'Updating...' : 'Update password'}}
+                          {{(isResettingPassword) ? ('navbar.updating' | translate) : ('navbar.update_password' | translate)}}
                         </button>
                       </div>
                     }
                   </div>
                   <div class="profile-actions">
-                    <button class="secondary" type="button" (click)="openAdvancedSettings()">Advanced settings</button>
-                    <button class="primary" type="button" (click)="saveProfile(displayNameInput.value)">Save</button>
+                    <button class="secondary" type="button" (click)="openAdvancedSettings()">{{ 'navbar.advanced_settings' | translate }}</button>
+                    <button class="primary" type="button" (click)="saveProfile(displayNameInput.value)">{{ 'common.save' | translate }}</button>
                   </div>
                 </div>
               } @else {
                 <div class="account-header">
-                  <button type="button" class="account-avatar-button" aria-label="Edit profile" (click)="editProfile()">
+                  <button type="button" class="account-avatar-button" [attr.aria-label]="'navbar.edit_profile' | translate" (click)="editProfile()">
                     <span class="account-avatar">
                       @if (auth.currentUser?.avatarDataUrl) {
                         <img class="user-pic" [src]="auth.currentUser?.avatarDataUrl" alt="">
@@ -249,31 +249,31 @@
                     </span>
                   </button>
                   <div class="account-identity">
-                    <strong>{{auth.currentUser?.displayName || auth.currentUser?.username || 'User'}}</strong>
+                    <strong>{{(auth.currentUser?.displayName || auth.currentUser?.username) || ('navbar.user' | translate)}}</strong>
                   </div>
-                  <button type="button" class="account-edit" aria-label="Edit profile" title="Edit profile" (click)="editProfile()">
+                  <button type="button" class="account-edit" [attr.aria-label]="'navbar.edit_profile' | translate" [attr.title]="'navbar.edit_profile' | translate" (click)="editProfile()">
                     <span class="material-symbols-outlined" aria-hidden="true">edit</span>
-                    <span>Edit profile</span>
+                    <span>{{ 'navbar.edit_profile' | translate }}</span>
                   </button>
                 </div>
                 <div class="account-sync" [class.needs-attention]="sync.attention" aria-live="polite" aria-atomic="true">
                   <div class="account-sync-row">
                     <div class="account-sync-copy">
-                      <span class="account-sync-label"><span class="material-symbols-outlined" aria-hidden="true">{{sync.icon}}</span><span>{{sync.label}}</span></span>
-                      @if (sync.detail) { <span class="account-sync-detail">{{sync.detail}}</span> }
+                      <span class="account-sync-label"><span class="material-symbols-outlined" aria-hidden="true">{{sync.icon}}</span><span>{{(sync.label) | uiText}}</span></span>
+                      @if (sync.detail) { <span class="account-sync-detail">{{(sync.detail) | uiText}}</span> }
                     </div>
-                    <button type="button" class="account-sync-action" [disabled]="sync.disabled" (click)="syncAccount()">{{sync.action}}</button>
+                    <button type="button" class="account-sync-action" [disabled]="sync.disabled" (click)="syncAccount()">{{(sync.action) | uiText}}</button>
                   </div>
                   @if (offlineSync.storageBlocked$ | async) {
-                    <p class="account-sync-warning">{{offlineSync.storageFullMessage}}</p>
+                    <p class="account-sync-warning">{{(offlineSync.storageFullMessage) | uiText}}</p>
                   }
                 </div>
                 <div class="account-menu-actions">
                   <button type="button" class="account-menu-item" (click)="openAdvancedSettings()">
-                    <span class="material-symbols-outlined" aria-hidden="true">settings</span>Settings
+                    <span class="material-symbols-outlined" aria-hidden="true">settings</span>{{ 'common.settings' | translate }}
                   </button>
                   <button type="button" class="account-menu-item" (click)="logout()">
-                    <span class="material-symbols-outlined" aria-hidden="true">logout</span>Sign out
+                    <span class="material-symbols-outlined" aria-hidden="true">logout</span>{{ 'common.sign_out' | translate }}
                   </button>
                 </div>
               }
@@ -286,31 +286,16 @@
   </section>
 
 <div #selectionColorTt data-tooltip="true" data-is-tooltip-open="false" class="colorMenu">
-  <div class="first-row">
-    @for (color of bgColors | keyvalue; track color) {
-      <div [attr.data-bg-color]="color.key" [style.background-color]="color.value"
-        (click)="selectionColorMenu.bgColor(color.value)" [class.nocolor]="color.value === ''">
-      </div>
-    }
-  </div>
-  <div class="second-row">
-    @for (image of bgImages | keyvalue; track image) {
-      <div [attr.data-bg-image]="image.key" [style.background-image]="image.value | ph"
-        (click)="selectionColorMenu.bgImage(image.value)" [class.noimage]="image.value === ''">
-        @if (bgImageLabels[image.key]) {
-          <span>{{bgImageLabels[image.key]}}</span>
-        }
-      </div>
-    }
-  </div>
+  <app-note-appearance-picker (colorSelected)="selectionColorMenu.bgColor($event)" (backgroundSelected)="selectionColorMenu.bgImage($event)"
+    (layoutChanged)="Shared.updateTooltip(selectionColorTt)"></app-note-appearance-picker>
 </div>
 
 <div #selectionMoreTt data-tooltip="true" data-is-tooltip-open="false" class="moreMenu selectionMoreMenu">
-  <div (click)="selectionMoreMenu(selectionMoreTt).trash()">Delete note</div>
-  <div (click)="selectionMoreMenu(selectionMoreTt).openLabelMenu(labelMenuTt)">Add label</div>
-  <div (click)="selectionMoreMenu(selectionMoreTt).openBinderMenu(binderMenuTt,labelMenuTt)">Move to binder</div>
-  <div (click)="selectionMoreMenu(selectionMoreTt).clone()">Make a copy</div>
-  <div (click)="selectionMoreMenu(selectionMoreTt).openMerge()">Merge…</div>
+  <div (click)="selectionMoreMenu(selectionMoreTt).trash()">{{ 'notes.delete_note' | translate }}</div>
+  <div (click)="selectionMoreMenu(selectionMoreTt).openLabelMenu(labelMenuTt)">{{ 'labels.add_label' | translate }}</div>
+  <div (click)="selectionMoreMenu(selectionMoreTt).openBinderMenu(binderMenuTt,labelMenuTt)">{{ 'binders.move_to_binder' | translate }}</div>
+  <div (click)="selectionMoreMenu(selectionMoreTt).clone()">{{ 'notes.make_a_copy' | translate }}</div>
+  <div (click)="selectionMoreMenu(selectionMoreTt).openMerge()">{{ 'navbar.merge' | translate }}</div>
 </div>
 
 @if (isMergeDialogOpen) {
@@ -322,25 +307,25 @@
 }
 
 <div #labelMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu">
-  <div class="title">Label note</div>
+  <div class="title">{{ 'labels.label_note' | translate }}</div>
   @if (Shared.selectionOrganizationHint('labels')) {
-    <p class="organization-hint">{{Shared.selectionOrganizationHint('labels')}}</p>
+    <p class="organization-hint">{{(Shared.selectionOrganizationHint('labels')) | uiText}}</p>
   }
   @if (Shared.canOrganizeSelection('labels')) {
   <div class="search">
     <div class="search-icon"></div>
-    <input #newLabelInput type="text" maxlength="50" placeholder="Enter label name"
+    <input #newLabelInput type="text" maxlength="50" [attr.placeholder]="'labels.enter_label_name' | translate"
       (keydown.enter)="addLabelFromMenu(newLabelInput); $event.preventDefault()" (blur)="addLabelFromMenu(newLabelInput)"
       (input)="labelMenuError=''">
   </div>
   @if (newLabelInput.value.trim().length) {
     <div class="label-list create-label" (mousedown)="$event.preventDefault()" (click)="addLabelFromMenu(newLabelInput)">
       <div class="check-icon"></div>
-      <div class="label-name">Create "{{newLabelInput.value.trim()}}"</div>
+      <div class="label-name">{{ 'common.create_named' | translate: { value0: (newLabelInput.value.trim()) } }}</div>
     </div>
   }
   @if (labelMenuError) {
-    <div class="label-error">{{labelMenuError}}</div>
+    <div class="label-error">{{(labelMenuError) | uiText}}</div>
   }
   <div class="label-list-container">
     @for (label of Shared.label.list; track label) {
@@ -354,29 +339,29 @@
 </div>
 
 <div #binderMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu binderMenu">
-  <div class="title">Move to binder</div>
+  <div class="title">{{ 'binders.move_to_binder' | translate }}</div>
   @if (Shared.selectionOrganizationHint('binders')) {
-    <p class="organization-hint">{{Shared.selectionOrganizationHint('binders')}}</p>
+    <p class="organization-hint">{{(Shared.selectionOrganizationHint('binders')) | uiText}}</p>
   }
   @if (Shared.canOrganizeSelection('binders')) {
   <div class="search">
-    <input #newBinderInput type="text" maxlength="50" placeholder="Enter binder name"
+    <input #newBinderInput type="text" maxlength="50" [attr.placeholder]="'binders.enter_binder_name' | translate"
       (keydown.enter)="addBinderFromMenu(newBinderInput); $event.preventDefault()" (blur)="addBinderFromMenu(newBinderInput)"
       (input)="binderMenuError=''">
   </div>
   @if (newBinderInput.value.trim().length) {
     <div class="label-list create-label" (mousedown)="$event.preventDefault()" (click)="addBinderFromMenu(newBinderInput)">
       <div class="check-icon"></div>
-      <div class="label-name">Create "{{newBinderInput.value.trim()}}"</div>
+      <div class="label-name">{{ 'common.create_named' | translate: { value0: (newBinderInput.value.trim()) } }}</div>
     </div>
   }
   @if (binderMenuError) {
-    <div class="label-error">{{binderMenuError}}</div>
+    <div class="label-error">{{(binderMenuError) | uiText}}</div>
   }
   <div class="label-list-container">
     <div class="label-list" (click)="setSelectionBinder('', binderMenuTt)">
       <div [class.done]='isSelectedBinder("")' class="check-icon"></div>
-      <div class="label-name">No binder</div>
+      <div class="label-name">{{ 'binders.no_binder' | translate }}</div>
     </div>
     @for (binder of Shared.binder.list; track binder.name) {
       <div class="label-list" (click)="setSelectionBinder(binder.name, binderMenuTt)">
@@ -385,5 +370,15 @@
       </div>
     }
   </div>
+  }
+  @if (selectionHasSharedBinder) {
+  <button type="button" class="label-list" (click)="setSelectionSharedBinder(null,binderMenuTt)">{{ 'binder_sharing.remove_note' | translate }}</button>
+  }
+  @if (canAddSelectionToSharedBinder) {
+  @for (binder of Shared.sharedBinders; track binder.id) {
+    <button type="button" class="label-list" (click)="setSelectionSharedBinder(binder,binderMenuTt)">
+      <span class="label-name">{{binder.name}} <small>{{binder.ownerDisplayName || binder.ownerUsername}}</small></span>
+    </button>
+  }
   }
 </div>

@@ -18,7 +18,7 @@
 
 // Keep the existing family names working while using the complete Roboto font.
 @font-face {
-  font-family: "Google Sans";
+  font-family: "Google Sans", Roboto, "Noto Sans Hebrew", "Segoe UI", Arial, sans-serif;
   src: url("Roboto.woff2") format("woff2");
   font-style: normal;
   font-weight: 100 900;
@@ -36,7 +36,7 @@
 }
 
 @font-face {
-  font-family: "Google Sans Light 2";
+  font-family: "Google Sans Light 2", Roboto, "Noto Sans Hebrew", "Segoe UI", Arial, sans-serif;
   src: url("Roboto.woff2") format("woff2");
   font-style: normal;
   font-weight: 100 900;

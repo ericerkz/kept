@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from 'src/app/services/auth.service';
@@ -50,7 +51,7 @@ export class RegisterComponent implements OnInit {
     this.successMessage = '';
 
     if (this.password !== this.confirmPassword) {
-      this.error = 'Passwords do not match.';
+      this.error = uiText('auth.passwords_do_not_match');
       return;
     }
 

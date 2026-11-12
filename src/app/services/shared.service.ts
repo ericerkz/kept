@@ -1,3 +1,4 @@
+import { uiText, uiPlural } from 'src/app/i18n/messages';
 import { Injectable, NgZone } from '@angular/core';
 import { NoteI, NoteModelI, UpdateKeyI } from '../interfaces/notes';
 import { NotesService } from './notes.service';
@@ -7,7 +8,8 @@ import { LabelI, LabelModelI } from '../interfaces/labels';
 import { createDemoNotes, demoWelcomeText } from '../utils/demo-notes';
 import { AuthService } from './auth.service';
 import { ReminderService } from './reminder.service';
-import { createPopper, type Placement } from '@popperjs/core';
+import { createPopper, type Instance, type Modifier, type Placement } from '@popperjs/core';
+import { CatalogItem } from '../interfaces/workspace';
 import { BindersService } from './binders.service';
 import { environment } from 'src/environments/environment';
 declare var Snackbar: any
@@ -17,6 +19,7 @@ export type WidgetCreateRequest = { requestId: string; type: WidgetCreateType }
   providedIn: 'root'
 })
 export class SharedService {
+  private tooltipPositioners = new WeakMap<HTMLDivElement, Instance>();
   private tooltipOutsideListeners = new WeakMap<HTMLDivElement, (event: Event) => void>();
   private readonly binderStorageKey = 'kept_binders_v1';
   private readonly noteViewTypeStorageKey = 'kept_note_view_type';
@@ -67,6 +70,7 @@ export class SharedService {
     })
 
     this.binders.items$.subscribe(() => this.refreshBinderList());
+    this.binders.sharedItems$.subscribe(items => this.sharedBinders = items);
     this.auth.accessChanges$.subscribe(async user => {
       if (this.auth.isLocal) {
         try {
@@ -95,7 +99,7 @@ export class SharedService {
         this.note.all = []
         this.serverLabels = []
         this.label.list = []
-        this.binder.list = []
+        this.binder.list = [];this.sharedBinders = []
       }
     })
   }
@@ -272,9 +276,9 @@ export class SharedService {
   refreshBinderList() {
     const names = [
       ...(this.binders.sync.writesLocally ? this.binders.items$.value.map(item => item.name) : this.storedBinders()),
-      ...(this.note.all || []).map(note => note.binder || '').filter(Boolean)
+      ...(this.note.all || []).filter(note => !note.sharedBinder || note.sharedBinder.ownerUserId === this.auth.currentUser?.id || this.auth.currentUser?.inheritSharedBinders === false).map(note => note.binder || '').filter(Boolean)
     ];
-    const unique: { name: string; sortOrder?: number | null }[] = [];
+    const unique: { name: string; sortOrder?: number | null; memberCount?: number }[] = [];
     const customLegacyOrder = !this.binders.sync.writesLocally && localStorage.getItem(`${this.binderStoragePartition()}:custom-order`) === '1';
     const catalog = new Map(this.binders.items$.value.map(item => [item.name.toLowerCase(), item]));
     const seen = new Set<string>();
@@ -284,7 +288,7 @@ export class SharedService {
       const key = clean.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      unique.push({ name: clean, sortOrder: this.binders.sync.writesLocally ? catalog.get(key)?.sortOrder : customLegacyOrder ? names.indexOf(name) : null });
+      unique.push({ name: clean, memberCount:catalog.get(key)?.memberCount || 0, sortOrder: this.binders.sync.writesLocally ? catalog.get(key)?.sortOrder : customLegacyOrder ? names.indexOf(name) : null });
     }
     unique.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     this.binder.list = unique;
@@ -312,7 +316,7 @@ export class SharedService {
     const me = this.auth.currentUser?.id
     let leftSharedCount = 0
     for (const note of selected) {
-      if (note.ownerUserId && me && note.ownerUserId !== me) {
+      if (note.ownerUserId && me && note.ownerUserId !== me && !note.sharedBinder) {
         await this.Notes.delete(note.id!)
         leftSharedCount++
       } else {
@@ -323,7 +327,7 @@ export class SharedService {
     if (leftSharedCount) {
       Snackbar.show({
         pos: 'bottom-left',
-        text: leftSharedCount === 1 ? 'Shared note removed' : `${leftSharedCount} shared notes removed`,
+        text: uiPlural('notes.shared_notes_removed', leftSharedCount),
         duration: 3000
       })
     }
@@ -353,8 +357,8 @@ export class SharedService {
     const shared = this.note.all.filter(note => note.id && this.selectedNoteIds.value.includes(note.id) && note.ownerUserId && note.ownerUserId !== this.auth.currentUser?.id);
     if (!shared.length) return '';
     return shared.some(note => !this.canOrganizeNote(note, kind))
-      ? `Shared notes keep the owner's ${kind}. You can change this in Settings.`
-      : 'Only changes your organization of shared notes.';
+      ? uiText(kind === 'binders' ? 'organization.selected_binder' : 'organization.selected_labels')
+      : uiText('notes.only_changes_your_organization_of_shared_notes');
   }
 
   async bulkApplyLabel(label: LabelI) {
@@ -412,13 +416,14 @@ export class SharedService {
       updateCollaborators: (userIds: number[]) => this.Notes.updateCollaborators(this.note.id, userIds),
       reorder: (ids: number[]) => this.Notes.reorder(ids),
       clone: () => this.Notes.clone(this.note.id),
+      moveBinder: (id: number,target: Parameters<NotesService['moveBinder']>[1]) => this.Notes.moveBinder(id,target),
       delete: () => this.Notes.delete(this.note.id),
       trash: async () => {
         const note = this.note.all.find(n => n.id === this.note.id)
         if (note?.isDemo) {
           const otherDemoNotes = this.note.all.filter(n => n.isDemo && n.id !== this.note.id)
           if (otherDemoNotes.length > 0) {
-            if (confirm('Would you like to delete the rest of the demo notes, too?')) {
+            if (confirm(uiText('notes.would_you_like_to_delete_the_rest_of_the_demo_notes_too'))) {
               const demoNotes = this.note.all.filter(n => n.isDemo)
               for (const dn of demoNotes) {
                 await this.Notes.updateKey({ trashed: true, archived: false }, dn.id!)
@@ -479,13 +484,15 @@ export class SharedService {
       add: async (data: LabelI) => this.Labels.add(data),
       update: (data: LabelI) => this.Labels.update(data, this.label.id),
       delete: () => this.Labels.delete(this.label.id),
+      noteCounts: () => this.Labels.noteCounts(),
       reorder: (labels: LabelI[]) => this.Labels.reorder(labels),
       updateAllLabels: (value: any) => this.note.db.updateAllLabels(this.label.id, value),
     }
   }
 
+  sharedBinders: CatalogItem[] = [];
   binder = {
-    list: [] as { name: string }[],
+    list: [] as { name: string; memberCount?: number }[],
     db: {
       reorder: async (names: string[]) => {
         if (this.binders.sync.writesLocally) return this.binders.reorder(names);
@@ -531,10 +538,17 @@ export class SharedService {
   // ? snakebar (aka toast) --------------------------------------
 
   snackBar(text: { action: string, opposite: string }, obj: UpdateKeyI, noteId: number) {
+    const messages: Record<string, string> = {
+      archived: 'notes.note_archived', unarchived: 'notes.note_unarchived',
+      trashed: 'notes.note_trashed', restored: 'notes.note_restored',
+      'left shared note': 'notes.note_left_shared_note', rejoined: 'notes.note_rejoined',
+      'trashed all demo notes': 'notes.note_trashed_all_demo_notes'
+    };
+    const message = (action: string) => uiText(messages[action] || `Note ${action}`);
     Snackbar.show({
       pos: 'bottom-left',
-      text: `Note ${text.action}`,
-      actionText: 'Undo',
+      text: message(text.action),
+      actionText: uiText('common.undo'),
       duration: 4200,
       onActionClick: () => {
         const uObj = obj as any
@@ -546,7 +560,7 @@ export class SharedService {
         }
         Snackbar.show({
           pos: 'bottom-left',
-          text: `Note ${text.opposite}`,
+          text: message(text.opposite),
           duration: 3000,
         })
       }
@@ -559,7 +573,43 @@ export class SharedService {
   createTooltip(button: HTMLElement, tooltipEl: HTMLDivElement, placement: Placement = 'bottom') {
     this.removeTooltipOutsideListener(tooltipEl)
     tooltipEl.dataset['isTooltipOpen'] = 'true'
-    createPopper(button, tooltipEl, { placement })
+    this.tooltipPositioners.get(tooltipEl)?.destroy();
+    const appearancePicker = tooltipEl.classList.contains('colorMenu');
+    const surface = appearancePicker ? button.closest<HTMLElement>('.note-main, .note-container, .selection-navbar') : null;
+    // Keep the menu below/above its button, but align it with the note rather
+    // than the button's position halfway across the toolbar.
+    const appearanceSize: Partial<Modifier<'appearanceSize', Record<string, never>>> = {
+      name: 'appearanceSize', enabled: true, phase: 'beforeRead',
+      effect: ({ instance }) => {
+        const updateSize = () => {
+          // offsetWidth excludes the editor's opening animation scale.
+          if (surface) tooltipEl.style.setProperty('--appearance-anchor-width', `${surface.offsetWidth}px`);
+          void instance.update();
+        };
+        updateSize();
+        // Sidebar changes can resize cards without a window resize.
+        const observer = surface && typeof ResizeObserver !== 'undefined'
+          ? new ResizeObserver(updateSize) : undefined;
+        if (surface) observer?.observe(surface);
+        const modal = surface?.closest('.modal');
+        modal?.addEventListener('transitionend', updateSize);
+        return () => {
+          observer?.disconnect();
+          modal?.removeEventListener('transitionend', updateSize);
+          tooltipEl.style.removeProperty('--appearance-anchor-width');
+        };
+      }
+    };
+    this.tooltipPositioners.set(tooltipEl, createPopper(button, tooltipEl, appearancePicker ? {
+      placement: placement === 'bottom' ? 'bottom-start' : placement,
+      strategy: 'fixed',
+      modifiers: [
+        appearanceSize,
+        { name: 'offset', options: { offset: () => [surface ? surface.getBoundingClientRect().left - button.getBoundingClientRect().left : 0, 8] } },
+        { name: 'flip', options: { padding: 12, flipVariations: false } },
+        { name: 'preventOverflow', options: { padding: 12, altAxis: true, tether: false } }
+      ]
+    } : { placement }));
     // Defer the outside-click listener by one frame and use `click` instead
     // of `mousedown`. On iOS the first tap on a menu item arrives via the
     // synthetic mousedown → click sequence; if we listen on mousedown we
@@ -580,7 +630,13 @@ export class SharedService {
 
   closeTooltip(tooltipEl: HTMLDivElement) {
     tooltipEl.dataset['isTooltipOpen'] = 'false'
+    this.tooltipPositioners.get(tooltipEl)?.destroy();
+    this.tooltipPositioners.delete(tooltipEl);
     this.removeTooltipOutsideListener(tooltipEl)
+  }
+
+  updateTooltip(tooltipEl: HTMLDivElement) {
+    if (tooltipEl.dataset['isTooltipOpen'] === 'true') void this.tooltipPositioners.get(tooltipEl)?.update();
   }
 
   private removeTooltipOutsideListener(tooltipEl: HTMLDivElement) {

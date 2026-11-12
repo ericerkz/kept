@@ -1,0 +1,37 @@
+<div class="appearance-tabs" role="tablist" [attr.aria-label]="'appearance.tabs' | translate" (keydown)="onTabKeydown($event)">
+  <button type="button" role="tab" data-appearance-tab="colour" [id]="pickerId + '-colour-tab'"
+    [attr.aria-controls]="pickerId + '-colour-panel'" [attr.aria-selected]="activeTab === 'colour'"
+    [tabIndex]="activeTab === 'colour' ? 0 : -1" (click)="selectTab('colour')">{{ 'appearance.colour' | translate }}</button>
+  <button type="button" role="tab" data-appearance-tab="background" [id]="pickerId + '-background-tab'"
+    [attr.aria-controls]="pickerId + '-background-panel'" [attr.aria-selected]="activeTab === 'background'"
+    [tabIndex]="activeTab === 'background' ? 0 : -1" (click)="selectTab('background')">{{ 'appearance.background' | translate }}</button>
+</div>
+<div class="appearance-panel" role="tabpanel" [id]="pickerId + '-colour-panel'"
+  [attr.aria-labelledby]="pickerId + '-colour-tab'" [hidden]="activeTab !== 'colour'">
+  <div class="first-row">
+    @for (family of families; track family.key) {
+      @let familyLabel = family.label | translate;
+      <div class="color-family-swatches" role="group" [attr.aria-label]="familyLabel">
+        @for (color of family.colors; track color; let shadeIndex = $index) {
+          @let swatchLabel = colors[color] === '' ? ('colors.default' | translate) : ('colors.shade' | translate: { family: familyLabel, shade: shadeIndex + 1 });
+          <button type="button" class="color-swatch" [attr.data-bg-color]="color" [style.background-color]="colors[color]"
+            [attr.aria-label]="swatchLabel" [attr.title]="swatchLabel" [class.nocolor]="colors[color] === ''"
+            (click)="colorSelected.emit(colors[color])"></button>
+        }
+      </div>
+    }
+  </div>
+</div>
+<div class="appearance-panel" role="tabpanel" [id]="pickerId + '-background-panel'"
+  [attr.aria-labelledby]="pickerId + '-background-tab'" [hidden]="activeTab !== 'background'">
+  <div class="background-grid">
+    @for (image of backgrounds; track image.key) {
+      @let label = image.label | translate;
+      <button type="button" class="background-choice" [attr.data-bg-image]="image.key"
+        [attr.aria-label]="label" [attr.title]="label" (click)="backgroundSelected.emit(image.value)">
+        <span class="background-choice-preview" [class.noimage]="image.value === ''" [style.background-image]="image.value | ph" aria-hidden="true"></span>
+        <span class="background-choice-label">{{label}}</span>
+      </button>
+    }
+  </div>
+</div>

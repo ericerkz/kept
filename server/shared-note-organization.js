@@ -28,7 +28,7 @@ function createSharedNoteOrganization(deps) {
     const id = Number(userId);
     if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid organization viewer.');
     const personal = field => `(SELECT ${field} FROM user_note_organization WHERE userId = ${id} AND noteId = notes.id)`;
-    return `${id} AS organizationViewerId,
+    return `${deps.binderSharing.fields(id)}, ${id} AS organizationViewerId,
       ${personal('labels')} AS personalLabels, ${personal('binder')} AS personalBinder,
       CASE WHEN notes.ownerUserId = ${id} OR COALESCE((SELECT inheritSharedLabels FROM users WHERE id = ${id}), 1) = 1
         THEN notes.labels ELSE COALESCE(${personal('labels')}, '[]') END AS visibleLabels,
@@ -41,7 +41,7 @@ function createSharedNoteOrganization(deps) {
       ownerLabels: parse(row.labels, []).filter(label => label?.added === true), ownerBinder: row.binder || '',
       personalLabels: parse(row.personalLabels, []), personalBinder: row.personalBinder || ''
     } : undefined;
-    return { ...row, labels: row.visibleLabels, binder: row.visibleBinder, sharedOrganization };
+    return { ...row, labels: row.visibleLabels, binder: row.visibleBinder, sharedOrganization, sharedBinder: parse(row.sharedBinderJson, null) || undefined };
   }
   async function update(userId, noteId, payload, stamp = serverLwwStamp()) {
     const note = await deps.getAccessibleNote(noteId, userId);

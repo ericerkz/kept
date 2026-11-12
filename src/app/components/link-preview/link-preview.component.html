@@ -23,19 +23,19 @@
 
     <div class="lp-content">
       <div class="lp-text">
-        <div class="lp-title">{{ preview?.title || linkDomain(url) }}</div>
-        <div class="lp-domain">{{ preview?.domain || linkDomain(url) }}</div>
+        <div class="lp-title">{{ (preview?.title) || (linkDomain(url)) }}</div>
+        <div class="lp-domain">{{ (preview?.domain) || (linkDomain(url)) }}</div>
       </div>
 
       <div class="lp-actions">
-        <button class="lp-action-btn" type="button" [title]="copied ? 'Copied' : 'Copy link'"
+        <button class="lp-action-btn" type="button" [title]="(copied) ? ('common.copied' | translate) : ('link_preview.copy_link' | translate)"
           (mousedown)="$event.stopPropagation()" (mouseup)="copy($event)" (click)="$event.stopPropagation()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L10.9 5.03"></path>
             <path d="M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07l1.22-1.22"></path>
           </svg>
         </button>
-        <button class="lp-action-btn" type="button" title="Open link"
+        <button class="lp-action-btn" type="button" [attr.title]="'link_preview.open_link' | translate"
           (mousedown)="$event.stopPropagation()" (mouseup)="open($event)" (click)="$event.stopPropagation()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>

@@ -199,7 +199,7 @@ try {
     const drag = seeded.find(test => test.name === 'drag');
     await open(drag.id);
     const handle = editor.locator('[data-cbox-row-id="1"] .cbox-move-icon');
-    const indent = () => handle.evaluate(el => parseFloat(el.style.marginLeft));
+    const indent = () => handle.evaluate(el => parseFloat(el.style.marginInlineStart));
     const move = async dx => {
       await handle.hover(); // Wait for the modal's opening animation to settle.
       const rect = await handle.boundingBox();

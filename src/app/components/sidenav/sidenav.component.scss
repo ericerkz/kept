@@ -474,7 +474,7 @@
     margin-top: auto;
     padding: 16px;
     border-top: 1px solid #3c4043;
-    
+
     .install-pwa-sidenav {
       display: flex;
       align-items: center;
@@ -497,7 +497,7 @@
         background-color: #fce8b2;
         box-shadow: 0 2px 6px rgba(0,0,0,0.4);
       }
-      
+
       .material-symbols-outlined {
         font-size: 20px;
       }
@@ -651,7 +651,8 @@
     }
   }
 
-}
+
+}
 
 .modal-container {
   position: fixed;
@@ -1365,24 +1366,7 @@
     > * { opacity: 0; }
   }
 
-  .binder-move, .label-move {
-    align-items: center;
-    background: transparent;
-    border: 0;
-    border-radius: 6px;
-    color: #e8eaed;
-    cursor: pointer;
-    display: inline-flex;
-    flex: 0 0 36px;
-    height: 44px;
-    justify-content: center;
-    padding: 0;
 
-    .material-symbols-outlined { font-size: 20px; }
-    &:hover:not(:disabled) { background: rgba(154, 160, 166, 0.12); }
-    &:focus-visible { outline: 2px solid #8ab4f8; }
-    &:disabled { cursor: default; opacity: 0.3; }
-  }
 }
 
 .label-list.catalog-reordering > [data-catalog-name] {
@@ -1393,8 +1377,6 @@
   .label-list.catalog-reordering > [data-catalog-name] { transition: none; }
 }
 
-:host-context(.light-theme) .label-modal-main .label-list .binder-move,
-:host-context(.light-theme) .label-modal-main .label-list .label-move,
 :host-context(.light-theme) .label-modal-main .label-list .catalog-drag-handle { color: #3c4043; }
 
 .main-sidebar.binder-drop-active .item.is-binder {
@@ -1408,3 +1390,144 @@
   outline: 2px solid #1a73e8;
   outline-offset: -3px;
 }
+
+.binder-share-button, .binder-people-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 44px;
+  height: 44px;
+  justify-content: center;
+  padding: 0;
+  &:focus-visible { outline: 2px solid #8ab4f8; }
+  &:disabled { cursor: default; opacity: .4; }
+}
+.binder-share-button.is-shared { color: #8ab4f8; }
+.received-binder {
+  .text { flex: 1; min-width: 0; }
+  .text > span, .text small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .text small { font-size: .75rem; opacity: .7; }
+}
+.main-sidebar.close:not(.native-phone-drawer) .received-binder .binder-people-button { display: none; }
+.binder-sharing-backdrop {
+  align-items: center;
+  background: rgba(0,0,0,.45);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  position: fixed;
+  z-index: 3500;
+}
+.binder-sharing-dialog {
+  background: #202124;
+  border: 1px solid #5f6368;
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.3);
+  box-sizing: border-box;
+  color: #e8eaed;
+  display: flex;
+  flex-direction: column;
+  font: 400 14px/1.45 Roboto, Arial, sans-serif;
+  max-height: min(700px, calc(100dvh - 64px));
+  max-width: 460px;
+  overflow: auto;
+  padding: 20px;
+  width: 100%;
+  h2 { font: 500 20px/1.3 'Google Sans', Roboto, Arial, sans-serif; margin: 0 0 12px; overflow-wrap: anywhere; }
+  p { line-height: 1.45; margin: 0 0 12px; }
+  .error { color: #f28b82; }
+  .binder-sharing-users { flex: 1; min-height: 0; overflow-y: auto; }
+  label { align-items: center; display: flex; gap: 12px; min-height: 48px; padding: 4px 0; }
+  input { height: 20px; width: 20px; }
+  .binder-sharing-avatar { border-radius: 50%; box-sizing: border-box; display: block; flex: 0 0 32px; height: 32px; object-fit: cover; width: 32px; }
+  label span { overflow-wrap: anywhere; }
+  footer { display: flex; flex-shrink: 0; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+  button { background: transparent; border: 1px solid #9aa0a6; border-radius: 8px; color: inherit; cursor: pointer; font: inherit; min-height: 44px; padding: 8px 14px; }
+  button.primary { background: #8ab4f8; border-color: #8ab4f8; color: #202124; }
+  button:disabled { cursor: default; opacity: .5; }
+}
+:host-context(.light-theme) {
+  .binder-sharing-dialog { background: #fff; border-color: #dadce0; color: #202124; }
+  .binder-share-button.is-shared { color: #1a73e8; }
+}
+
+
+.label-modal-main .label-list .binder-edit-row,
+.label-modal-main .label-list .label-edit-row {
+  min-height: 48px;
+  height: auto;
+
+  .binder-drag-handle, .label-drag-handle {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    display: inline-flex;
+    justify-content: center;
+    mask: none;
+    -webkit-mask: none;
+    padding: 0;
+
+    &::before {
+      background: currentColor;
+      content: '';
+      height: 18px;
+      mask: url(/assets/images/svg/move.svg) center / contain no-repeat;
+      -webkit-mask: url(/assets/images/svg/move.svg) center / contain no-repeat;
+      width: 18px;
+    }
+    &:focus-visible { outline: 2px solid #8ab4f8; opacity: 1; }
+    &:disabled { cursor: default; opacity: .3; }
+  }
+
+  .binder-share-button {
+    flex: 0 0 auto;
+    min-width: 44px;
+    color: #bdc1c6;
+  }
+  .binder-avatar-stack {
+    align-items: center;
+    display: inline-flex;
+    padding-inline-start: 8px;
+  }
+  .binder-member-avatar {
+    border: 1px solid #202124;
+    border-radius: 50%;
+    box-sizing: border-box;
+    display: inline-block;
+    flex: 0 0 32px;
+    height: 32px;
+    margin-inline-start: -8px;
+    object-fit: cover;
+    width: 32px;
+  }
+  .binder-member-more {
+    align-items: center;
+    background: #3c4043;
+    color: #e8eaed;
+    display: inline-flex;
+    font: 500 11px/1 Roboto, Arial, sans-serif;
+    justify-content: center;
+  }
+  .binder-member-count { font-size: 12px; margin-inline-start: 3px; }
+}
+:host-context(.light-theme) .label-modal-main .label-list .binder-edit-row {
+  .binder-share-button { color: #5f6368; }
+  .binder-member-avatar { border-color: #fff; }
+  .binder-member-more { background: #f1f3f4; color: #5f6368; }
+}
+
+.label-modal-main .label-list .label-edit-row .label-note-count {
+  color: #9aa0a6;
+  flex: 0 0 auto;
+  font: 400 12px/1.4 Roboto, Arial, sans-serif;
+  margin-inline-start: 10px;
+  text-align: end;
+  white-space: nowrap;
+}
+:host-context(.light-theme) .label-modal-main .label-list .label-edit-row .label-note-count { color: #80868b; }

@@ -8,14 +8,14 @@ let browser;
 try {
   const credentials = { username: 'owner', displayName: 'Owner', password: 'test-password-123' };
   let token;
-  async function api(path, data) {
+  async function api(path, data, method = data ? 'POST' : 'GET', bearer = token) {
     const response = await fetch(fixture.origin + '/api' + path, {
-      method: data ? 'POST' : 'GET',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      method,
+      headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) },
       body: data ? JSON.stringify(data) : undefined
     });
     assert.ok(response.ok, await response.clone().text());
-    return response.json();
+    return response.status === 204 ? undefined : response.json();
   }
   await api('/setup/admin', credentials);
   token = (await api('/auth/login', credentials)).token;
@@ -24,11 +24,23 @@ try {
   const create = noteBody => api('/notes', { noteTitle: 'Link editing', noteBody, labels: [], images: [], checkBoxes: [] });
   const note = await create(url);
   const untouched = [];
-  for (const html of [url, `<p><b><a href="${url}">A linked label</a></b></p>`, `${url}<br>https://example.com/second`]) {
+  for (const html of [url, `<p><b><a href="${url}">A linked label</a></b></p>`, `${url}<br>https://example.com/second`,
+    `<a href="${url}">First</a><a href="https://example.com/second">Second</a>`]) {
     const item = await create(html);
     untouched.push({ ...item, original: (await api(`/notes/${item.id}`)).noteBody });
   }
   const pasted = await create('Before ');
+  const adjacentUrls = Array.from({ length: 5 }, (_, index) => `https://example.com/adjacent-${index + 1}`);
+  const adjacent = await create(adjacentUrls[0]);
+  const joinedBody = adjacentUrls.slice(1, 4).join('');
+  const joined = await create(`${url}<br>${joinedBody}<br>${adjacentUrls[4]}`);
+  const joinedOnly = await api('/notes', { noteTitle: '', noteBody: joinedBody, labels: [], images: [], checkBoxes: [] });
+  const redirectUrl = 'https://example.com/redirect?next=https://example.org/destination';
+  const redirect = await create(redirectUrl);
+  const collaborator = await api('/users', { username: 'collaborator', password: credentials.password });
+  const collaboratorToken = (await api('/auth/login', { username: 'collaborator', password: credentials.password })).token;
+  const live = await create(url);
+  await api(`/notes/${live.id}/collaborators`, { userIds: [collaborator.id] }, 'PUT');
   const plain = await create('Plain ');
   browser = await (process.env.KEPT_TEST_BROWSER === 'webkit' ? webkit : chromium).launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
@@ -122,6 +134,56 @@ try {
   assert.ok(saved.includes('https://example.com/second'));
   assert.doesNotMatch(saved, /editor-link-|contenteditable/);
   console.log('PASS: paste retains the caret, existing cards and entered text');
+
+  // #136: cards look like separate lines even when pasted without Enter.
+  // Removing empty caret targets must not join their underlying URLs on save.
+  await open(adjacent.id);
+  for (let index = 1; index < adjacentUrls.length; index++) {
+    await caret(body, true);
+    await paste(adjacentUrls[index]);
+    await page.waitForFunction(count => document.querySelectorAll('.modal .editor-link-preview-card').length === count, index + 1);
+  }
+  await close();
+  saved = (await api(`/notes/${adjacent.id}`)).noteBody;
+  assert.deepEqual(saved.replace(/<br\s*\/?>/gi, '\n').trim().split(/\s+/), adjacentUrls,
+    'visually separate cards must remain separate saved URLs');
+  await open(adjacent.id);
+  assert.equal(await body.locator('.editor-link-preview-card').count(), 5, 'all five cards return after reopening');
+  await close();
+  assert.equal((await api(`/notes/${adjacent.id}`)).noteBody, saved, 'reopening must not accumulate separators');
+  console.log('PASS: adjacent preview cards retain separate URLs through autosave and close/reopen');
+
+  // Already-joined strings have no trustworthy boundary metadata. Display
+  // their complete text instead of concealing later URLs inside one preview.
+  for (const item of [joined, joinedOnly]) {
+    const original = (await api(`/notes/${item.id}`)).noteBody;
+    const overview = page.locator(`app-notes .note-container[data-note-id="${item.id}"]`);
+    assert.ok((await overview.innerText()).includes(joinedBody), 'joined text stays visible on the overview, even without a title');
+    await overview.click();
+    await body.waitFor();
+    assert.ok((await body.innerText()).includes(joinedBody), 'joined text stays visible in the editor');
+    await close();
+    assert.equal((await api(`/notes/${item.id}`)).noteBody, original, 'reading an affected note does not rewrite its URLs');
+  }
+  await open(redirect.id);
+  assert.equal(await body.locator('.editor-link-preview-card').count(), 1, 'a redirect URL with a nested query URL remains one preview');
+  await close();
+  assert.equal((await api(`/notes/${redirect.id}`)).noteBody, redirectUrl);
+  console.log('PASS: existing joined URL text remains visible in both views; redirect URLs remain intact');
+
+  // Receiving saved content must rebuild cards, but a metadata-only update
+  // must leave the existing hydrated body alone.
+  await open(live.id);
+  const liveBody = `${url}<br>${adjacentUrls[0]}<br>Incoming preview update`;
+  await api(`/notes/${live.id}`, { noteBody: liveBody }, 'PATCH', collaboratorToken);
+  await body.filter({ hasText: 'Incoming preview update' }).waitFor();
+  assert.equal(await body.locator('.editor-link-preview-card').count(), 2, 'incoming links are hydrated');
+  await body.locator('.editor-link-preview-card').first().evaluate(el => el.dataset['previewRegression'] = 'stable');
+  await api(`/notes/${live.id}`, { noteTitle: 'Updated preview title' }, 'PATCH', collaboratorToken);
+  await editor.getByRole('textbox', { name: 'Title', exact: true }).filter({ hasText: 'Updated preview title' }).waitFor();
+  assert.equal(await body.locator('[data-preview-regression="stable"]').count(), 1, 'unchanged content retains its hydrated cards');
+  await close();
+  console.log('PASS: incoming link changes rebuild cards; metadata-only refreshes retain existing cards');
 
   // #112: even plain text used to rebuild the body and reset the caret.
   for (const mobile of [false, true]) {

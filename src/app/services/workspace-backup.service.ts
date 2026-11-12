@@ -148,6 +148,11 @@ export class WorkspaceBackupService {
       const manifest: BackupManifest = JSON.parse(await manifestEntry.getData(new TextWriter()));
       if (manifest.format !== 'kept' || manifest.version !== 1 || !Array.isArray(manifest.entries) || entries.size !== manifest.entries.length + 1) throw new Error('Unsupported or incomplete Kept backup.');
       if (!manifest.preferences || !['light', 'dark'].includes(manifest.preferences.theme) || typeof manifest.preferences.followSystemTheme !== 'boolean' || typeof manifest.preferences.showPastReminders !== 'boolean') throw new Error('Invalid backup preferences.');
+      if (manifest.preferences.language !== undefined) {
+        const language = manifest.preferences.language;
+        try { if (typeof language !== 'string' || language.length > 64 || (language !== 'system' && !Intl.getCanonicalLocales(language)[0])) throw new Error(); }
+        catch { throw new Error('Invalid backup language preference.'); }
+      }
       staging = await this.workspaces.createLocal('staging');
       const seen = new Set<string>();
       const blobKeys = new Set<string>();

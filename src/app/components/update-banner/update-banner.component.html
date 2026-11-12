@@ -3,23 +3,23 @@
     <div class="update-banner__content">
       <span class="update-banner__icon material-symbols-outlined" aria-hidden="true">system_update</span>
       <div class="update-banner__text">
-        <strong>A new version of Kept is available.</strong>
-        <span>You're on <code>{{status?.current}}</code>. Latest is <code>{{status?.latest}}</code>.</span>
+        <strong>{{ 'update_banner.a_new_version_of_kept_is_available' | translate }}</strong>
+        <span>{{ 'update_banner.you_re_on' | translate }} <code>{{status?.current}}</code>{{ 'update_banner.latest_is' | translate }} <code>{{status?.latest}}</code>.</span>
       </div>
       <div class="update-banner__actions">
         @if (status?.releaseUrl) {
-          <a [href]="status?.releaseUrl" target="_blank" rel="noopener" class="update-banner__btn update-banner__btn--primary">View release</a>
+          <a [href]="status?.releaseUrl" target="_blank" rel="noopener" class="update-banner__btn update-banner__btn--primary">{{ 'update_banner.view_release' | translate }}</a>
         }
         @if (status?.releaseNotes) {
           <button type="button" class="update-banner__btn" (click)="toggleNotes($event)">
-            {{ showNotes ? 'Hide notes' : 'Release notes' }}
+            {{ (showNotes) ? ('update_banner.hide_notes' | translate) : ('update_banner.release_notes' | translate) }}
           </button>
         }
-        <button type="button" class="update-banner__btn" (click)="dismiss(false)" title="Hide for 30 days">
-          Remind me later
+        <button type="button" class="update-banner__btn" (click)="dismiss(false)" [attr.title]="'update_banner.hide_for_30_days' | translate">
+          {{ 'update_banner.remind_me_later' | translate }}
         </button>
-        <button type="button" class="update-banner__btn update-banner__btn--ghost" (click)="dismiss(true)" title="Don't remind me about this version again">
-          Don't remind me
+        <button type="button" class="update-banner__btn update-banner__btn--ghost" (click)="dismiss(true)" [attr.title]="'update_banner.don_t_remind_me_about_this_version_again' | translate">
+          {{ 'update_banner.don_t_remind_me' | translate }}
         </button>
       </div>
     </div>

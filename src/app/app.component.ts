@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { Component, NgZone, OnDestroy, OnInit } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { NavigationEnd, Router } from '@angular/router';
@@ -155,7 +156,7 @@ export class AppComponent implements OnInit, OnDestroy {
     private ngZone: NgZone,
     private router: Router,
     private managedHosting: ManagedHostingService
-  ) { void this.auth.workspace.ready.catch(error => this.ngZone.run(() => this.storageError = error instanceof Error ? error.message : 'Could not open device storage.')); }
+  ) { void this.auth.workspace.ready.catch(error => this.ngZone.run(() => this.storageError = error instanceof Error ? (error.message) : (uiText('app.could_not_open_device_storage')))); }
 
   ngOnInit() {
     this.shared.initPwa();

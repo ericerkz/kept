@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { Component, ElementRef, HostBinding, HostListener, OnInit, ViewChild, ChangeDetectorRef } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from 'src/app/services/auth.service';
@@ -59,23 +60,6 @@ export class NavbarComponent implements OnInit {
   isResettingPassword = false
   showPasswordReset = false
   isFiltersOpen = false
-  bgColors = bgColors
-  bgImages = bgImages
-  bgImageLabels: Record<string, string> = {
-    groceries: 'Groceries',
-    tasks: 'Errands',
-    movies: 'Movies',
-    cafes: 'Cafes',
-    romantic: 'Love',
-    gym: 'Gym',
-    recipes: 'Recipes',
-    travel: 'Travel',
-    study: 'Study',
-    ideas: 'Ideas',
-    meetings: 'Meetings',
-    budget: 'Budget',
-    zNone: 'None'
-  }
   private selectionMoreButton?: HTMLElement
 
   get selectedCount() {
@@ -244,6 +228,26 @@ export class NavbarComponent implements OnInit {
     return actions
   }
 
+  get selectionHasSharedBinder() {
+    return this.Shared.note.all.some(note=>note.id && this.Shared.selectedNoteIds.value.includes(note.id) && note.sharedBinder);
+  }
+  get canAddSelectionToSharedBinder() {
+    const selected=this.Shared.note.all.filter(note=>note.id && this.Shared.selectedNoteIds.value.includes(note.id));
+    return !!selected.length && selected.every(note=>!note.ownerUserId || note.ownerUserId===this.auth.currentUser?.id);
+  }
+
+  async setSelectionSharedBinder(binder: {id:number;name:string;ownerUserId?:number;ownerDisplayName?:string;ownerUsername?:string} | null,tooltipEl: HTMLDivElement) {
+    const selected=this.Shared.note.all.filter(note=>note.id && this.Shared.selectedNoteIds.value.includes(note.id));
+    for (const note of selected) {
+      if (binder && note.ownerUserId && note.ownerUserId!==this.auth.currentUser?.id) continue;
+      if (!binder && !note.sharedBinder) continue;
+      await this.Shared.note.db.moveBinder(note.id!,{binderId:binder?.id || null,binder:binder?.name || '',sharedBinder:binder ? {
+        id:binder.id,name:binder.name,ownerUserId:binder.ownerUserId!,ownerDisplayName:binder.ownerDisplayName || '',ownerUsername:binder.ownerUsername || ''
+      } : undefined});
+    }
+    this.Shared.clearNoteSelection();this.Shared.closeTooltip(tooltipEl);
+  }
+
   async setSelectionBinder(name: string, tooltipEl?: HTMLDivElement) {
     await this.Shared.bulkApplyBinder(name)
     this.Shared.clearNoteSelection()
@@ -259,7 +263,7 @@ export class NavbarComponent implements OnInit {
       input.value = ''
       this.binderMenuError = ''
     } catch {
-      this.binderMenuError = 'Could not create binder'
+      this.binderMenuError = uiText('binders.could_not_create_binder')
     }
   }
 
@@ -338,7 +342,7 @@ export class NavbarComponent implements OnInit {
         this.labelMenuError = ''
         return
       }
-      this.labelMenuError = error?.status === 409 ? 'Label already exists' : 'Could not create label'
+      this.labelMenuError = error?.status === 409 ? (uiText('labels.label_already_exists')) : (uiText('labels.could_not_create_label'))
     }
   }
 
@@ -440,7 +444,7 @@ export class NavbarComponent implements OnInit {
     this.profileError = ''
     if (!file) return
     if (!file.type.startsWith('image/')) {
-      this.profileError = 'Please choose an image file.'
+      this.profileError = uiText('navbar.please_choose_an_image_file')
       return
     }
 
@@ -518,17 +522,17 @@ export class NavbarComponent implements OnInit {
     this.passwordResetError = ''
     this.passwordResetSuccess = ''
     if (this.newPassword.length < 8) {
-      this.passwordResetError = 'New password must be at least 8 characters.'
+      this.passwordResetError = uiText('navbar.new_password_must_be_at_least_8_characters')
       return
     }
     if (this.newPassword !== this.confirmNewPassword) {
-      this.passwordResetError = 'Passwords do not match.'
+      this.passwordResetError = uiText('auth.passwords_do_not_match')
       return
     }
     this.isResettingPassword = true
     try {
       await this.auth.resetOwnPassword(this.currentPassword, this.newPassword)
-      this.passwordResetSuccess = 'Password updated successfully.'
+      this.passwordResetSuccess = uiText('navbar.password_updated_successfully')
       this.currentPassword = ''
       this.newPassword = ''
       this.confirmNewPassword = ''

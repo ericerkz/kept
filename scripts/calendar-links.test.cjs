@@ -12,6 +12,7 @@ function harness(platform, apiUrl) {
     }).outputText, {
       exports, URL, document, navigator: { clipboard: { writeText: async value => copied.push(value) } }, setTimeout() {},
       require(name) {
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
         if (name === '@angular/core') return { Component: () => target => target };
         if (name === '@capacitor/core') return { Capacitor: { isNativePlatform: () => platform !== 'web' } };
         if (name.endsWith('/environment')) return { environment: { apiUrl } };

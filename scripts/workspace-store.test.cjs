@@ -152,6 +152,7 @@ test('fresh local libraries seed once, preserve sample files and can trash all d
  const exports={};let prompted=0;
  const source=ts.transpileModule(fs.readFileSync('src/app/services/shared.service.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText;
  vm.runInNewContext(source,{exports,console,localStorage:{getItem:()=>null},confirm:()=>{prompted++;return true;},Snackbar:{show:()=>{}},require(name){
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
   if(name==='@angular/core')return{Injectable:()=>target=>target};
   if(name==='rxjs')return{BehaviorSubject,Subject};
   if(name==='@popperjs/core')return{};
@@ -164,7 +165,7 @@ test('fresh local libraries seed once, preserve sample files and can trash all d
   await store.commitMutation(workspace,'note.upsert',note.syncId,{...note,...patch});
   notes.notesList$.next((await store.listNotes(workspace.partition)).filter(item=>!item.trashed));
  }};
- const shared=new exports.SharedService(notes,{labelsList$:new BehaviorSubject([])},{isLocal:true,workspace:{local:workspace},accessChanges$:new Subject()}, {},{run:fn=>fn()}, {items$:new BehaviorSubject([]),sync:{writesLocally:true}});
+ const shared=new exports.SharedService(notes,{labelsList$:new BehaviorSubject([])},{isLocal:true,workspace:{local:workspace},accessChanges$:new Subject()}, {},{run:fn=>fn()}, {items$:new BehaviorSubject([]),sharedItems$:new BehaviorSubject([]),sync:{writesLocally:true}});
  shared.note.id=demos[0].id;await shared.note.db.trash();
  assert.equal(prompted,1);
  const after=await store.listNotes(workspace.partition);
@@ -194,4 +195,23 @@ test('restored, staged, imported, existing and obsolete workspaces never receive
  const store=createStore(),workspace={...local(),demoNotesSeeded:false};await store.saveWorkspace(workspace);
  await store.seedLocalDemoNotes({...workspace,generation:'old'});
  assert.equal((await store.listNotes(workspace.partition)).length,0);
+});
+
+test('shared binder moves stay field-only while offline and do not overwrite newer content on reconciliation',async()=>{
+  const store=createStore(),workspace=await store.ensureServerWorkspace('binder-member');
+  const sharedBinder={id:12,name:'Together',ownerUserId:1,ownerDisplayName:'Owner',ownerUsername:'owner'};
+  const note={id:25,syncId:'binder-note',ownerUserId:1,noteTitle:'Original',noteBody:'Original body',binder:'Together',sharedBinder};
+  await store.reconcile(workspace,{snapshot:{note:[note]},cursor:1});
+  await store.commitMutation(workspace,'note.binder',note.syncId,{binderId:null,binder:''});
+  const [operation]=await store.listOutbox(workspace.partition);
+  assert.equal(operation.type,'note.binder');
+  assert.equal(Object.hasOwn(operation.payload,'noteBody'),false);
+  assert.equal((await store.getNote(workspace.partition,25)).sharedBinder,undefined);
+  await store.reconcile(workspace,{changes:[{sequence:2,resourceType:'note',resourceSyncId:note.syncId,operation:'upsert',payload:{...note,noteTitle:'Edited elsewhere',noteBody:'New body'},lww:{physicalMs:Date.now()+100}}],cursor:2});
+  const local=await store.getNote(workspace.partition,25);
+  assert.equal(local.noteTitle,'Edited elsewhere');assert.equal(local.noteBody,'New body');
+  assert.equal(local.binder,'');assert.equal(local.sharedBinder,undefined);
+  await store.reconcile(workspace,{sent:[operation],results:[{ok:true,operationId:operation.operationId,canonical:null}],cursor:3});
+  assert.equal((await store.listOutbox(workspace.partition)).length,0);
+  assert.equal(await store.getNote(workspace.partition,25),undefined,'losing binder-only access removes the cached note');
 });

@@ -6,45 +6,45 @@
         <img src="./assets/images/keep2x.fw.png" alt="Kept" width="49">
         <span>Kept</span>
       </div>
-      <a routerLink="/">← Back to notes</a>
+      <a routerLink="/">{{ 'settings.back_to_notes' | translate }}</a>
     </div>
 
-    <h1>Settings</h1>
+    <h1>{{ 'common.settings' | translate }}</h1>
 
-    @if (error) { <div class="error global-msg">{{error}}</div> }
-    @if (success) { <div class="success global-msg">{{success}}</div> }
+    @if (error) { <div class="error global-msg">{{(error) | uiText}}</div> }
+    @if (success) { <div class="success global-msg">{{(success) | uiText}}</div> }
     @if (authService.workspace.canUseLocal) {
       @if (nativeWorkspace.error$ | async; as message) {
-        <div class="error global-msg">{{message}}
-          @if (isAndroid && message.includes('exact-alarm')) { <button type="button" class="btn-secondary btn-permission" (click)="nativeWorkspace.openExactAlarmSettings()">Enable precise reminders</button> }
+        <div class="error global-msg">{{(message) | uiText}}
+          @if (isAndroid && message.includes('exact-alarm')) { <button type="button" class="btn-secondary btn-permission" (click)="nativeWorkspace.openExactAlarmSettings()">{{ 'settings.enable_precise_reminders' | translate }}</button> }
         </div>
       }
     }
 
     @if (authService.workspace.canUseLocal && authService.isLocal) {
       <div class="settings-group device-data">
-        <h2 class="group-title color-blue"><span class="material-symbols-outlined" aria-hidden="true">devices</span>Notes on this device</h2>
+        <h2 class="group-title color-blue"><span class="material-symbols-outlined" aria-hidden="true">devices</span>{{ 'settings.notes_on_this_device' | translate }}</h2>
         <p class="section-desc">{{storageUsed}}</p>
         @if (authService.isLocal) {
-          @if (authService.workspace.local?.status === 'frozen') {<p role="status">Your notes are paused while Kept verifies a server transfer. Retry “Move my notes to a server” to finish safely. Your device copy is preserved.</p>}
-          <p class="section-desc">Your notes are stored on this device. Sharing, collaboration, web access, and account integrations need a server.</p>
-          <p class="section-desc">{{backupNotice}}</p>
+          @if (authService.workspace.local?.status === 'frozen') {<p role="status">{{ 'settings.your_notes_are_paused_while_kept_verifies_a_server_transfer_retry' | translate }}</p>}
+          <p class="section-desc">{{ 'settings.your_notes_are_stored_on_this_device_sharing_collaboration_web_ac' | translate }}</p>
+          <p class="section-desc">{{(backupNotice) | uiText}}</p>
           <div class="device-actions">
-            <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="backupDevice()"><span class="material-symbols-outlined" aria-hidden="true">download</span>Save a complete backup</button>
-            <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="restoreDevice()"><span class="material-symbols-outlined" aria-hidden="true">restore</span>Restore a backup</button>
-            <button type="button" class="btn-primary device-move" [disabled]="deviceBusy" (click)="openMovePrompt()"><span class="material-symbols-outlined" aria-hidden="true">cloud_upload</span>Move my notes to a server</button>
+            <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="backupDevice()"><span class="material-symbols-outlined" aria-hidden="true">download</span>{{ 'settings.save_a_complete_backup' | translate }}</button>
+            <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="restoreDevice()"><span class="material-symbols-outlined" aria-hidden="true">restore</span>{{ 'settings.restore_a_backup' | translate }}</button>
+            <button type="button" class="btn-primary device-move" [disabled]="deviceBusy" (click)="openMovePrompt()"><span class="material-symbols-outlined" aria-hidden="true">cloud_upload</span>{{ 'settings.move_my_notes_to_a_server' | translate }}</button>
           </div>
           @if (movePromptOpen) {
             <div class="move-prompt" role="dialog" aria-labelledby="move-prompt-title">
               @if (cloudMoveReady) {
-                <p id="move-prompt-title"><strong>Move your notes to Kept Cloud</strong></p>
-                <p class="section-desc">Once your Cloud account is set up, continue to sign in to your Kept server and transfer your notes. Your device copy stays safe until the transfer is verified.</p>
+                <p id="move-prompt-title"><strong>{{ 'settings.move_your_notes_to_kept_cloud' | translate }}</strong></p>
+                <p class="section-desc">{{ 'settings.once_your_cloud_account_is_set_up_continue_to_sign_in_to_your_kep' | translate }}</p>
                 <div class="device-actions">
-                  <button type="button" class="btn-primary" [disabled]="deviceBusy" (click)="moveDevice(true)">Continue transfer</button>
-                  <button type="button" class="btn-secondary" [disabled]="deviceBusy || !deviceMove.cloudAvailable" (click)="setUpCloudMove()">Open Cloud setup</button>
+                  <button type="button" class="btn-primary" [disabled]="deviceBusy" (click)="moveDevice(true)">{{ 'settings.continue_transfer' | translate }}</button>
+                  <button type="button" class="btn-secondary" [disabled]="deviceBusy || !deviceMove.cloudAvailable" (click)="setUpCloudMove()">{{ 'settings.open_cloud_setup' | translate }}</button>
                 </div>
               } @else {
-                <p id="move-prompt-title"><strong>Where would you like to move your notes?</strong></p>
+                <p id="move-prompt-title"><strong>{{ 'settings.where_would_you_like_to_move_your_notes' | translate }}</strong></p>
                 <div class="move-destinations">
                   <button type="button" class="btn-secondary move-cloud" [disabled]="deviceBusy || !deviceMove.cloudAvailable" (click)="setUpCloudMove()">
                     <span class="material-symbols-outlined" aria-hidden="true">cloud</span>
@@ -52,62 +52,62 @@
                       <span class="move-option-heading">
                         <strong>Kept Cloud</strong>
                         @if (deviceMove.cloudPrice; as price) {
-                          <span class="move-price-badge">{{price}}/mo</span>
+                          <span class="move-price-badge">{{ 'settings.value0_mo' | translate: { value0: (price) } }}</span>
                         }
                         @if (deviceMove.cloudTrialDays; as days) {
-                          <span class="move-trial-badge">{{days}} {{days === 1 ? 'day' : 'days'}} free</span>
+                          <span class="move-trial-badge">{{ 'trial.badge' | uiPlural: days }}</span>
                         }
                       </span>
                       <small>
                         @if (deviceMove.cloudTrialDays && deviceMove.cloudPrice) {
-                          Try for {{deviceMove.cloudTrialDays}} {{deviceMove.cloudTrialDays === 1 ? 'day' : 'days'}} free, then {{deviceMove.cloudPrice}}/month.
+                          {{ 'trial.description' | uiPlural: deviceMove.cloudTrialDays!: { price: deviceMove.cloudPrice! } }}
                         }
-                        We host and maintain your Kept server. Sync across devices with no setup.
+                        {{ 'settings.we_host_and_maintain_your_kept_server_sync_across_devices_with_no' | translate }}
                       </small>
                     </span>
                     <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
                   </button>
                   <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="moveDevice()">
                     <span class="material-symbols-outlined" aria-hidden="true">dns</span>
-                    <span><strong>Self-host</strong><small>Connect to a Kept server you host yourself.</small></span>
+                    <span><strong>{{ 'settings.self_host' | translate }}</strong><small>{{ 'settings.connect_to_a_kept_server_you_host_yourself' | translate }}</small></span>
                     <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
                   </button>
                 </div>
-                @if (!deviceMove.cloudAvailable) { <p class="section-desc">Cloud setup needs a native app version that supports it.</p> }
+                @if (!deviceMove.cloudAvailable) { <p class="section-desc">{{ 'settings.cloud_setup_needs_a_native_app_version_that_supports_it' | translate }}</p> }
               }
-              <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="cancelMovePrompt()">{{cloudMoveReady ? 'Cancel transfer' : 'Cancel'}}</button>
+              <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="cancelMovePrompt()">{{(cloudMoveReady) ? ('settings.cancel_transfer' | translate) : ('common.cancel' | translate)}}</button>
             </div>
           }
-          <label class="toggle-label backup-reminder-toggle"><input type="checkbox" [checked]="!authService.workspace.local?.backupRemindersDisabled" (change)="backups.dismissReminder(!$any($event.target).checked)"><span class="toggle-text">Remind me to back up my notes</span></label>
-          @if (backups.progress$ | async; as progress) { <p role="status">{{progress}}</p> }
-          @if (migration.progress$ | async; as progress) { <p role="status">{{progress}}</p> }
+          <label class="toggle-label backup-reminder-toggle"><input type="checkbox" [checked]="!authService.workspace.local?.backupRemindersDisabled" (change)="backups.dismissReminder(!$any($event.target).checked)"><span class="toggle-text">{{ 'settings.remind_me_to_back_up_my_notes' | translate }}</span></label>
+          @if (backups.progress$ | async; as progress) { <p role="status">{{(progress) | uiText}}</p> }
+          @if (migration.progress$ | async; as progress) { <p role="status">{{(progress) | uiText}}</p> }
         }
         @for (workspace of stagingWorkspaces; track workspace.id) {
-          <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="discardStaging(workspace)">Remove incomplete backup or restore from {{workspace.createdAt | date}}</button>
+          <button type="button" class="btn-secondary" [disabled]="deviceBusy" (click)="discardStaging(workspace)">{{ 'settings.remove_incomplete_backup_or_restore_from_value0' | translate: { value0: (workspace.createdAt | date) } }}</button>
         }
       </div>
     }
 
     @if (managedHostingInfo?.managed) {
       <div class="settings-group">
-        <h2 class="group-title color-blue"><span class="material-symbols-outlined" aria-hidden="true">cloud</span>{{managedHostingInfo?.providerName || 'Managed hosting'}}</h2>
-        <p class="section-desc">This Kept server is hosted and kept up to date by {{managedHostingInfo?.providerName || 'your hosting provider'}}.</p>
+        <h2 class="group-title color-blue"><span class="material-symbols-outlined" aria-hidden="true">cloud</span>{{(managedHostingInfo?.providerName) || ('settings.managed_hosting' | translate)}}</h2>
+        <p class="section-desc">{{ 'settings.this_kept_server_is_hosted_and_kept_up_to_date_by_value0' | translate: { value0: ((managedHostingInfo?.providerName) || ('settings.your_hosting_provider' | translate)) } }}</p>
         @if (managedHostingInfo?.externalBackups) {
-          <p class="section-desc">Backups are handled automatically by {{managedHostingInfo?.providerName || 'your hosting provider'}}. There's nothing to configure here.</p>
+          <p class="section-desc">{{ 'settings.backups_are_handled_automatically_by_value0_there_s_nothing_to_co' | translate: { value0: ((managedHostingInfo?.providerName) || ('settings.your_hosting_provider' | translate)) } }}</p>
           @if (authService.isAdmin) {
-            <p class="section-desc">To keep your own copy, or to move everything to another Kept server, <a routerLink="/users">download a full backup in User management</a>.</p>
+            <p class="section-desc">{{ 'settings.to_keep_your_own_copy_or_to_move_everything_to_another_kept_serve' | translate }} <a routerLink="/users">{{ 'settings.download_a_full_backup_in_user_management' | translate }}</a>.</p>
           } @else {
-            <p class="section-desc">You can also export your own notes from Settings → Data &amp; Migration. To move everything to another Kept server, ask your server's admin for a full backup.</p>
+            <p class="section-desc">{{ 'settings.you_can_also_export_your_own_notes_from_settings_data_migration_t' | translate }}</p>
           }
         }
         @if (managedStorageUsage) {
           <p class="section-desc">
-            Storage: {{(managedStorageUsage.usedBytes / 1073741824).toFixed(2)}} GB
-            @if (managedStorageUsage.quotaBytes) { of {{(managedStorageUsage.quotaBytes / 1073741824).toFixed(0)}} GB used }
+            {{ 'settings.storage_value0_gb' | translate: { value0: ((managedStorageUsage.usedBytes / 1073741824).toFixed(2)) } }}
+            @if (managedStorageUsage.quotaBytes) { {{ 'settings.of_value0_gb_used' | translate: { value0: ((managedStorageUsage.quotaBytes / 1073741824).toFixed(0)) } }} }
           </p>
         }
         @if (managedHostingInfo?.accountUrl) {
-          <a class="btn-secondary" [href]="managedHostingInfo?.accountUrl" target="_blank" rel="noopener">Manage subscription</a>
+          <a class="btn-secondary" [href]="managedHostingInfo?.accountUrl" target="_blank" rel="noopener">{{ 'settings.manage_subscription' | translate }}</a>
         }
       </div>
     }
@@ -116,74 +116,74 @@
     <div class="settings-group" *ngIf="!authService.isLocal">
       <h2 class="group-title color-blue">
         <span class="material-symbols-outlined">cloud_download</span>
-        Data & Migration
+        {{ 'settings.data_migration' | translate }}
       </h2>
       
       <section class="settings-section takeout-section">
-        <div class="section-title">Import from Google Keep</div>
+        <div class="section-title">{{ 'settings.import_from_google_keep' | translate }}</div>
         <p class="section-desc">
-          Import your notes from a Google Takeout export. Colors, images, links, checklists, and labels are preserved where possible. Large imports may need a direct LAN/SSH connection if your proxy or CDN limits upload size.
+          {{ 'settings.import_your_notes_from_a_google_takeout_export_colors_images_link' | translate }}
         </p>
 
         <div class="instruction-group">
           <button type="button" class="instruction-toggle" (click)="toggleInstructions('takeout')">
-            <span>How to get your Google Takeout export</span>
+            <span>{{ 'settings.how_to_get_your_google_takeout_export' | translate }}</span>
             <span class="chevron" [class.open]="showInstructions === 'takeout'">▾</span>
           </button>
           @if (showInstructions === 'takeout') {
             <ol class="instruction-steps">
-              <li>Go to <a href="https://takeout.google.com" target="_blank" rel="noopener">takeout.google.com</a> and sign in with your Google account.</li>
-              <li>Click <strong>Deselect all</strong>, then scroll down and check only <strong>Keep</strong>.</li>
-              <li>Click <strong>Next step</strong>, choose your delivery method (email is easiest), then click <strong>Create export</strong>.</li>
-              <li>Google will email you a download link — this usually arrives within a few minutes but can take longer for large exports.</li>
-              <li>Download the ZIP from the email and upload it below. Kept accepts Takeout ZIPs up to 5 GB by default; for larger self-hosted imports, set <code>KEPT_TAKEOUT_UPLOAD_MAX</code>.</li>
+              <li>{{ 'settings.go_to' | translate }} <a href="https://takeout.google.com" target="_blank" rel="noopener">{{ 'settings.takeout_google_com' | translate }}</a> {{ 'settings.and_sign_in_with_your_google_account' | translate }}</li>
+              <li>{{ 'settings.click' | translate }} <strong>{{ 'settings.deselect_all' | translate }}</strong>{{ 'settings.then_scroll_down_and_check_only' | translate }} <strong>{{ 'settings.keep' | translate }}</strong>.</li>
+              <li>{{ 'settings.click' | translate }} <strong>{{ 'settings.next_step' | translate }}</strong>{{ 'settings.choose_your_delivery_method_email_is_easiest_then_click' | translate }} <strong>{{ 'settings.create_export' | translate }}</strong>.</li>
+              <li>{{ 'settings.google_will_email_you_a_download_link_this_usually_arrives_within' | translate }}</li>
+              <li>{{ 'settings.download_the_zip_from_the_email_and_upload_it_below_kept_accepts_' | translate }} <code>{{ 'settings.kept_takeout_upload_max' | translate }}</code>.</li>
             </ol>
           }
         </div>
 
         @if (takeoutResult) {
           <div class="takeout-result" [class.success]="takeoutResult.imported > 0" [class.error]="!takeoutResult.imported && takeoutResult.errors > 0">
-            Imported <strong>{{takeoutResult.imported}}</strong> of {{takeoutResult.total}} notes.
-            @if (takeoutResult.pinnedCount) { <span> {{takeoutResult.pinnedCount}} pinned.</span> }
-            @if (takeoutResult.deduped) { <span> {{takeoutResult.deduped}} already-imported notes skipped.</span> }
-            @if (takeoutResult.skipped) { <span> {{takeoutResult.skipped}} trashed notes skipped.</span> }
-            @if (takeoutResult.errors) { <span> {{takeoutResult.errors}} could not be imported.</span> }
+            {{ 'settings.imported' | translate }} <strong>{{takeoutResult.imported}}</strong> {{ 'settings.of_value0_notes' | translate: { value0: (takeoutResult.total) } }}
+            @if (takeoutResult.pinnedCount) { <span> {{ 'settings.value0_pinned' | translate: { value0: (takeoutResult.pinnedCount) } }}</span> }
+            @if (takeoutResult.deduped) { <span> {{ 'settings.value0_already_imported_notes_skipped' | translate: { value0: (takeoutResult.deduped) } }}</span> }
+            @if (takeoutResult.skipped) { <span> {{ 'settings.value0_trashed_notes_skipped' | translate: { value0: (takeoutResult.skipped) } }}</span> }
+            @if (takeoutResult.errors) { <span> {{ 'settings.value0_could_not_be_imported' | translate: { value0: (takeoutResult.errors) } }}</span> }
           </div>
         }
         @if (takeoutError) {
-          <div class="error takeout-result">{{takeoutError}}</div>
+          <div class="error takeout-result">{{(takeoutError) | uiText}}</div>
         }
 
         <div class="takeout-actions">
           <label class="btn-secondary takeout-file-label" [class.disabled]="isImportingTakeout">
-            {{ isImportingTakeout ? 'Importing…' : 'Choose Takeout ZIP' }}
+            {{ (isImportingTakeout) ? ('settings.importing' | translate) : ('settings.choose_takeout_zip' | translate) }}
             <input type="file" accept=".zip" [disabled]="isImportingTakeout" (change)="importTakeout($event)" hidden>
           </label>
         </div>
       </section>
 
       <section class="settings-section export-section" id="export-notes" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 24px; margin-top: 24px;">
-        <div class="section-title">Export your Kept data</div>
+        <div class="section-title">{{ 'settings.export_your_kept_data' | translate }}</div>
         <p class="section-desc">
-          A readable copy of your notes, checklists and labels. These exports cannot be imported back into Kept. To move everything, including images and attachments, to another Kept server, ask your server's admin for a full backup.
+          {{ 'settings.a_readable_copy_of_your_notes_checklists_and_labels_these_exports' | translate }}
         </p>
 
         <div class="export-actions" style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px;">
           <button type="button" class="btn-secondary" [disabled]="isExporting" (click)="exportJSON()" style="display: flex; align-items: center; gap: 8px;">
             <span class="material-symbols-outlined" style="font-size: 20px;">data_object</span>
-            JSON
+            {{ 'settings.json' | translate }}
           </button>
           <button type="button" class="btn-secondary" [disabled]="isExporting" (click)="exportCSV()" style="display: flex; align-items: center; gap: 8px;">
             <span class="material-symbols-outlined" style="font-size: 20px;">table_chart</span>
-            CSV
+            {{ 'settings.csv' | translate }}
           </button>
           <button type="button" class="btn-secondary" [disabled]="isExporting" (click)="exportMarkdown()" style="display: flex; align-items: center; gap: 8px;">
             <span class="material-symbols-outlined" style="font-size: 20px;">description</span>
-            Markdown
+            {{ 'settings.markdown' | translate }}
           </button>
         </div>
         @if (isExporting) {
-          <p class="hint" style="margin-top: 12px; color: var(--color-blue);">Generating export file...</p>
+          <p class="hint" style="margin-top: 12px; color: var(--color-blue);">{{ 'settings.generating_export_file' | translate }}</p>
         }
       </section>
 
@@ -192,41 +192,41 @@
     <div class="settings-group" *ngIf="!authService.isLocal">
       <h2 class="group-title color-green">
         <span class="material-symbols-outlined">hub</span>
-        External Access
+        {{ 'settings.external_access' | translate }}
       </h2>
 
       <section class="settings-section">
         <div class="section-title mcp-section-title">
-          <span>OAuth app access</span>
+          <span>{{ 'settings.oauth_app_access' | translate }}</span>
           <label class="toggle-label">
             <input type="checkbox" [checked]="oauthAccess?.enabled" [disabled]="isSavingOAuthAccess"
               (change)="toggleOAuthAccess($event)">
-            <span class="toggle-text">{{oauthAccess?.enabled ? 'Enabled' : 'Disabled'}}</span>
+            <span class="toggle-text">{{(oauthAccess?.enabled) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
           </label>
         </div>
         <p class="section-desc">
-          Allow apps you explicitly approve to access Kept with short-lived OAuth tokens. Each app receives its own revocable connection and never sees your password.
+          {{ 'settings.allow_apps_you_explicitly_approve_to_access_kept_with_short_lived' | translate }}
         </p>
 
         @if (oauthAccess?.enabled) {
           <div class="oauth-connections">
-            <div class="external-subheading">Connected apps</div>
+            <div class="external-subheading">{{ 'settings.connected_apps' | translate }}</div>
             @if (oauthAccess?.connections?.length) {
               @for (connection of oauthAccess!.connections; track connection.id) {
                 <div class="oauth-connection-row">
                   <div class="oauth-connection-info">
                     <strong>{{connection.clientName}}</strong>
                     <span>{{connection.resource.endsWith('/mcp') ? 'Remote MCP' : 'Kept API'}} · {{connection.scopes.join(', ')}}</span>
-                    <span>Connected {{connection.authorizedAt | date:'medium'}}@if (connection.lastUsedAt) { · Last used {{connection.lastUsedAt | date:'medium'}} }</span>
+                    <span>{{ 'settings.connected_value0' | translate: { value0: (connection.authorizedAt | uiDate:'medium') } }}@if (connection.lastUsedAt) { {{ 'settings.last_used_value0' | translate: { value0: (connection.lastUsedAt | uiDate:'medium') } }} }</span>
                   </div>
                   <button type="button" class="btn-secondary" [disabled]="revokingOAuthConnectionId === connection.id"
                     (click)="revokeOAuthConnection(connection.id, connection.clientName)">
-                    {{revokingOAuthConnectionId === connection.id ? 'Revoking…' : 'Revoke'}}
+                    {{(revokingOAuthConnectionId === connection.id) ? ('settings.revoking' | translate) : ('settings.revoke' | translate)}}
                   </button>
                 </div>
               }
             } @else {
-              <p class="empty-access-state">No apps are connected yet. Approved apps will appear here.</p>
+              <p class="empty-access-state">{{ 'settings.no_apps_are_connected_yet_approved_apps_will_appear_here' | translate }}</p>
             }
           </div>
         }
@@ -234,25 +234,25 @@
 
       <section class="settings-section">
         <div class="section-title mcp-section-title">
-          <span>Local MCP access</span>
+          <span>{{ 'settings.local_mcp_access' | translate }}</span>
           <label class="toggle-label">
             <input type="checkbox" [checked]="mcpAccess?.enabled" [disabled]="isSavingMcpAccess"
               (change)="toggleMcpAccess($event)">
-            <span class="toggle-text">{{mcpAccess?.enabled ? 'Enabled' : 'Disabled'}}</span>
+            <span class="toggle-text">{{(mcpAccess?.enabled) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
           </label>
         </div>
         <p class="section-desc">
-          Create a dedicated token for a local stdio MCP client. This is separate from OAuth app access and can be revoked independently.
+          {{ 'settings.create_a_dedicated_token_for_a_local_stdio_mcp_client_this_is_sep' | translate }}
         </p>
 
         @if (newMcpAccessToken) {
           <div class="mcp-token-panel" role="status">
-            <strong>Save this token now</strong>
-            <p>Kept will not show the full local MCP token again.</p>
+            <strong>{{ 'settings.save_this_token_now' | translate }}</strong>
+            <p>{{ 'settings.kept_will_not_show_the_full_local_mcp_token_again' | translate }}</p>
             <div class="mcp-token-row">
               <code>{{newMcpAccessToken}}</code>
               <button type="button" class="btn-secondary" (click)="copyMcpToken()">
-                {{mcpTokenCopied ? 'Copied' : 'Copy'}}
+                {{(mcpTokenCopied) ? ('common.copied' | translate) : ('common.copy' | translate)}}
               </button>
             </div>
           </div>
@@ -260,9 +260,9 @@
 
         @if (mcpAccess?.enabled) {
           <div class="mcp-token-meta">
-            <span>Token {{mcpAccess?.token?.prefix}}</span>
-            @if (mcpAccess?.token?.lastUsedAt) { <span>Last used {{mcpAccess?.token?.lastUsedAt | date:'medium'}}</span> }
-            <button type="button" class="btn-secondary" [disabled]="isSavingMcpAccess" (click)="regenerateMcpToken()">Generate new token</button>
+            <span>{{ 'settings.token_value0' | translate: { value0: (mcpAccess?.token?.prefix) } }}</span>
+            @if (mcpAccess?.token?.lastUsedAt) { <span>{{ 'settings.last_used_value0_ccab2c' | translate: { value0: (mcpAccess?.token?.lastUsedAt | uiDate:'medium') } }}</span> }
+            <button type="button" class="btn-secondary" [disabled]="isSavingMcpAccess" (click)="regenerateMcpToken()">{{ 'settings.generate_new_token' | translate }}</button>
           </div>
         }
       </section>
@@ -272,33 +272,33 @@
           <details class="external-advanced-permissions">
             <summary>
               <span>
-                <strong>Advanced permissions</strong>
-                <small>Optional access for OAuth apps and local MCP clients</small>
+                <strong>{{ 'settings.advanced_permissions' | translate }}</strong>
+                <small>{{ 'settings.optional_access_for_oauth_apps_and_local_mcp_clients' | translate }}</small>
               </span>
               <span class="material-symbols-outlined disclosure-icon" aria-hidden="true">expand_more</span>
             </summary>
-            <p class="section-desc">These permissions apply to every connected OAuth app and to the local MCP token. They remain off unless you enable them.</p>
+            <p class="section-desc">{{ 'settings.these_permissions_apply_to_every_connected_oauth_app_and_to_the_l' | translate }}</p>
             <div class="preferences-list mcp-capabilities">
               <div class="preference-row">
                 <div class="preference-info">
-                  <span class="preference-label">Locked-note access</span>
-                  <span class="preference-desc">Allow OAuth apps and local MCP clients to request a secure passcode unlock. The passcode goes directly to Kept and is never sent to the connected client.</span>
+                  <span class="preference-label">{{ 'settings.locked_note_access' | translate }}</span>
+                  <span class="preference-desc">{{ 'settings.allow_oauth_apps_and_local_mcp_clients_to_request_a_secure_passco' | translate }}</span>
                 </div>
                 <label class="toggle-label">
                   <input type="checkbox" [checked]="mcpAccess?.allowLockedNotes"
                     (change)="updateExternalCapability('allowLockedNotes', $event)">
-                  <span class="toggle-text">{{mcpAccess?.allowLockedNotes ? 'Allowed' : 'Blocked'}}</span>
+                  <span class="toggle-text">{{(mcpAccess?.allowLockedNotes) ? ('settings.allowed' | translate) : ('settings.blocked' | translate)}}</span>
                 </label>
               </div>
               <div class="preference-row">
                 <div class="preference-info">
-                  <span class="preference-label">Permanent note deletion</span>
-                  <span class="preference-desc">Allow OAuth apps and local MCP clients to permanently delete owned notes. This cannot be undone.</span>
+                  <span class="preference-label">{{ 'settings.permanent_note_deletion' | translate }}</span>
+                  <span class="preference-desc">{{ 'settings.allow_oauth_apps_and_local_mcp_clients_to_permanently_delete_owne' | translate }}</span>
                 </div>
                 <label class="toggle-label">
                   <input type="checkbox" [checked]="mcpAccess?.allowPermanentDelete"
                     (change)="updateExternalCapability('allowPermanentDelete', $event)">
-                  <span class="toggle-text">{{mcpAccess?.allowPermanentDelete ? 'Allowed' : 'Blocked'}}</span>
+                  <span class="toggle-text">{{(mcpAccess?.allowPermanentDelete) ? ('settings.allowed' | translate) : ('settings.blocked' | translate)}}</span>
                 </label>
               </div>
             </div>
@@ -311,17 +311,17 @@
     <div class="settings-group" *ngIf="!authService.isLocal">
       <h2 class="group-title color-green">
         <span class="material-symbols-outlined">security</span>
-        Security
+        {{ 'settings.security' | translate }}
       </h2>
 
       @if (oidcLinkStatus?.enabled) {
         <section class="settings-section sso-section">
-          <div class="section-title">Single sign-on</div>
+          <div class="section-title">{{ 'settings.single_sign_on' | translate }}</div>
           <p class="section-desc">
             @if (oidcLinkStatus?.passwordLoginEnabled === false) {
-              This server requires single sign-on with {{oidcLinkStatus?.providerName}}. Keep your account connected so you can sign in.
+              {{ 'settings.this_server_requires_single_sign_on_with_value0_keep_your_account' | translate: { value0: (oidcLinkStatus?.providerName) } }}
             } @else {
-              Connect this Kept account to {{oidcLinkStatus?.providerName}} so you can use it to sign in. Your local username and password remain available.
+              {{ 'settings.connect_this_kept_account_to_value0_so_you_can_use_it_to_sign_in_' | translate: { value0: (oidcLinkStatus?.providerName) } }}
             }
           </p>
 
@@ -330,19 +330,19 @@
               <div class="sso-identity">
                 <span class="status-dot connected"></span>
                 <span>
-                  <strong>{{oidcLinkStatus?.providerName}} connected</strong>
+                  <strong>{{ 'settings.value0_connected' | translate: { value0: (oidcLinkStatus?.providerName) } }}</strong>
                   @if (oidcLinkStatus?.identityEmail) {
                     <small>{{oidcLinkStatus?.identityEmail}}</small>
                   }
                 </span>
               </div>
               <button type="button" class="btn-secondary" [disabled]="isDisconnectingOidc || oidcLinkStatus?.passwordLoginEnabled === false" (click)="disconnectOidc()">
-                {{isDisconnectingOidc ? 'Disconnecting...' : 'Disconnect'}}
+                {{(isDisconnectingOidc) ? ('settings.disconnecting' | translate) : ('settings.disconnect' | translate)}}
               </button>
             </div>
           } @else {
             <button type="button" class="btn-secondary" [disabled]="isStartingOidcLink" (click)="connectOidc()">
-              {{isStartingOidcLink ? 'Connecting...' : 'Connect ' + oidcLinkStatus?.providerName + ' account'}}
+              {{(isStartingOidcLink) ? ('settings.connecting' | translate) : ('settings.connect_oidc' | translate: {provider: oidcLinkStatus?.providerName})}}
             </button>
           }
         </section>
@@ -350,25 +350,25 @@
 
       <section class="settings-section">
         <div class="section-title">
-          <span>Two-Factor Authentication (TOTP)</span>
+          <span>{{ 'settings.two_factor_authentication_totp' | translate }}</span>
           <label class="toggle-label">
             <input type="checkbox" [checked]="totpEnabled" (change)="toggle2fa($event)">
-            <span class="toggle-text">{{totpEnabled ? 'Enabled' : 'Disabled'}}</span>
+            <span class="toggle-text">{{(totpEnabled) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
           </label>
         </div>
         <p class="section-desc">
-          Protect your account with an open-source authenticator app like <a href="https://ente.io/auth/" target="_blank" rel="noopener">Ente Auth</a>, or alternatives like Authy or Google Authenticator.
+          {{ 'settings.protect_your_account_with_an_open_source_authenticator_app_like' | translate }} <a href="https://ente.io/auth/" target="_blank" rel="noopener">{{ 'settings.ente_auth' | translate }}</a>{{ 'settings.or_alternatives_like_authy_or_google_authenticator' | translate }}
         </p>
 
         @if (totpEnabled) {
           <div class="google-connected">
             <span class="status-dot connected"></span>
-            <span>Two-Factor Authentication is active</span>
+            <span>{{ 'settings.two_factor_authentication_is_active' | translate }}</span>
           </div>
           
           @if (backupCodes) {
             <div class="success-message" style="margin-top: 16px;">
-              <strong>New backup codes generated.</strong> Please save them securely.
+              <strong>{{ 'settings.new_backup_codes_generated' | translate }}</strong> {{ 'settings.please_save_them_securely' | translate }}
             </div>
             <div class="backup-codes">
               @for (code of backupCodes; track code) {
@@ -376,22 +376,22 @@
               }
             </div>
           } @else if (hasBackupCodes) {
-            <p class="hint">You have backup codes stored. If you lose them, you must disable and re-enable 2FA to generate new ones.</p>
+            <p class="hint">{{ 'settings.you_have_backup_codes_stored_if_you_lose_them_you_must_disable_an' | translate }}</p>
           }
         } @else {
           @if (qrCodeUrl) {
             <div class="two-factor-setup" style="margin-top: 16px;">
-              <img [src]="qrCodeUrl" alt="2FA QR Code" class="qr-code">
-              <p>Scan this QR code with your authenticator app, then enter the 6-digit code below to verify and enable 2FA.</p>
+              <img [src]="qrCodeUrl" [attr.alt]="'settings.2fa_qr_code' | translate" class="qr-code">
+              <p>{{ 'settings.scan_this_qr_code_with_your_authenticator_app_then_enter_the_6_di' | translate }}</p>
               <label>
-                <span>Authenticator Code</span>
+                <span>{{ 'settings.authenticator_code' | translate }}</span>
                 <input name="totpToken" [(ngModel)]="totpToken" autocomplete="one-time-code" type="text" inputmode="numeric" pattern="[0-9]{6}" required>
               </label>
               <div class="actions" style="display: flex; gap: 8px; width: 100%;">
                 <button type="button" [disabled]="!totpToken || isSaving2fa" (click)="save2fa()" style="flex: 1;">
-                  {{isSaving2fa ? 'Verifying...' : 'Verify and Enable'}}
+                  {{(isSaving2fa) ? ('settings.verifying' | translate) : ('settings.verify_and_enable' | translate)}}
                 </button>
-                <button type="button" class="btn-secondary" (click)="qrCodeUrl = ''" style="flex: 1;">Cancel</button>
+                <button type="button" class="btn-secondary" (click)="qrCodeUrl = ''" style="flex: 1;">{{ 'common.cancel' | translate }}</button>
               </div>
             </div>
           }
@@ -403,109 +403,122 @@
     <div class="settings-group">
       <h2 class="group-title color-blue">
         <span class="material-symbols-outlined">tune</span>
-        Display & Editing
+        {{ 'settings.display_editing' | translate }}
       </h2>
 
       <p class="section-desc">
-        Adjust Kept's appearance, times, checklist rows, and links.
+        {{ 'settings.adjust_kept_s_appearance_times_checklist_rows_and_links' | translate }}
       </p>
 
       <div class="preferences-list">
         <div class="preference-row">
           <div class="preference-info">
-            <span class="preference-label">Follow system appearance</span>
-            <span class="preference-desc">Match this device's light or dark appearance. Using the theme toggle turns this off.</span>
+            <label class="preference-label" for="interface-language">{{ 'language.label' | translate }}</label>
+            <span class="preference-desc">{{ 'language.description' | translate }}</span>
+          </div>
+          <select id="interface-language" [ngModel]="i18n.preference" [disabled]="i18n.saving"
+            (ngModelChange)="changeLanguage($event)">
+            <option value="system">{{ 'language.system' | translate }}</option>
+            @for (language of i18n.languages; track language.code) {
+              <option [value]="language.code">{{ language.nativeName }}</option>
+            }
+          </select>
+        </div>
+        <div class="preference-row">
+          <div class="preference-info">
+            <span class="preference-label">{{ 'settings.follow_system_appearance' | translate }}</span>
+            <span class="preference-desc">{{ 'settings.match_this_device_s_light_or_dark_appearance_using_the_theme_togg' | translate }}</span>
           </div>
           <label class="toggle-label">
-            <input type="checkbox" aria-label="Follow system appearance"
+            <input type="checkbox" [attr.aria-label]="'settings.follow_system_appearance' | translate"
               [checked]="authService.followsSystemTheme" [disabled]="isSavingThemePreference"
               (change)="toggleFollowSystemTheme($event)">
-            <span class="toggle-text">{{authService.followsSystemTheme ? 'Enabled' : 'Disabled'}}</span>
+            <span class="toggle-text">{{(authService.followsSystemTheme) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
           </label>
         </div>
 
         <div class="preference-row">
           <div class="preference-info">
-            <span class="preference-label">24-hour time</span>
-            <span class="preference-desc">Show reminder times without AM/PM.</span>
+            <span class="preference-label">{{ 'settings.24_hour_time' | translate }}</span>
+            <span class="preference-desc">{{ 'settings.show_reminder_times_without_am_pm' | translate }}</span>
           </div>
           <label class="toggle-label">
             <input type="checkbox" [checked]="useTwentyFourHourTime" (change)="toggleTwentyFourHourTime($event)">
-            <span class="toggle-text">{{useTwentyFourHourTime ? 'Enabled' : 'Disabled'}}</span>
+            <span class="toggle-text">{{(useTwentyFourHourTime) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
           </label>
         </div>
 
         <div class="preference-row">
           <div class="preference-info">
-            <span class="preference-label">Show past reminders on notes</span>
-            <span class="preference-desc">Keep fired reminder times visible in a muted style.</span>
+            <span class="preference-label">{{ 'settings.show_past_reminders_on_notes' | translate }}</span>
+            <span class="preference-desc">{{ 'settings.keep_fired_reminder_times_visible_in_a_muted_style' | translate }}</span>
           </div>
           <label class="toggle-label">
             <input type="checkbox" [checked]="showPastReminders" (change)="toggleShowPastReminders($event)">
-            <span class="toggle-text">{{showPastReminders ? 'Enabled' : 'Disabled'}}</span>
+            <span class="toggle-text">{{(showPastReminders) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
           </label>
         </div>
 
         @if (!authService.isLocal) {
           <div class="preference-row">
             <div class="preference-info">
-              <span class="preference-label">Use the owner's binders for shared notes</span>
-              <span class="preference-desc">Turn off to place notes shared with you in your own binders. Your choices won't affect anyone else.</span>
+              <span class="preference-label">{{ 'settings.use_the_owner_s_binders_for_shared_notes' | translate }}</span>
+              <span class="preference-desc">{{ 'settings.turn_off_to_place_notes_shared_with_you_in_your_own_binders_your_' | translate }}</span>
             </div>
             <label class="toggle-label">
-              <input type="checkbox" aria-label="Use the owner's binders for shared notes"
+              <input type="checkbox" [attr.aria-label]="'settings.use_the_owner_s_binders_for_shared_notes' | translate"
                 [checked]="authService.currentUser?.inheritSharedBinders !== false" [disabled]="savingSharedOrganization"
                 (change)="toggleSharedOrganization('inheritSharedBinders', $event)">
-              <span class="toggle-text">{{authService.currentUser?.inheritSharedBinders !== false ? 'Enabled' : 'Disabled'}}</span>
+              <span class="toggle-text">{{(authService.currentUser?.inheritSharedBinders !== false) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
             </label>
           </div>
           <div class="preference-row">
             <div class="preference-info">
-              <span class="preference-label">Use the owner's labels for shared notes</span>
-              <span class="preference-desc">Turn off to label notes shared with you yourself. Your choices won't affect anyone else.</span>
+              <span class="preference-label">{{ 'settings.use_the_owner_s_labels_for_shared_notes' | translate }}</span>
+              <span class="preference-desc">{{ 'settings.turn_off_to_label_notes_shared_with_you_yourself_your_choices_won' | translate }}</span>
             </div>
             <label class="toggle-label">
-              <input type="checkbox" aria-label="Use the owner's labels for shared notes"
+              <input type="checkbox" [attr.aria-label]="'settings.use_the_owner_s_labels_for_shared_notes' | translate"
                 [checked]="authService.currentUser?.inheritSharedLabels !== false" [disabled]="savingSharedOrganization"
                 (change)="toggleSharedOrganization('inheritSharedLabels', $event)">
-              <span class="toggle-text">{{authService.currentUser?.inheritSharedLabels !== false ? 'Enabled' : 'Disabled'}}</span>
+              <span class="toggle-text">{{(authService.currentUser?.inheritSharedLabels !== false) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
             </label>
           </div>
         }
 
         <div class="preference-row">
           <div class="preference-info">
-            <span class="preference-label">Move completed checklist items to bottom</span>
-            <span class="preference-desc">Turn off to keep checked items in their manual list order.</span>
+            <span class="preference-label">{{ 'settings.move_completed_checklist_items_to_bottom' | translate }}</span>
+            <span class="preference-desc">{{ 'settings.turn_off_to_keep_checked_items_in_their_manual_list_order' | translate }}</span>
           </div>
           <label class="toggle-label">
             <input type="checkbox" [checked]="moveCompletedChecklistItemsToBottom" (change)="toggleMoveCompletedChecklistItems($event)">
-            <span class="toggle-text">{{moveCompletedChecklistItemsToBottom ? 'Enabled' : 'Disabled'}}</span>
+            <span class="toggle-text">{{(moveCompletedChecklistItemsToBottom) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
           </label>
         </div>
 
         <div class="preference-row">
           <div class="preference-info">
-            <span class="preference-label">Rich link previews</span>
-            <span class="preference-desc">Turn off to show links as plain text instead of preview cards.</span>
+            <span class="preference-label">{{ 'settings.rich_link_previews' | translate }}</span>
+            <span class="preference-desc">{{ 'settings.turn_off_to_show_links_as_plain_text_instead_of_preview_cards' | translate }}</span>
           </div>
           <label class="toggle-label">
             <input type="checkbox" [checked]="richLinkPreviews" (change)="toggleRichLinkPreviews($event)">
-            <span class="toggle-text">{{richLinkPreviews ? 'Enabled' : 'Disabled'}}</span>
+            <span class="toggle-text">{{(richLinkPreviews) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
           </label>
         </div>
 
         <div class="preference-row">
           <div class="preference-info">
-            <span class="preference-label">Note preview text size and density</span>
-            <span class="preference-desc">Adjust note card text and density in the overview.</span>
+            <span class="preference-label">{{ 'settings.note_preview_text_size_and_density' | translate }}</span>
+            <span class="preference-desc">{{ 'settings.adjust_note_card_text_and_density_in_the_overview' | translate }}</span>
           </div>
-          <div class="segmented-control" role="group" aria-label="Note preview text size">
+          <div class="segmented-control" role="group" [attr.aria-label]="'settings.note_preview_text_size' | translate">
             @for (option of notePreviewTextSizeOptions; track option.value) {
               <button type="button"
                 [class.active]="notePreviewTextSize === option.value"
                 (click)="setNotePreviewTextSize(option.value)">
-                {{option.label}}
+                {{(option.label) | uiText}}
               </button>
             }
           </div>
@@ -517,40 +530,38 @@
     <div class="settings-group" *ngIf="!authService.isLocal">
       <h2 class="group-title color-purple">
         <span class="material-symbols-outlined">calendar_month</span>
-        Reminders & Calendars
+        {{ 'settings.reminders_calendars' | translate }}
       </h2>
       
       <section class="settings-section intro-section">
         <p class="section-desc" style="margin-bottom: 0;">
-          Reminders are built in and work without any additional setup — just set a time on any note and Kept handles the rest.
-          The integrations below are all <strong>optional</strong> and let you sync reminders to external calendar apps.
+          {{ 'settings.reminders_are_built_in_and_work_without_any_additional_setup_just' | translate }} <strong>{{ 'settings.optional' | translate }}</strong> {{ 'settings.and_let_you_sync_reminders_to_external_calendar_apps' | translate }}
         </p>
       </section>
 
       <!-- ICS Feed -->
       <section class="settings-section">
-        <div class="section-title">ICS Feed</div>
+        <div class="section-title">{{ 'settings.ics_feed' | translate }}</div>
         <p class="section-desc">
-          Subscribe to your reminders in any calendar app that supports ICS feeds —
-          Apple Calendar, Outlook, Thunderbird, and others. The feed URL is private; regenerate it to revoke access.
+          {{ 'settings.subscribe_to_your_reminders_in_any_calendar_app_that_supports_ics' | translate }}
         </p>
 
         @if (isLoadingFeed) {
-          <div class="loading-placeholder">Loading feed URL…</div>
+          <div class="loading-placeholder">{{ 'settings.loading_feed_url' | translate }}</div>
         } @else if (icsFeedError) {
-          <div class="error">{{icsFeedError}}</div>
+          <div class="error">{{(icsFeedError) | uiText}}</div>
         } @else {
           <div class="ics-feed-row">
             <input #feedUrlInput type="text" class="ics-url-input" readonly [value]="icsFeedUrl"
               (click)="feedUrlInput.select()">
             <button type="button" class="btn-secondary" (click)="copyFeedUrl()">
-              {{feedCopied ? 'Copied!' : 'Copy URL'}}
+              {{(feedCopied) ? ('settings.copied' | translate) : ('settings.copy_url' | translate)}}
             </button>
           </div>
           <div class="ics-feed-actions">
-            <small class="hint">Paste into your calendar app's "Subscribe" or "Add calendar from URL" dialog.</small>
+            <small class="hint">{{ 'settings.paste_into_your_calendar_app_s_subscribe_or_add_calendar_from_url' | translate }}</small>
             <button type="button" class="btn-text" [disabled]="isRegeneratingFeed" (click)="regenerateFeedUrl()">
-              {{isRegeneratingFeed ? 'Regenerating…' : 'Regenerate URL'}}
+              {{(isRegeneratingFeed) ? ('settings.regenerating' | translate) : ('settings.regenerate_url' | translate)}}
             </button>
           </div>
         }
@@ -559,78 +570,77 @@
       <!-- Google Calendar -->
       <section class="settings-section">
         <div class="section-title">
-          <span>Google Calendar</span>
+          <span>{{ 'settings.google_calendar' | translate }}</span>
           @if (googleStatus?.hasCredentials) {
             <label class="toggle-label">
               <input type="checkbox" [(ngModel)]="googleEnabled" (change)="saveGoogleEnabled()">
-              <span class="toggle-text">{{googleEnabled ? 'Enabled' : 'Disabled'}}</span>
+              <span class="toggle-text">{{(googleEnabled) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
             </label>
           }
         </div>
         <p class="section-desc">
-          Sync reminders to your Google Calendar as events. Requires your own Google Cloud OAuth credentials.
+          {{ 'settings.sync_reminders_to_your_google_calendar_as_events_requires_your_ow' | translate }}
         </p>
 
         <div class="instruction-group">
           <button type="button" class="instruction-toggle" (click)="toggleInstructions('google')">
-            <span>Setup instructions</span>
+            <span>{{ 'settings.setup_instructions' | translate }}</span>
             <span class="chevron" [class.open]="showInstructions === 'google'">▾</span>
           </button>
           @if (showInstructions === 'google') {
             <ol class="instruction-steps">
               <li>
-                Create a <strong>Google Cloud project</strong> at
-                <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>.
+                {{ 'settings.create_a' | translate }} <strong>{{ 'settings.google_cloud_project' | translate }}</strong> {{ 'settings.at' | translate }}
+                <a href="https://console.cloud.google.com" target="_blank" rel="noopener">{{ 'settings.console_cloud_google_com' | translate }}</a>.
               </li>
-              <li>Enable the <strong>Google Calendar API</strong> in your project.</li>
+              <li>{{ 'settings.enable_the' | translate }} <strong>{{ 'settings.google_calendar_api' | translate }}</strong> {{ 'settings.in_your_project' | translate }}</li>
               <li>
-                Under <em>APIs &amp; Services → Credentials</em>, create an
-                <strong>OAuth 2.0 Client ID</strong> (Application type: <em>Web application</em>).
+                {{ 'settings.under' | translate }} <em>{{ 'settings.apis_services_credentials' | translate }}</em>{{ 'settings.create_an' | translate }}
+                <strong>{{ 'settings.oauth_2_0_client_id' | translate }}</strong> {{ 'settings.application_type' | translate }} <em>{{ 'settings.web_application' | translate }}</em>).
               </li>
               <li>
-                Add this exact URL as an <strong>Authorized redirect URI</strong>:
+                {{ 'settings.add_this_exact_url_as_an' | translate }} <strong>{{ 'settings.authorized_redirect_uri' | translate }}</strong>:
                 <code class="block">{{googleRedirectUrl}}</code>
               </li>
-              <li>Paste your <strong>Client ID</strong> and <strong>Client Secret</strong> below, then click <em>Connect</em>.</li>
+              <li>{{ 'settings.paste_your' | translate }} <strong>{{ 'settings.client_id' | translate }}</strong> {{ 'settings.and' | translate }} <strong>{{ 'settings.client_secret' | translate }}</strong> {{ 'settings.below_then_click' | translate }} <em>{{ 'settings.connect' | translate }}</em>.</li>
               <li>
-                You will be redirected to Google to grant calendar access.
-                After approving, reminders will sync to your <em>primary</em> Google Calendar.
+                {{ 'settings.you_will_be_redirected_to_google_to_grant_calendar_access_after_a' | translate }} <em>{{ 'settings.primary' | translate }}</em> {{ 'settings.google_calendar_99efb6' | translate }}
               </li>
             </ol>
           }
         </div>
 
         @if (isLoadingGoogle) {
-          <div class="loading-placeholder">Checking status…</div>
+          <div class="loading-placeholder">{{ 'settings.checking_status' | translate }}</div>
         } @else if (googleStatus?.connected) {
           <div class="google-connected">
             <span class="status-dot connected"></span>
-            <span>Connected to Google Calendar</span>
+            <span>{{ 'settings.connected_to_google_calendar' | translate }}</span>
             <div class="google-actions">
-              <button type="button" class="btn-secondary" (click)="disconnectGoogle()">Disconnect</button>
-              <button type="button" class="btn-danger" (click)="removeGoogleCredentials()">Remove credentials</button>
+              <button type="button" class="btn-secondary" (click)="disconnectGoogle()">{{ 'settings.disconnect' | translate }}</button>
+              <button type="button" class="btn-danger" (click)="removeGoogleCredentials()">{{ 'settings.remove_credentials' | translate }}</button>
             </div>
           </div>
         } @else {
           <form class="auth-form gcal-form" (ngSubmit)="connectGoogle()">
             <label>
-              <span>Client ID</span>
+              <span>{{ 'settings.client_id' | translate }}</span>
               <input name="googleClientId" [(ngModel)]="googleClientId" autocomplete="off"
-                placeholder="xxxxxxxxxxxx.apps.googleusercontent.com">
+                [attr.placeholder]="'settings.xxxxxxxxxxxx_apps_googleusercontent_com' | translate">
             </label>
             <label>
-              <span>Client Secret</span>
+              <span>{{ 'settings.client_secret' | translate }}</span>
               <input name="googleClientSecret" type="password" [(ngModel)]="googleClientSecret"
-                autocomplete="new-password" placeholder="Your OAuth client secret">
+                autocomplete="new-password" [attr.placeholder]="'settings.your_oauth_client_secret' | translate">
             </label>
             <div class="caldav-actions">
               <button type="submit"
                 [disabled]="isSavingGoogle || isConnectingGoogle || !googleClientId || !googleClientSecret">
-                {{isConnectingGoogle ? 'Redirecting to Google…' : isSavingGoogle ? 'Saving…' : 'Connect Google Calendar'}}
+                {{(isConnectingGoogle) ? ('settings.redirecting_to_google' | translate) : ((isSavingGoogle) ? ('settings.saving' | translate) : ('settings.connect_google_calendar' | translate))}}
               </button>
             </div>
             @if (googleStatus?.hasCredentials && !googleStatus?.connected) {
-              <p class="hint">Credentials are saved. Click <em>Connect</em> to complete authorization.</p>
+              <p class="hint">{{ 'settings.credentials_are_saved_click' | translate }} <em>{{ 'settings.connect' | translate }}</em> {{ 'settings.to_complete_authorization' | translate }}</p>
             }
           </form>
         }
@@ -639,75 +649,74 @@
       <!-- CalDAV -->
       <section class="settings-section">
         <div class="section-title">
-          <span>CalDAV Sync</span>
+          <span>{{ 'settings.caldav_sync' | translate }}</span>
           @if (hasExistingCaldav) {
             <label class="toggle-label">
               <input type="checkbox" [(ngModel)]="caldavEnabled">
-              <span class="toggle-text">{{caldavEnabled ? 'Enabled' : 'Disabled'}}</span>
+              <span class="toggle-text">{{(caldavEnabled) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
             </label>
           }
         </div>
         <p class="section-desc">
-          Push reminders to iCloud, Fastmail, Nextcloud, ownCloud, or any CalDAV-compatible calendar server.
+          {{ 'settings.push_reminders_to_icloud_fastmail_nextcloud_owncloud_or_any_calda' | translate }}
         </p>
 
         <div class="instruction-group">
           <button type="button" class="instruction-toggle" (click)="toggleInstructions('caldav')">
-            <span>Setup instructions</span>
+            <span>{{ 'settings.setup_instructions' | translate }}</span>
             <span class="chevron" [class.open]="showInstructions === 'caldav'">▾</span>
           </button>
           @if (showInstructions === 'caldav') {
             <ol class="instruction-steps">
-              <li>Find your CalDAV calendar URL for your provider:
+              <li>{{ 'settings.find_your_caldav_calendar_url_for_your_provider' | translate }}
                 <ul>
-                  <li><strong>Apple iCloud:</strong> <code>https://caldav.icloud.com/</code> — use an <em>app-specific password</em> from appleid.apple.com</li>
-                  <li><strong>Fastmail:</strong> <code>https://caldav.fastmail.com/dav/principals/user/you@fastmail.com/</code></li>
-                  <li><strong>Nextcloud:</strong> <code>https://your-domain.com/remote.php/dav/calendars/username/personal/</code></li>
-                  <li><strong>ownCloud:</strong> <code>https://your-domain.com/remote.php/dav/calendars/username/personal/</code></li>
-                  <li><strong>Self-hosted (Radicale, Baikal):</strong> consult your server docs — often <code>/cal/</code> or <code>/dav/</code></li>
+                  <li><strong>{{ 'settings.apple_icloud' | translate }}</strong> <code>https://caldav.icloud.com/</code> {{ 'settings.use_an' | translate }} <em>{{ 'settings.app_specific_password' | translate }}</em> {{ 'settings.from_appleid_apple_com' | translate }}</li>
+                  <li><strong>{{ 'settings.fastmail' | translate }}</strong> <code>https://caldav.fastmail.com/dav/principals/user/you@fastmail.com/</code></li>
+                  <li><strong>{{ 'settings.nextcloud' | translate }}</strong> <code>https://your-domain.com/remote.php/dav/calendars/username/personal/</code></li>
+                  <li><strong>{{ 'settings.owncloud' | translate }}</strong> <code>https://your-domain.com/remote.php/dav/calendars/username/personal/</code></li>
+                  <li><strong>{{ 'settings.self_hosted_radicale_baikal' | translate }}</strong> {{ 'settings.consult_your_server_docs_often' | translate }} <code>{{ 'settings.cal' | translate }}</code> {{ 'settings.or' | translate }} <code>{{ 'settings.dav' | translate }}</code></li>
                 </ul>
               </li>
-              <li>Enter your <strong>username</strong> — usually your email address.</li>
+              <li>{{ 'settings.enter_your' | translate }} <strong>{{ 'settings.username' | translate }}</strong> {{ 'settings.usually_your_email_address' | translate }}</li>
               <li>
-                Enter an <strong>app password</strong> (not your main account password).
-                Most providers require this; generate one in your account's security settings.
+                {{ 'settings.enter_an' | translate }} <strong>{{ 'settings.app_password' | translate }}</strong> {{ 'settings.not_your_main_account_password_most_providers_require_this_genera' | translate }}
               </li>
-              <li>Click <em>Test connection</em> to verify, then <em>Save</em>.</li>
+              <li>{{ 'settings.click' | translate }} <em>{{ 'settings.test_connection' | translate }}</em> {{ 'settings.to_verify_then' | translate }} <em>{{ 'common.save' | translate }}</em>.</li>
             </ol>
           }
         </div>
 
         <form class="auth-form caldav-form" (ngSubmit)="saveCaldav()">
           <label>
-            <span>Calendar URL</span>
+            <span>{{ 'settings.calendar_url' | translate }}</span>
             <input name="calendarUrl" [(ngModel)]="calendarUrl" autocomplete="off"
               placeholder="https://caldav.example.com/calendar/">
-            <small class="hint">Full URL to your CalDAV calendar collection</small>
+            <small class="hint">{{ 'settings.full_url_to_your_caldav_calendar_collection' | translate }}</small>
           </label>
           <label>
-            <span>Username</span>
-            <input name="username" [(ngModel)]="username" autocomplete="off">
+            <span>{{ 'common.username' | translate }}</span>
+            <input name="username" [(ngModel)]="username" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
           </label>
           <label>
-            <span>Password / App password</span>
+            <span>{{ 'settings.password_app_password' | translate }}</span>
             <input name="password" type="password" [(ngModel)]="password" autocomplete="new-password">
           </label>
 
           @if (testResult) {
-            <div [class]="testResult.ok ? 'success' : 'error'">{{testResult.message}}</div>
+            <div [class]="testResult.ok ? 'success' : 'error'">{{(testResult.message) | uiText}}</div>
           }
 
           <div class="caldav-actions">
             <button type="button" class="btn-secondary"
               [disabled]="isTesting || !calendarUrl || !username || !password"
               (click)="testCaldav()">
-              {{isTesting ? 'Testing…' : 'Test connection'}}
+              {{(isTesting) ? ('settings.testing' | translate) : ('settings.test_connection' | translate)}}
             </button>
             <button type="submit" [disabled]="isSavingCaldav || !calendarUrl || !username || !password">
-              {{isSavingCaldav ? 'Saving…' : 'Save'}}
+              {{(isSavingCaldav) ? ('settings.saving' | translate) : ('common.save' | translate)}}
             </button>
             @if (hasExistingCaldav) {
-              <button type="button" class="btn-danger" (click)="removeCaldav()">Remove</button>
+              <button type="button" class="btn-danger" (click)="removeCaldav()">{{ 'common.remove' | translate }}</button>
             }
           </div>
         </form>
@@ -720,38 +729,38 @@
     <div class="settings-group permissions-group">
       <h2 class="group-title color-blue">
         <span class="material-symbols-outlined">security</span>
-        App Permissions
+        {{ 'settings.app_permissions' | translate }}
       </h2>
 
       <p class="section-desc">
-        Manage the permissions Kept needs for reminders, voice capture, and location-based features.
+        {{ 'settings.manage_the_permissions_kept_needs_for_reminders_voice_capture_and' | translate }}
       </p>
 
       @if (isAndroid && (nativeWorkspace.locationPermissionRequired$ | async)) {
-        <p role="status">Location reminders need background location access. In Android settings, choose Permissions → Location → Allow all the time.</p>
-        <button type="button" class="btn-secondary btn-permission" (click)="nativeWorkspace.openBackgroundLocationSettings()">Allow background location</button>
+        <p role="status">{{ 'settings.location_reminders_need_background_location_access_in_android_set' | translate }}</p>
+        <button type="button" class="btn-secondary btn-permission" (click)="nativeWorkspace.openBackgroundLocationSettings()">{{ 'settings.allow_background_location' | translate }}</button>
       }
 
       @if (notificationPermissionsVisible) {
         <div class="permissions-list notification-permissions-list">
           <div class="permission-row">
             <div class="permission-info">
-              <span class="permission-label">Web notifications</span>
+              <span class="permission-label">{{ 'settings.web_notifications' | translate }}</span>
               <span class="permission-desc">
-                Reminder alerts from this browser. You can dismiss the prompt and show it again here.
+                {{ 'settings.reminder_alerts_from_this_browser_you_can_dismiss_the_prompt_and_' | translate }}
               </span>
             </div>
             <div class="permission-action">
               @if (notificationPermission === 'granted') {
                 <span class="permission-granted">
                   <span class="material-symbols-outlined check-icon">check_circle</span>
-                  Granted
+                  {{ 'settings.granted' | translate }}
                 </span>
               } @else if (notificationPermission === 'denied') {
-                <span class="permission-desc">Blocked in browser</span>
+                <span class="permission-desc">{{ 'settings.blocked_in_browser' | translate }}</span>
               } @else {
                 <button type="button" class="btn-secondary btn-permission" (click)="showNotificationPrompt()">
-                  Show prompt
+                  {{ 'settings.show_prompt' | translate }}
                 </button>
               }
             </div>
@@ -763,26 +772,26 @@
         <div class="permissions-list legacy-smart-capture-list">
           <div class="permission-row">
             <div class="permission-info">
-              <span class="permission-label">Smart Capture</span>
-              <span class="permission-desc">Show voice-first Smart Capture and use the private on-device model.</span>
+              <span class="permission-label">{{ 'main.smart_capture' | translate }}</span>
+              <span class="permission-desc">{{ 'settings.show_voice_first_smart_capture_and_use_the_private_on_device_mode' | translate }}</span>
             </div>
             <div class="permission-action">
               <label class="toggle-label">
                 <input type="checkbox" [checked]="androidSmartCaptureEnabled" (change)="toggleAndroidSmartCapture($event)">
-                <span class="toggle-text">{{androidSmartCaptureEnabled ? 'Enabled' : 'Disabled'}}</span>
+                <span class="toggle-text">{{(androidSmartCaptureEnabled) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
               </label>
             </div>
           </div>
           @if (legacyAndroidSmartCaptureVisible) {
           <div class="permission-row">
             <div class="permission-info">
-              <span class="permission-label">Legacy device Smart Capture</span>
-              <span class="permission-desc">Enable Smart Capture on Android 12 and older. Voice punctuation and checklist parsing are less reliable on legacy Android speech services.</span>
+              <span class="permission-label">{{ 'settings.legacy_device_smart_capture' | translate }}</span>
+              <span class="permission-desc">{{ 'settings.enable_smart_capture_on_android_12_and_older_voice_punctuation_an' | translate }}</span>
             </div>
             <div class="permission-action">
               <label class="toggle-label">
                 <input type="checkbox" [checked]="legacyAndroidSmartCaptureEnabled" (change)="toggleLegacyAndroidSmartCapture($event)">
-                <span class="toggle-text">{{legacyAndroidSmartCaptureEnabled ? 'Enabled' : 'Disabled'}}</span>
+                <span class="toggle-text">{{(legacyAndroidSmartCaptureEnabled) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
               </label>
             </div>
           </div>
@@ -792,33 +801,33 @@
 
       @if (isIos) {
         @if (isLoadingPermissions) {
-          <div class="loading-placeholder">Loading permission statuses…</div>
+          <div class="loading-placeholder">{{ 'settings.loading_permission_statuses' | translate }}</div>
         } @else if (permissionsError) {
-          <div class="error">{{permissionsError}}</div>
+          <div class="error">{{(permissionsError) | uiText}}</div>
         } @else if (permissionsStatus) {
           <div class="permissions-list">
             @for (perm of permissions; track perm.key) {
               <div class="permission-row">
                 <div class="permission-info">
-                  <span class="permission-label">{{perm.label}}</span>
-                  <span class="permission-desc">{{perm.description}}</span>
+                  <span class="permission-label">{{(perm.label) | uiText}}</span>
+                  <span class="permission-desc">{{(perm.description) | uiText}}</span>
                 </div>
                 <div class="permission-action">
                   @if (permissionsStatus[perm.key] === 'granted') {
                     <span class="permission-granted">
                       <span class="material-symbols-outlined check-icon">check_circle</span>
-                      Granted
+                      {{ 'settings.granted' | translate }}
                     </span>
                   } @else if (permissionsStatus[perm.key] === 'notDetermined') {
                     <button type="button" class="btn-secondary btn-permission"
                       [disabled]="isRequestingPermission === perm.key"
                       (click)="requestPermission(perm.key)">
-                      {{isRequestingPermission === perm.key ? 'Requesting…' : 'Grant Access'}}
+                      {{(isRequestingPermission === perm.key) ? ('settings.requesting' | translate) : ('settings.grant_access' | translate)}}
                     </button>
                   } @else if (permissionsStatus[perm.key] === 'denied') {
                     <button type="button" class="btn-secondary btn-permission"
                       (click)="openAppSettings()">
-                      Open Settings
+                      {{ 'settings.open_settings' | translate }}
                     </button>
                   }
                 </div>
@@ -834,39 +843,37 @@
     <div class="settings-group" *ngIf="!authService.isLocal">
       <h2 class="group-title color-red">
         <span class="material-symbols-outlined">warning</span>
-        Advanced
+        {{ 'settings.advanced' | translate }}
       </h2>
 
       <section class="settings-section danger-section">
-        <div class="section-title">Delete your account</div>
+        <div class="section-title">{{ 'settings.delete_your_account' | translate }}</div>
         <p class="section-desc">
-          Permanently delete your account and everything you own in Kept. This removes your notes, uploads,
-          attachments, reminders, calendar settings, sessions, and sharing access. Shared notes owned by other
-          users are not deleted.
+          {{ 'settings.permanently_delete_your_account_and_everything_you_own_in_kept_th' | translate }}
         </p>
 
         <div class="danger-warning">
-          This cannot be undone. Export anything you want to keep before continuing.
+          {{ 'settings.this_cannot_be_undone_export_anything_you_want_to_keep_before_con' | translate }}
         </div>
 
         <form class="auth-form delete-account-form" (ngSubmit)="deleteMyAccount()">
           <label>
-            <span>Current password</span>
+            <span>{{ 'navbar.current_password' | translate }}</span>
             <input name="deleteAccountPassword" type="password" [(ngModel)]="deleteAccountPassword"
               autocomplete="current-password">
           </label>
           <label>
-            <span>Type DELETE to confirm</span>
+            <span>{{ 'settings.type_delete_to_confirm' | translate }}</span>
             <input name="deleteAccountConfirmation" type="text" [(ngModel)]="deleteAccountConfirmation"
               autocomplete="off">
           </label>
           @if (deleteAccountError) {
-            <div class="error">{{deleteAccountError}}</div>
+            <div class="error">{{(deleteAccountError) | uiText}}</div>
           }
           <div class="caldav-actions">
             <button type="submit" class="btn-danger"
               [disabled]="isDeletingAccount || !deleteAccountPassword || deleteAccountConfirmation !== 'DELETE'">
-              {{isDeletingAccount ? 'Deleting…' : 'Delete my account permanently'}}
+              {{(isDeletingAccount) ? ('settings.deleting' | translate) : ('settings.delete_my_account_permanently' | translate)}}
             </button>
           </div>
         </form>

@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { LabelsService } from './labels.service';
 import { AuthService } from './auth.service';
 import { sanitizeNoteHtml } from '../utils/note-html';
@@ -29,10 +30,12 @@ export class OfflineSmartCaptureService {
   validate(transcript: string, inputPlan: KeptActionPlan): KeptPlanValidation {
     const normalizedPlan = this.normalizePlan(transcript, inputPlan);
     const errors: string[] = [];
-    const warnings = [this.auth.isLocal ? 'Smart Capture will save these changes on this device.' : 'Smart Capture will save these changes on this device and sync them when you reconnect.'];
+    const warnings = [uiText(this.auth.isLocal
+      ? 'offline_smart_capture.smart_capture_will_save_these_changes_on_this_device'
+      : 'offline_smart_capture.smart_capture_will_save_these_changes_on_this_device_and_sync_the')];
     let createdNoteAvailable = false;
 
-    if (!normalizedPlan.actions.length) errors.push('At least one action is required.');
+    if (!normalizedPlan.actions.length) errors.push(uiText('offline_smart_capture.at_least_one_action_is_required'));
 
     normalizedPlan.actions.forEach((action, index) => {
       const label = `actions[${index}]`;

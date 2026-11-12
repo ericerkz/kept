@@ -4,10 +4,10 @@
   <input #attachmentInput class="attachment-input" type="file" [accept]="attachmentAccept" multiple
     (change)="attachmentInputChange($event)">
   <div #notePlaceholder (click)="notePhClick()" (dragover)="dragOverImages($event)" (drop)="dropImages($event)" class="placeholder">
-    <input class="input" placeholder="Take a note…" type="text">
-    <div class="check H pop" data-pop="New list" (click)="isCbox.next(true)"></div>
-    <div class="paint H pop" data-pop="New note with drawing" (click)="openDrawingNote($event)"></div>
-    <div class="picture H pop" data-pop="New note with image" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)"></div>
+    <input class="input" [attr.placeholder]="'input.take_a_note' | translate" type="text">
+    <div class="check H pop" [attr.data-pop]="'accessibility.new_list' | translate" (click)="isCbox.next(true)"></div>
+    <div class="paint H pop" [attr.data-pop]="'accessibility.new_note_with_drawing' | translate" (click)="openDrawingNote($event)"></div>
+    <div class="picture H pop" [attr.data-pop]="'accessibility.new_note_with_image' | translate" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)"></div>
   </div>
   <!--? new note -->
   <div #noteMain class="note-main" [class.detail-bg]="isEditing && hasBackgroundImage"
@@ -34,27 +34,27 @@
       <div #noteContainer class="drawing-editor">
         <div #noteTitle hidden></div>
         <div class="drawing-toolbar">
-          <button type="button" class="drawing-icon back" aria-label="Back" (click)="saveNote()">
+          <button type="button" class="drawing-icon back" [attr.aria-label]="'common.back' | translate" (click)="saveNote()">
             <span class="material-symbols-outlined">arrow_back</span>
           </button>
-          <button type="button" class="drawing-icon select" [class.active]="drawingTool === 'select'" aria-label="Select"
+          <button type="button" class="drawing-icon select" [class.active]="drawingTool === 'select'" [attr.aria-label]="'input.select' | translate"
             (click)="selectDrawingTool('select')">
             <span class="material-symbols-outlined">select_all</span>
           </button>
           <div class="drawing-tool-menu">
-            <button type="button" class="drawing-icon eraser has-menu" [class.active]="drawingTool === 'eraser'" aria-label="Eraser"
+            <button type="button" class="drawing-icon eraser has-menu" [class.active]="drawingTool === 'eraser'" [attr.aria-label]="'input.eraser' | translate"
               (click)="toggleEraserMenu($event)">
               <span class="material-symbols-outlined">ink_eraser</span>
             </button>
             @if (showDrawingEraserMenu) {
               <div class="drawing-popover eraser-menu">
-                <button type="button" (click)="clearDrawingPage()">Clear Page</button>
+                <button type="button" (click)="clearDrawingPage()">{{ 'input.clear_page' | translate }}</button>
               </div>
             }
           </div>
           <div class="drawing-tool-menu">
             <button type="button" class="drawing-icon marker has-menu" [class.active]="drawingTool === 'marker'"
-              [style.--tool-color]="drawingToolOptions.marker.color" aria-label="Marker"
+              [style.--tool-color]="drawingToolOptions.marker.color" [attr.aria-label]="'input.marker' | translate"
               (click)="toggleDrawingToolMenu('marker', $event)">
               <span class="material-symbols-outlined">ink_marker</span>
             </button>
@@ -64,7 +64,7 @@
           </div>
           <div class="drawing-tool-menu">
             <button type="button" class="drawing-icon pen has-menu" [class.active]="drawingTool === 'pen'"
-              [style.--tool-color]="drawingToolOptions.pen.color" aria-label="Pen"
+              [style.--tool-color]="drawingToolOptions.pen.color" [attr.aria-label]="'input.pen' | translate"
               (click)="toggleDrawingToolMenu('pen', $event)">
               <span class="material-symbols-outlined">ink_pen</span>
             </button>
@@ -74,7 +74,7 @@
           </div>
           <div class="drawing-tool-menu">
             <button type="button" class="drawing-icon highlighter has-menu" [class.active]="drawingTool === 'highlighter'"
-              [style.--tool-color]="drawingToolOptions.highlighter.color" aria-label="Highlighter"
+              [style.--tool-color]="drawingToolOptions.highlighter.color" [attr.aria-label]="'input.highlighter' | translate"
               (click)="toggleDrawingToolMenu('highlighter', $event)">
               <span class="material-symbols-outlined">ink_highlighter</span>
             </button>
@@ -83,7 +83,7 @@
             }
           </div>
           <div class="drawing-tool-menu drawing-background-tool">
-            <button type="button" class="drawing-icon grid" [class.active]="showDrawingBackgroundMenu" aria-label="Canvas background"
+            <button type="button" class="drawing-icon grid" [class.active]="showDrawingBackgroundMenu" [attr.aria-label]="'input.canvas_background' | translate"
               [attr.aria-expanded]="showDrawingBackgroundMenu"
               (click)="showDrawingBackgroundMenu = !showDrawingBackgroundMenu; showDrawingMoreMenu = false">
               <span class="material-symbols-outlined">grid_on</span>
@@ -91,39 +91,39 @@
             @if (showDrawingBackgroundMenu) {
               <div class="drawing-popover background-picker">
                 <button type="button" [class.active]="drawingBackground === 'square'" (click)="setDrawingBackground('square')">
-                  <span class="bg-preview square"></span><span>Square</span>
+                  <span class="bg-preview square"></span><span>{{ 'input.square' | translate }}</span>
                 </button>
                 <button type="button" [class.active]="drawingBackground === 'dots'" (click)="setDrawingBackground('dots')">
-                  <span class="bg-preview dots"></span><span>Dots</span>
+                  <span class="bg-preview dots"></span><span>{{ 'input.dots' | translate }}</span>
                 </button>
                 <button type="button" [class.active]="drawingBackground === 'rules'" (click)="setDrawingBackground('rules')">
-                  <span class="bg-preview rules"></span><span>Rules</span>
+                  <span class="bg-preview rules"></span><span>{{ 'input.rules' | translate }}</span>
                 </button>
                 <button type="button" [class.active]="drawingBackground === 'none'" (click)="setDrawingBackground('none')">
-                  <span class="bg-preview none"></span><span>None</span>
+                  <span class="bg-preview none"></span><span>{{ 'common.none' | translate }}</span>
                 </button>
               </div>
             }
           </div>
           <span class="drawing-spacer"></span>
-          <button type="button" class="drawing-icon undo" [disabled]="drawingHistoryIndex <= 0" aria-label="Undo" (click)="undoDrawing()">
+          <button type="button" class="drawing-icon undo" [disabled]="drawingHistoryIndex <= 0" [attr.aria-label]="'common.undo' | translate" (click)="undoDrawing()">
             <span class="material-symbols-outlined">undo</span>
           </button>
-          <button type="button" class="drawing-icon redo" [disabled]="drawingHistoryIndex >= drawingHistory.length - 1" aria-label="Redo" (click)="redoDrawing()">
+          <button type="button" class="drawing-icon redo" [disabled]="drawingHistoryIndex >= drawingHistory.length - 1" [attr.aria-label]="'input.redo' | translate" (click)="redoDrawing()">
             <span class="material-symbols-outlined">redo</span>
           </button>
-          <button type="button" class="drawing-icon fullscreen" aria-label="Fullscreen" (click)="toggleDrawingFullscreen()">
+          <button type="button" class="drawing-icon fullscreen" [attr.aria-label]="'input.fullscreen' | translate" (click)="toggleDrawingFullscreen()">
             <span class="material-symbols-outlined">fullscreen</span>
           </button>
           <div class="drawing-tool-menu">
-            <button type="button" class="drawing-icon more" aria-label="More" (click)="showDrawingMoreMenu = !showDrawingMoreMenu; showDrawingBackgroundMenu = false">
+            <button type="button" class="drawing-icon more" [attr.aria-label]="'common.more' | translate" (click)="showDrawingMoreMenu = !showDrawingMoreMenu; showDrawingBackgroundMenu = false">
               <span class="material-symbols-outlined">more_vert</span>
             </button>
             @if (showDrawingMoreMenu) {
               <div class="drawing-popover more-menu">
-                <button type="button" (click)="newDrawing()">New drawing</button>
-                <button type="button" (click)="exportDrawing()">Export as image</button>
-                <button type="button" (click)="deleteCurrentDrawing()">Delete current drawing</button>
+                <button type="button" (click)="newDrawing()">{{ 'input.new_drawing' | translate }}</button>
+                <button type="button" (click)="exportDrawing()">{{ 'input.export_as_image' | translate }}</button>
+                <button type="button" (click)="deleteCurrentDrawing()">{{ 'input.delete_current_drawing' | translate }}</button>
               </div>
             }
           </div>
@@ -155,11 +155,11 @@
         </button>
         <span class="spacer"></span>
         <div class="mobile-top-icons">
-          <button type="button" class="mobile-icon history" aria-label="Undo"
+          <button type="button" class="mobile-icon history" [attr.aria-label]="'common.undo' | translate"
             (pointerdown)="runTextHistory('undo',$event)">
             <span class="material-symbols-outlined">undo</span>
           </button>
-          <button type="button" class="mobile-icon history" aria-label="Redo"
+          <button type="button" class="mobile-icon history" [attr.aria-label]="'input.redo' | translate"
             (pointerdown)="runTextHistory('redo',$event)">
             <span class="material-symbols-outlined">redo</span>
           </button>
@@ -175,18 +175,18 @@
           </div>
         </div>
         @if (pendingDateConfirm) {
-          <div class="date-confirm-pill" role="region" aria-label="Confirm reminder date">
-            <span class="dc-text">Reminder date: <strong>{{formatPendingDateLabel(pendingDateConfirm.date)}}</strong></span>
-            <button type="button" class="dc-cancel" (click)="cancelPendingDate()">Change</button>
-            <button type="button" class="dc-confirm" (click)="confirmPendingDate()">Pick time →</button>
+          <div class="date-confirm-pill" role="region" [attr.aria-label]="'input.confirm_reminder_date' | translate">
+            <span class="dc-text">{{ 'input.reminder_date' | translate }} <strong>{{formatPendingDateLabel(pendingDateConfirm.date)}}</strong></span>
+            <button type="button" class="dc-cancel" (click)="cancelPendingDate()">{{ 'common.change' | translate }}</button>
+            <button type="button" class="dc-confirm" (click)="confirmPendingDate()">{{ 'reminder.pick_time_next' | translate }}</button>
           </div>
         }
       </div>
 
       <div class="note-title-container">
-        <div [hidden]="!!noteTitle.textContent?.trim()" class="note-title ph" aria-hidden="true">Title</div>
+        <div [hidden]="!!noteTitle.textContent?.trim()" class="note-title ph" aria-hidden="true">{{ 'input.title' | translate }}</div>
         <div #noteTitle (input)="onNoteTitleInput()" (paste)="pasteEvent($event)" (focus)="rememberTextHistoryTarget(noteTitle)"
-          class="note-title" contenteditable="true" role="textbox" aria-label="Title" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
+          class="note-title" dir="auto" contenteditable="true" role="textbox" [attr.aria-label]="'input.title' | translate" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
         </div>
       </div>
       <ng-container [ngTemplateOutlet]="imagesTemplate" [ngTemplateOutletContext]="{ placement: 'top' }">
@@ -236,14 +236,14 @@
       <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
       <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
       <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
-      <button type="button" class="clear-format" aria-label="Clear formatting" title="Clear formatting"
-        (mousedown)="applyTextFormat('clear',$event)">Clear</button>
+      <button type="button" class="clear-format" [attr.aria-label]="'input.clear_formatting' | translate" [attr.title]="'input.clear_formatting' | translate"
+        (mousedown)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
     </div>
   }
   <div #notePin data-pinned="false" [class.pinned]="notePin.dataset['pinned'] === 'true'" class="pin-icon H pop"
     [hidden]="isDrawingNote"
     (click)="togglePinned()"
-    [attr.data-pop]="notePin.dataset['pinned'] === 'false' ? 'Pin note':'Unpin note' ">
+    [attr.data-pop]="notePin.dataset['pinned'] === 'false' ? ('accessibility.pin_note' | translate):('accessibility.unpin_note' | translate) ">
   </div>
   <!--? icons -->
   @if (!isTrashed && !isDrawingNote) {
@@ -257,42 +257,42 @@
           <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
           <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
           <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
-          <button type="button" class="clear-format" aria-label="Clear formatting" title="Clear formatting"
-            (mousedown)="applyTextFormat('clear',$event)">Clear</button>
+          <button type="button" class="clear-format" [attr.aria-label]="'input.clear_formatting' | translate" [attr.title]="'input.clear_formatting' | translate"
+            (mousedown)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
         </div>
       }
       <div class="icons">
-        <button type="button" class="text-format-trigger H pop" data-pop="Formatting options"
+        <button type="button" class="text-format-trigger H pop" [attr.data-pop]="'input.formatting_options' | translate"
           [class.active]="showTextFormatting" [disabled]="!canFormatText()" (click)="toggleTextFormatting($event)">A</button>
-        <div class="alarm H pop" data-pop="Remind me"
+        <div class="alarm H pop" [attr.data-pop]="'accessibility.remind_me' | translate"
           [class.alarm-active]="!!getActiveReminder()"
           (click)="alarmIconTapped($event)">
         </div>
         <div *ngIf="!auth.isLocal" #collaboratorMenuTtBtn class="colab H pop" [class.has-selection]="selectedCollaboratorIds.length"
-          data-pop="Collaborator" (click)="openCollaboratorMenu(collaboratorMenuTtBtn,collaboratorMenuTt)"></div>
-        <div #colorMenuTtBtn class="color H pop" data-pop="Background Options"
+          [attr.data-pop]="'input.collaborator' | translate" (click)="openCollaboratorMenu(collaboratorMenuTtBtn,collaboratorMenuTt)"></div>
+        <div #colorMenuTtBtn class="color H pop" [attr.data-pop]="'backgrounds.options' | translate"
           (click)="openTooltip(colorMenuTtBtn,colorMenuTt)">
         </div>
-        <div class="image H pop" data-pop="Add image" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)"></div>
-        <div class="attachment H pop" data-pop="Attachments" (click)="openAttachmentPicker($event)"></div>
+        <div class="image H pop" [attr.data-pop]="'input.add_image' | translate" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)"></div>
+        <div class="attachment H pop" [attr.data-pop]="'common.attachments' | translate" (click)="openAttachmentPicker($event)"></div>
         <div [ngClass]="isArchived ? 'unarchive' : 'archive'" class="H pop"
           (click)="isArchived = !isArchived;saveNote()"
-          [attr.data-pop]="isArchived ? 'Unarchive' : 'Archive'"></div>
-        <div #moreMenuTtBtn class="more H pop" data-pop="More" (click)="openTooltip(moreMenuTtBtn,moreMenuTt)">
+          [attr.data-pop]="isArchived ? ('accessibility.unarchive' | translate) : ('common.archive' | translate)"></div>
+        <div #moreMenuTtBtn class="more H pop" [attr.data-pop]="'common.more' | translate" (click)="openTooltip(moreMenuTtBtn,moreMenuTt)">
         </div>
-        <button type="button" class="undo pop" data-pop="Undo" aria-label="Undo"
+        <button type="button" class="undo pop" [attr.data-pop]="'common.undo' | translate" [attr.aria-label]="'common.undo' | translate"
           (mousedown)="runTextHistory('undo',$event)"></button>
-        <button type="button" class="undo r pop" data-pop="Redo" aria-label="Redo"
+        <button type="button" class="undo r pop" [attr.data-pop]="'input.redo' | translate" [attr.aria-label]="'input.redo' | translate"
           (mousedown)="runTextHistory('redo',$event)"></button>
       </div>
       @if (pendingDateConfirm) {
-        <div class="date-confirm-pill date-confirm-pill--desktop" role="region" aria-label="Confirm reminder date">
-          <span class="dc-text">Reminder date: <strong>{{formatPendingDateLabel(pendingDateConfirm.date)}}</strong></span>
-          <button type="button" class="dc-cancel" (click)="cancelPendingDate()">Change</button>
-          <button type="button" class="dc-confirm" (click)="confirmPendingDate()">Pick time →</button>
+        <div class="date-confirm-pill date-confirm-pill--desktop" role="region" [attr.aria-label]="'input.confirm_reminder_date' | translate">
+          <span class="dc-text">{{ 'input.reminder_date' | translate }} <strong>{{formatPendingDateLabel(pendingDateConfirm.date)}}</strong></span>
+          <button type="button" class="dc-cancel" (click)="cancelPendingDate()">{{ 'common.change' | translate }}</button>
+          <button type="button" class="dc-confirm" (click)="confirmPendingDate()">{{ 'reminder.pick_time_next' | translate }}</button>
         </div>
       }
-      <button type="button" class="close-btn" [disabled]="!canSaveNote" (click)="saveNote()">Close</button>
+      <button type="button" class="close-btn" [disabled]="!canSaveNote" (click)="saveNote()">{{ 'common.close' | translate }}</button>
     </div>
 
     <!--? Mobile Bottom Bar -->
@@ -306,33 +306,33 @@
           <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
           <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
           <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
-          <button type="button" class="clear-format" aria-label="Clear formatting" title="Clear formatting"
-            (mousedown)="applyTextFormat('clear',$event)">Clear</button>
+          <button type="button" class="clear-format" [attr.aria-label]="'input.clear_formatting' | translate" [attr.title]="'input.clear_formatting' | translate"
+            (mousedown)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
         </div>
       }
       <div class="left-icons">
-        <div *ngIf="!auth.isLocal" #collaboratorMenuTtBtnMobile class="mobile-icon colab" (click)="openCollaboratorMenu(collaboratorMenuTtBtnMobile,collaboratorMenuTt)" title="Collaborator">
+        <div *ngIf="!auth.isLocal" #collaboratorMenuTtBtnMobile class="mobile-icon colab" (click)="openCollaboratorMenu(collaboratorMenuTtBtnMobile,collaboratorMenuTt)" [attr.title]="'input.collaborator' | translate">
           <div class="glyph colab"></div>
         </div>
-        <div class="mobile-icon image" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)" title="Add image">
+        <div class="mobile-icon image" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)" [attr.title]="'input.add_image' | translate">
           <div class="glyph picture"></div>
         </div>
-        <div class="mobile-icon attachment" (click)="openAttachmentPicker($event)" title="Attachments">
+        <div class="mobile-icon attachment" (click)="openAttachmentPicker($event)" [attr.title]="'common.attachments' | translate">
           <div class="glyph attachment"></div>
         </div>
         <button type="button" class="mobile-icon format" [class.active]="showTextFormatting" [disabled]="!canFormatText()"
-          (click)="toggleTextFormatting($event)" title="Formatting options">A</button>
-        <div class="mobile-icon check" (click)="toggleCbox()" title="Add checkboxes">
+          (click)="toggleTextFormatting($event)" [attr.title]="'input.formatting_options' | translate">A</button>
+        <div class="mobile-icon check" (click)="toggleCbox()" [attr.title]="'input.add_checkboxes' | translate">
           <div class="glyph check"></div>
         </div>
-        <div #colorMenuTtBtnMobile class="mobile-icon color" (click)="openTooltip(colorMenuTtBtnMobile,colorMenuTt)" title="Background options">
+        <div #colorMenuTtBtnMobile class="mobile-icon color" (click)="openTooltip(colorMenuTtBtnMobile,colorMenuTt)" [attr.title]="'backgrounds.options' | translate">
           <div class="glyph color"></div>
         </div>
       </div>
       <div class="timestamp">
-        {{lastEditedTime || 'Edited just now'}}
+        {{(lastEditedTime) || ('input.edited_just_now' | translate)}}
       </div>
-      <div #moreMenuTtBtnMobile class="mobile-icon more" (click)="openTooltip(moreMenuTtBtnMobile,moreMenuTt)" title="More">
+      <div #moreMenuTtBtnMobile class="mobile-icon more" (click)="openTooltip(moreMenuTtBtnMobile,moreMenuTt)" [attr.title]="'common.more' | translate">
         <div class="glyph more"></div>
       </div>
     </div>
@@ -351,23 +351,23 @@
     <div class="reminder-picker reminder-picker--inline"
       (mousedown)="$event.stopPropagation()" (mouseup)="$event.stopPropagation()" (click)="$event.stopPropagation()">
       @if (displayedReminder.status === 'fired') {
-        <button type="button" class="rp-clear" (click)="reschedulePastReminder($event)">Set new reminder</button>
+        <button type="button" class="rp-clear" (click)="reschedulePastReminder($event)">{{ 'input.set_new_reminder' | translate }}</button>
       }
-      <button type="button" class="rp-clear" (click)="clearReminder($event)">Remove reminder</button>
+      <button type="button" class="rp-clear" (click)="clearReminder($event)">{{ 'input.remove_reminder' | translate }}</button>
     </div>
   }
   @if (showReminderTypeDialog && !getActiveReminder()) {
     <div class="reminder-date-dialog reminder-choice-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
-      role="dialog" aria-label="Set reminder">
-      <h2 class="rd-choice-title">Set reminder</h2>
-      <p class="rd-choice-subtitle">How should we remind you?</p>
+      role="dialog" [attr.aria-label]="'reminder.set_reminder' | translate">
+      <h2 class="rd-choice-title">{{ 'reminder.set_reminder' | translate }}</h2>
+      <p class="rd-choice-subtitle">{{ 'input.how_should_we_remind_you' | translate }}</p>
       <button type="button" class="rd-choice-card" (click)="chooseReminderDateTime()">
         <span class="rd-choice-icon">
           <span class="material-symbols-outlined">schedule</span>
         </span>
         <span class="rd-choice-copy">
-          <strong>Date &amp; time</strong>
-          <span>At a specific moment</span>
+          <strong>{{ 'input.date_time' | translate }}</strong>
+          <span>{{ 'input.at_a_specific_moment' | translate }}</span>
         </span>
         <span class="material-symbols-outlined rd-choice-chevron">chevron_right</span>
       </button>
@@ -377,28 +377,28 @@
             <span class="material-symbols-outlined">location_on</span>
           </span>
           <span class="rd-choice-copy">
-            <strong>Place</strong>
-            <span>When I arrive or leave somewhere</span>
+            <strong>{{ 'input.place' | translate }}</strong>
+            <span>{{ 'input.when_i_arrive_or_leave_somewhere' | translate }}</span>
           </span>
           <span class="material-symbols-outlined rd-choice-chevron">chevron_right</span>
         </button>
       }
-      <button type="button" class="rd-choice-cancel" (click)="cancelReminderType()">Cancel</button>
+      <button type="button" class="rd-choice-cancel" (click)="cancelReminderType()">{{ 'common.cancel' | translate }}</button>
     </div>
   }
   @if (showReminderDateDialog && !getActiveReminder()) {
     <div class="reminder-date-dialog" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
-      role="dialog" aria-label="Set reminder date">
+      role="dialog" [attr.aria-label]="'reminder.set_reminder_date' | translate">
       <div class="rd-title">
-        Set reminder
+        {{ 'reminder.set_reminder' | translate }}
       </div>
-      <div class="rd-calendar" aria-label="Reminder date calendar">
+      <div class="rd-calendar" [attr.aria-label]="'reminder.date_calendar' | translate">
         <div class="rd-calendar-head">
-          <button type="button" class="rd-nav" aria-label="Previous month" (click)="shiftCalendarMonth(-1)">
+          <button type="button" class="rd-nav" [attr.aria-label]="'reminder.previous_month' | translate" (click)="shiftCalendarMonth(-1)">
             <span class="material-symbols-outlined">chevron_left</span>
           </button>
           <div class="rd-month">{{calendarMonthLabel()}}</div>
-          <button type="button" class="rd-nav" aria-label="Next month" (click)="shiftCalendarMonth(1)">
+          <button type="button" class="rd-nav" [attr.aria-label]="'reminder.next_month' | translate" (click)="shiftCalendarMonth(1)">
             <span class="material-symbols-outlined">chevron_right</span>
           </button>
         </div>
@@ -420,37 +420,37 @@
           }
         </div>
       </div>
-      <div class="rd-repeat" aria-label="Repeat reminder">
-        <div class="rd-repeat-title">Repeat</div>
+      <div class="rd-repeat" [attr.aria-label]="'input.repeat_reminder' | translate">
+        <div class="rd-repeat-title">{{ 'input.repeat' | translate }}</div>
         <div class="rd-repeat-options">
           @for (option of reminderRepeatOptions; track option.value) {
             <button type="button"
               [class.active]="reminderRepeatType === option.value"
               (click)="setReminderRepeatType(option.value)">
-              {{ option.label }}
+              {{ (option.label) | uiText }}
             </button>
           }
         </div>
         @if (reminderRepeatType === 'custom_days') {
           <label class="rd-repeat-custom">
-            <span>Every</span>
+            <span>{{ 'input.every' | translate }}</span>
             <input type="number" min="1" max="365" inputmode="numeric" [(ngModel)]="reminderRepeatCustomDays">
-            <span>days</span>
+            <span>{{ 'input.days' | translate }}</span>
           </label>
         }
         <label class="rd-repeat-float">
           <span class="material-symbols-outlined rd-float-icon">vertical_align_top</span>
           <span class="rd-float-copy">
-            <strong>Float to top when it fires</strong>
-            <span>Jumps this note above the rest</span>
+            <strong>{{ 'input.float_to_top_when_it_fires' | translate }}</strong>
+            <span>{{ 'input.jumps_this_note_above_the_rest' | translate }}</span>
           </span>
           <input type="checkbox" [(ngModel)]="reminderMoveToTopOnTrigger">
           <span class="rd-switch" aria-hidden="true"></span>
         </label>
       </div>
       <div class="rd-actions">
-        <button type="button" class="rd-secondary" (click)="cancelReminderDate()">Cancel</button>
-        <button type="button" class="rd-primary" [disabled]="!customDate" (click)="confirmReminderDate(customTimeInp)">Pick time</button>
+        <button type="button" class="rd-secondary" (click)="cancelReminderDate()">{{ 'common.cancel' | translate }}</button>
+        <button type="button" class="rd-primary" [disabled]="!customDate" (click)="confirmReminderDate(customTimeInp)">{{ 'reminder.pick_time' | translate }}</button>
       </div>
     </div>
   }
@@ -458,36 +458,36 @@
     aria-hidden="true" tabindex="-1">
   @if (showReminderLocationDialog && !getActiveReminder() && keptPlugins.supportsNativeLocationReminders) {
     <div class="reminder-date-dialog reminder-place-dialog" [class.location-map-open]="showLocationMap" (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
-      role="dialog" aria-label="Set location reminder">
+      role="dialog" [attr.aria-label]="'input.set_location_reminder' | translate">
       <div class="rd-place-header">
-        <button type="button" class="rd-place-back" aria-label="Back" [disabled]="addPlaceSaving"
+        <button type="button" class="rd-place-back" [attr.aria-label]="'common.back' | translate" [disabled]="addPlaceSaving"
           (click)="backFromPlaceDialog()">
           <span class="material-symbols-outlined">chevron_left</span>
         </button>
-        <h2>{{ showLocationMap ? 'Choose on map' : placeDialogView === 'manage' ? 'Saved places' : (placeDialogView === 'add' ? (editingSavedPlace ? 'Edit saved place' : 'Add saved place') : 'Place') }}</h2>
+        <h2>{{ (showLocationMap ? 'input.choose_on_map' : (placeDialogView === 'manage' ? 'input.saved_places' : (placeDialogView === 'add' ? (editingSavedPlace ? 'input.edit_saved_place' : 'input.add_saved_place') : 'input.place'))) | translate }}</h2>
       </div>
 
       @if (placeDialogView === 'choose') {
         <form class="rd-place-search" (ngSubmit)="openSearchPlace(true); resolveLocation('search')">
           <span class="material-symbols-outlined">search</span>
-          <input type="text" placeholder="Search for a place"
+          <input type="text" [attr.placeholder]="'input.search_for_a_place' | translate"
             name="locationPhrase" [(ngModel)]="locationPhrase" enterkeyhint="search" />
         </form>
-        <button type="button" class="rd-map-button" (click)="openLocationMap()"><span class="material-symbols-outlined" aria-hidden="true">map</span>Choose on map</button>
+        <button type="button" class="rd-map-button" (click)="openLocationMap()"><span class="material-symbols-outlined" aria-hidden="true">map</span>{{ 'input.choose_on_map' | translate }}</button>
         <div class="rd-place-section-title">
-          <span>Saved Places</span>
-          <button type="button" (click)="openManagePlaces()">Manage</button>
+          <span>{{ 'input.saved_places_86fc6f' | translate }}</span>
+          <button type="button" (click)="openManagePlaces()">{{ 'input.manage' | translate }}</button>
         </div>
         <div class="rd-place-list">
           @if (savedPlacesLoading) {
-            <p class="rd-location-message">Loading saved places...</p>
+            <p class="rd-location-message">{{ 'input.loading_saved_places' | translate }}</p>
           }
           @for (place of visiblePlaceItems(); track place.id) {
             <button type="button" class="rd-place-row" (click)="choosePlaceItem(place)">
               <span class="rd-place-icon material-symbols-outlined">{{ placeIcon(place.placeType) }}</span>
               <span class="rd-place-copy">
-                <strong>{{ place.name }}</strong>
-                <small>{{ place.address }}</small>
+                <strong>{{ ('prompt' in place) ? (place.name | uiText) : place.name }}</strong>
+                <small>{{ ('prompt' in place) ? (place.address | uiText) : place.address }}</small>
               </span>
               @if (!('prompt' in place)) {
                 <span class="rd-place-distance">
@@ -501,16 +501,16 @@
           }
           <button type="button" class="rd-place-row add-row" (click)="openAddSavedPlace()">
             <span class="rd-place-icon material-symbols-outlined">add</span>
-            <span class="rd-place-copy"><strong>Add saved place</strong></span>
+            <span class="rd-place-copy"><strong>{{ 'input.add_saved_place' | translate }}</strong></span>
           </button>
         </div>
         @if (savedPlacesError) {
-          <p class="rd-location-message">{{ savedPlacesError }}</p>
+          <p class="rd-location-message">{{ (savedPlacesError) | uiText }}</p>
         }
         <div class="rd-place-actions">
-          <button type="button" class="rd-place-cancel" (click)="clearLocation()">Cancel</button>
+          <button type="button" class="rd-place-cancel" (click)="clearLocation()">{{ 'common.cancel' | translate }}</button>
           <button type="button" class="rd-place-save" (click)="openSearchPlace(true); resolveLocation('search')" [disabled]="resolving || !locationPhrase.trim()">
-            {{ resolving ? 'Searching...' : 'Find place' }}
+            {{ (resolving) ? ('input.searching' | translate) : ('input.find_place' | translate) }}
           </button>
         </div>
       }
@@ -518,13 +518,13 @@
       @if (placeDialogView === 'manage') {
         <form class="rd-place-search" (ngSubmit)="$event.preventDefault()">
           <span class="material-symbols-outlined">search</span>
-          <input type="text" placeholder="Search for a place"
+          <input type="text" [attr.placeholder]="'input.search_for_a_place' | translate"
             name="savedPlacesSearch" [(ngModel)]="savedPlacesSearch" enterkeyhint="search" />
         </form>
         <div class="rd-place-manage-list">
           @for (place of visibleSavedPlaces(); track place.id) {
             <div class="rd-place-swipe" [class.deleting]="swipingPlaceId === place.id">
-              <button type="button" class="rd-place-delete-bg" (click)="deleteSavedPlace(place)">Delete</button>
+              <button type="button" class="rd-place-delete-bg" (click)="deleteSavedPlace(place)">{{ 'common.delete' | translate }}</button>
               <button type="button" class="rd-place-row manage-row"
                 (click)="openEditSavedPlace(place)"
                 (pointerdown)="placeSwipeStart($event, place)"
@@ -536,7 +536,7 @@
                   <strong>{{ place.name }}</strong>
                   <small>{{ place.address }}</small>
                 </span>
-                <span class="rd-trigger-pill">{{ place.locationTrigger === 'leave' ? 'Leave' : 'Arrive' }}</span>
+                <span class="rd-trigger-pill">{{ (place.locationTrigger === 'leave') ? ('input.leave' | translate) : ('input.arrive' | translate) }}</span>
                 <span class="rd-place-distance">{{ placeDistanceLabel(place) }}</span>
                 <span class="rd-place-chevron material-symbols-outlined">chevron_right</span>
               </button>
@@ -545,15 +545,15 @@
         </div>
         <button type="button" class="rd-place-row add-row rd-manage-add" (click)="openAddSavedPlace()">
           <span class="rd-place-icon material-symbols-outlined">add</span>
-          <span class="rd-place-copy"><strong>Add saved place</strong></span>
+          <span class="rd-place-copy"><strong>{{ 'input.add_saved_place' | translate }}</strong></span>
         </button>
-        @if (savedPlacesError) { <p class="rd-location-message" role="alert">{{ savedPlacesError }}</p> }
+        @if (savedPlacesError) { <p class="rd-location-message" role="alert">{{ (savedPlacesError) | uiText }}</p> }
       }
 
       @if (placeDialogView === 'add' || placeDialogView === 'search') {
         <form class="rd-place-search" (ngSubmit)="resolveLocation(placeDialogView)">
           <span class="material-symbols-outlined">search</span>
-          <input type="text" placeholder="Search for a place"
+          <input type="text" [attr.placeholder]="'input.search_for_a_place' | translate"
             name="locationPhrase" [(ngModel)]="locationPhrase" enterkeyhint="search" />
         </form>
         @if (showLocationMap) {
@@ -562,27 +562,27 @@
             [locating]="currentLocationLoading" [locationError]="locationMapError"
             (locate)="locateLocationMap()" (locationPicked)="selectMapLocation($event)" (cancelled)="closeLocationMap()"></app-location-map-picker>
         } @else {
-          <button type="button" class="rd-map-button" (click)="openLocationMap()"><span class="material-symbols-outlined" aria-hidden="true">map</span>{{resolvedLocation ? 'Adjust pin on map' : 'Choose on map'}}</button>
-          <div class="rd-place-map" [class.has-map]="locationMapPreview" aria-label="Map preview">
+          <button type="button" class="rd-map-button" (click)="openLocationMap()"><span class="material-symbols-outlined" aria-hidden="true">map</span>{{(resolvedLocation) ? ('input.adjust_pin_on_map' | translate) : ('input.choose_on_map' | translate)}}</button>
+          <div class="rd-place-map" [class.has-map]="locationMapPreview" [attr.aria-label]="'input.map_preview' | translate">
             @if (locationMapPreview) { <img [src]="locationMapPreview" alt="" /> }
-            @else { <span class="material-symbols-outlined" aria-hidden="true">location_on</span><span>map preview</span> }
+            @else { <span class="material-symbols-outlined" aria-hidden="true">location_on</span><span>{{ 'input.map_preview_489df0' | translate }}</span> }
           </div>
         }
         @if (!showLocationMap && locationState === 'resolved' && resolvedLocation) {
           @if (placeDistanceLabel(resolvedLocation); as distance) {
-            <div class="rd-place-distance rd-location-result-distance" [attr.aria-label]="'Distance from your current location: ' + distance">
+            <div class="rd-place-distance rd-location-result-distance" [attr.aria-label]="'accessibility.distance' | translate: { distance: distance }">
               <span class="material-symbols-outlined" aria-hidden="true">near_me</span>{{ distance }}
             </div>
           }
         }
         @if (locationState === 'ambiguous') {
-          <p class="rd-location-message">Multiple places found. Pick one:</p>
+          <p class="rd-location-message">{{ 'input.multiple_places_found_pick_one' | translate }}</p>
           <div class="rd-location-candidates">
             @for (c of candidates; track $index) {
               <button type="button" class="rd-location-candidate" (click)="selectCandidate(c)">
                 <span class="rd-location-candidate-name">{{ c.displayName }}</span>
                 @if (placeDistanceLabel(c); as distance) {
-                  <span class="rd-place-distance" [attr.aria-label]="'Distance from your current location: ' + distance">
+                  <span class="rd-place-distance" [attr.aria-label]="'accessibility.distance' | translate: { distance: distance }">
                     <span class="material-symbols-outlined" aria-hidden="true">near_me</span>{{ distance }}
                   </span>
                 }
@@ -590,43 +590,43 @@
             }
           </div>
         }
-        @if (locationState === 'permission') { <p class="rd-location-message">{{ permissionReason }}</p> }
-        @if (locationState === 'notFound') { <p class="rd-location-message">Place not found. Try a different search or choose on the map.</p> }
+        @if (locationState === 'permission') { <p class="rd-location-message">{{ (permissionReason) | uiText }}</p> }
+        @if (locationState === 'notFound') { <p class="rd-location-message">{{ 'input.place_not_found_try_a_different_search_or_choose_on_the_map' | translate }}</p> }
 
         @if (!showLocationMap) {
         @if (placeDialogView === 'search' && resolvedLocation?.source === 'mapPin') {
-          <label class="rd-place-field"><span>Name</span><div>
+          <label class="rd-place-field"><span>{{ 'common.name' | translate }}</span><div>
             <span class="material-symbols-outlined" aria-hidden="true">location_on</span>
-            <input type="text" placeholder="e.g. Parking spot" name="mapPinName" [(ngModel)]="mapPinName" />
+            <input type="text" [attr.placeholder]="'input.e_g_parking_spot' | translate" name="mapPinName" [(ngModel)]="mapPinName" />
           </div></label>
           <p class="rd-location-message">{{resolvedLocation?.latitude?.toFixed(5)}}, {{resolvedLocation?.longitude?.toFixed(5)}}</p>
         }
         @if (placeDialogView === 'add') {
           <label class="rd-place-field">
-            <span>Name</span>
+            <span>{{ 'common.name' | translate }}</span>
             <div>
               <span class="material-symbols-outlined">location_on</span>
-              <input type="text" placeholder="e.g. Home, Gym, Costco" name="addPlaceName" [(ngModel)]="addPlaceName" />
+              <input type="text" [attr.placeholder]="'input.e_g_home_gym_costco' | translate" name="addPlaceName" [(ngModel)]="addPlaceName" />
             </div>
           </label>
           <div class="rd-place-chips">
             @for (type of savedPlaceTypes; track type) {
               <button type="button" [class.active]="addPlaceType === type" (click)="setAddPlaceType(type)">
                 <span class="material-symbols-outlined">{{ placeIcon(type) }}</span>
-                {{ type === 'other' ? 'Other' : (type | titlecase) }}
+                {{ (type === 'other') ? ('common.other' | translate) : ((type | titlecase)) }}
               </button>
             }
           </div>
-          <div class="rd-place-field-title">Default trigger</div>
+          <div class="rd-place-field-title">{{ 'input.default_trigger' | translate }}</div>
           <div class="rd-segmented">
-            <button type="button" [class.active]="locationTrigger === 'arrive'" (click)="locationTrigger = 'arrive'">When I arrive</button>
-            <button type="button" [class.active]="locationTrigger === 'leave'" (click)="locationTrigger = 'leave'">When I leave</button>
+            <button type="button" [class.active]="locationTrigger === 'arrive'" (click)="locationTrigger = 'arrive'">{{ 'input.when_i_arrive' | translate }}</button>
+            <button type="button" [class.active]="locationTrigger === 'leave'" (click)="locationTrigger = 'leave'">{{ 'input.when_i_leave' | translate }}</button>
           </div>
-          <div class="rd-place-field-title">Trigger radius</div>
+          <div class="rd-place-field-title">{{ 'input.trigger_radius' | translate }}</div>
           <div class="rd-radius-options">
             @for (radius of savedPlaceRadii; track radius) {
               <button type="button" [class.active]="addPlaceRadiusMeters === radius" (click)="addPlaceRadiusMeters = radius">
-                {{ radius >= 1000 ? '1 km' : (radius + ' m') }}
+                {{ (radius >= 1000) ? ('input.1_km' | translate) : ((radius + ' m')) }}
               </button>
             }
           </div>
@@ -635,26 +635,26 @@
         @if (placeDialogView === 'search') {
           <button type="button" class="rd-arrive-choice" [class.active]="resolvedLocation" (click)="toggleLocationTrigger()">
             <span class="material-symbols-outlined">location_on</span>
-            Remind me when I {{ locationTrigger === 'leave' ? 'leave' : 'arrive' }}
-            <span class="rd-trigger-switch"><span class="material-symbols-outlined" aria-hidden="true">swap_vert</span>Switch</span>
+            {{ (locationTrigger === 'leave' ? 'reminder.on_departure' : 'reminder.on_arrival') | translate }}
+            <span class="rd-trigger-switch"><span class="material-symbols-outlined" aria-hidden="true">swap_vert</span>{{ 'input.switch' | translate }}</span>
           </button>
         }
 
         <div class="rd-place-actions">
-          <button type="button" class="rd-place-cancel" [disabled]="addPlaceSaving" (click)="placeDialogView === 'search' ? openPlaceChooser() : cancelSavedPlace()">Cancel</button>
+          <button type="button" class="rd-place-cancel" [disabled]="addPlaceSaving" (click)="placeDialogView === 'search' ? openPlaceChooser() : cancelSavedPlace()">{{ 'common.cancel' | translate }}</button>
           @if (placeDialogView === 'add') {
             <button type="button" class="rd-place-save" (click)="saveSavedPlace()" [disabled]="addPlaceSaving || resolving || !resolvedLocation || !addPlaceName.trim()">
-              {{ addPlaceSaving ? 'Saving...' : editingSavedPlace ? 'Save changes' : 'Save place' }}
+              {{ (addPlaceSaving) ? ('input.saving' | translate) : ((editingSavedPlace) ? ('input.save_changes' | translate) : ('input.save_place' | translate)) }}
             </button>
           } @else if (resolvedLocation) {
-            <button type="button" class="rd-place-save" (click)="confirmLocationReminder()">Set reminder</button>
+            <button type="button" class="rd-place-save" (click)="confirmLocationReminder()">{{ 'reminder.set_reminder' | translate }}</button>
           } @else {
             <button type="button" class="rd-place-save" (click)="resolveLocation('search')" [disabled]="resolving || !locationPhrase.trim()">
-              {{ resolving ? 'Searching...' : 'Find place' }}
+              {{ (resolving) ? ('input.searching' | translate) : ('input.find_place' | translate) }}
             </button>
           }
         </div>
-        @if (savedPlacesError) { <p class="rd-location-message" role="alert">{{ savedPlacesError }}</p> }
+        @if (savedPlacesError) { <p class="rd-location-message" role="alert">{{ (savedPlacesError) | uiText }}</p> }
         }
       }
     </div>
@@ -662,25 +662,25 @@
   @if (showAndroidBackgroundLocationEducation) {
     <div class="reminder-date-dialog android-location-education"
       (mousedown)="$event.stopPropagation()" (click)="$event.stopPropagation()"
-      role="dialog" aria-label="Allow location reminders">
+      role="dialog" [attr.aria-label]="'input.allow_location_reminders' | translate">
       <div class="android-location-education__icon">
         <span class="material-symbols-outlined">location_on</span>
       </div>
-      <h2>Allow background location reminders</h2>
+      <h2>{{ 'input.allow_background_location_reminders' | translate }}</h2>
       @if (androidLocationEducationMode === 'foreground') {
-        <p>Kept collects, transmits, and stores location data, including saved places and reminder coordinates, to enable location-based reminders in the background when the app is closed or not in use.</p>
-        <p>This data is used only for reminder features and is stored {{ auth.isLocal ? 'on this device' : 'on your Kept server' }}.</p>
+        <p>{{ 'input.kept_collects_transmits_and_stores_location_data_including_saved_' | translate }}</p>
+        <p>{{ 'input.this_data_is_used_only_for_reminder_features_and_is_stored_value0' | translate: { value0: ((auth.isLocal) ? ('input.on_this_device' | translate) : ('input.on_your_kept_server' | translate)) } }}</p>
       } @else {
-        <p>Kept needs background location access to enable location reminders when the app is closed or not in use.</p>
-        <p>On the next Android screen, choose <strong>Permissions</strong> &gt; <strong>Location</strong> &gt; <strong>Allow all the time</strong>.</p>
+        <p>{{ 'input.kept_needs_background_location_access_to_enable_location_reminder' | translate }}</p>
+        <p>{{ 'input.on_the_next_android_screen_choose' | translate }} <strong>{{ 'input.permissions' | translate }}</strong> &gt; <strong>{{ 'input.location' | translate }}</strong> &gt; <strong>{{ 'input.allow_all_the_time' | translate }}</strong>.</p>
       }
       @if (androidBackgroundLocationMessage) {
-        <div class="android-location-education__message">{{ androidBackgroundLocationMessage }}</div>
+        <div class="android-location-education__message">{{ (androidBackgroundLocationMessage) | uiText }}</div>
       }
       <div class="android-location-education__actions">
-        <button type="button" class="secondary" (click)="cancelAndroidBackgroundLocationEducation()">Not now</button>
+        <button type="button" class="secondary" (click)="cancelAndroidBackgroundLocationEducation()">{{ 'input.not_now' | translate }}</button>
         <button type="button" class="primary" (click)="continueAndroidLocationDisclosure()">
-          {{ androidLocationEducationMode === 'foreground' ? 'Allow location reminders' : 'Open settings' }}
+          {{ (androidLocationEducationMode === 'foreground') ? ('input.allow_location_reminders' | translate) : ('input.open_settings' | translate) }}
         </button>
       </div>
     </div>
@@ -694,14 +694,14 @@
     <div class="drawing-color-grid">
       @for (color of drawingColors; track color) {
         <button type="button" class="drawing-color-swatch" [class.active]="drawingToolColor(tool) === color"
-          [style.background-color]="color" [attr.aria-label]="'Use color ' + color"
+          [style.background-color]="color" [attr.aria-label]="'accessibility.color' | translate: { color: color }"
           (click)="setDrawingToolColor(tool, color)"></button>
       }
     </div>
     <div class="drawing-size-row">
       @for (size of drawingSizes; track size) {
         <button type="button" class="drawing-size-swatch" [class.active]="drawingToolSize(tool) === size"
-          [attr.aria-label]="'Use stroke size ' + size" (click)="setDrawingToolSize(tool, size)">
+          [attr.aria-label]="'accessibility.stroke_size' | translate: { size: size }" (click)="setDrawingToolSize(tool, size)">
           <span [style.width.px]="size" [style.height.px]="size"></span>
         </button>
       }
@@ -715,7 +715,7 @@
       @if (image.placement === placement) {
         <figure class="note-image">
           @if (image.id !== 'drawing') {
-            <button type="button" class="delete-image-btn H pop" data-pop="Delete image" (click)="deleteImage(image)">
+            <button type="button" class="delete-image-btn H pop" [attr.data-pop]="'input.delete_image' | translate" (click)="deleteImage(image)">
               <span class="material-symbols-outlined">close</span>
             </button>
           }
@@ -737,11 +737,11 @@
           <span class="material-symbols-outlined attachment-type">{{attachmentIcon(attachment)}}</span>
           <span class="attachment-name">{{attachment.originalName}}</span>
           <span class="attachment-size">{{formatFileSize(attachment.fileSize)}}</span>
-          <button type="button" class="attachment-download H" aria-label="Download attachment" title="Download attachment"
+          <button type="button" class="attachment-download H" [attr.aria-label]="'input.download_attachment' | translate" [attr.title]="'input.download_attachment' | translate"
             (click)="downloadAttachment(attachment, $event)">
             <span class="material-symbols-outlined">download</span>
           </button>
-          <button type="button" class="attachment-remove H pop" data-pop="Delete attachment"
+          <button type="button" class="attachment-remove H pop" [attr.data-pop]="'accessibility.delete_attachment' | translate"
             (click)="deleteAttachment(attachment, $event)">
             <span class="material-symbols-outlined">close</span>
           </button>
@@ -752,7 +752,7 @@
           <span class="material-symbols-outlined attachment-type">{{attachmentIcon(file)}}</span>
           <span class="attachment-name">{{file.name}}</span>
           <span class="attachment-size">{{formatFileSize(file.size)}}</span>
-          <button type="button" class="attachment-remove H pop" data-pop="Remove attachment"
+          <button type="button" class="attachment-remove H pop" [attr.data-pop]="'accessibility.remove_attachment' | translate"
             (click)="removePendingAttachment(file, $event)">
             <span class="material-symbols-outlined">close</span>
           </button>
@@ -761,7 +761,7 @@
       @if (isUploadingAttachment) {
         <div class="attachment-card pending">
           <span class="material-symbols-outlined attachment-type">upload_file</span>
-          <span class="attachment-name">Uploading...</span>
+          <span class="attachment-name">{{ 'input.uploading' | translate }}</span>
         </div>
       }
     </div>
@@ -769,26 +769,26 @@
 </ng-template>
 <!--* note template -->
 <ng-template #noteTemplate>
-  <div [hidden]="noteBody.innerHTML.length" class="note-body ph">Take a note…</div>
+  <div [hidden]="noteBody.innerHTML.length" class="note-body ph">{{ 'input.take_a_note' | translate }}</div>
   <div #noteBody (input)="onNoteBodyInput(noteBody)" (paste)="pasteEvent($event)" (focus)="rememberTextHistoryTarget(noteBody)"
     (click)="onNoteBodyClick($event)" (contextmenu)="downloadInlineImage($event)"
-    class="note-body" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
+    class="note-body" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
   </div>
   @if (showMobileNewNoteStarters()) {
-    <section class="mobile-new-note-starters" aria-label="Start note as">
-      <div class="mobile-new-note-starters-label">Or start as</div>
+    <section class="mobile-new-note-starters" [attr.aria-label]="'input.start_note_as' | translate">
+      <div class="mobile-new-note-starters-label">{{ 'input.or_start_as' | translate }}</div>
       <div class="mobile-new-note-starter-actions">
         <button type="button" (click)="startMobileChecklist()">
           <span class="material-symbols-outlined">check_box</span>
-          <span>List</span>
+          <span>{{ 'input.list' | translate }}</span>
         </button>
         <button type="button" (click)="startMobileDrawing($event)">
           <span class="material-symbols-outlined">draw</span>
-          <span>Drawing</span>
+          <span>{{ 'input.drawing' | translate }}</span>
         </button>
         <button type="button" (click)="openImagePicker($event)">
           <span class="material-symbols-outlined">image</span>
-          <span>Image</span>
+          <span>{{ 'input.image' | translate }}</span>
         </button>
       </div>
     </section>
@@ -802,8 +802,8 @@
   <div class="cbox-ph-container" (click)="cboxPhClick()">
     <div class="cbox-plus-icon"></div>
     <div class="cbox-note-container">
-      <div class="cbox-note ph">List item</div>
-      <div #cboxPh (keydown)="cboxPhKeyDown($event)" (input)="cboxPhInput()" (focus)="rememberTextHistoryTarget(cboxPh)" class="cbox-note" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
+      <div class="cbox-note ph">{{ 'input.list_item' | translate }}</div>
+      <div #cboxPh (keydown)="cboxPhKeyDown($event)" (input)="cboxPhInput()" (focus)="rememberTextHistoryTarget(cboxPh)" class="cbox-note" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
       </div>
     </div>
   </div>
@@ -813,10 +813,10 @@
     <div class="cbox-done-container completed-items-header" (click)="toggleCompletedChecklistCollapse()">
       <div [class.rotate]="!isCboxCompletedListCollapsed" class="cbox-arrow"></div>
       <div>
-        <span>({{completedChecklistCount()}}) Completed items</span>
+        <span>{{ 'checklist.completed' | uiPlural:completedChecklistCount() }}</span>
       </div>
       <button #completedItemsMenuBtn type="button" class="completed-items-menu-button"
-        aria-label="Completed item actions" title="Completed item actions"
+        [attr.aria-label]="'input.completed_item_actions' | translate" [attr.title]="'input.completed_item_actions' | translate"
         (click)="$event.stopPropagation(); openTooltip(completedItemsMenuBtn, completedItemsMenuTt)">
         <span class="material-symbols-outlined">more_vert</span>
       </button>
@@ -837,7 +837,7 @@
         (drag)="cboxDrag($event)"
         (dragover)="cboxDragOver(cb.id, isDone, $event)" (drop)="cboxDrop(cb.id, isDone, $event)">
         <div class="cbox-move-icon"
-          [style.margin-left.px]="checkboxIndentPx(cb)"
+          [style.margin-inline-start.px]="checkboxIndentPx(cb)"
           (mousedown)="cboxPrepareDrag(cb.id)" (mouseup)="cboxCancelDrag()"
           (touchstart)="cboxTouchStart(cb.id, isDone, $event)"
           (touchmove)="cboxTouchMove($event)"
@@ -853,16 +853,16 @@
             (touchstart)="cboxTextTouchStart($event, cb.id, cboxInput)" (touchmove)="cboxTextTouchMove($event, cb.id, cboxInput)"
             (touchcancel)="cboxTextTouchCancel(cb.id, cboxInput)"
             (focus)="cboxInputFocus($event)" (touchend)="focusCboxFromTouch($event, cb.id, cboxInput)"
-            class="cbox-note" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text" [innerHTML]="cb.data">
+            class="cbox-note" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text" [innerHTML]="cb.data">
           </div>
         </div>
         <div class="cbox-cancel-icon H" (click)="cboxTools(cb.id!).remove()"></div>
       </div>
       @if (completedCboxSuggestions(cb.id); as suggestions) {
         @if (suggestions.length) {
-          <div class="cbox-restore-suggestions" role="listbox" aria-label="Matching completed items"
+          <div class="cbox-restore-suggestions" role="listbox" [attr.aria-label]="'input.matching_completed_items' | translate"
             [attr.data-cbox-suggestion-draft-id]="cb.id"
-            [style.margin-left.px]="68 + checkboxIndentPx(cb)">
+            [style.margin-inline-start.px]="68 + checkboxIndentPx(cb)">
             @for (suggestion of suggestions; track suggestion.id; let suggestionIndex = $index) {
               <button type="button" role="option" class="cbox-restore-suggestion"
                 (pointerdown)="$event.preventDefault()"
@@ -880,8 +880,8 @@
 
   <div #completedItemsMenuTt data-tooltip="true" data-is-tooltip-open="false"
     class="moreMenu selectionMoreMenu completed-items-menu">
-    <div (click)="uncheckAllCboxItems(completedItemsMenuTt)">Uncheck all</div>
-    <div class="destructive" (click)="deleteAllCompletedCboxItems(completedItemsMenuTt)">Delete completed items</div>
+    <div (click)="uncheckAllCboxItems(completedItemsMenuTt)">{{ 'input.uncheck_all' | translate }}</div>
+    <div class="destructive" (click)="deleteAllCompletedCboxItems(completedItemsMenuTt)">{{ 'input.delete_completed_items' | translate }}</div>
   </div>
 </ng-template>
 
@@ -890,61 +890,61 @@
 <!--? more MENU -->
 <div #moreMenuTt data-tooltip="true" data-is-tooltip-open="false" class="moreMenu">
   <div [hidden]="moreMenuEls.delete.disabled" (click)="moreMenu(moreMenuTt).trash()">
-    {{ isSharedNoteForCurrentUser() ? 'Unshare this with me' : 'Delete note' }}
+    {{ (isSharedNoteForCurrentUser() && !noteToEdit.sharedBinder) ? ('input.unshare_this_with_me' | translate) : ('notes.delete_note' | translate) }}
   </div>
   <div #labelMenuBtn
     (click)="this.Shared.closeTooltip(moreMenuTt);openTooltip(moreMenuTtBtn!.nativeElement,labelMenuTt)">
-    Add label
+    {{ 'labels.add_label' | translate }}
   </div>
   <div
     (click)="this.Shared.closeTooltip(moreMenuTt);this.Shared.closeTooltip(labelMenuTt);openTooltip(moreMenuTtBtn!.nativeElement,binderMenuTt)">
-    Move to binder
+    {{ 'binders.move_to_binder' | translate }}
   </div>
   <!-- <div [hidden]="moreMenuEls.drawing.disabled">{{moreMenuEls.drawing.value}}</div> -->
   <div [hidden]="moreMenuEls.copy.disabled" (click)="moreMenu(moreMenuTt).clone()">
-    Make a copy
+    {{ 'notes.make_a_copy' | translate }}
   </div>
   <div (click)="moreMenu(moreMenuTt).toggleCbox()">
-    {{moreMenuEls.checkbox.value}}
+    {{(moreMenuEls.checkbox.value) | uiText}}
   </div>
   @if (hasCheckedCboxItems()) {
-    <div (click)="uncheckAllCboxItems(moreMenuTt)">Uncheck all items</div>
+    <div (click)="uncheckAllCboxItems(moreMenuTt)">{{ 'input.uncheck_all_items' | translate }}</div>
   }
   @if (isEditing && !isSharedNoteForCurrentUser() && !noteToEdit.locked) {
-    <div (click)="lockCurrentNote(moreMenuTt)">Lock note</div>
+    <div (click)="lockCurrentNote(moreMenuTt)">{{ 'input.lock_note' | translate }}</div>
   }
   @if (isEditing && !isSharedNoteForCurrentUser() && noteToEdit.locked) {
-    <div (click)="relockCurrentNote(moreMenuTt)">Relock note</div>
-    <div (click)="changeCurrentNoteLock(moreMenuTt)">Change passcode</div>
-    <div (click)="removeCurrentNoteLock(moreMenuTt)">Remove lock</div>
+    <div (click)="relockCurrentNote(moreMenuTt)">{{ 'input.relock_note' | translate }}</div>
+    <div (click)="changeCurrentNoteLock(moreMenuTt)">{{ 'input.change_passcode' | translate }}</div>
+    <div (click)="removeCurrentNoteLock(moreMenuTt)">{{ 'input.remove_lock' | translate }}</div>
   }
   <!-- <div [hidden]="moreMenuEls.gdocs.disabled">{{moreMenuEls.gdocs.value}}</div> -->
 </div>
 <!--? binder MENU -->
 <div #binderMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu binderMenu">
-  <div class="title">Move to binder</div>
+  <div class="title">{{ 'binders.move_to_binder' | translate }}</div>
   @if (sharedOrganizationHint('binders')) {
-    <p class="organization-hint">{{sharedOrganizationHint('binders')}}</p>
+    <p class="organization-hint">{{(sharedOrganizationHint('binders')) | uiText}}</p>
   }
   @if (!inheritsSharedOrganization('binders')) {
   <div class="search">
-    <input #newBinderInput type="text" maxlength="50" placeholder="Enter binder name"
+    <input #newBinderInput type="text" maxlength="50" [attr.placeholder]="'binders.enter_binder_name' | translate"
       (keydown.enter)="addBinderFromMenu(newBinderInput); $event.preventDefault()" (blur)="addBinderFromMenu(newBinderInput)"
       (input)="binderMenuError=''">
   </div>
   @if (newBinderInput.value.trim().length) {
     <div class="label-list create-label" (mousedown)="$event.preventDefault()" (click)="addBinderFromMenu(newBinderInput)">
       <div class="check-icon"></div>
-      <div class="label-name">Create "{{newBinderInput.value.trim()}}"</div>
+      <div class="label-name">{{ 'common.create_named' | translate: { value0: (newBinderInput.value.trim()) } }}</div>
     </div>
   }
   @if (binderMenuError) {
-    <div class="label-error">{{binderMenuError}}</div>
+    <div class="label-error">{{(binderMenuError) | uiText}}</div>
   }
   <div class="label-list-container">
     <button type="button" class="label-list binder-choice" [attr.aria-current]="!binderName ? 'true' : null" (click)="selectBinder('', binderMenuTt)">
       <span class="binder-selected material-symbols-outlined" aria-hidden="true">{{!binderName ? 'check' : ''}}</span>
-      <span class="label-name">No binder</span>
+      <span class="label-name">{{ 'binders.no_binder' | translate }}</span>
     </button>
     @for (binder of Shared.binder.list; track binder.name) {
       <button type="button" class="label-list binder-choice" [attr.aria-current]="isSelectedBinder(binder.name) ? 'true' : null" (click)="selectBinder(binder.name, binderMenuTt)">
@@ -954,47 +954,42 @@
     }
   </div>
   }
+  @if (noteToEdit.sharedBinder) {
+    <button type="button" class="label-list binder-choice" (click)="selectSharedBinder(null,binderMenuTt)">{{ 'binder_sharing.remove_note' | translate }}</button>
+  }
+  @if (!isSharedNoteForCurrentUser()) {
+    @for (binder of Shared.sharedBinders; track binder.id) {
+      <button type="button" class="label-list binder-choice" (click)="selectSharedBinder(binder,binderMenuTt)">
+        <span class="label-name">{{binder.name}} <small>{{binder.ownerDisplayName || binder.ownerUsername}}</small></span>
+      </button>
+    }
+  }
 </div>
 <!--? color MENU -->
 <div #colorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="colorMenu">
-  <div class="first-row">
-    @for (color of bgColors | keyvalue; track color) {
-      <div [attr.data-bg-color]="color.key" [style.background-color]="color.value"
-        (click)="colorMenu.bgColor(color.value)" [class.nocolor]="color.value === ''">
-      </div>
-    }
-  </div>
-  <div class="second-row">
-    @for (image of bgImages | keyvalue; track image) {
-      <div [attr.data-bg-image]="image.key" [style.background-image]="image.value | ph"
-        (click)="colorMenu.bgImage(image.value)" [class.noimage]="image.value === ''">
-        @if (bgImageLabels[image.key]) {
-          <span>{{bgImageLabels[image.key]}}</span>
-        }
-      </div>
-    }
-  </div>
+  <app-note-appearance-picker (colorSelected)="colorMenu.bgColor($event)" (backgroundSelected)="colorMenu.bgImage($event)"
+    (layoutChanged)="Shared.updateTooltip(colorMenuTt)"></app-note-appearance-picker>
 </div>
 <!--? collaborator MENU -->
 <div #collaboratorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="collaboratorMenu">
-  <div class="title">Collaborators</div>
+  <div class="title">{{ 'input.collaborators' | translate }}</div>
   @if (canSelectDraftCollaborators()) {
-    <div class="hint">Will be shared when the note is created.</div>
+    <div class="hint">{{ 'input.will_be_shared_when_the_note_is_created' | translate }}</div>
   } @else if (!canManageCollaborators()) {
-    <div class="hint">Shared with you. Only the owner can change access.</div>
+    <div class="hint">{{ 'input.shared_with_you_only_the_owner_can_change_access' | translate }}</div>
   }
   @if (collaboratorError) {
-    <div class="error">{{collaboratorError}}</div>
+    <div class="error">{{(collaboratorError) | uiText}}</div>
   }
   @if (!collaboratorUsers.length && !collaboratorError) {
-    <div class="hint">No other users yet.</div>
+    <div class="hint">{{ 'input.no_other_users_yet' | translate }}</div>
   }
   <div class="user-list">
     @for (user of collaboratorUsers; track user.id) {
       @let userIsOwner = isNoteOwner(user.id);
       <label class="share-user" [class.readonly]="!canSelectCollaborator(user.id)" [class.is-owner]="userIsOwner">
         @if (userIsOwner) {
-          <span class="owner-glyph" title="Owner of this note" aria-label="Owner">
+          <span class="owner-glyph" [attr.title]="'input.owner_of_this_note' | translate" [attr.aria-label]="'input.owner' | translate">
             <span class="material-symbols-outlined">workspace_premium</span>
           </span>
         } @else {
@@ -1011,38 +1006,39 @@
           }
           <span class="status-dot" [class.online]="user.online"></span>
         </div>
-        <span class="user-name">{{user.displayName || user.username}}</span>
+        <span class="user-name">{{(user.displayName) || (user.username)}}</span>
+        @if (binderForCollaborator(user.id); as binder) { <small>{{ 'binder_sharing.via' | translate: { name: binder } }}</small> }
         @if (userIsOwner) {
-          <span class="owner-pill">Owner</span>
+          <span class="owner-pill">{{ 'input.owner' | translate }}</span>
         }
       </label>
     }
   </div>
     <div class="actions">
-      <button type="button" (click)="Shared.closeTooltip(collaboratorMenuTt)">Close</button>
+      <button type="button" (click)="Shared.closeTooltip(collaboratorMenuTt)">{{ 'common.close' | translate }}</button>
     </div>
 </div>
 <!--? label MENU -->
 <div #labelMenuTt data-tooltip="true" data-is-tooltip-open="false" class="labelMenu">
-  <div class="title">Label note</div>
+  <div class="title">{{ 'labels.label_note' | translate }}</div>
   @if (sharedOrganizationHint('labels')) {
-    <p class="organization-hint">{{sharedOrganizationHint('labels')}}</p>
+    <p class="organization-hint">{{(sharedOrganizationHint('labels')) | uiText}}</p>
   }
   @if (!inheritsSharedOrganization('labels')) {
   <div class="search">
     <div class="search-icon"></div>
-    <input #newLabelInput type="text" maxlength="50" placeholder="Enter label name"
+    <input #newLabelInput type="text" maxlength="50" [attr.placeholder]="'labels.enter_label_name' | translate"
       (keydown.enter)="addLabelFromMenu(newLabelInput); $event.preventDefault()" (blur)="addLabelFromMenu(newLabelInput)"
       (input)="labelMenuError=''">
   </div>
   @if (newLabelInput.value.trim().length) {
     <div class="label-list create-label" (mousedown)="$event.preventDefault()" (click)="addLabelFromMenu(newLabelInput)">
       <div class="check-icon"></div>
-      <div class="label-name">Create "{{newLabelInput.value.trim()}}"</div>
+      <div class="label-name">{{ 'common.create_named' | translate: { value0: (newLabelInput.value.trim()) } }}</div>
     </div>
   }
   @if (labelMenuError) {
-    <div class="label-error">{{labelMenuError}}</div>
+    <div class="label-error">{{(labelMenuError) | uiText}}</div>
   }
   <div class="label-list-container">
     @for (label of labels; track label) {

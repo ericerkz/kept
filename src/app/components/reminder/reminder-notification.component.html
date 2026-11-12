@@ -2,17 +2,17 @@
   <div #banner class="rn-banner" role="alert">
     <div class="rn-icon">⏰</div>
     <div class="rn-content">
-      <div class="rn-title">{{notification.title || 'Reminder'}}</div>
+      <div class="rn-title">{{(notification.title) || ('common.reminder' | translate)}}</div>
       @if (notification.body) {
         <div class="rn-body">{{notification.body}}</div>
       }
     </div>
     <div class="rn-actions">
       @if (notification.noteId) {
-        <button type="button" class="rn-open" (click)="openNote()">Open note</button>
+        <button type="button" class="rn-open" (click)="openNote()">{{ 'reminder_notification.open_note' | translate }}</button>
       }
-      <button type="button" class="rn-snooze" (click)="snooze()">Snooze 10 min</button>
-      <button type="button" class="rn-dismiss" (click)="dismiss()">Dismiss</button>
+      <button type="button" class="rn-snooze" (click)="snooze()">{{ 'reminder_notification.snooze_10_min' | translate }}</button>
+      <button type="button" class="rn-dismiss" (click)="dismiss()">{{ 'main.dismiss' | translate }}</button>
     </div>
   </div>
 }

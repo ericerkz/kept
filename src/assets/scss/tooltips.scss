@@ -12,7 +12,7 @@
     }
 
     @media (max-width: 599px), (max-height: 500px) and (orientation: landscape) {
-        &[data-is-tooltip-open="true"]:not(.selectionMoreMenu) {
+        &[data-is-tooltip-open="true"]:not(.selectionMoreMenu):not(.colorMenu) {
             position: fixed !important;
             top: 50% !important;
             left: 50% !important;
@@ -53,87 +53,110 @@
     }
 
     &.colorMenu {
-        flex-direction: column;
-        align-items: center;
-        padding: 8px 9px 3px;
-        align-items: flex-start;
+        border: 1px solid #3c4043;
+        border-radius: 14px;
+        box-sizing: border-box;
+        max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: 12px;
+        // Follow the note's width while preserving usable swatches on small
+        // overview cards. On phones the viewport takes precedence.
+        width: min(436px, max(320px, var(--appearance-anchor-width, 436px)), calc(100vw - 24px));
+        z-index: 2100;
 
-        &[data-is-tooltip-open="true"] {
-            display: block;
+        app-note-appearance-picker { display: block; }
+        .appearance-tabs {
+            background: #303134;
+            border-radius: 20px;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-bottom: 12px;
+            padding: 2px;
+
+            button {
+                appearance: none;
+                background: transparent;
+                border: 0;
+                border-radius: 18px;
+                color: #bdc1c6;
+                cursor: pointer;
+                font: 500 13px/1.3 Roboto, Arial, sans-serif;
+                min-height: 32px;
+                padding: 6px 10px;
+                overflow-wrap: anywhere;
+                &[aria-selected="true"] { background: #fbbc04; color: #202124; }
+                &:focus-visible { outline: 2px solid #8ab4f8; outline-offset: 1px; }
+            }
         }
-
+        .appearance-panel[hidden] { display: none !important; }
         .first-row {
-            display: flex;
-            flex-wrap: wrap;
-            max-width: 324px;
-
-            div {
-                border-radius: 50%;
-                width: 32px;
-                height: 32px;
-                margin: 2px;
-                border: 2px solid transparent;
-                text-align: center;
-
-                &:hover {
-                    border-color: white !important;
-                    cursor: pointer;
-                }
-
-                &.nocolor {
-                    border-color: #5f6368;
-                    background-image: url(/assets/images/svg/nocolor.svg);
-                    background-repeat: no-repeat;
-                    background-position: center;
-                }
+            display: grid;
+            grid-template-columns: repeat(9, minmax(0, 1fr));
+            gap: 6px;
+            width: 100%;
+        }
+        .color-family-swatches { display: grid; gap: 6px; min-width: 0; }
+        .color-swatch {
+            appearance: none;
+            aspect-ratio: 1;
+            background: transparent;
+            border: 2px solid transparent;
+            border-radius: 50%;
+            box-sizing: border-box;
+            cursor: pointer;
+            display: block;
+            justify-self: center;
+            max-width: 40px;
+            padding: 0;
+            width: 100%;
+            &:hover { border-color: #e8eaed; }
+            &:focus-visible { outline: 2px solid #8ab4f8; outline-offset: 1px; }
+            &.nocolor { border-color: #5f6368; }
+        }
+        .background-grid {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            align-items: start;
+            gap: 10px 6px;
+        }
+        .background-choice {
+            appearance: none;
+            background: transparent;
+            border: 0;
+            border-radius: 8px;
+            color: #bdc1c6;
+            cursor: pointer;
+            min-width: 0;
+            padding: 0;
+            text-align: center;
+            width: 100%;
+            &:focus-visible { outline: 2px solid #8ab4f8; outline-offset: 2px; }
+            &:hover .background-choice-preview { border-color: #e8eaed; }
+        }
+        .background-choice-preview {
+            aspect-ratio: 1;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: cover;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            box-sizing: border-box;
+            display: block;
+            margin: 0 auto;
+            max-width: 48px;
+            width: 100%;
+            &.noimage {
+                background-image: url(/assets/images/backgrounds/no-image.png) !important;
+                border-color: #5f6368;
             }
         }
-
-        .second-row {
-            display: flex;
-            flex-wrap: wrap;
-            max-width: 324px;
-
-            div {
-                width: 40px;
-                height: 54px;
-                margin: 2px;
-                border: 2px solid transparent;
-                border-radius: 12px;
-                text-align: center;
-                background-repeat: no-repeat;
-                background-position: center top;
-                background-size: 40px 40px;
-                display: flex;
-                align-items: flex-end;
-                justify-content: center;
-                position: relative;
-
-                span {
-                    color: #bdc1c6;
-                    display: block;
-                    font-family: "Google Sans", Roboto, Arial, sans-serif;
-                    font-size: 9px;
-                    font-weight: 500;
-                    line-height: 11px;
-                    max-width: 44px;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-
-                &:hover {
-                    border-color: white !important;
-                    cursor: pointer;
-                }
-
-                &.noimage {
-                    border-color: #5f6368;
-                    background-image: url(/assets/images/backgrounds/no-image.png) !important;
-                    background-repeat: no-repeat;
-                    background-position: center top;
-                }
-            }
+        .background-choice-label {
+            display: block;
+            font: 400 clamp(8px, 2.3vw, 10px)/1.3 Roboto, Arial, sans-serif;
+            margin-top: 5px;
+            overflow-wrap: anywhere;
+            white-space: normal;
         }
     }
 

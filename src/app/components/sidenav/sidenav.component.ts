@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { SharedService } from 'src/app/services/shared.service';
@@ -5,6 +6,8 @@ import { LabelActionsT } from 'src/app/interfaces/labels';
 import { Router } from '@angular/router';
 import { AuthService } from 'src/app/services/auth.service';
 import { isNativePhonePlatform } from 'src/app/utils/platform';
+import { BindersService, BinderSharingInfo } from 'src/app/services/binders.service';
+import { ShareUserI } from 'src/app/interfaces/users';
 
 @Component({
     selector: 'app-sidenav',
@@ -39,9 +42,26 @@ export class NavComponent implements OnInit, OnDestroy {
   binderEditError = '';
   labelBusy = false;
   labelEditError = '';
+  private readonly sidebarStateKey = 'kept_sidebar_collapsed';
   private subscriptions: Subscription[] = [];
+  sharingOpen = false;
+  sharingBusy = false;
+  sharingSaving = false;
+  sharingError = '';
+  sharingInfo?: BinderSharingInfo;
+  sharingUsers: ShareUserI[] = [];
+  sharingSelectedIds: number[] = [];
+  private sharingRequest = 0;
+  private labelCountsRequest = 0;
+  private labelCountsPartition = '';
+  private labelNoteCounts?: Record<string,number>;
+  private previewRequest = 0;
+  private previewPartition = '';
+  private sharingPreviews = new Map<string,ShareUserI[]>();
+  private sharingOpener?: HTMLElement;
+  get binderCount() { return this.Shared.binder.list.length + this.Shared.sharedBinders.length; }
 
-  constructor(public Shared: SharedService, public router: Router, public auth: AuthService) {
+  constructor(public Shared: SharedService, public router: Router, public auth: AuthService, private binders: BindersService) {
     this.Shared.initPwa();
   }
 
@@ -49,9 +69,11 @@ export class NavComponent implements OnInit, OnDestroy {
   openModal() {
     this.labelEditError = '';
     this.modalContainer.nativeElement.style.display = 'block';
+    void this.refreshLabelCounts();
     document.addEventListener('mousedown', this.mouseDownEvent)
   }
   hideModal() {
+    ++this.labelCountsRequest;
     this.modalContainer.nativeElement.style.display = 'none'
     document.removeEventListener('mousedown', this.mouseDownEvent)
   }
@@ -82,14 +104,41 @@ export class NavComponent implements OnInit, OnDestroy {
       update: async (value: string) => {
         if (value.trim() === this.Shared.label.list.find(label => label.id === id)?.name) return;
         await this.changeLabel(async () => {
+          const oldName=this.Shared.label.list.find(label=>label.id===id)?.name;
           this.Shared.label.id = id
           await this.Shared.label.db.update({ name: value })
           await this.Shared.label.db.updateAllLabels(value)
+          if (oldName && this.labelNoteCounts && Object.hasOwn(this.labelNoteCounts,oldName)) {
+            this.labelNoteCounts[value.trim()]=this.labelNoteCounts[oldName];
+            if (oldName!==value.trim()) delete this.labelNoteCounts[oldName];
+          }
+          void this.refreshLabelCounts();
           this.labelError.nativeElement.hidden = true
         });
       }
     }
     return actions
+  }
+
+  labelNoteCount(name: string): number | undefined {
+    if (this.labelCountsPartition!==this.binders.sync.partition || !this.labelNoteCounts) return undefined;
+    return Object.hasOwn(this.labelNoteCounts,name) ? this.labelNoteCounts[name] : 0;
+  }
+
+  private async refreshLabelCounts() {
+    const request=++this.labelCountsRequest,partition=this.binders.sync.partition;
+    if (partition!==this.labelCountsPartition) this.labelNoteCounts=undefined;
+    this.labelCountsPartition=partition;
+    try {
+      const counts=await this.Shared.label.db.noteCounts();
+      if (request===this.labelCountsRequest && partition===this.binders.sync.partition) this.labelNoteCounts=counts;
+    } catch { /* Keep label editing usable when counts cannot be refreshed. */ }
+  }
+
+  onLabelReorderKeydown(event: KeyboardEvent,id: number) {
+    if (event.key!=='ArrowUp' && event.key!=='ArrowDown') return;
+    event.preventDefault();event.stopPropagation();
+    void this.moveLabel(id,event.key==='ArrowUp' ? -1 : 1,event);
   }
 
   async moveLabel(id: number, direction: -1 | 1, event: Event) {
@@ -125,7 +174,7 @@ export class NavComponent implements OnInit, OnDestroy {
     try {
       await change();
     } catch {
-      this.labelEditError = 'Could not save your label changes. Please try again.';
+      this.labelEditError = uiText('sidenav.could_not_save_your_label_changes_please_try_again');
     } finally {
       this.labelBusy = false;
     }
@@ -134,10 +183,12 @@ export class NavComponent implements OnInit, OnDestroy {
   openBinderModal() {
     this.binderEditError = '';
     this.binderModalContainer.nativeElement.style.display = 'block';
+    void this.refreshSharingPreviews();
     document.addEventListener('mousedown', this.binderMouseDownEvent)
   }
 
   hideBinderModal() {
+    ++this.previewRequest;
     this.binderModalContainer.nativeElement.style.display = 'none'
     document.removeEventListener('mousedown', this.binderMouseDownEvent)
   }
@@ -166,9 +217,46 @@ export class NavComponent implements OnInit, OnDestroy {
 
   editBinder(name: string) {
     return {
-      delete: () => this.changeBinder(() => this.Shared.binder.db.delete(name)),
-      update: (value: string) => value.trim() === name ? Promise.resolve() : this.changeBinder(() => this.Shared.binder.db.update(name, value))
+      delete: () => {
+        const shared = this.Shared.binder.list.find(binder => binder.name === name)?.memberCount;
+        if (shared && !confirm(uiText('binder_sharing.delete_confirm',{name}))) return Promise.resolve();
+        return this.changeBinder(async () => {
+          await this.Shared.binder.db.delete(name);
+          ++this.previewRequest;
+          this.sharingPreviews.delete(name.toLowerCase());
+        });
+      },
+      update: (value: string) => value.trim() === name ? Promise.resolve() : this.changeBinder(async () => {
+        await this.Shared.binder.db.update(name, value);
+        ++this.previewRequest;
+        const members=this.sharingPreviews.get(name.toLowerCase());
+        if (members) {
+          this.sharingPreviews.delete(name.toLowerCase());
+          this.sharingPreviews.set(value.trim().toLowerCase(),members);
+        } else void this.refreshSharingPreviews();
+      })
     }
+  }
+
+  binderPreview(name: string) {
+    return this.previewPartition===this.binders.sync.partition ? this.sharingPreviews.get(name.toLowerCase()) : undefined;
+  }
+
+  private async refreshSharingPreviews() {
+    const request=++this.previewRequest,partition=this.binders.sync.partition;
+    if (partition!==this.previewPartition) this.sharingPreviews.clear();
+    this.previewPartition=partition;
+    if (this.auth.isLocal) return;
+    try {
+      const previews=await this.binders.sharingPreviews();
+      if (request===this.previewRequest && partition===this.binders.sync.partition) this.sharingPreviews=previews;
+    } catch { /* Sharing can be unavailable while binder editing still works offline. */ }
+  }
+
+  onBinderReorderKeydown(event: KeyboardEvent,name: string) {
+    if (event.key!=='ArrowUp' && event.key!=='ArrowDown') return;
+    event.preventDefault();event.stopPropagation();
+    void this.moveBinder(name,event.key==='ArrowUp' ? -1 : 1,event);
   }
 
   async moveBinder(name: string, direction: -1 | 1, event: Event) {
@@ -195,16 +283,75 @@ export class NavComponent implements OnInit, OnDestroy {
     try {
       await change();
     } catch {
-      this.binderEditError = 'Could not save your binder changes. Please try again.';
+      this.binderEditError = uiText('sidenav.could_not_save_your_binder_changes_please_try_again');
     } finally {
       this.binderBusy = false;
     }
   }
 
   toggleBinders() {
-    if (!this.Shared.binder.list.length) return;
+    if (!this.binderCount) return;
     this.bindersExpanded = !this.bindersExpanded;
     this.saveSectionExpanded('binders', this.bindersExpanded);
+  }
+
+  async openBinderSharing(name: string, receivedId?: number) {
+    if (this.auth.isLocal || this.sharingBusy) return;
+    const request = ++this.sharingRequest;
+    this.sharingOpener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    this.sharingOpen = true;this.sharingBusy = true;this.sharingError = '';this.sharingInfo = undefined;
+    setTimeout(() => document.querySelector<HTMLElement>('.binder-sharing-dialog')?.focus(),0);
+    try {
+      const info = receivedId === undefined ? await this.binders.sharingForName(name) : await this.binders.sharing(receivedId);
+      const users = info.canManage ? await this.Shared.note.db.listShareUsers() : info.members;
+      if (request !== this.sharingRequest) return;
+      this.sharingInfo = info;this.sharingUsers = users;this.sharingSelectedIds = info.members.map(user => user.id);
+    } catch (error: any) {
+      if (request !== this.sharingRequest) return;
+      this.sharingError = error?.status === 404 ? uiText('binder_sharing.update_server') : error?.error?.error || uiText('binder_sharing.load_failed');
+    } finally { if (request === this.sharingRequest) this.sharingBusy = false; }
+  }
+
+  closeBinderSharing() {
+    if (this.sharingSaving) return;
+    ++this.sharingRequest;this.sharingOpen = false;this.sharingBusy = false;
+    this.sharingOpener?.focus();
+  }
+  onSharingKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') { event.stopPropagation();this.closeBinderSharing(); }
+    if (event.key !== 'Tab') return;
+    const dialog = event.currentTarget as HTMLElement;
+    const controls = Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled)'));
+    const first = controls[0],last = controls[controls.length-1];
+    if ((event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) || (!event.shiftKey && document.activeElement === last)) {
+      event.preventDefault();(event.shiftKey ? last : first)?.focus();
+    }
+  }
+  toggleBinderMember(id: number) {
+    if (this.sharingBusy || !this.sharingInfo?.canManage) return;
+    this.sharingSelectedIds = this.sharingSelectedIds.includes(id) ? this.sharingSelectedIds.filter(value => value !== id) : [...this.sharingSelectedIds,id];
+  }
+  async saveBinderSharing() {
+    if (this.sharingBusy || !this.sharingInfo?.canManage) return;
+    this.sharingBusy = true;this.sharingSaving = true;this.sharingError = '';
+    try {
+      this.sharingInfo = await this.binders.share(this.sharingInfo.binder.id,this.sharingSelectedIds);
+      ++this.previewRequest;
+      this.previewPartition=this.binders.sync.partition;
+      this.sharingPreviews.set(this.sharingInfo.binder.name.toLowerCase(),this.sharingInfo.members);
+      this.sharingOpen = false;
+    } catch (error: any) { this.sharingError = error?.error?.error || uiText('binder_sharing.save_failed'); }
+    finally { this.sharingBusy = false;this.sharingSaving = false; }
+  }
+  async leaveSharedBinder() {
+    if (this.sharingBusy || !this.sharingInfo || this.sharingInfo.canManage) return;
+    if (!confirm(uiText('binder_sharing.leave_confirm',{name:this.sharingInfo.binder.name}))) return;
+    this.sharingBusy = true;this.sharingSaving = true;this.sharingError = '';
+    try {
+      await this.binders.leave(this.sharingInfo.binder.id);this.sharingOpen = false;
+      if (this.router.url.startsWith(`/shared-binder/${this.sharingInfo.binder.id}`)) await this.router.navigateByUrl('/');
+    } catch (error: any) { this.sharingError = error?.error?.error || uiText('binder_sharing.save_failed'); }
+    finally { this.sharingBusy = false;this.sharingSaving = false; }
   }
 
   toggleLabels() {
@@ -231,6 +378,11 @@ export class NavComponent implements OnInit, OnDestroy {
       const collapsed = sidebar.classList.toggle('close');
       this.Shared.sideBarCollapsed.next(collapsed);
       this.isMobileOpen = !collapsed && this.usesDrawerSidebar();
+      // Phone drawers always start closed. Only remember the docked sidebar's
+      // deliberate expanded/collapsed choice on this device.
+      if (!this.usesDrawerSidebar()) {
+        try { localStorage.setItem(this.sidebarStateKey, String(collapsed)); } catch {}
+      }
     }
   }
 
@@ -292,8 +444,14 @@ export class NavComponent implements OnInit, OnDestroy {
       this.Shared.closeSideBarIfOpen.subscribe(x => { if (x) this.closeSideBarIfOpen() })
     );
     const sidebar = document.querySelector('[sideBar]');
-    if (this.usesDrawerSidebar() && sidebar && !sidebar.classList.contains('close')) {
-      sidebar.classList.add('close');
+    if (sidebar) {
+      if (this.usesDrawerSidebar()) sidebar.classList.add('close');
+      else {
+        try {
+          const saved = localStorage.getItem(this.sidebarStateKey);
+          if (saved === 'true' || saved === 'false') sidebar.classList.toggle('close', saved === 'true');
+        } catch {}
+      }
     }
     const collapsed = !!sidebar?.classList.contains('close');
     this.Shared.sideBarCollapsed.next(collapsed);
@@ -301,6 +459,9 @@ export class NavComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
+    ++this.sharingRequest;
+    ++this.previewRequest;
+    ++this.labelCountsRequest;
     this.subscriptions.forEach(sub => sub.unsubscribe());
     this.subscriptions = [];
   }

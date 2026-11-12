@@ -67,6 +67,10 @@
   }
 
   [_title] {
+    // A long-press on a non-selectable card can select the next heading in a WebView.
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
     color: #9aa0a6;
     letter-spacing: 0.07272727em;
     font-family: Roboto, Arial, sans-serif;
@@ -400,7 +404,7 @@
     min-height: var(--preview-title-min-height);
     margin: var(--preview-title-margin);
     letter-spacing: 0.00625em;
-    font-family: "Google Sans";
+    font-family: "Google Sans", Roboto, "Noto Sans Hebrew", "Segoe UI", Arial, sans-serif;
     font-size: var(--preview-title-size);
     font-weight: 500;
     line-height: var(--preview-title-line-height);
@@ -575,7 +579,7 @@
     .cbox-icon {
       // Preserve the stored depth where space allows, but always leave enough
       // room for a useful text preview on narrow cards.
-      margin-left: min(var(--overview-cbox-indent, 0px), max(0px, calc(100% - 104px)));
+      margin-inline-start: min(var(--overview-cbox-indent, 0px), max(0px, calc(100% - 104px)));
       margin-top: 2px;
     }
   }
@@ -593,7 +597,7 @@
     font-size: var(--preview-cbox-size);
     line-height: var(--preview-cbox-line-height);
     overflow: hidden;
-    padding-left: var(--preview-cbox-note-padding-left);
+    padding-inline-start: var(--preview-cbox-note-padding-left);
   }
 
   .overview-cbox-more {

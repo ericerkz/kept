@@ -1,5 +1,6 @@
+import { uiLocale, uiWeekdays, uiPlural, uiText, uiTimepickerLabels } from 'src/app/i18n/messages';
 import { MAX_FILE_BYTES, isNoteImageFile } from '../../utils/note-images';
-import { createNoteHtmlContainer, sanitizeNoteHtml } from '../../utils/note-html';
+import { createNoteHtmlContainer, hasJoinedNoteUrls, sanitizeNoteHtml } from '../../utils/note-html';
 import { NoteI, CheckboxI, NoteImageI, NoteAttachmentI } from '../../interfaces/notes';
 import { Component, OnInit, ViewChild, ElementRef, ChangeDetectorRef, Input, HostBinding, HostListener } from '@angular/core';
 import { Router } from '@angular/router';
@@ -92,6 +93,8 @@ export class InputComponent implements OnInit {
   private labelsDirty = false
   binderName = ''
   binderMenuError = ''
+  private selectedSharedBinder?: NoteI['sharedBinder']
+  private sharedBinderChoiceMade = false
   isArchived = false
   isTrashed = false
   isCboxCompletedListCollapsed = false
@@ -116,13 +119,15 @@ export class InputComponent implements OnInit {
   inputLength = new BehaviorSubject<InputLengthI>({ title: 0, body: 0, cb: 0 })
   collaboratorUsers: ShareUserI[] = []
   selectedCollaboratorIds: number[] = []
+  collaboratorSources: ShareUserI[] = []
+  collaboratorLoading = false
   
   // Reminder State
   showReminderPicker = false
   customPickerOpen = false
   customDate = ''
   customTime = ''
-  readonly calendarWeekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+  get calendarWeekdays() { return uiWeekdays(); }
   calendarMonth = this.startOfMonth(new Date())
   customTimePicker: any
   customTimePickerInput?: HTMLInputElement
@@ -263,23 +268,6 @@ export class InputComponent implements OnInit {
   mobileNewNoteStarterDismissed = false
   lastEditedTime = ''
   //
-  bgColors = bgColors
-  bgImages = bgImages
-  bgImageLabels: Record<string, string> = {
-    groceries: 'Groceries',
-    tasks: 'Errands',
-    movies: 'Movies',
-    cafes: 'Cafes',
-    romantic: 'Love',
-    gym: 'Gym',
-    recipes: 'Recipes',
-    travel: 'Travel',
-    study: 'Study',
-    ideas: 'Ideas',
-    meetings: 'Meetings',
-    budget: 'Budget',
-    zNone: 'None'
-  }
   moreMenuEls = {
     delete: {
       disabled: true,
@@ -555,6 +543,7 @@ export class InputComponent implements OnInit {
       checkBoxesForSave.push({ id: Math.max(-1, ...checkBoxesForSave.map(cb => cb.id)) + 1, data: placeholderText, done: false, indentLevel: 0 })
     }
     const labelsForSave = await this.labelsForSave()
+    const sharedTarget = !this.isEditing ? (this.sharedBinderChoiceMade ? this.selectedSharedBinder : this.sharedBinderFromRoute()) : undefined;
     const noteObj: NoteI = {
       noteTitle: this.noteTitle.nativeElement.innerHTML,
       noteBody: this.noteBody?.nativeElement.innerHTML ? this.cleanEditorBodyForSave(this.noteBody.nativeElement.innerHTML) : '',
@@ -565,7 +554,8 @@ export class InputComponent implements OnInit {
       images: this.images.map(image => ({ ...image, dataUrl: this.auth.canonicalImageUrl(image.dataUrl) })),
       isCbox: this.isCbox.value,
       labels: labelsForSave,
-      binder: this.binderName,
+      binder: sharedTarget?.name || this.binderName,
+      ...(!this.currentNoteId() && sharedTarget ? {binderTargetId:sharedTarget.id,sharedBinder:sharedTarget} : {}),
       archived: this.isArchived,
       trashed: this.isTrashed
     }
@@ -666,6 +656,7 @@ export class InputComponent implements OnInit {
         body
       }).then(result => {
         if (!result) this.showReminderSaveError()
+        else this.reminderService.showArchivedReminderNotice(noteObj)
       }).catch(() => this.showReminderSaveError())
     }
 
@@ -684,6 +675,7 @@ export class InputComponent implements OnInit {
         body
       }).then(result => {
         if (!result) this.showReminderSaveError()
+        else this.reminderService.showArchivedReminderNotice(noteObj)
       }).catch(() => this.showReminderSaveError())
     }
   }
@@ -986,8 +978,7 @@ export class InputComponent implements OnInit {
     if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
     if (!completedCount) return
 
-    const itemLabel = completedCount === 1 ? 'item' : 'items'
-    if (!confirm(`Delete ${completedCount} completed ${itemLabel}?`)) return
+    if (!confirm(uiPlural('checklist.delete_completed', completedCount))) return
 
     this.checkBoxes = normalizeIndentLevels(this.checkBoxes.filter(cb => !cb.done))
     this.noteToEdit.checkBoxes = this.checkBoxes
@@ -1009,6 +1000,8 @@ export class InputComponent implements OnInit {
     this.newNoteId = undefined
     this.newNoteSyncId = undefined
     this.saveBaselineSnapshot = undefined
+    this.sharedBinderChoiceMade = false
+    this.selectedSharedBinder = undefined
     this.lastExternalUpdateSnapshot = undefined
     this.noteTitle.nativeElement.innerHTML = ''
     if (this.noteBody) this.noteBody.nativeElement.innerHTML = ''
@@ -1374,7 +1367,7 @@ export class InputComponent implements OnInit {
 
   private showAttachmentMessage(message: string) {
     try {
-      Snackbar.show({ pos: 'bottom-left', text: message, duration: 3600 })
+      Snackbar.show({ pos: 'bottom-left', text: uiText(message), duration: 3600 })
     } catch {}
   }
 
@@ -1425,7 +1418,7 @@ export class InputComponent implements OnInit {
     const del = document.createElement('button')
     del.type = 'button'
     del.className = 'inline-image-delete-btn H'
-    del.setAttribute('aria-label', 'Delete image')
+    del.setAttribute('aria-label', uiText('input.delete_image'))
     del.dataset['inlineImageTool'] = 'delete'
     del.innerHTML = '<span class="material-symbols-outlined">close</span>'
     wrapper.appendChild(del)
@@ -1444,7 +1437,7 @@ export class InputComponent implements OnInit {
       const del = document.createElement('button')
       del.type = 'button'
       del.className = 'inline-image-delete-btn H'
-      del.setAttribute('aria-label', 'Delete image')
+      del.setAttribute('aria-label', uiText('input.delete_image'))
       del.dataset['inlineImageTool'] = 'delete'
       del.innerHTML = '<span class="material-symbols-outlined">close</span>'
       wrap.appendChild(del)
@@ -2141,6 +2134,7 @@ export class InputComponent implements OnInit {
       if (anchor.closest('.editor-link-preview-slot')) return
       const href = anchor.href || anchor.getAttribute('href') || ''
       if (!/^https?:\/\//i.test(href)) return
+      if (hasJoinedNoteUrls(href)) return
       const marker = document.createElement('span')
       marker.className = 'editor-link-preview-slot'
       marker.contentEditable = 'false'
@@ -2167,6 +2161,7 @@ export class InputComponent implements OnInit {
         const start = match.index || 0
         const visibleUrl = rawUrl.replace(/[),.;:!?]+$/, '')
         if (!visibleUrl) continue
+        if (hasJoinedNoteUrls(visibleUrl)) continue
         const linkText = node.splitText(start)
         linkText.splitText(visibleUrl.length)
         const marker = document.createElement('span')
@@ -2268,7 +2263,18 @@ export class InputComponent implements OnInit {
       if (line.nextSibling && line.nextSibling.nodeName !== 'BR' && line.lastChild?.nodeName !== 'BR') line.after(document.createElement('br'))
       line.replaceWith(...Array.from(line.childNodes))
     })
-    div.querySelectorAll<HTMLElement>('.editor-link-preview-slot').forEach(marker => {
+    const markers = div.querySelectorAll<HTMLElement>('.editor-link-preview-slot')
+    // Cards are blocks on screen, but restoring adjacent slots as plain text
+    // otherwise produces URL1URL2. Establish boundaries before replacing any
+    // slots, while their identity is still available.
+    markers.forEach(marker => {
+      let next = marker.nextSibling
+      while (next?.nodeType === Node.TEXT_NODE && !next.textContent) next = next.nextSibling
+      const restoresPlainUrl = (slot: HTMLElement) => /^https?:\/\//i.test(slot.dataset['originalHtml'] || slot.dataset['url'] || '')
+      if (next instanceof HTMLElement && next.classList.contains('editor-link-preview-slot') &&
+        restoresPlainUrl(marker) && restoresPlainUrl(next)) marker.after(document.createElement('br'))
+    })
+    markers.forEach(marker => {
       const template = document.createElement('template')
       template.innerHTML = sanitizeNoteHtml(marker.dataset['originalHtml'] || marker.dataset['url'] || '')
       marker.replaceWith(template.content)
@@ -2385,19 +2391,19 @@ export class InputComponent implements OnInit {
     const copy = document.createElement('button')
     copy.type = 'button'
     copy.className = 'editor-link-preview-action'
-    copy.title = 'Copy link'
+    copy.title = uiText('link_preview.copy_link')
     copy.innerHTML = '<span class="material-symbols-outlined">link</span>'
     copy.addEventListener('click', event => {
       event.stopPropagation()
       this.copyLink(url)
-      copy.title = 'Copied'
-      setTimeout(() => copy.title = 'Copy link', 1200)
+      copy.title = uiText('common.copied')
+      setTimeout(() => copy.title = uiText('link_preview.copy_link'), 1200)
     })
 
     const open = document.createElement('button')
     open.type = 'button'
     open.className = 'editor-link-preview-action'
-    open.title = 'Open link'
+    open.title = uiText('link_preview.open_link')
     open.innerHTML = '<span class="material-symbols-outlined">open_in_new</span>'
     open.addEventListener('click', event => {
       event.stopPropagation()
@@ -2411,8 +2417,8 @@ export class InputComponent implements OnInit {
     const remove = document.createElement('button')
     remove.type = 'button'
     remove.className = 'editor-link-preview-remove'
-    remove.title = 'Remove link preview'
-    remove.setAttribute('aria-label', 'Remove link preview')
+    remove.title = uiText('input.remove_link_preview')
+    remove.setAttribute('aria-label', uiText('input.remove_link_preview'))
     remove.innerHTML = '<span class="material-symbols-outlined">close</span>'
     remove.addEventListener('mousedown', event => event.stopPropagation())
     remove.addEventListener('click', event => {
@@ -3502,13 +3508,14 @@ export class InputComponent implements OnInit {
 
   async openCollaboratorMenu(button: HTMLDivElement, tooltipEl: HTMLDivElement) {
     this.collaboratorError = ''
+    this.collaboratorLoading = true
     if (this.isEditing && this.noteToEdit.id) {
       this.Shared.note.id = this.noteToEdit.id
       this.collaboratorUsers = []
-      this.selectedCollaboratorIds = (this.noteToEdit.collaborators || []).map(user => user.id)
+      this.setCollaboratorSelection(this.noteToEdit.collaborators || [])
     } else if (!navigator.onLine) {
       this.collaboratorUsers = []
-      this.collaboratorError = 'Connect to the server before choosing collaborators for a new note.'
+      this.collaboratorError = uiText('input.connect_to_the_server_before_choosing_collaborators_for_a_new_not')
     }
     this.Shared.createTooltip(button, tooltipEl)
 
@@ -3516,11 +3523,11 @@ export class InputComponent implements OnInit {
       if (navigator.onLine) this.collaboratorUsers = await this.Shared.note.db.listShareUsers()
       if (this.isEditing && this.canManageCollaborators()) {
         const collaborators = await this.notesService.getCollaborators(this.noteToEdit.id!)
-        this.selectedCollaboratorIds = collaborators.map(user => user.id)
+        this.setCollaboratorSelection(collaborators)
       }
     } catch (error: any) {
       this.collaboratorError = error?.error?.error || 'Could not load sharing options.'
-    }
+    } finally { this.collaboratorLoading = false }
   }
 
   canManageCollaborators() {
@@ -3532,7 +3539,7 @@ export class InputComponent implements OnInit {
   }
 
   canSelectCollaborator(userId: number) {
-    if (this.isNoteOwner(userId)) return false
+    if (this.isNoteOwner(userId) || this.collaboratorLoading || this.binderForCollaborator(userId)) return false
     return this.canSelectDraftCollaborators() || this.canManageCollaborators()
   }
 
@@ -3540,8 +3547,16 @@ export class InputComponent implements OnInit {
     return !!this.noteToEdit.ownerUserId && this.noteToEdit.ownerUserId === userId
   }
 
+  private setCollaboratorSelection(users: ShareUserI[]) {
+    this.collaboratorSources = users;
+    this.selectedCollaboratorIds = users.filter(user => user.directShare !== false).map(user => user.id);
+  }
+  binderForCollaborator(userId: number) {
+    return this.collaboratorSources.find(user => user.id === userId)?.sharedViaBinder;
+  }
+
   isCollaboratorSelected(userId: number) {
-    return this.selectedCollaboratorIds.includes(userId)
+    return this.selectedCollaboratorIds.includes(userId) || !!this.binderForCollaborator(userId)
   }
 
   async toggleCollaborator(userId: number) {
@@ -3560,7 +3575,7 @@ export class InputComponent implements OnInit {
     try {
       const collaborators = await this.notesService.updateCollaborators(this.noteToEdit.id!, this.selectedCollaboratorIds)
       this.noteToEdit.collaborators = collaborators
-      this.selectedCollaboratorIds = collaborators.map(user => user.id)
+      this.setCollaboratorSelection(collaborators)
     } catch (error: any) {
       this.selectedCollaboratorIds = previousSelectedIds
       this.collaboratorError = error?.error?.error || 'Could not update collaborators.'
@@ -3574,7 +3589,7 @@ export class InputComponent implements OnInit {
       this.Shared.closeTooltip(tooltipEl)
       return
     }
-    if (!this.canManageCollaborators()) return
+    if (!this.canManageCollaborators() || this.collaboratorLoading) return
     this.isSavingCollaborators = true
     this.collaboratorError = ''
     try {
@@ -3592,12 +3607,12 @@ export class InputComponent implements OnInit {
     const ids = [...new Set(userIds.filter(id => Number.isFinite(id) && id > 0))]
     if (!ids.length) return
     if (noteId <= 0) {
-      this.collaboratorError = 'Note saved locally, but collaborators will need to be added after it syncs.'
+      this.collaboratorError = uiText('input.note_saved_locally_but_collaborators_will_need_to_be_added_after_')
       this.showCollaboratorSaveWarning()
       return
     }
     if (!navigator.onLine) {
-      this.collaboratorError = 'Note saved, but collaborators could not be added while offline.'
+      this.collaboratorError = uiText('input.note_saved_but_collaborators_could_not_be_added_while_offline')
       this.showCollaboratorSaveWarning()
       return
     }
@@ -3653,7 +3668,7 @@ export class InputComponent implements OnInit {
         this.labelMenuError = ''
         return
       }
-      this.labelMenuError = error?.status === 409 ? 'Label already exists' : 'Could not create label'
+      this.labelMenuError = error?.status === 409 ? (uiText('labels.label_already_exists')) : (uiText('labels.could_not_create_label'))
     }
   }
 
@@ -3673,7 +3688,7 @@ export class InputComponent implements OnInit {
       this.binderName = existing.name
       input.value = ''
       this.binderMenuError = ''
-      this.queueAutosave()
+      await this.selectBinder(this.binderName)
       return
     }
     try {
@@ -3681,14 +3696,20 @@ export class InputComponent implements OnInit {
       this.binderName = name
       input.value = ''
       this.binderMenuError = ''
-      this.queueAutosave()
+      await this.selectBinder(this.binderName)
     } catch {
-      this.binderMenuError = 'Could not create binder'
+      this.binderMenuError = uiText('binders.could_not_create_binder')
     }
   }
 
-  selectBinder(name: string, tooltipEl?: HTMLDivElement) {
+  async selectBinder(name: string, tooltipEl?: HTMLDivElement) {
     if (this.inheritsSharedOrganization('binders')) return
+    if (this.currentNoteId() && !this.auth.isLocal && !this.isSharedNoteForCurrentUser()) {
+      await this.saveNote(false);
+      await this.notesService.moveBinder(this.currentNoteId()!,{binderName:name,binder:name});
+      this.noteToEdit.sharedBinder=undefined;
+    }
+    this.sharedBinderChoiceMade=true;this.selectedSharedBinder=undefined;
     this.binderName = String(name || '').trim()
     this.queueAutosave()
     if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
@@ -3701,9 +3722,7 @@ export class InputComponent implements OnInit {
   sharedOrganizationHint(kind: 'labels' | 'binders') {
     const note = this.noteToEdit;
     if (!note?.ownerUserId || note.ownerUserId === this.auth.currentUser?.id) return '';
-    return this.inheritsSharedOrganization(kind)
-      ? `Using the owner's ${kind === 'binders' ? 'binder' : 'labels'}. You can change this in Settings.`
-      : 'Only changes your organization.';
+    return this.inheritsSharedOrganization(kind) ? (uiText(kind === 'binders' ? 'organization.inherit_binder' : 'organization.inherit_labels')) : (uiText('input.only_changes_your_organization'));
   }
 
   inheritsSharedOrganization(kind: 'labels' | 'binders') {
@@ -3725,9 +3744,9 @@ export class InputComponent implements OnInit {
           // Shared note: the viewer is not the owner. They can't delete it,
           // only unshare themselves from it. Mirrors notes.component's
           // moreMenu.trash so behaviour is consistent across views.
-          if (this.isSharedNoteForCurrentUser()) {
+          if (this.isSharedNoteForCurrentUser() && !this.noteToEdit.sharedBinder) {
             const ownerName = this.noteToEdit.ownerDisplayName || this.noteToEdit.ownerUsername || 'the owner'
-            const ok = confirm(`This note belongs to ${ownerName}, so you can't delete it — only the owner can. Remove yourself from this shared note instead?`)
+            const ok = confirm(uiText('input.this_note_belongs_to_value0_so_you_can_t_delete_it_only_the_', { value0: (ownerName) }))
             if (!ok) return
             const userId = this.auth.currentUser?.id
             this.notesService.delete(this.noteToEdit.id!)
@@ -3824,6 +3843,29 @@ export class InputComponent implements OnInit {
     if (!name) return
     const label = this.labels.find(candidate => candidate.name === name)
     if (label) label.added = true
+  }
+
+  private sharedBinderFromRoute(): NoteI['sharedBinder'] {
+    const id=Number(this.router.url.match(/\/shared-binder\/(\d+)/)?.[1]);
+    const binder=this.Shared.sharedBinders.find(item=>item.id===id);
+    return binder ? {id:binder.id,name:binder.name,ownerUserId:binder.ownerUserId!,ownerDisplayName:binder.ownerDisplayName || '',ownerUsername:binder.ownerUsername || ''} : undefined;
+  }
+
+  async selectSharedBinder(binder: {id:number;name:string;ownerUserId?:number;ownerDisplayName?:string;ownerUsername?:string} | null, tooltipEl?: HTMLDivElement) {
+    const sharedBinder=binder ? {id:binder.id,name:binder.name,ownerUserId:binder.ownerUserId!,ownerDisplayName:binder.ownerDisplayName || '',ownerUsername:binder.ownerUsername || ''} : undefined;
+    this.sharedBinderChoiceMade=true;this.selectedSharedBinder=sharedBinder;
+    try {
+      let id=this.currentNoteId();
+      if (id) {
+        if (await this.saveNote(false)===false) return;
+        id=this.currentNoteId();
+        await this.notesService.moveBinder(id!,{binderId:binder?.id || null,binder:binder?.name || '',sharedBinder});
+        if (this.isEditing && this.isSharedNoteForCurrentUser() && !binder) this.Shared.closeModal.next(true);
+        this.noteToEdit.sharedBinder=sharedBinder;
+      }
+      this.binderName=binder?.name || '';
+      if (tooltipEl) this.Shared.closeTooltip(tooltipEl);
+    } catch { this.binderMenuError=uiText('binder_sharing.move_failed'); }
   }
 
   private currentRouteBinder() {
@@ -4040,7 +4082,7 @@ export class InputComponent implements OnInit {
 
   private updateLastEditedTime() {
     if (!this.noteToEdit.updatedAt) {
-      this.lastEditedTime = 'just now';
+      this.lastEditedTime = uiText('input.just_now');
       return;
     }
     const date = new Date(this.noteToEdit.updatedAt);
@@ -4049,19 +4091,19 @@ export class InputComponent implements OnInit {
     
     let timeStr = '';
     if (isToday) {
-      timeStr = date.toLocaleTimeString([], {
+      timeStr = date.toLocaleTimeString(uiLocale(), {
         hour: this.preferences.value.useTwentyFourHourTime ? '2-digit' : 'numeric',
         minute: '2-digit',
         hour12: this.preferences.value.useTwentyFourHourTime ? false : undefined
       });
     } else {
-      timeStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      timeStr = date.toLocaleDateString(uiLocale(), { month: 'short', day: 'numeric' });
     }
 
     if (this.noteToEdit.lastEditorUserId && this.noteToEdit.lastEditorUserId !== this.auth.currentUser?.id) {
-      this.lastEditedTime = `Edited ${timeStr}, by ${this.noteToEdit.lastEditorDisplayName}`;
+      this.lastEditedTime = uiText('input.edited_value0_by_value1', { value0: (timeStr), value1: (this.noteToEdit.lastEditorDisplayName) });
     } else {
-      this.lastEditedTime = `Edited ${timeStr}`;
+      this.lastEditedTime = uiText('input.edited_value0', { value0: (timeStr) });
     }
   }
 
@@ -4108,7 +4150,8 @@ export class InputComponent implements OnInit {
       this.updateHtmlWithCursorPreservation(this.noteTitle.nativeElement, note.noteTitle);
     }
     const nextBody = note.noteBody !== undefined ? this.decorateLinksForEditor(note.noteBody || '') : undefined;
-    if (this.noteBody?.nativeElement && nextBody !== undefined && this.noteBody.nativeElement.innerHTML !== nextBody) {
+    if (this.noteBody?.nativeElement && nextBody !== undefined &&
+      this.cleanEditorBodyForSave(this.noteBody.nativeElement.innerHTML) !== this.auth.canonicalImageHtml(note.noteBody || '')) {
       this.updateHtmlWithCursorPreservation(this.noteBody.nativeElement, nextBody);
     }
     if (this.noteMain?.nativeElement) {
@@ -4131,6 +4174,8 @@ export class InputComponent implements OnInit {
     this.isHybridNote = !!note.isCbox && this.hasMeaningfulBody(note.noteBody);
     this.isCbox.next(note.isCbox);
     this.cd.detectChanges();
+    this.hydrateEditorLinkPreviews();
+    this.hydrateInlineImageButtons();
     // Received content is already saved. Advance only the fields applied above,
     // keeping pending local metadata changes distinguishable from the baseline.
     this.saveBaselineSnapshot = this.noteSaveSnapshot({
@@ -4382,7 +4427,7 @@ export class InputComponent implements OnInit {
     const [y, m, d] = iso.split('-').map(Number)
     if (!y || !m || !d) return iso
     const date = new Date(y, m - 1, d)
-    return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    return date.toLocaleDateString(uiLocale(), { weekday: 'short', month: 'short', day: 'numeric' })
   }
 
   // Legacy passthrough for any callers still wired to onGlobalDateChange.
@@ -4404,7 +4449,7 @@ export class InputComponent implements OnInit {
   }
 
   calendarMonthLabel() {
-    return this.calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    return this.calendarMonth.toLocaleDateString(uiLocale(), { month: 'long', year: 'numeric' })
   }
 
   calendarDays() {
@@ -4516,7 +4561,7 @@ export class InputComponent implements OnInit {
       try {
         (window as any).Snackbar?.show({
           pos: 'bottom-left',
-          text: 'Notifications are blocked. Enable them in Settings → Notifications → Kept.',
+          text: uiText('input.notifications_are_blocked_enable_them_in_settings_notifications_k'),
           duration: 5000
         })
       } catch {}
@@ -4526,7 +4571,7 @@ export class InputComponent implements OnInit {
       try {
         (window as any).Snackbar?.show({
           pos: 'bottom-left',
-          text: 'On iOS, open Kept from the Home Screen icon to enable reminders. (Safari tabs cannot register notifications.)',
+          text: uiText('input.on_ios_open_kept_from_the_home_screen_icon_to_enable_reminders_sa'),
           duration: 6000
         })
       } catch {}
@@ -4557,11 +4602,15 @@ export class InputComponent implements OnInit {
     this.promptForNotificationPermission()
     const repeatRule = this.selectedReminderRepeatRule()
     if (this.isEditing && this.noteToEdit.id) {
+      const note = this.noteToEdit
       const existing = this.getDisplayedReminder()
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
       if (existing && (existing as any).id) {
         this.reminderService.update((existing as any).id, { dueAtUtc: date.toISOString(), status: 'pending', repeatRule })
-          .then(result => { if (!result) this.showReminderSaveError() })
+          .then(result => {
+            if (!result) this.showReminderSaveError()
+            else this.reminderService.showArchivedReminderNotice(note)
+          })
           .catch(() => this.showReminderSaveError())
       } else {
         this.reminderService.create({
@@ -4571,7 +4620,10 @@ export class InputComponent implements OnInit {
           repeatRule,
           title: this.notePlainText(this.noteToEdit.noteTitle),
           body: this.notePlainText(this.noteToEdit.noteBody)
-        }).then(result => { if (!result) this.showReminderSaveError() })
+        }).then(result => {
+          if (!result) this.showReminderSaveError()
+          else this.reminderService.showArchivedReminderNotice(note)
+        })
           .catch(() => this.showReminderSaveError())
       }
     } else {
@@ -4631,6 +4683,7 @@ export class InputComponent implements OnInit {
     this.customTimePickerInput = timeInput
     timeInput.value = this.customTime || this.currentTimeValue()
     this.customTimePicker = new TimepickerUI(timeInput, {
+      labels: uiTimepickerLabels(),
       clock: {
         type: this.preferences.value.useTwentyFourHourTime ? '24h' : '12h',
         currentTime: { time: new Date(), updateInput: true }
@@ -4685,7 +4738,7 @@ export class InputComponent implements OnInit {
   }
 
   private currentTimeValue() {
-    return new Date().toLocaleTimeString(undefined, {
+    return new Date().toLocaleTimeString(uiLocale(), {
       hour: '2-digit',
       minute: '2-digit',
       hour12: this.preferences.value.useTwentyFourHourTime ? false : undefined
@@ -4696,7 +4749,7 @@ export class InputComponent implements OnInit {
   tomorrow(): Date { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d }
   nextWeek(): Date { const d = new Date(); const daysUntilMonday = ((8 - d.getDay()) % 7) || 7; d.setDate(d.getDate() + daysUntilMonday); d.setHours(9, 0, 0, 0); return d }
   formatReminderDate(isoString: string): string {
-    return new Date(isoString).toLocaleString(undefined, {
+    return new Date(isoString).toLocaleString(uiLocale(), {
       month: 'short',
       day: 'numeric',
       hour: this.preferences.value.useTwentyFourHourTime ? '2-digit' : 'numeric',
@@ -4737,7 +4790,7 @@ export class InputComponent implements OnInit {
     try {
       this.savedPlaces = await this.savedPlacesService.list()
     } catch {
-      this.savedPlacesError = 'Saved places could not load.'
+      this.savedPlacesError = uiText('input.saved_places_could_not_load')
     } finally {
       this.savedPlacesLoading = false
       this.cd.detectChanges()
@@ -4755,8 +4808,8 @@ export class InputComponent implements OnInit {
     }
     if (!q) return items
     return items.filter(place =>
-      place.name.toLowerCase().includes(q) ||
-      (place.address || '').toLowerCase().includes(q)
+      ('prompt' in place ? uiText(place.name) : place.name).toLowerCase().includes(q) ||
+      ('prompt' in place ? uiText(place.address || '') : (place.address || '')).toLowerCase().includes(q)
     )
   }
 
@@ -4871,7 +4924,7 @@ export class InputComponent implements OnInit {
     this.locationSearchRequest++
     this.resolving = false
     this.mapPinName = this.resolvedLocation?.source === 'mapPin' ? this.mapPinName : ''
-    this.resolvedLocation = { ...pin, displayName: this.mapPinName.trim() || 'Map pin', confidence: 'high', source: 'mapPin' }
+    this.resolvedLocation = { ...pin, displayName: this.mapPinName.trim() || uiText('input.map_pin'), confidence: 'high', source: 'mapPin' }
     this.locationState = 'resolved'
     this.locationPhrase = ''
     this.addPlaceRadiusMeters = pin.radiusMeters
@@ -4884,11 +4937,11 @@ export class InputComponent implements OnInit {
     const request = this.locationMapRequest
     this.locationMapError = ''
     if (!await this.ensureAndroidForegroundLocationDisclosureForSearch(this.placeDialogView, true)) return
-    if (!navigator.geolocation) { this.locationMapError = 'Current location is unavailable. You can still choose a spot on the map.'; return }
+    if (!navigator.geolocation) { this.locationMapError = uiText('input.current_location_is_unavailable_you_can_still_choose_a_spot_on_th'); return }
     const found = await this.readCurrentLocation(true)
     if (!this.showLocationMap || request !== this.locationMapRequest) return
     if (found) this.locationMapCenter = this.currentLocation
-    else this.locationMapError = 'Could not get your location. Check location access, or choose a spot on the map.'
+    else this.locationMapError = uiText('input.could_not_get_your_location_check_location_access_or_choose_a_spo')
     this.cd.detectChanges()
   }
 
@@ -4970,7 +5023,7 @@ export class InputComponent implements OnInit {
 
   async confirmSavedPlaceReminder(place: LocationSavedPlace) {
     await this.prepareLocationReminder({
-      displayName: place.name || place.address || 'Saved place',
+      displayName: place.name || place.address || uiText('input.saved_place'),
       latitude: place.latitude,
       longitude: place.longitude,
       radiusMeters: place.radiusMeters,
@@ -4989,7 +5042,7 @@ export class InputComponent implements OnInit {
 
   async confirmLocationReminder(location = this.resolvedLocation, trigger = this.locationTrigger) {
     if (!location) return
-    if (location.source === 'mapPin') location = { ...location, displayName: this.mapPinName.trim() || 'Map pin' }
+    if (location.source === 'mapPin') location = { ...location, displayName: this.mapPinName.trim() || uiText('input.map_pin') }
     await this.prepareLocationReminder(location, trigger)
   }
 
@@ -5057,7 +5110,7 @@ export class InputComponent implements OnInit {
 
     const status = await this.reminderService.requestAndroidForegroundLocationPermission()
     if (!status?.foregroundGranted) {
-      this.androidBackgroundLocationMessage = 'Location permission is needed to create location reminders.'
+      this.androidBackgroundLocationMessage = uiText('input.location_permission_is_needed_to_create_location_reminders')
       this.cd.detectChanges()
       return
     }
@@ -5082,7 +5135,7 @@ export class InputComponent implements OnInit {
 
     const notificationsOk = await this.reminderService.ensureAndroidGeofenceNotificationPermission()
     if (!notificationsOk) {
-      this.androidBackgroundLocationMessage = 'Notification permission is needed so Kept can show this reminder.'
+      this.androidBackgroundLocationMessage = uiText('input.notification_permission_is_needed_so_kept_can_show_this_reminder')
       this.cd.detectChanges()
       return
     }
@@ -5136,14 +5189,14 @@ export class InputComponent implements OnInit {
     try {
       const status = await this.reminderService.getAndroidLocationPermissionStatus()
       if (!status?.backgroundGranted) {
-        this.androidBackgroundLocationMessage = 'Permission still needed. Choose “Allow all the time” to enable this reminder.'
+        this.androidBackgroundLocationMessage = uiText('input.permission_still_needed_choose_allow_all_the_time_to_enable_this_')
         this.showAndroidBackgroundLocationEducation = true
         this.cd.detectChanges()
         return
       }
       const notificationsOk = await this.reminderService.ensureAndroidGeofenceNotificationPermission()
       if (!notificationsOk) {
-        this.androidBackgroundLocationMessage = 'Notification permission is needed so Kept can show this reminder.'
+        this.androidBackgroundLocationMessage = uiText('input.notification_permission_is_needed_so_kept_can_show_this_reminder')
         this.showAndroidBackgroundLocationEducation = true
         this.cd.detectChanges()
         return
@@ -5176,6 +5229,7 @@ export class InputComponent implements OnInit {
     this.cd.detectChanges()
 
     if (this.isEditing && this.noteToEdit.id) {
+      const note = this.noteToEdit
       const noteId = this.noteToEdit.id
       const title = this.notePlainText(this.noteTitle?.nativeElement?.innerHTML || this.noteToEdit.noteTitle || '')
       const body = this.notePlainText(this.noteBody?.nativeElement?.innerHTML || this.noteToEdit.noteBody || '')
@@ -5192,6 +5246,7 @@ export class InputComponent implements OnInit {
       }).then(result => {
         if (result) {
           this.pendingReminderLocation = null
+          this.reminderService.showArchivedReminderNotice(note)
           this.cd.detectChanges()
         } else {
           this.showReminderSaveError()
@@ -5223,7 +5278,7 @@ export class InputComponent implements OnInit {
       this.editingSavedPlace = null
       this.resetLocationState()
     } catch {
-      this.savedPlacesError = 'Saved place could not be saved.'
+      this.savedPlacesError = uiText('input.saved_place_could_not_be_saved')
     } finally {
       this.addPlaceSaving = false
       this.cd.detectChanges()
@@ -5264,7 +5319,7 @@ export class InputComponent implements OnInit {
     try {
       await this.savedPlacesService.delete(place.id)
     } catch {
-      this.savedPlacesError = 'Saved place could not be deleted.'
+      this.savedPlacesError = uiText('input.saved_place_could_not_be_deleted')
       await this.loadSavedPlaces()
     }
   }
@@ -5356,13 +5411,13 @@ export class InputComponent implements OnInit {
 
   private showReminderSaveError() {
     try {
-      Snackbar.show({ pos: 'bottom-left', text: "Reminder couldn't be saved", duration: 3500 })
+      Snackbar.show({ pos: 'bottom-left', text: uiText('input.reminder_couldn_t_be_saved'), duration: 3500 })
     } catch {}
   }
 
   private showNoteSaveError() {
     try {
-      Snackbar.show({ pos: 'bottom-left', text: "Note couldn't be saved", duration: 3500 })
+      Snackbar.show({ pos: 'bottom-left', text: uiText('input.note_couldn_t_be_saved'), duration: 3500 })
     } catch {}
   }
 }

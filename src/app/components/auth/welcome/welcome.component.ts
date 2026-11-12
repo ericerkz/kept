@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { registerPlugin, Capacitor } from '@capacitor/core';
@@ -56,7 +57,7 @@ export class WelcomeComponent implements OnInit {
   async useLocal() {
     this.busy = true;
     try { await this.workspace.createLocal(); await this.router.navigateByUrl('/'); }
-    catch (error) { this.error = error instanceof Error ? error.message : 'Could not create local storage.'; }
+    catch (error) { this.error = error instanceof Error ? (error.message) : (uiText('welcome.could_not_create_local_storage')); }
     finally { this.busy = false; }
   }
   async connect() {
@@ -65,7 +66,7 @@ export class WelcomeComponent implements OnInit {
       if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('KeptWorkspace')) {
         await registerPlugin<{ chooseServer(): Promise<void> }>('KeptWorkspace').chooseServer();
       } else await this.router.navigateByUrl('/login');
-    } catch (error) { this.error = error instanceof Error ? error.message : 'Could not open server setup.'; }
+    } catch (error) { this.error = error instanceof Error ? (error.message) : (uiText('welcome.could_not_open_server_setup')); }
     finally { this.busy = false; }
   }
   async startManagedHosting() {
@@ -73,7 +74,7 @@ export class WelcomeComponent implements OnInit {
     try {
       await registerPlugin<ManagedHostingPlugin>('KeptManagedHosting').start();
       await this.router.navigateByUrl('/');
-    } catch (error) { this.error = error instanceof Error ? error.message : 'Could not open sign-up.'; }
+    } catch (error) { this.error = error instanceof Error ? (error.message) : (uiText('welcome.could_not_open_sign_up')); }
     finally { this.busy = false; }
   }
 }

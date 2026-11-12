@@ -70,11 +70,15 @@ export class NotesToolsPipe implements PipeTransform {
         ? activeNotes
         : activeNotes.filter(x => !(x.binder || '').trim())
     }
+    else if (type.startsWith('shared-binder:')) {
+      const id = Number(type.slice('shared-binder:'.length))
+      notes = isSearching && searchScope === 'all' ? activeNotes : activeNotes.filter(note => note.sharedBinder?.id === id)
+    }
     else if (type.startsWith('binder:')) {
       const binder = type.slice('binder:'.length)
       notes = isSearching && searchScope === 'all'
         ? activeNotes
-        : activeNotes.filter(note => (note.binder || '') === binder)
+        : activeNotes.filter(note => ((note.sharedBinder && note.sharedBinder.ownerUserId === this.auth.currentUser?.id && note.sharedBinder.name === binder) || ((note.binder || '') === binder && (!note.sharedBinder || this.auth.currentUser?.inheritSharedBinders === false))))
     }
     else {
       notes = object.filter(note => !note.trashed && note.labels.some(label => label.name === type && label.added))

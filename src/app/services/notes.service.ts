@@ -1,5 +1,6 @@
+import { uiText } from '../i18n/messages';
 import { MAX_FILE_BYTES, prepareNoteImage } from '../utils/note-images';
-import { applyPersonalOrganization, projectSharedOrganization } from '../utils/shared-note-organization';
+import { applyBinderMembership, applyPersonalOrganization, projectSharedOrganization } from '../utils/shared-note-organization';
 import { attachmentMimeType } from '../utils/attachments';
 import { Injectable } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
@@ -577,6 +578,11 @@ export class NotesService {
   }
 
   async updateKey(object: UpdateKeyI, id: number) {
+    const binderNote = (this.notesList$.value || []).find(note=>note.id===id);
+    if (!this.auth.isLocal && binderNote && (!binderNote.ownerUserId || binderNote.ownerUserId===this.auth.currentUser?.id) && Object.keys(object).length===1 && object.binder!==undefined) {
+      return this.moveBinder(id,{binderName:object.binder,binder:object.binder});
+    }
+
     const existingOrganization = await this.cachedOrLoadedNote(id);
     if (existingOrganization?.sharedOrganization) {
       const patch: Partial<Pick<NoteI, 'labels' | 'binder'>> = {};
@@ -624,6 +630,33 @@ export class NotesService {
       console.log(error);
       await this.load(this.searchQuery, { cacheBust: true }).catch(console.error);
       throw error;
+    }
+  }
+
+  async moveBinder(id: number, target: {binderId?: number | null; binderName?: string; binder?: string; sharedBinder?: NoteI['sharedBinder']}) {
+    const note=await this.cachedOrLoadedNote(id);
+    if (!note?.syncId) throw new Error('This shared note is unavailable.');
+    if (this.offlineSync.writesLocally) {
+      await this.offlineSync.commit('note.binder',note.syncId,target);
+      await this.load();return;
+    }
+    if (!navigator.onLine || id<0) {
+      if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition,applyBinderMembership(note,target));
+      await this.offlineSync.enqueue('note.binder',note.syncId,target);
+      await this.load();return;
+    }
+    try {
+      const saved=await firstValueFrom(this.http.patch<NoteI | null>(`${this.apiUrl}/${id}/binder`,target,{headers:this.auth.authHeaders()}));
+      this.offlineSync.clearConnectionDegraded();
+      if (saved && this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition,saved);
+      else if (!saved && this.offlineSync.partition) await this.offlineStore.deleteNote(this.offlineSync.partition,note.syncId);
+      await this.load(this.searchQuery,{cacheBust:true});
+    } catch(error) {
+      if (!this.isOfflineError(error)) throw error;
+      this.offlineSync.markConnectionDegraded();
+      if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition,applyBinderMembership(note,target));
+      await this.offlineSync.enqueue('note.binder',note.syncId,target);
+      await this.load();
     }
   }
 
@@ -1103,7 +1136,7 @@ export class NotesService {
     if (id !== -1) {
       const users = await firstValueFrom(this.http.put<ShareUserI[]>(
         `${this.apiUrl}/${id}/collaborators`,
-        { userIds },
+        { userIds, directUserIds:userIds },
         { headers: this.auth.authHeaders() }
       ));
       this.mergeCollaboratorsIntoList(id, users);
@@ -1269,6 +1302,11 @@ export class NotesService {
   }
 
   async delete(id: number) {
+    const shared = (this.notesList$.value || []).find(note => note.id === id);
+    if (shared?.sharedBinder && shared.ownerUserId !== this.auth.currentUser?.id) {
+      (window as any).Snackbar?.show({text:uiText('binder_sharing.leave_note'),duration:5000});
+      return;
+    }
     if (this.offlineSync.writesLocally) {
       const value = await this.offlineStore.getNote(this.offlineSync.partition, id);
       this.reminders.markNoteInactive(id);

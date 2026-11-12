@@ -10,6 +10,7 @@ function loadNoteImages(overrides = {}) {
   vm.runInNewContext(source, { exports, Blob, Uint8Array, Uint8ClampedArray, ArrayBuffer, DataView,
     Error, Promise, Set, URL, setTimeout, clearTimeout, ...overrides,
     require(name) {
+    if (name.endsWith('/i18n/messages')) return require('./i18n.cjs');
       if (name.endsWith('/upload-limits.json')) return { default: require('../shared/upload-limits.json') };
       throw new Error(`Unexpected image preparation dependency: ${name}`);
     }

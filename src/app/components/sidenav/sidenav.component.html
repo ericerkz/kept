@@ -3,50 +3,59 @@
   <div class="sidenav-top">
     <div [class.active]="router.url === '/'" class="item" routerLink="/" (click)="onNavItemClick()">
       <span class="pic lamp" aria-hidden="true"></span>
-      <span class="text">Notes</span>
+      <span class="text">{{ 'common.notes' | translate }}</span>
     </div>
     <div [class.active]="router.url === '/reminders'" class="item" routerLink="/reminders" (click)="onNavItemClick()">
       <span class="pic reminder" aria-hidden="true"></span>
-      <span class="text">Reminders</span>
+      <span class="text">{{ 'common.reminders' | translate }}</span>
     </div>
     <div [class.active]="router.url === '/attachments'" class="item" routerLink="/attachments" (click)="onNavItemClick()">
       <span class="pic attachment" aria-hidden="true"></span>
-      <span class="text">Attachments</span>
+      <span class="text">{{ 'common.attachments' | translate }}</span>
     </div>
     <div [hidden]="auth.isLocal" [class.active]="router.url === '/shared'" class="item" routerLink="/shared" (click)="onNavItemClick()">
       <span class="pic col" aria-hidden="true"></span>
-      <span class="text">Shared</span>
+      <span class="text">{{ 'common.shared' | translate }}</span>
     </div>
   </div>
 
   <div class="sidenav-labels-header sidenav-binders-header">
     <button type="button" class="section-toggle" (click)="toggleBinders()"
-      [disabled]="Shared.binder.list.length === 0"
-      [attr.aria-expanded]="Shared.binder.list.length > 0 && bindersExpanded"
-      [attr.aria-label]="'Binders (' + Shared.binder.list.length + ')'"
+      [disabled]="binderCount === 0"
+      [attr.aria-expanded]="binderCount > 0 && bindersExpanded"
+      [attr.aria-label]="'accessibility.binders' | translate: { count: binderCount }"
       aria-controls="sidebar-binders">
       <span class="material-pic material-symbols-outlined binder-section-icon" aria-hidden="true">folder_open</span>
-      <span class="text">Binders <span class="section-count">({{Shared.binder.list.length}})</span></span>
-      @if (Shared.binder.list.length > 0) {
+      <span class="text">{{ 'common.binders' | translate }} <span class="section-count">({{binderCount}})</span></span>
+      @if (binderCount > 0) {
         <span class="material-symbols-outlined section-chevron" [class.collapsed]="!bindersExpanded" aria-hidden="true">expand_more</span>
       }
     </button>
-    <button type="button" class="edit-labels-btn H" aria-label="Edit binders" title="Edit binders"
+    <button type="button" class="edit-labels-btn H" [attr.aria-label]="'sidenav.edit_binders' | translate" [attr.title]="'sidenav.edit_binders' | translate"
       (click)="openBinderModal()">
       <span class="material-symbols-outlined">edit</span>
     </button>
   </div>
 
-  <div id="sidebar-binders" class="sidenav-binders" [hidden]="!bindersExpanded || Shared.binder.list.length === 0">
+  <div id="sidebar-binders" class="sidenav-binders" [hidden]="!bindersExpanded || binderCount === 0">
     @for (binder of Shared.binder.list; track binder.name) {
       <div routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="item is-binder"
         [attr.data-binder-drop]="binder.name"
         (click)="onNavItemClick()"
         [title]="binder.name"
         [routerLink]="['/binder', binder.name]">
-        <span class="material-pic material-symbols-outlined binder-row-icon" aria-hidden="true">folder</span>
+        <span class="material-pic material-symbols-outlined binder-row-icon" aria-hidden="true">{{ binder.memberCount ? 'folder_shared' : 'folder' }}</span>
         <span class="text">{{binder.name}}</span>
         <span class="label-abbr" aria-hidden="true">{{compactLabel(binder.name)}}</span>
+      </div>
+    }
+    @for (binder of Shared.sharedBinders; track binder.id) {
+      <div class="item is-binder received-binder" routerLinkActive="active" [routerLink]="['/shared-binder', binder.id]" (click)="onNavItemClick()">
+        <span class="material-pic material-symbols-outlined binder-row-icon" aria-hidden="true">folder_shared</span>
+        <span class="text"><span>{{binder.name}}</span><small>{{binder.ownerDisplayName || binder.ownerUsername}}</small></span>
+        <span class="label-abbr" aria-hidden="true">{{compactLabel(binder.name)}}</span>
+        <button type="button" class="binder-people-button" [attr.aria-label]="'binder_sharing.people' | translate: { name: binder.name }"
+          (click)="$event.stopPropagation(); openBinderSharing(binder.name,binder.id)"><span class="material-symbols-outlined" aria-hidden="true">more_horiz</span></button>
       </div>
     }
   </div>
@@ -55,15 +64,15 @@
     <button type="button" class="section-toggle" (click)="toggleLabels()"
       [disabled]="Shared.label.list.length === 0"
       [attr.aria-expanded]="Shared.label.list.length > 0 && labelsExpanded"
-      [attr.aria-label]="'Labels (' + Shared.label.list.length + ')'"
+      [attr.aria-label]="'accessibility.labels' | translate: { count: Shared.label.list.length }"
       aria-controls="sidebar-labels">
       <span class="pic label" aria-hidden="true"></span>
-      <span class="text">Labels <span class="section-count">({{Shared.label.list.length}})</span></span>
+      <span class="text">{{ 'common.labels' | translate }} <span class="section-count">({{Shared.label.list.length}})</span></span>
       @if (Shared.label.list.length > 0) {
         <span class="material-symbols-outlined section-chevron" [class.collapsed]="!labelsExpanded" aria-hidden="true">expand_more</span>
       }
     </button>
-    <button type="button" class="edit-labels-btn H" aria-label="Edit labels" title="Edit labels"
+    <button type="button" class="edit-labels-btn H" [attr.aria-label]="'sidenav.edit_labels' | translate" [attr.title]="'sidenav.edit_labels' | translate"
       (click)="openModal()">
       <span class="material-symbols-outlined">edit</span>
     </button>
@@ -85,26 +94,26 @@
   <div class="sidenav-bottom">
     <div [class.active]="router.url === '/archive'" class="item" routerLink="/archive" (click)="onNavItemClick()">
       <span class="pic archive" aria-hidden="true"></span>
-      <span class="text">Archive</span>
+      <span class="text">{{ 'common.archive' | translate }}</span>
     </div>
     <div [class.active]="router.url === '/trash'" routerLink="/trash" class="item" (click)="onNavItemClick()">
       <span class="pic trash" aria-hidden="true"></span>
-      <span class="text">Trash</span>
+      <span class="text">{{ 'common.trash' | translate }}</span>
     </div>
     @if (auth.isAdmin) {
       <div [class.active]="router.url === '/users'" routerLink="/users" class="item" (click)="onNavItemClick()">
         <span class="pic users" aria-hidden="true"></span>
-        <span class="text">Users/Admin settings</span>
+        <span class="text">{{ 'sidenav.users_admin_settings' | translate }}</span>
       </div>
     }
     <div class="item mobile-only-item" (click)="toggleTheme()">
       <span class="pic" [ngClass]="auth.effectiveTheme === 'light' ? 'dark-mode' : 'light-mode'" aria-hidden="true"></span>
-      <span class="text">{{auth.effectiveTheme === 'light' ? 'Use dark mode' : 'Use light mode'}}</span>
+      <span class="text">{{(auth.effectiveTheme === 'light') ? ('sidenav.use_dark_mode' | translate) : ('sidenav.use_light_mode' | translate)}}</span>
     </div>
     @if (!auth.isLocal) {
     <div class="item" (click)="logout()">
       <span class="pic logout" aria-hidden="true"></span>
-      <span class="text">Sign out</span>
+      <span class="text">{{ 'common.sign_out' | translate }}</span>
     </div>
     }
   </div>
@@ -112,12 +121,12 @@
     <div class="install-section">
       <button class="install-pwa-sidenav" (click)="openInstallPwa()">
         <span class="material-symbols-outlined">install_mobile</span>
-        <span class="text">Install App</span>
+        <span class="text">{{ 'main.install_app' | translate }}</span>
       </button>
     </div>
   }
   <div class="sidebar-branding">
-    <img src="assets/images/keep2x.fw.png" alt="Kept logo" width="44">
+    <img src="assets/images/keep2x.fw.png" [attr.alt]="'sidenav.kept_logo' | translate" width="44">
     <span class="branding-text">Kept</span>
   </div>
 
@@ -127,44 +136,61 @@
   <div #binderModal class="modal">
     <div class="label-modal-main">
       <div class="header">
-        <p>Edit binders</p>
+        <p>{{ 'sidenav.edit_binders' | translate }}</p>
         <div class="input-container">
           <div #binderPlusIcon class="plus-icon H" (click)="binderInput.value=''"></div>
           <input #binderInput (blur)="binderPlusIcon.classList.toggle('cancel-icon')"
             (focus)="binderPlusIcon.classList.toggle('cancel-icon')" (keydown.enter)="addBinder(binderInput)"
-            type="text" placeholder="Create new binder" maxlength="50" (input)="''">
+            type="text" [attr.placeholder]="'sidenav.create_new_binder' | translate" maxlength="50" (input)="''">
           <div [style.display]="binderInput.value.length ? 'block' : 'none'" class="check-icon H"
             (click)="addBinder(binderInput)"></div>
         </div>
-        <div #binderError class="error" hidden>Binder already exists</div>
+        <div #binderError class="error" hidden>{{ 'sidenav.binder_already_exists' | translate }}</div>
         @if (binderEditError) {
-          <div class="error" role="alert">{{binderEditError}}</div>
+          <div class="error" role="alert">{{(binderEditError) | uiText}}</div>
         }
       </div>
       <div class="label-list" appCatalogReorder [appCatalogReorderDisabled]="binderBusy"
         (catalogOrderChange)="reorderBinders($event)">
-        @for (binder of Shared.binder.list; track binder.name; let index = $index) {
+        @for (binder of Shared.binder.list; track binder.name) {
           <div class="labels-container binder-edit-row" [attr.data-catalog-name]="binder.name">
-            <span class="catalog-drag-handle" aria-hidden="true" title="Drag to reorder"></span>
+            <button type="button" class="catalog-drag-handle binder-drag-handle" [disabled]="binderBusy"
+              [attr.aria-label]="'accessibility.reorder_binder' | translate: { name: binder.name }"
+              [attr.title]="'sidenav.drag_to_reorder' | translate" (keydown)="onBinderReorderKeydown($event,binder.name)"></button>
             <div #binderIcon class="label-icon H" (click)="editBinder(binder.name).delete()"></div>
             <input #binderInput2 (focus)="binderIcon.classList.toggle('trash-icon')"
               (keydown.enter)="binderInput2.blur()"
               (blur)="editBinder(binder.name).update(binderInput2.value);binderIcon.classList.toggle('trash-icon')"
-              [value]="binder.name" [disabled]="binderBusy" type="text" placeholder="Enter binder name" maxlength="50">
+              [value]="binder.name" [disabled]="binderBusy" type="text" [attr.placeholder]="'binders.enter_binder_name' | translate" maxlength="50">
             <div class="pen-icon H" (click)="editBinder(binder.name).update(binderInput2.value)"></div>
-            <button type="button" class="binder-move" [disabled]="binderBusy || index === 0"
-              [attr.aria-label]="'Move ' + binder.name + ' up'" (click)="moveBinder(binder.name, -1, $event)">
-              <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span>
-            </button>
-            <button type="button" class="binder-move" [disabled]="binderBusy || index === Shared.binder.list.length - 1"
-              [attr.aria-label]="'Move ' + binder.name + ' down'" (click)="moveBinder(binder.name, 1, $event)">
-              <span class="material-symbols-outlined" aria-hidden="true">arrow_downward</span>
-            </button>
+            @if (!auth.isLocal) {
+              @let members = binderPreview(binder.name);
+              @let count = members ? members.length : (binder.memberCount || 0);
+              <button type="button" class="binder-share-button" [disabled]="binderBusy" [class.is-shared]="count > 0"
+                [attr.aria-label]="(count ? 'binder_sharing.people' : 'binder_sharing.share') | translate: { name: binder.name }"
+                [attr.title]="(count ? 'binder_sharing.people' : 'binder_sharing.share') | translate: { name: binder.name }" (click)="openBinderSharing(binder.name)">
+                @if (members?.length) {
+                  <span class="binder-avatar-stack" aria-hidden="true">
+                    @for (user of members!.slice(0,3); track user.id) {
+                      @if (user.avatarDataUrl) {
+                        <img class="binder-member-avatar" [src]="user.avatarDataUrl" alt="">
+                      } @else {
+                        <span class="binder-member-avatar avatar-fallback animal-{{user.avatarPreset || 'cat'}}"><span class="head"><i></i></span></span>
+                      }
+                    }
+                    @if (count > 3) { <span class="binder-member-avatar binder-member-more">+{{count - 3}}</span> }
+                  </span>
+                } @else {
+                  <span class="material-symbols-outlined" aria-hidden="true">{{count ? 'group' : 'person_add'}}</span>
+                  @if (count) { <span class="binder-member-count" aria-hidden="true">{{count}}</span> }
+                }
+              </button>
+            }
           </div>
         }
       </div>
       <div class="footer">
-        <div (click)="hideBinderModal()" type="submit" tabindex="0">Done</div>
+        <div (click)="hideBinderModal()" type="submit" tabindex="0">{{ 'common.done' | translate }}</div>
       </div>
     </div>
   </div>
@@ -174,22 +200,22 @@
 @if (installHelpOpen) {
   <div class="pwa-install-backdrop" (click)="installHelpOpen = false"></div>
   <div class="pwa-install-card" (click)="$event.stopPropagation()">
-    <button class="pwa-close" type="button" aria-label="Close install instructions"
+    <button class="pwa-close" type="button" [attr.aria-label]="'main.close_install_instructions' | translate"
       (click)="installHelpOpen = false">×</button>
-    <h2>Install Kept</h2>
+    <h2>{{ 'main.install_kept' | translate }}</h2>
     @if (Shared.isIos) {
-      <p>On iPhone or iPad, use Safari to install Kept.</p>
+      <p>{{ 'main.on_iphone_or_ipad_use_safari_to_install_kept' | translate }}</p>
       <ol>
-        <li>Tap the Share button.</li>
-        <li>Choose Add to Home Screen.</li>
-        <li>Tap Add.</li>
+        <li>{{ 'sidenav.tap_the_share_button' | translate }}</li>
+        <li>{{ 'sidenav.choose_add_to_home_screen' | translate }}</li>
+        <li>{{ 'sidenav.tap_add' | translate }}</li>
       </ol>
     } @else {
-      <p>Use your browser menu to install Kept.</p>
+      <p>{{ 'sidenav.use_your_browser_menu_to_install_kept' | translate }}</p>
       <ol>
-        <li>Open the browser menu.</li>
-        <li>Tap Install app or Add to Home screen.</li>
-        <li>Confirm Install.</li>
+        <li>{{ 'sidenav.open_the_browser_menu' | translate }}</li>
+        <li>{{ 'sidenav.tap_install_app_or_add_to_home_screen' | translate }}</li>
+        <li>{{ 'sidenav.confirm_install' | translate }}</li>
       </ol>
     }
   </div>
@@ -199,45 +225,77 @@
   <div #modal class="modal">
     <div class="label-modal-main">
       <div class="header">
-        <p>Edit labels</p>
+        <p>{{ 'sidenav.edit_labels' | translate }}</p>
         <div class="input-container">
           <div #plusIcon class="plus-icon H" (click)="labelInput.value=''"></div>
           <input #labelInput (blur)="plusIcon.classList.toggle('cancel-icon')"
             (focus)="plusIcon.classList.toggle('cancel-icon')" (keydown.enter)="addLabel(labelInput)"
-            type="text" placeholder="Create new label" maxlength="50" (input)="''">
+            type="text" [attr.placeholder]="'sidenav.create_new_label' | translate" maxlength="50" (input)="''">
           <div [style.display]="labelInput.value.length ? 'block' : 'none'" class="check-icon H"
             (click)="addLabel(labelInput)"></div>
         </div>
-        <div #labelError class="error" hidden>Label already exists</div>
+        <div #labelError class="error" hidden>{{ 'labels.label_already_exists' | translate }}</div>
         @if (labelEditError) {
-          <div class="error" role="alert">{{labelEditError}}</div>
+          <div class="error" role="alert">{{(labelEditError) | uiText}}</div>
         }
       </div>
       <div class="label-list" appCatalogReorder [appCatalogReorderDisabled]="labelBusy"
         (catalogOrderChange)="reorderLabels($event)">
-        @for (label of Shared.label.list; track label.id; let index = $index) {
+        @for (label of Shared.label.list; track label.id) {
           <div class="labels-container label-edit-row" [attr.data-catalog-name]="label.name">
-            <span class="catalog-drag-handle" aria-hidden="true" title="Drag to reorder"></span>
+            <button type="button" class="catalog-drag-handle label-drag-handle" [disabled]="labelBusy"
+              [attr.aria-label]="'accessibility.reorder_label' | translate: { name: label.name }"
+              [attr.title]="'sidenav.drag_to_reorder' | translate" (keydown)="onLabelReorderKeydown($event,label.id!)"></button>
             <div #labelIcon class="label-icon H" (click)="editLabel(label.id!).delete()"></div>
             <input #labelInput2 (focus)="labelIcon.classList.toggle('trash-icon')"
               (keydown.enter)="labelInput2.blur()"
               (blur)="editLabel(label.id!).update(labelInput2.value);labelIcon.classList.toggle('trash-icon')"
-              [value]="label.name" [disabled]="labelBusy" type="text" placeholder="Enter label name" maxlength="50">
+              [value]="label.name" [disabled]="labelBusy" type="text" [attr.placeholder]="'labels.enter_label_name' | translate" maxlength="50">
             <div class="pen-icon H" (click)="editLabel(label.id!).update(labelInput2.value)"></div>
-            <button type="button" class="label-move" [disabled]="labelBusy || index === 0"
-              [attr.aria-label]="'Move ' + label.name + ' up'" (click)="moveLabel(label.id!, -1, $event)">
-              <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span>
-            </button>
-            <button type="button" class="label-move" [disabled]="labelBusy || index === Shared.label.list.length - 1"
-              [attr.aria-label]="'Move ' + label.name + ' down'" (click)="moveLabel(label.id!, 1, $event)">
-              <span class="material-symbols-outlined" aria-hidden="true">arrow_downward</span>
-            </button>
+            @let count = labelNoteCount(label.name);
+            @if (count !== undefined) { <span class="label-note-count">{{ 'counts.notes' | uiPlural: count }}</span> }
           </div>
         }
       </div>
       <div class="footer">
-        <div (click)="hideModal()" type="submit" tabindex="0">Done</div>
+        <div (click)="hideModal()" type="submit" tabindex="0">{{ 'common.done' | translate }}</div>
       </div>
     </div>
   </div>
 </div>
+
+@if (sharingOpen) {
+  <div class="binder-sharing-backdrop" (click)="closeBinderSharing()">
+    <section class="binder-sharing-dialog" role="dialog" aria-modal="true" aria-labelledby="binder-sharing-title"
+      (click)="$event.stopPropagation()" (keydown)="onSharingKeydown($event)" tabindex="-1">
+      <h2 id="binder-sharing-title">{{ (sharingInfo && !sharingInfo.canManage ? 'binder_sharing.people' : 'binder_sharing.share') | translate: { name: sharingInfo?.binder?.name || '' } }}</h2>
+      @if (sharingBusy) { <p role="status">{{ 'binder_sharing.working' | translate }}</p> }
+      @if (sharingError) { <p class="error" role="alert">{{sharingError}}</p> }
+      @if (sharingInfo; as info) {
+        @if (info.canManage) { <p>{{ 'binder_sharing.explanation' | translate }}</p> }
+        @else { <p>{{ 'binder_sharing.received' | translate: { owner: info.binder.ownerDisplayName || info.binder.ownerUsername || '' } }}</p> }
+        <div class="binder-sharing-users">
+          @for (user of sharingUsers; track user.id) {
+            <label>
+              <input type="checkbox" [checked]="sharingSelectedIds.includes(user.id)" [disabled]="sharingBusy || !info.canManage" (change)="toggleBinderMember(user.id)">
+              @if (user.avatarDataUrl) {
+                <img class="binder-sharing-avatar" [src]="user.avatarDataUrl" alt="">
+              } @else {
+                <span class="binder-sharing-avatar avatar-fallback animal-{{user.avatarPreset || 'cat'}}" aria-hidden="true">
+                  <span class="head"><i></i></span>
+                </span>
+              }
+              <span>{{user.displayName || user.username}}</span>
+            </label>
+          }
+          @if (!sharingUsers.length && !sharingBusy) { <p>{{ 'input.no_other_users_yet' | translate }}</p> }
+        </div>
+      }
+      <footer>
+        <button type="button" [disabled]="sharingSaving" (click)="closeBinderSharing()">{{ 'common.cancel' | translate }}</button>
+        @if (sharingInfo?.canManage) { <button type="button" class="primary" [disabled]="sharingBusy" (click)="saveBinderSharing()">{{ 'common.save' | translate }}</button> }
+        @else if (sharingInfo) { <button type="button" [disabled]="sharingBusy" (click)="leaveSharedBinder()">{{ 'binder_sharing.leave' | translate }}</button> }
+      </footer>
+    </section>
+  </div>
+}

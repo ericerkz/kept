@@ -18,3 +18,9 @@ export function applyPersonalOrganization<T extends NoteI>(note: T, patch: Parti
     ...(patch.binder !== undefined ? { personalBinder: patch.binder } : {})
   } };
 }
+
+// Binder membership changes are field-only operations, separate from content autosaves.
+export function applyBinderMembership<T extends NoteI>(note: T, patch: { binder?: string; sharedBinder?: NoteI['sharedBinder'] }): T {
+  return { ...note, binder: patch.binder || '', sharedBinder: patch.sharedBinder,
+    ...(note.sharedOrganization ? { sharedOrganization: { ...note.sharedOrganization, ownerBinder: patch.binder || '' } } : {}) };
+}

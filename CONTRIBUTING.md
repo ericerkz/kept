@@ -2,6 +2,8 @@
 
 Thank you for your interest in contributing to Kept.
 
+To contribute a language for the web UI and the native Android/iOS screens together, see the [translation guide](translations/README.md). The native catalogues are public even though the mobile source repositories are private.
+
 Kept is licensed publicly under the GNU Affero General Public License, version 3
 only (`AGPL-3.0-only`). Contributions are welcome, but all contributions are
 accepted only under the Contributor License Agreement below.

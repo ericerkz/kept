@@ -9,7 +9,9 @@ export interface SharedNoteOrganization {
 }
 
 export interface NoteI {
+    binderTargetId?: number
     sharedOrganization?: SharedNoteOrganization
+    sharedBinder?: { id: number; name: string; ownerUserId: number; ownerDisplayName: string; ownerUsername: string }
     id?: number
     syncId?: string
     ownerUserId?: number
@@ -108,6 +110,7 @@ export interface NoteModelI {
         listShareUsers(): Promise<ShareUserI[]>
         getCollaborators(): Promise<ShareUserI[]>
         updateCollaborators(userIds: number[]): Promise<ShareUserI[]>
+        moveBinder(id: number, target: {binderId?: number | null; binderName?: string; binder?: string; sharedBinder?: NoteI['sharedBinder']}): Promise<void>
         reorder(ids: number[]): Promise<void>
         clone(): Promise<void>
         delete(): Promise<void>

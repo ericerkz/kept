@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { MAX_FILE_BYTES, isNoteImageFile, prepareNoteImage } from '../utils/note-images';
 import { attachmentMimeType } from '../utils/attachments';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -9,7 +10,7 @@ import { BehaviorSubject, Subject } from 'rxjs';
 import { NativeAction, NativeCapabilities, Workspace } from '../interfaces/workspace';
 import { ReminderI } from '../interfaces/reminder';
 import { NoteI } from '../interfaces/notes';
-import { sanitizeNoteHtml } from '../utils/note-html';
+import { createNoteHtmlContainer, sanitizeNoteHtml } from '../utils/note-html';
 import { AuthService } from './auth.service';
 import { OfflineStoreService } from './offline-store.service';
 import { OfflineSyncService } from './offline-sync.service';
@@ -52,6 +53,7 @@ export class NativeWorkspaceService {
   private tail = Promise.resolve();
   private reminderTail = Promise.resolve();
   private revisionPublished = '';
+  private thumbnailCache = new Map<string, Promise<string | undefined>>();
   readonly plugin = Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('KeptWorkspace')
     ? registerPlugin<KeptWorkspacePlugin>('KeptWorkspace') : null;
 
@@ -241,12 +243,36 @@ export class NativeWorkspaceService {
       const key = `${current.id}:${current.generation}:${current.revision}`;
       if (key === this.revisionPublished) return;
       const notes = projection.notes;
+      if (this.sync.partition !== current.partition || this.sync.generation !== current.generation) return;
+      const imageSources = notes.map(note => this.widgetImageSource(note));
+      const imageKeys = imageSources.map(source => source ? JSON.stringify([current.partition, current.generation,
+        source.length > 1024 ? bytesToHex(sha256(new TextEncoder().encode(source))) : source]) : '');
+      const usedImages = new Set(imageKeys);
+      // Retain only the current library's first images, not deleted/replaced
+      // images or thumbnails from a previous account or workspace generation.
+      for (const cached of this.thumbnailCache.keys()) if (!usedImages.has(cached)) this.thumbnailCache.delete(cached);
       for (let offset = 0; offset < Math.max(notes.length, 1); offset += 50) {
-        if (this.sync.partition !== workspace.partition) return;
+        const page: Record<string, unknown>[] = [];
+        for (let index = offset; index < Math.min(offset + 50, notes.length); index++) {
+          const note = notes[index];
+          if (note.locked) {
+            page.push({ id: note.id, syncId: note.syncId, locked: true, archived: note.archived, trashed: note.trashed });
+            continue;
+          }
+          const snapshot: Record<string, unknown> = { ...note, images: [], attachments: [] };
+          delete snapshot['thumbnailDataUrl'];
+          const source = imageSources[index];
+          if (source) {
+            const thumbnail = await this.widgetThumbnail(current, source, imageKeys[index]);
+            if (thumbnail) snapshot['thumbnailDataUrl'] = thumbnail;
+          }
+          page.push(snapshot);
+        }
+        if (this.sync.partition !== current.partition || this.sync.generation !== current.generation) return;
+        const latest = await this.store.getWorkspace(current.id);
+        if (!latest || latest.status !== 'active' || latest.generation !== current.generation || latest.revision !== current.revision) return;
         await this.plugin.publishSnapshot({ workspace: current, revision: current.revision, page: offset / 50,
-          complete: offset + 50 >= notes.length, notes: notes.slice(offset, offset + 50).map(note => note.locked
-            ? { id: note.id, syncId: note.syncId, locked: true, archived: note.archived, trashed: note.trashed }
-            : { ...note, images: [], attachments: [] }) });
+          complete: offset + 50 >= notes.length, notes: page });
       }
       this.revisionPublished = key;
     } catch (error) {
@@ -257,6 +283,70 @@ export class NativeWorkspaceService {
       const latest = await this.store.getWorkspace(current.id);
       if (!latest || latest.generation !== current.generation || latest.status !== 'active' || latest.revision > current.revision) return;
       throw error;
+    }
+  }
+
+  private widgetImageSource(note: NoteI): string | undefined {
+    if (note.locked) return;
+    const top = note.images?.find(image => image.placement === 'top')?.dataUrl;
+    if (top) return this.auth.canonicalImageUrl(top);
+    if (note.noteBody && /<img\b/i.test(note.noteBody)) {
+      const body = createNoteHtmlContainer();
+      body.innerHTML = sanitizeNoteHtml(note.noteBody);
+      const inline = body.querySelector('img')?.getAttribute('src');
+      if (inline) return this.auth.canonicalImageUrl(inline);
+    }
+    const source = note.images?.[0]?.dataUrl;
+    return source ? this.auth.canonicalImageUrl(source) : undefined;
+  }
+
+  private widgetThumbnail(workspace: Workspace, source: string, key: string): Promise<string | undefined> {
+    const cached = this.thumbnailCache.get(key);
+    if (cached) return cached;
+    const pending = this.renderWidgetThumbnail(workspace, source).catch(() => undefined);
+    this.thumbnailCache.set(key, pending);
+    // A missing image may arrive in the media cache later. Failed attempts
+    // must not suppress the thumbnail for the rest of this session.
+    void pending.then(value => {
+      if (!value && this.thumbnailCache.get(key) === pending) this.thumbnailCache.delete(key);
+    });
+    return pending;
+  }
+
+  private async renderWidgetThumbnail(workspace: Workspace, source: string): Promise<string | undefined> {
+    const blob = await this.store.getBlob(workspace.partition, `media:${source}`);
+    // Thumbnails are optional: use existing local media and never hold native
+    // actions behind a network download or an authentication/gateway failure.
+    const url = blob ? URL.createObjectURL(blob) : this.auth.authenticatedImageUrl(source);
+    if (!/^(?:blob:|data:image\/)/i.test(url)) return;
+    const image = new Image();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let canvas: HTMLCanvasElement | undefined;
+    try {
+      const loaded = await new Promise<boolean>(resolve => {
+        image.onload = () => resolve(true);
+        image.onerror = () => resolve(false);
+        timer = setTimeout(() => resolve(false), 3000);
+        image.src = url;
+      });
+      if (!loaded || !image.naturalWidth || !image.naturalHeight) return;
+      const scale = Math.min(1, 128 / Math.max(image.naturalWidth, image.naturalHeight));
+      canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext('2d');
+      if (!context) return;
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const thumbnail = canvas.toDataURL('image/jpeg', 0.8);
+      return thumbnail.startsWith('data:image/jpeg;base64,') ? thumbnail : undefined;
+    } finally {
+      if (timer) clearTimeout(timer);
+      image.onload = image.onerror = null;
+      image.src = '';
+      if (blob) URL.revokeObjectURL(url);
+      if (canvas) canvas.width = canvas.height = 1;
     }
   }
 
@@ -340,7 +430,7 @@ export class NativeWorkspaceService {
     if (!this.plugin || !this.capabilities$.value?.durableActions) throw new Error('Update the native Kept app to use local reminders.');
     const workspace = await this.sync.workspace();
     let accepted = !!(workspace as any).appleReminderDisclosureAccepted;
-    if (Capacitor.getPlatform() === 'ios' && !accepted) accepted = window.confirm('Kept uses Apple Reminders. Reminder content may synchronize through iCloud or another account configured in Apple Reminders. Continue?');
+    if (Capacitor.getPlatform() === 'ios' && !accepted) accepted = window.confirm(uiText('native_workspace.kept_uses_apple_reminders_reminder_content_may_synchronize_throug'));
     if (Capacitor.getPlatform() !== 'ios') accepted = true;
     if (!accepted) return false;
     await this.store.patchWorkspace(workspace.id, { appleReminderDisclosureAccepted: true } as any);

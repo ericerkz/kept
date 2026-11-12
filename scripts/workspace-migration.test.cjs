@@ -31,6 +31,7 @@ test('actual migration client uploads through reordered native JSON, resumes, an
   const exports={};
   const source=ts.transpileModule(fs.readFileSync('src/app/services/workspace-migration.service.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText;
   vm.runInNewContext(source,{exports,console,URL,TextEncoder,Promise,Error,Uint8Array,require(name){
+    if (name.endsWith('/i18n/messages')) return require('../test-support/i18n.cjs');
    if(name==='@angular/core')return{Injectable:()=>target=>target};
    if(name==='@capacitor/core')return{Capacitor:{isNativePlatform:()=>true},CapacitorHttp:{request:async request=>{
     const transformed=request.data===undefined?undefined:reorder(JSON.parse(JSON.stringify(request.data)));

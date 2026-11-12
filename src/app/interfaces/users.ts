@@ -8,6 +8,8 @@ export interface UserI {
     role: UserRole
     theme: UserTheme
     followSystemTheme?: boolean
+    language?: string
+    languagePreferencesSupported?: boolean
     avatarDataUrl: string
     avatarPreset: string
     inheritSharedLabels?: boolean
@@ -29,6 +31,8 @@ export interface AuthSessionI {
     role: UserRole
     theme: UserTheme
     followSystemTheme?: boolean
+    language?: string
+    languagePreferencesSupported?: boolean
     avatarDataUrl: string
     avatarPreset: string
     inheritSharedLabels?: boolean
@@ -40,6 +44,8 @@ export interface AuthSessionI {
 }
 
 export interface ShareUserI {
+    directShare?: boolean
+    sharedViaBinder?: string
     id: number
     username: string
     displayName: string

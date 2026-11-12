@@ -6,7 +6,7 @@ const ts = require('typescript');
 const exportsForTest = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/app/utils/sync-status.ts', 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
-}).outputText, { exports: exportsForTest, Date });
+}).outputText, { exports: exportsForTest, Date, require: () => require('../test-support/i18n.cjs') });
 const describe = exportsForTest.describeSyncStatus;
 const last = new Date('2026-11-06T14:59:00Z').getTime();
 

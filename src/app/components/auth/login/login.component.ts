@@ -1,3 +1,4 @@
+import { uiText } from 'src/app/i18n/messages';
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -40,9 +41,9 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.isChangingServer = true;
     this.error = '';
     try {
-      if (!await this.auth.forgetServerAndRestart()) this.error = 'Update the native Kept app to change servers from this screen.';
+      if (!await this.auth.forgetServerAndRestart()) this.error = uiText('login.update_the_native_kept_app_to_change_servers_from_this_screen');
     } catch (error) {
-      this.error = error instanceof Error ? error.message : 'Could not reset the server connection. Please try again.';
+      this.error = error instanceof Error ? (error.message) : (uiText('auth.could_not_reset_the_server_connection_please_try_again'));
     } finally { this.isChangingServer = false; }
   }
 
@@ -72,9 +73,7 @@ export class LoginComponent implements OnInit, OnDestroy {
       }
     } catch (error: any) {
       this.signInOptionsUnavailable = true;
-      this.signInOptionsError = error?.status === 402 && error?.error?.code === 'CLOUD_SUSPENDED'
-        ? 'This server’s Kept Cloud plan has ended, so it’s paused.'
-        : 'Could not load sign-in options. Check your connection and try again.';
+      this.signInOptionsError = error?.status === 402 && error?.error?.code === 'CLOUD_SUSPENDED' ? (uiText('login.this_server_s_kept_cloud_plan_has_ended_so_it_s_paused')) : (uiText('login.could_not_load_sign_in_options_check_your_connection_and_try_agai'));
     } finally {
       this.loadingSignInOptions = false;
     }
@@ -116,7 +115,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     try {
       const didLogin = await this.auth.login(this.username, this.password, this.requires2FA ? this.totpToken : undefined);
       if (!didLogin) {
-        this.error = 'Username or password is incorrect.';
+        this.error = uiText('auth.username_or_password_is_incorrect');
         return;
       }
       this.finishLogin();
@@ -129,13 +128,13 @@ export class LoginComponent implements OnInit, OnDestroy {
       } else if (e?.requires2FA) {
         this.requires2FA = true;
       } else if (e?.status === 0) {
-        this.error = 'Could not connect to your server. Check your connection, server address and server configuration.';
+        this.error = uiText('login.could_not_connect_to_your_server_check_your_connection_server_add');
       } else if (e?.name === 'TimeoutError' || e?.status === 408) {
-        this.error = 'The sign-in request timed out. Please try again.';
+        this.error = uiText('login.the_sign_in_request_timed_out_please_try_again');
       } else if (e?.status === 429) {
         this.error = e?.error?.error || 'Too many sign-in attempts. Please try again later.';
       } else if (e?.status >= 500) {
-        this.error = 'Your server is temporarily unavailable. Please try again later.';
+        this.error = uiText('login.your_server_is_temporarily_unavailable_please_try_again_later');
       } else {
         this.error = e?.error?.error || 'Could not sign in.';
       }
