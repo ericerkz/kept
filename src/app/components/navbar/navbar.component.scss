@@ -561,12 +561,6 @@
         }
       }
 
-      @media (max-width:599px) {
-        .admin-link {
-          display: none;
-        }
-      }
-
       @media (max-width: 360px) {
         padding-right: 0;
       }
@@ -853,25 +847,6 @@
 
       }
 
-      .admin-link {
-        align-items: center;
-        background: transparent;
-        border: 0;
-        border-radius: 4px;
-        color: #dadce0;
-        display: inline-flex;
-        font-family: "Google Sans", Roboto, Arial, sans-serif;
-        font-size: 13px;
-        height: 36px;
-        padding: 0 10px;
-        text-decoration: none;
-        white-space: nowrap;
-      }
-
-      .admin-link:hover {
-        background-color: rgba(232, 234, 237, 0.08);
-        cursor: pointer;
-      }
     }
 
   }
@@ -1003,7 +978,7 @@
         display: flex;
         padding-left: 8px;
 
-        .admin-link, .install-pwa {
+        .install-pwa {
           display: none;
         }
 
@@ -1164,14 +1139,6 @@
       .th-col {
         .install-pwa {
           color: #5f6368;
-        }
-
-        .admin-link {
-          color: #3c4043;
-        }
-
-        .admin-link:hover {
-          background-color: rgba(60, 64, 67, 0.08);
         }
 
         .profile-menu {
