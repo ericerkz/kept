@@ -39,7 +39,7 @@
 
   <div id="sidebar-binders" class="sidenav-binders" [hidden]="!bindersExpanded || binderCount === 0">
     @for (binder of Shared.binder.list; track binder.name) {
-      <div routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="item is-binder"
+      <div routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" class="item is-binder"
         [attr.data-binder-drop]="binder.name"
         (click)="onNavItemClick()"
         [title]="binder.name"
@@ -79,8 +79,8 @@
   </div>
 
   <div id="sidebar-labels" class="sidenav-labels" [hidden]="!labelsExpanded || Shared.label.list.length === 0">
-    @for (label of Shared.label.list; track label) {
-      <div routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="item is-label"
+    @for (label of Shared.label.list; track label.name) {
+      <div routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" class="item is-label"
         (click)="onNavItemClick()"
         [title]="label.name"
         [routerLink]="['/label', label.name]">
