@@ -766,6 +766,11 @@ app-navbar .selection-icon.archive::after {
   mask: url(/assets/images/svg/archive2.svg) center / contain no-repeat;
 }
 
+app-navbar .selection-icon.unarchive::after {
+  -webkit-mask: url(/assets/images/svg/unarchive.svg) center / contain no-repeat;
+  mask: url(/assets/images/svg/unarchive.svg) center / contain no-repeat;
+}
+
 app-navbar .selection-icon.delete::after {
   -webkit-mask: url(/assets/images/svg/trash.svg) center / contain no-repeat;
   mask: url(/assets/images/svg/trash.svg) center / contain no-repeat;

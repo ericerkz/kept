@@ -13,7 +13,9 @@
           [class.disabled]="!canSetSelectedReminder"
           [attr.aria-disabled]="!canSetSelectedReminder"
           (click)="openSelectedReminder()"></button>
-        <button type="button" class="selection-icon archive H pop" [attr.data-pop]="'common.archive' | translate" (click)="Shared.bulkArchiveSelected()"></button>
+        @let archiveLabel = (Shared.selectedNotesArchived ? 'accessibility.unarchive' : 'common.archive') | translate;
+        <button type="button" class="selection-icon H pop" [class.archive]="!Shared.selectedNotesArchived" [class.unarchive]="Shared.selectedNotesArchived"
+          [attr.data-pop]="archiveLabel" [attr.aria-label]="archiveLabel" (click)="Shared.bulkArchiveSelected()"></button>
         <button type="button" class="selection-icon delete H pop" [attr.data-pop]="'common.delete' | translate" (click)="Shared.bulkTrashSelected()"></button>
         <button #selectionMoreBtn type="button" class="selection-icon more H pop" [attr.data-pop]="'common.more' | translate"
           (click)="openSelectionMore(selectionMoreBtn,selectionMoreTt)"></button>

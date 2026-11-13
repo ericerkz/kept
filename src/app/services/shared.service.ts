@@ -339,8 +339,13 @@ export class SharedService {
     await this.bulkUpdateSelected({ pinned: shouldPin })
   }
 
+  get selectedNotesArchived() {
+    const selected = this.note.all.filter(note => note.id && this.selectedNoteIds.value.includes(note.id))
+    return selected.length > 0 && selected.every(note => note.archived)
+  }
+
   async bulkArchiveSelected() {
-    await this.bulkUpdateSelected({ archived: true, trashed: false })
+    await this.bulkUpdateSelected({ archived: !this.selectedNotesArchived, trashed: false })
     this.clearNoteSelection()
   }
 

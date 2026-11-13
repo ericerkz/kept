@@ -9,6 +9,8 @@
     "api": "nodemon --no-deprecation server/server.js",
     "build": "npm run translations:prepare && ng build && npm run purgecss",
     "test:note-swipe": "node --test scripts/note-swipe.test.cjs",
+    "test:bulk-archive": "node --test scripts/bulk-archive.test.cjs",
+    "test:bulk-archive:ui": "node scripts/bulk-archive-ui-test.mjs",
     "test:note-swipe:ui": "node scripts/note-swipe-ui-test.mjs",
     "test:mobile-header:ui": "node scripts/mobile-header-layout-test.mjs",
     "test:sidebar:ui": "node scripts/sidebar-animation-test.mjs",
