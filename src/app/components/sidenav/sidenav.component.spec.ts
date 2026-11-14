@@ -3,9 +3,13 @@ import { TestBed } from '@angular/core/testing';
 import { CommonModule } from '@angular/common';
 import { provideRouter, Router, RouterModule } from '@angular/router';
 import { BehaviorSubject, of, Subject } from 'rxjs';
+import { provideTranslateService, TranslatePipe } from '@ngx-translate/core';
 import { NavComponent } from './sidenav.component';
+import { CatalogReorderDirective } from './catalog-reorder.directive';
 import { SharedService } from '../../services/shared.service';
 import { AuthService } from '../../services/auth.service';
+import { BindersService } from '../../services/binders.service';
+import { UiPluralPipe, UiTextPipe } from '../../i18n/ui-text.pipe';
 
 @Component({ template: '' })
 class RouteTargetComponent {}
@@ -15,12 +19,11 @@ describe('Sidebar active Binder and Label', () => {
   const labels = ['Úkoly doma', 'Běžné', 'Běžné další', 'Znaky / ? # % +'];
 
   beforeEach(async () => {
-    // Layout measurement is outside this routing regression test.
-    spyOn(NavComponent.prototype, 'ngAfterViewInit');
     await TestBed.configureTestingModule({
-      declarations: [NavComponent],
-      imports: [CommonModule, RouterModule],
+      declarations: [NavComponent, CatalogReorderDirective, UiTextPipe, UiPluralPipe],
+      imports: [CommonModule, RouterModule, TranslatePipe],
       providers: [
+        provideTranslateService(),
         provideRouter([
           { path: 'binder/:name', component: RouteTargetComponent },
           { path: 'label/:name', component: RouteTargetComponent },
@@ -30,13 +33,15 @@ describe('Sidebar active Binder and Label', () => {
         { provide: SharedService, useValue: {
           initPwa: () => {},
           binder: { list: binders.map(name => ({ name })) },
-          label: { list: labels.map(name => ({ name })) },
+          sharedBinders: [],
+          label: { list: labels.map((name, id) => ({ id, name })) },
           closeSideBar: new Subject(),
           closeSideBarIfOpen: new Subject(),
           sideBarCollapsed: new BehaviorSubject(false),
           showInstallButton: of(false)
         } },
-        { provide: AuthService, useValue: { isAdmin: false } }
+        { provide: AuthService, useValue: { isAdmin: false } },
+        { provide: BindersService, useValue: { sync: { partition: 'test' } } }
       ]
     }).compileComponents();
   });
