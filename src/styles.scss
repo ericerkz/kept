@@ -696,16 +696,6 @@ app-navbar .selection-icon {
   width: 48px;
 }
 
-app-navbar .selection-all {
-  background: transparent;
-  border: 0;
-  border-radius: 4px;
-  color: #8ab4f8;
-  flex-shrink: 0;
-  min-height: 40px;
-  padding: 0 8px;
-}
-
 @media (max-width: 599px) {
   app-navbar .selection-count {
     font-size: 1rem;
@@ -750,10 +740,6 @@ app-navbar .selection-all {
   }
 }
 
-body.light-theme app-navbar .selection-all {
-  color: #1a73e8;
-}
-
 app-navbar .selection-icon::after {
   background-color: #8ab4f8;
   content: "";
@@ -763,6 +749,15 @@ app-navbar .selection-icon::after {
   top: 50%;
   transform: translate(-50%, -50%);
   width: 24px;
+}
+
+app-navbar .selection-icon.select-all::after {
+  -webkit-mask: url(/assets/images/svg/select-all.svg) center / contain no-repeat;
+  mask: url(/assets/images/svg/select-all.svg) center / contain no-repeat;
+}
+
+app-navbar .selection-icon.select-all::before {
+  pointer-events: none;
 }
 
 app-navbar .selection-icon.pin::after {

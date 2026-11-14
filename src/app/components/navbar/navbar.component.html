@@ -6,8 +6,9 @@
       <button class="selection-close H" type="button" [attr.aria-label]="'navbar.clear_selection' | translate" (click)="Shared.clearNoteSelection()">×</button>
       <div class="selection-count">{{ 'navbar.value0_selected' | translate: { value0: (selectedCount) } }}</div>
       <div class="selection-actions">
-        <button type="button" class="selection-all H" [attr.title]="'navbar.select_all' | translate"
-          (click)="Shared.selectAllNotes.next()">{{ 'navbar.select_all' | translate }}</button>
+        <button type="button" class="selection-icon select-all H pop" [attr.title]="'navbar.select_all' | translate"
+          [attr.data-pop]="'navbar.select_all' | translate" [attr.aria-label]="'navbar.select_all' | translate"
+          (click)="Shared.selectAllNotes.next()"></button>
         <button type="button" class="selection-icon pin H pop" [attr.data-pop]="'accessibility.pin' | translate" (click)="Shared.bulkTogglePinSelected()"></button>
         <button #selectionColorBtn type="button" class="selection-icon color H pop" [attr.data-pop]="'backgrounds.options' | translate"
           (click)="openTooltip(selectionColorBtn,selectionColorTt)"></button>

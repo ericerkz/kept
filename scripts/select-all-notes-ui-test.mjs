@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { chromium, firefox } from 'playwright';
 import { startFixture } from '../test-support/session-fixture.cjs';
 
 // Run after npm run build. All users, notes and servers are disposable fixtures.
 const fixture = await startFixture();
+const screenshotDirectory = join(tmpdir(), 'kept-select-all-icon');
+await mkdir(screenshotDirectory, { recursive: true });
 let browser;
 try {
   const credentials = { username: 'select-all', password: 'isolated-selection-password' };
@@ -50,6 +55,45 @@ try {
     const cards = page.locator('app-notes .note-container');
     const clear = page.getByRole('button', { name: 'Clear selection', exact: true });
     const selectAll = page.getByRole('button', { name: 'Select all', exact: true });
+    async function checkIcon(width) {
+      assert.equal(await selectAll.innerText(), '', 'the toolbar action is icon-only');
+      assert.equal(await selectAll.getAttribute('aria-label'), 'Select all');
+      assert.equal(await selectAll.getAttribute('data-pop'), 'Select all');
+      assert.equal(await selectAll.getAttribute('title'), 'Select all');
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate(theme => document.body.classList.toggle('light-theme', theme === 'light'), theme);
+        const styles = await selectAll.evaluate(button => [button, button.parentElement.querySelector('.pin')].map(element => {
+          const icon = getComputedStyle(element, '::after');
+          const control = getComputedStyle(element);
+          return { mask: icon.maskImage, width: icon.width, height: icon.height, color: icon.backgroundColor,
+            buttonWidth: control.width, buttonHeight: control.height };
+        }));
+        assert.match(styles[0].mask, /\/assets\/images\/svg\/select-all\.svg/);
+        assert.equal(styles[0].width, '24px');
+        assert.equal(styles[0].height, '24px');
+        assert.deepEqual({ ...styles[0], mask: '' }, { ...styles[1], mask: '' });
+        const pin = page.locator('.selection-actions .pin');
+        const interactionStyle = locator => locator.evaluate(element => {
+          const style = getComputedStyle(element);
+          return { background: style.backgroundColor, outline: style.outline, radius: style.borderRadius };
+        });
+        await selectAll.hover();
+        const hover = await interactionStyle(selectAll);
+        assert.equal(await selectAll.evaluate(element => getComputedStyle(element, '::before').content), '"Select all"');
+        await pin.hover();
+        assert.deepEqual(hover, await interactionStyle(pin), 'hover matches adjacent icons');
+        await page.mouse.move(0, 800);
+        await selectAll.focus();
+        const focus = await interactionStyle(selectAll);
+        await pin.focus();
+        assert.deepEqual(focus, await interactionStyle(pin), 'focus matches adjacent icons');
+        if (engine === chromium) {
+          await page.locator('.selection-navbar').screenshot({ path: join(screenshotDirectory, `${width}-${theme}.png`) });
+        }
+        console.log(`${engine.name()} ${width}px ${theme}: ${JSON.stringify({ ...styles[0], hover, focus })}`);
+      }
+      await page.evaluate(() => document.body.classList.add('light-theme'));
+    }
     async function checkCount(count) {
       await page.waitForFunction(count => document.querySelector('.selection-count')?.textContent.trim() === `${count} selected`, count);
     }
@@ -87,7 +131,7 @@ try {
     await cards.first().hover();
     await cards.first().locator('.check-icon').click();
     await checkCount(1);
-    assert.equal(await selectAll.getAttribute('title'), 'Select all');
+    await checkIcon(1280);
     await selectAll.focus();
     await page.keyboard.press('Enter');
     await checkCount(cases[0][1].length);
@@ -152,6 +196,7 @@ try {
       await cards.first().hover();
       await cards.first().locator('.check-icon').click();
       await checkCount(1);
+      await checkIcon(width);
       await selectAll.click();
       await checkCount(cases[0][1].length);
       const bounds = await page.locator('.selection-navbar button').evaluateAll(buttons => buttons.map(button => {
@@ -160,6 +205,10 @@ try {
       }));
       assert.ok(bounds.every(box => box.left >= 0 && box.right <= width && box.height >= 32),
         `${width}px toolbar controls fit and remain tappable: ${JSON.stringify(bounds)}`);
+      await selectAll.hover();
+      await clear.click();
+      await page.keyboard.press('Control+a');
+      await checkCount(cases[0][1].length);
       await clear.click();
     }
     const saved = await Promise.all(notes.map(note => api(`/notes/${note.id}`)));
@@ -170,6 +219,7 @@ try {
     browser = undefined;
     console.log(`${engine.name()}: button keyboard activation, search, native editor selection, clear, and mobile layout passed`);
   }
+  console.log(`Selection icon screenshots: ${screenshotDirectory}`);
 } finally {
   await browser?.close();
   await fixture.close();
