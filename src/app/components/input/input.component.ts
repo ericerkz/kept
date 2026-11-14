@@ -388,22 +388,7 @@ export class InputComponent implements OnInit {
   }
 
   mobileBack() {
-    const hasTitle = this.noteTitle?.nativeElement.innerHTML.trim().length > 0
-    const hasBody = (this.noteBody?.nativeElement.innerHTML.trim().length ?? 0) > 0
-    const hasCboxes = this.checkBoxes.length > 0
-    const hasImages = this.images.length > 0
-    const hasAttachments = this.attachments.length > 0 || this.pendingAttachmentFiles.length > 0
-
-    if (hasTitle || hasBody || hasCboxes || hasImages || hasAttachments || this.isDrawingNote) {
-      this.saveNote()
-    } else {
-      // Empty note — just close without saving
-      if (this.isEditing) {
-        this.Shared.closeModal.next(true)
-      } else {
-        this.closeNote()
-      }
-    }
+    void this.saveNote()
   }
 
   toggleCbox() {
@@ -469,8 +454,8 @@ export class InputComponent implements OnInit {
   private hasMeaningfulBody(value?: string | null) {
     const div = createNoteHtmlContainer()
     div.innerHTML = sanitizeNoteHtml(value || '')
-    return (div.textContent || div.innerText || '').replace(/\u00a0/g, ' ').trim().length > 0
-      || !!div.querySelector('img, .editor-link-preview-slot')
+    return (div.textContent || div.innerText || '').replace(/[\u200b-\u200d\ufeff]/g, '').trim().length > 0
+      || !!div.querySelector('img, hr, .editor-link-preview-slot')
   }
 
   private updateCheckboxMenuLabel() {
@@ -496,10 +481,9 @@ export class InputComponent implements OnInit {
 
   get canSaveNote(): boolean {
     return this.isEditing || !!this.currentNoteId() || this.isDrawingNote || !!(
-      this.noteTitle?.nativeElement.textContent?.trim()
-      || this.noteBody?.nativeElement.textContent?.trim()
-      || this.noteBody?.nativeElement.querySelector('img')
-      || this.cboxPh?.nativeElement.textContent?.trim()
+      this.hasMeaningfulBody(this.noteTitle?.nativeElement.innerHTML)
+      || this.hasMeaningfulBody(this.noteBody?.nativeElement.innerHTML)
+      || this.hasMeaningfulBody(this.cboxPh?.nativeElement.innerHTML)
       || this.checkBoxes.length || this.images.length
       || this.attachments.length || this.pendingAttachmentFiles.length
     )
@@ -533,13 +517,13 @@ export class InputComponent implements OnInit {
   private async persistNote(closeAfterSave: boolean): Promise<boolean | void> {
     if (closeAfterSave) this.cboxInput?.nativeElement.blur()
     if (this.isDrawingNote) this.syncDrawingImage()
-    if (closeAfterSave && this.isCbox.value && this.cboxPh?.nativeElement.innerHTML.trim()) {
+    if (closeAfterSave && this.isCbox.value && this.hasMeaningfulBody(this.cboxPh?.nativeElement.innerHTML)) {
       this.addCheckBoxFromPlaceholder()
     }
     const checkBoxesForSave = this.currentCheckBoxesForSave(closeAfterSave)
     // Preserve any uncommitted checklist text without moving focus while autosaving.
     const placeholderText = this.cboxPh?.nativeElement.innerHTML || ''
-    if (!closeAfterSave && this.isCbox.value && placeholderText.trim()) {
+    if (!closeAfterSave && this.isCbox.value && this.hasMeaningfulBody(placeholderText)) {
       checkBoxesForSave.push({ id: Math.max(-1, ...checkBoxesForSave.map(cb => cb.id)) + 1, data: placeholderText, done: false, indentLevel: 0 })
     }
     const labelsForSave = await this.labelsForSave()
@@ -559,10 +543,30 @@ export class InputComponent implements OnInit {
       archived: this.isArchived,
       trashed: this.isTrashed
     }
-    const hasContent = !!(noteObj.noteTitle.length || noteObj.noteBody && noteObj.noteBody?.length || checkBoxesForSave.length || this.images.length || this.attachments.length || this.pendingAttachmentFiles.length || this.isDrawingNote)
+    let id = this.currentNoteId()
+    const hasContent = !!(
+      this.hasMeaningfulBody(noteObj.noteTitle) || this.hasMeaningfulBody(noteObj.noteBody)
+      || checkBoxesForSave.length || this.images.length || this.attachments.length
+      || this.pendingAttachmentFiles.length || this.isDrawingNote
+      || this.pendingReminderDate || this.pendingReminderLocation
+      || (id && this.reminderService.reminders$.value.some(reminder => reminder.noteId === id))
+    )
     const pendingCollaboratorIds = [...this.selectedCollaboratorIds]
 
-    let id = this.currentNoteId()
+    if (!this.isEditing && !hasContent) {
+      if (id && this.newNoteSyncId) {
+        // Delete by stable identity: sync may replace a draft's temporary ID.
+        await this.notesService.discardDraft(this.newNoteSyncId)
+        this.clearComposerDraft()
+        this.newNoteId = undefined
+        this.newNoteSyncId = undefined
+        this.saveBaselineSnapshot = undefined
+        // Re-read the editor in case the user typed while deletion was pending.
+        return this.persistNote(closeAfterSave)
+      }
+      if (closeAfterSave) this.closeNote()
+      return
+    }
     if (id) {
       const noteChanged = this.noteChangedForSave(noteObj)
       if (noteChanged) {

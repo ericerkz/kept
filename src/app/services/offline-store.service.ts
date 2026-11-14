@@ -669,7 +669,7 @@ export class OfflineStoreService {
           if (resource === 'note') {
             for (const related of ['reminders', 'attachments']) {
               const rows = await this.request<StoredResource<any>[]>(tx.objectStore(related).index('partition').getAll(partition));
-              for (const row of rows) if (row.value.noteId === previous?.value.id || row.value.noteSyncId === syncId) {
+              for (const row of rows) if ((previous && row.value.noteId === previous.value.id) || row.value.noteSyncId === syncId) {
                 tx.objectStore(related).delete(row.key);
                 if (related === 'attachments') tx.objectStore('blobs').delete(`${partition}|attachment:${row.syncId}`);
               }

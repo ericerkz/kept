@@ -52,6 +52,8 @@
     "test:browser-session": "node --test server/browser-session.test.js server/url-credentials.test.js",
     "test:browser-session:ui": "node scripts/browser-session-test.mjs",
     "test:note-history": "node scripts/note-history-test.mjs",
+    "test:empty-new-note-draft": "node --test scripts/empty-new-note-draft.test.cjs",
+    "test:empty-new-note-draft:ui": "node scripts/empty-new-note-draft-test.mjs",
     "test:link-preview-editing": "node scripts/link-preview-editing-test.mjs",
     "test:location-map": "node scripts/location-map-test.mjs",
     "test:proxy-image": "node --test server/image-proxy.test.js",
