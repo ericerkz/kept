@@ -114,6 +114,7 @@ export class SharedService {
   openSelectedReminder = new Subject<void>()
   saveNote = new Subject<boolean>()
   closeModal = new Subject<boolean>()
+  drawingNoteRequested = new Subject<void>()
   noteViewType = new BehaviorSubject<'list' | 'grid'>(this.initialNoteViewType())
   selectedNoteIds = new BehaviorSubject<number[]>([])
   searchScope = new BehaviorSubject<'all' | 'current'>(this.initialSearchScope())

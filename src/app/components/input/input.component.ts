@@ -201,6 +201,7 @@ export class InputComponent implements OnInit {
   drawingBackground: 'square' | 'dots' | 'rules' | 'none' = 'rules'
   showDrawingBackgroundMenu = false
   showDrawingMoreMenu = false
+  private newDrawingPending = false
   showDrawingEraserMenu = false
   drawingOpenToolMenu?: 'pen' | 'marker' | 'highlighter'
   drawingColors = ['#000000', '#ff4b55', '#ffb52e', '#20bf55', '#26a7df', '#bd10e0', '#8d6e63', '#ffffff', '#b3261e', '#f57c00', '#558b2f', '#0b5c99', '#8e24aa', '#4e342e', '#9eb0b9', '#f5367a', '#ff674d', '#aeea00', '#3454f4', '#6f4df6', '#35d7b7', '#d5e1e5', '#f8b5cf', '#ffc8b8', '#eef4bd', '#a8b7e8', '#d1c4e9', '#b2dfdb']
@@ -245,7 +246,7 @@ export class InputComponent implements OnInit {
   private initialPinchMidpoint?: DrawingPoint;
   private initialPinchTranslate?: { x: number, y: number };
   activeEditors: any[] = [];
-  autoSaveSubject = new Subject<void>();
+  autoSaveSubject = new Subject<number>();
   autoSaveSubscription?: Subscription;
   coEditSubscription?: Subscription;
   notesListSubscription?: Subscription;
@@ -544,9 +545,11 @@ export class InputComponent implements OnInit {
     }
     const labelsForSave = await this.labelsForSave()
     const sharedTarget = !this.isEditing ? (this.sharedBinderChoiceMade ? this.selectedSharedBinder : this.sharedBinderFromRoute()) : undefined;
+    // The drawing template has no body editor, but the note can still have text.
+    const bodyHtml = this.noteBody?.nativeElement.innerHTML ?? (this.isDrawingNote ? this.noteToEdit.noteBody : '')
     const noteObj: NoteI = {
       noteTitle: this.noteTitle.nativeElement.innerHTML,
-      noteBody: this.noteBody?.nativeElement.innerHTML ? this.cleanEditorBodyForSave(this.noteBody.nativeElement.innerHTML) : '',
+      noteBody: bodyHtml ? this.cleanEditorBodyForSave(bodyHtml) : '',
       pinned: this.notePin.nativeElement.dataset['pinned'] === "true", // converting string to bool,
       bgColor: this.noteMain.nativeElement.style.backgroundColor,
       bgImage: this.noteMain.nativeElement.style.backgroundImage || this.noteContainer.nativeElement.style.backgroundImage,
@@ -2066,7 +2069,7 @@ export class InputComponent implements OnInit {
 
   private queueAutosave() {
     if (this.destroyed || this.noteMain?.nativeElement.hidden) return
-    this.autoSaveSubject.next()
+    this.autoSaveSubject.next(this.editorGeneration)
   }
 
   private flushAutosave = () => {
@@ -3037,10 +3040,16 @@ export class InputComponent implements OnInit {
     this.setupDrawingCanvas()
   }
 
-  newDrawing() {
-    this.clearDrawingCanvas()
+  async newDrawing() {
+    if (this.newDrawingPending) return
+    this.newDrawingPending = true
     this.showDrawingMoreMenu = false
-    this.queueAutosave()
+    try {
+      if (await this.saveNote() === false) return
+      this.Shared.drawingNoteRequested.next()
+    } finally {
+      this.newDrawingPending = false
+    }
   }
 
   deleteCurrentDrawing() {
@@ -3453,7 +3462,6 @@ export class InputComponent implements OnInit {
 
   innerData(note: NoteI) {
     this.notePhClick()
-    this.noteTitle.nativeElement.innerHTML = sanitizeNoteHtml(note.noteTitle)
     this.images = (note.images || []).map(image => ({ ...image, dataUrl: this.auth.authenticatedImageUrl(image.dataUrl) }))
     this.attachments = note.attachments || []
     this.isDrawingNote = this.images.some(image => image.id === 'drawing')
@@ -3492,8 +3500,9 @@ export class InputComponent implements OnInit {
       else this.labels.push({ ...noteLabel })
     })
     this.labelsDirty = false
-    // Force the templates to materialize before we touch the body element.
+    // Force the templates to materialize before we touch the title or body.
     this.cd.detectChanges()
+    this.noteTitle.nativeElement.innerHTML = sanitizeNoteHtml(note.noteTitle)
     if (this.noteBody) this.noteBody.nativeElement.innerHTML = sanitizeNoteHtml(this.decorateLinksForEditor(note.noteBody || ''))
     this.hydrateEditorLinkPreviews()
     this.hydrateInlineImageButtons()
@@ -3958,7 +3967,10 @@ export class InputComponent implements OnInit {
 
   saveNoteSubscription?: Subscription
   ngAfterViewInit() {
-    this.autoSaveSubscription = this.autoSaveSubject.pipe(debounceTime(550)).subscribe(this.flushAutosave)
+    this.autoSaveSubscription = this.autoSaveSubject.pipe(debounceTime(550)).subscribe(generation => {
+      // A closed draft's timer must not save the next, still-blank composer.
+      if (generation === this.editorGeneration) this.flushAutosave()
+    })
     document.addEventListener('visibilitychange', this.visibilitySave)
     window.addEventListener('pagehide', this.flushAutosave)
     void this.bindBackgroundSave()
