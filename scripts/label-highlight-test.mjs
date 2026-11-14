@@ -8,17 +8,18 @@ let browser;
 try {
   const credentials = { username: 'label-owner', password: 'isolated-label-test-password' };
   let token;
-  async function api(path, data) {
+  async function api(path, data, bearer = token, method = data ? 'POST' : 'GET') {
     const response = await fetch(fixture.origin + '/api' + path, {
-      method: data ? 'POST' : 'GET',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      method,
+      headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) },
       body: data ? JSON.stringify(data) : undefined
     });
     assert.ok(response.ok, await response.clone().text());
     return response.json();
   }
   await api('/setup/admin', credentials);
-  token = (await api('/auth/login', credentials)).token;
+  const login = await api('/auth/login', credentials);
+  token = login.token;
   await api('/users/me/mark-demo-notes-created', {});
   await api('/labels', { name: 'Catalog label' });
   const note = await api('/notes', {
@@ -26,6 +27,27 @@ try {
     labels: ['Catalog label', 'Note label', 'Other note label'].map(name => ({ name, added: true })),
     images: [], checkBoxes: []
   });
+  const homeNote = await api('/notes', {
+    noteTitle: 'Home highlight', noteBody: 'Open without leaving Notes', images: [], checkBoxes: [], labels: []
+  });
+  const encodedName = 'Znaky / ? # % +';
+  for (const name of [encodedName, encodedName + ' další']) {
+    await api('/notes', {
+      noteTitle: name, noteBody: 'Encoded catalog route', binder: name,
+      labels: [{ name, added: true }], images: [], checkBoxes: []
+    });
+  }
+  const otherCredentials = { username: 'binder-owner', password: credentials.password };
+  await api('/users', otherCredentials);
+  const otherToken = (await api('/auth/login', otherCredentials)).token;
+  await api('/users/me/mark-demo-notes-created', {}, otherToken);
+  const receivedNote = await api('/notes', {
+    noteTitle: 'Received highlight', noteBody: 'Shared binder route', binder: 'Regression binder',
+    labels: [], images: [], checkBoxes: []
+  }, otherToken);
+  const receivedBinder = (await api('/binders', undefined, otherToken)).binders
+    .find(binder => binder.name === 'Regression binder');
+  await api(`/binders/${receivedBinder.id}/members`, { userIds: [login.user.id] }, otherToken, 'PUT');
   async function waitForSaved(pinned, text) {
     for (let attempt = 0; ; attempt++) {
       const saved = await api(`/notes/${note.id}`);
@@ -49,6 +71,70 @@ try {
     const page = await context.newPage();
     page.setDefaultTimeout(10000);
     await page.goto(fixture.origin);
+
+    async function assertActive(row, message) {
+      await row.waitFor();
+      assert.equal(await page.locator('app-sidenav .item.active').count(), 1, message);
+      assert.equal(await row.evaluate(element => element.classList.contains('active')), true, message);
+    }
+    const editor = page.locator('app-notes .modal app-input');
+    const body = editor.locator('.note-body[contenteditable]');
+    const notesRow = page.locator('.sidenav-top .item').filter({ hasText: /^Notes$/ });
+    const homeCard = page.locator(`app-notes [data-note-id="${homeNote.id}"]`);
+    await homeCard.waitFor();
+    await assertActive(notesRow, 'Notes alone is active on home');
+    await homeCard.locator('.check-icon').click();
+    await page.locator(`app-notes .selected[data-note-id="${homeNote.id}"]`).waitFor();
+    assert.equal(page.url(), fixture.origin + '/', 'multi-select does not navigate');
+    await assertActive(notesRow, 'multi-select keeps Notes active');
+    await page.keyboard.press('Escape');
+    await homeCard.locator('.title').click();
+    await body.waitFor();
+    await page.waitForURL(url => url.searchParams.has('note'));
+    await assertActive(notesRow, 'opening an editor keeps Notes active');
+    await page.goBack();
+    await editor.waitFor({ state: 'hidden' });
+    await assertActive(notesRow, 'Back keeps Notes active');
+    await page.goForward();
+    await body.waitFor();
+    await assertActive(notesRow, 'Forward keeps Notes active');
+    await editor.getByRole('button', { name: 'Close', exact: true }).click();
+    await editor.waitFor({ state: 'hidden' });
+    assert.equal(page.url(), fixture.origin + '/');
+    await assertActive(notesRow, 'closing an editor keeps Notes active');
+
+    const routes = [
+      ['/', notesRow, homeNote.id],
+      ...['reminders', 'attachments', 'shared', 'archive', 'trash'].map(path => [
+        '/' + path, page.locator('app-sidenav .item').filter({ hasText: new RegExp(`^${path}$`, 'i') }), homeNote.id
+      ]),
+      ...['label', 'binder'].flatMap(section => [encodedName, encodedName + ' další'].map(name => [
+        `/${section}/${encodeURIComponent(name)}`, page.locator(`.is-${section}[title="${name}"]`), note.id
+      ])),
+      [`/shared-binder/${receivedBinder.id}`, page.locator('.received-binder'), receivedNote.id]
+    ];
+    for (const [path, row, id] of routes) {
+      await page.goto(fixture.origin + path + '?note=' + id + '&sidebar=1#editor');
+      await body.waitFor();
+      await assertActive(row, `direct editor link stays in ${path}, without activating Notes elsewhere`);
+      await editor.getByRole('button', { name: 'Close', exact: true }).click();
+      await editor.waitFor({ state: 'hidden' });
+      await page.waitForURL(fixture.origin + path + '?sidebar=1#editor');
+      await assertActive(row, `closing direct editor link keeps ${path} active`);
+      if (path !== '/') {
+        await page.goto(fixture.origin + path + ';sidebar=1');
+        await assertActive(row, `matrix parameters keep ${path} active`);
+      }
+    }
+    // These routes render separate pages, not the notes/sidebar layout.
+    for (const path of ['/users', '/settings']) {
+      await page.goto(fixture.origin + path);
+      await page.locator('.auth-page').waitFor();
+      assert.equal(await page.locator('app-sidenav .item.active').count(), 0, `${path} must not activate Notes`);
+    }
+    await page.goto(fixture.origin);
+    await homeCard.waitFor();
+    console.log(`${engine.name()}: section highlights, selection, editor history, direct links and encoded catalogs passed.`);
 
     for (const [section, name] of [['label', 'Catalog label'], ['label', 'Note label'], ['binder', 'Regression binder']]) {
       await page.locator(`.is-${section}[title="${name}"]`).click();
