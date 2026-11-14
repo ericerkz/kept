@@ -328,7 +328,7 @@ export class NotesToolsPipe implements PipeTransform {
 
     if (monthIndex !== -1 && yearMatch) return this.monthRange(Number(yearMatch[1]), monthIndex)
     if (monthIndex !== -1) return this.monthRange(now.getFullYear(), monthIndex)
-    if (yearMatch) return this.yearRange(Number(yearMatch[1]))
+    if (yearMatch && /\b(?:created|from)\b/.test(query)) return this.yearRange(Number(yearMatch[1]))
 
     return null
   }
