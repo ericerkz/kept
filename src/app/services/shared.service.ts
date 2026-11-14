@@ -112,6 +112,7 @@ export class SharedService {
   widgetComposerOpened = new Subject<WidgetCreateRequest>()
   closeMobileComposer = new Subject<boolean>()
   openSelectedReminder = new Subject<void>()
+  selectAllNotes = new Subject<void>()
   saveNote = new Subject<boolean>()
   closeModal = new Subject<boolean>()
   noteViewType = new BehaviorSubject<'list' | 'grid'>(this.initialNoteViewType())

@@ -696,6 +696,16 @@ app-navbar .selection-icon {
   width: 48px;
 }
 
+app-navbar .selection-all {
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: #8ab4f8;
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: 0 8px;
+}
+
 @media (max-width: 599px) {
   app-navbar .selection-count {
     font-size: 1rem;
@@ -726,13 +736,22 @@ app-navbar .selection-icon {
 }
 
 @media (max-width: 399px) {
+  app-navbar .selection-navbar {
+    height: auto;
+    min-height: 48px;
+  }
   app-navbar .selection-count {
     display: none;
   }
   app-navbar .selection-actions {
     flex: 1;
+    flex-wrap: wrap;
     justify-content: space-between;
   }
+}
+
+body.light-theme app-navbar .selection-all {
+  color: #1a73e8;
 }
 
 app-navbar .selection-icon::after {
