@@ -81,7 +81,8 @@ export class NotesToolsPipe implements PipeTransform {
         : activeNotes.filter(note => ((note.sharedBinder && note.sharedBinder.ownerUserId === this.auth.currentUser?.id && note.sharedBinder.name === binder) || ((note.binder || '') === binder && (!note.sharedBinder || this.auth.currentUser?.inheritSharedBinders === false))))
     }
     else {
-      notes = object.filter(note => !note.trashed && note.labels.some(label => label.name === type && label.added))
+      const labelName = type.slice('label:'.length)
+      notes = object.filter(note => !note.trashed && note.labels.some(label => label.name === labelName && label.added))
     }
 
     return this.filterSearch(notes, searchQuery)
