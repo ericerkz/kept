@@ -195,7 +195,9 @@ export class NavbarComponent implements OnInit {
     this.Shared.createTooltip(button, tooltipEl)
   }
 
-  openSelectionMore(button: HTMLElement, tooltipEl: HTMLDivElement) {
+  openSelectionMore(button: HTMLElement, tooltipEl: HTMLDivElement, labelTooltipEl: HTMLDivElement, binderTooltipEl: HTMLDivElement) {
+    this.Shared.closeTooltip(labelTooltipEl)
+    this.Shared.closeTooltip(binderTooltipEl)
     this.selectionMoreButton = button
     if (tooltipEl.dataset['isTooltipOpen'] === 'true') {
       this.Shared.closeTooltip(tooltipEl)

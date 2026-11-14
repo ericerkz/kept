@@ -21,7 +21,7 @@
           [attr.aria-label]="(isTrashRoute ? 'accessibility.delete_forever' : 'common.delete') | translate"
           (click)="deleteSelected()"></button>
         <button #selectionMoreBtn type="button" class="selection-icon more H pop" [attr.data-pop]="'common.more' | translate"
-          (click)="openSelectionMore(selectionMoreBtn,selectionMoreTt)"></button>
+          (click)="openSelectionMore(selectionMoreBtn,selectionMoreTt,labelMenuTt,binderMenuTt)"></button>
       </div>
     </div>
   } @else {
