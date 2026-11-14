@@ -8241,13 +8241,12 @@ const updateCheckCache = { latest: null, fetchedAt: 0, error: null, inFlight: nu
 const UPDATE_CHECK_TTL_MS = 12 * 60 * 60 * 1000;
 
 function compareVersion(a, b) {
-  // Two-part major.minor scheme (e.g. "1.1", "1.20", "2.3"). Strips leading
-  // "v" and any "-prerelease" suffix. Extra parts (e.g. "1.2.3") are ignored
-  // so legacy three-part values still compare predictably. Returns -1/0/1.
+  // Compare major.minor.patch, treating a missing patch as zero for older releases.
+  // Strips leading "v" and any "-prerelease" suffix. Returns -1/0/1.
   const norm = v => String(v || '0.0').replace(/^v/i, '').split('-')[0];
   const pa = norm(a).split('.').map(n => parseInt(n, 10) || 0);
   const pb = norm(b).split('.').map(n => parseInt(n, 10) || 0);
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 3; i++) {
     const da = pa[i] || 0, db = pb[i] || 0;
     if (da > db) return 1;
     if (da < db) return -1;
