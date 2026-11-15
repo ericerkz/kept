@@ -159,13 +159,15 @@ try {
   await checklistPlaceholder.click();
   await page.keyboard.type('Meaningful checklist row');
   await page.locator('.note-main:visible [data-cbox-id]').first().waitFor();
+  const checklistRows = await page.locator('.note-main:visible [data-cbox-id]').allTextContents();
+  assert.equal(checklistRows.join(''), 'Meaningful checklist row');
   await close();
   await until(async () => await count() === 1, 'checklist draft must be retained');
   await until(async () => await localCount('outbox') === 0, 'checklist draft must finish syncing');
   await page.reload();
   await page.locator('app-notes').waitFor();
   const checklist = (await fixture.sql('SELECT checkBoxes FROM notes'))[0];
-  assert.ok(JSON.parse(checklist.checkBoxes).some(row => row.data.includes('Meaningful checklist row')));
+  assert.deepEqual(JSON.parse(checklist.checkBoxes).map(row => row.data), checklistRows);
   console.log('Meaningful checklist draft retained after sync and reload');
 
   await open();
