@@ -164,6 +164,11 @@ test('one partial catalogue produces separate app bundles with independent label
     for(const relative of ['scripts','translations'])await mkdir(path.join(directory,relative),{recursive:true});
     await cp('scripts/translations.mjs',path.join(directory,'scripts/translations.mjs'));
     for(const relative of ['translations/en.json','translations/languages.json','translations/reuse.json'])await cp(relative,path.join(directory,relative));
+    // This fixture tests creating Hebrew from scratch, regardless of shipped languages.
+    const manifestFile=path.join(directory,'translations/languages.json');
+    const fixtureManifest=JSON.parse(await readFile(manifestFile,'utf8'));
+    fixtureManifest.languages=fixtureManifest.languages.filter(language=>language.code==='en');
+    fs.writeFileSync(manifestFile,JSON.stringify(fixtureManifest));
     const run=(...args)=>execFileSync(process.execPath,[path.join(directory,'scripts/translations.mjs'),...args],{cwd:directory,stdio:'pipe'});
     const englishFile=path.join(directory,'translations/en.json');
     const reuseFile=path.join(directory,'translations/reuse.json');
