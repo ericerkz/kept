@@ -3497,6 +3497,16 @@ export class InputComponent implements OnInit {
     if (this.noteBody) this.noteBody.nativeElement.innerHTML = sanitizeNoteHtml(this.decorateLinksForEditor(note.noteBody || ''))
     this.hydrateEditorLinkPreviews()
     this.hydrateInlineImageButtons()
+    const body = this.noteBody?.nativeElement
+    if (body && document.activeElement === body) {
+      // Firefox keeps the pre-hydration caret outside the first saved block.
+      let start: Node = body
+      while (start.firstChild && (start.firstChild.nodeType === Node.TEXT_NODE ||
+        (start.firstChild.hasChildNodes() && (start.firstChild as HTMLElement).contentEditable !== 'false'))) {
+        start = start.firstChild
+      }
+      window.getSelection()?.collapse(start, 0)
+    }
     if (this.isDrawingNote) this.setupDrawingCanvas()
   }
 

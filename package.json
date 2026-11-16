@@ -50,6 +50,7 @@
     "test:note-html": "node --test server/note-html.test.js",
     "test:security": "node --test server/security-remediation.test.js server/public-file-download.test.js",
     "test:note-html:ui": "node scripts/note-html-ui-test.mjs",
+    "test:reopened-note-cursor": "node scripts/reopened-note-cursor-test.mjs",
     "test:browser-session": "node --test server/browser-session.test.js server/url-credentials.test.js",
     "test:browser-session:ui": "node scripts/browser-session-test.mjs",
     "test:note-history": "node scripts/note-history-test.mjs",
