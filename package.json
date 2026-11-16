@@ -61,6 +61,8 @@
     "test:note-history": "node scripts/note-history-test.mjs",
     "test:new-drawing": "node --test scripts/new-drawing.test.cjs",
     "test:new-drawing:ui": "node scripts/new-drawing-ui-test.mjs",
+    "test:empty-new-note-draft": "node --test scripts/empty-new-note-draft.test.cjs",
+    "test:empty-new-note-draft:ui": "node scripts/empty-new-note-draft-test.mjs",
     "test:link-preview-editing": "node scripts/link-preview-editing-test.mjs",
     "test:location-map": "node scripts/location-map-test.mjs",
     "test:proxy-image": "node --test server/image-proxy.test.js",

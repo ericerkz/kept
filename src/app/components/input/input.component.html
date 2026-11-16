@@ -292,7 +292,7 @@
           <button type="button" class="dc-confirm" (click)="confirmPendingDate()">{{ 'reminder.pick_time_next' | translate }}</button>
         </div>
       }
-      <button type="button" class="close-btn" [disabled]="!canSaveNote" (click)="saveNote()">{{ 'common.close' | translate }}</button>
+      <button type="button" class="close-btn" (click)="saveNote()">{{ 'common.close' | translate }}</button>
     </div>
 
     <!--? Mobile Bottom Bar -->

@@ -1320,6 +1320,13 @@ export class NotesService {
     return result;
   }
 
+  async discardDraft(syncId: string) {
+    // The transaction replaces queued creates/updates with a newer tombstone.
+    await this.offlineSync.commit('note.delete', syncId, { syncId });
+    await this.load();
+    await this.reminders.load();
+  }
+
   async delete(id: number) {
     const shared = (this.notesList$.value || []).find(note => note.id === id);
     if (shared?.sharedBinder && shared.ownerUserId !== this.auth.currentUser?.id) {
