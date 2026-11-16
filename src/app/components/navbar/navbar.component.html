@@ -148,9 +148,6 @@
 
       <div class="th-col">
 
-        @if (auth.isAdmin) {
-          <a routerLink="/users" class="admin-link">{{ 'common.users' | translate }}</a>
-        }
           @if (auth.isLocal) {
             <a routerLink="/settings" [attr.aria-label]="'navbar.device_settings' | translate"><span class="material-symbols-outlined">settings</span></a>
           }

@@ -506,7 +506,6 @@
       "src/app/components/auth/user-management/user-management.component.html"
     ],
     "common.users": [
-      "src/app/components/navbar/navbar.component.html",
       "src/app/components/auth/user-management/user-management.component.html"
     ],
     "common.weekly": [
