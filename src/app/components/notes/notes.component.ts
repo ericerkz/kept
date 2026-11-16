@@ -2300,36 +2300,53 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   // ? trash page
 
+  removeSelectedNotes() {
+    this.removeNotes(this.Shared.note.all.filter(note =>
+      note.trashed && note.id && this.Shared.selectedNoteIds.value.includes(note.id)))
+    this.Shared.clearNoteSelection()
+  }
+
   removeNote(note: NoteI) {
     if (note.ownerUserId && note.ownerUserId !== this.auth.currentUser?.id) {
       this.Shared.snackBar({ action: 'Only the owner of this note can delete it forever.', opposite: '' }, {}, 0)
       return
     }
-    if (!note.id || this.pendingPermanentDeletes.has(note.id)) return
-    const noteId = note.id
-    const pending = {
-      note,
-      allIndex: this.Shared.note.all.findIndex(n => n.id === noteId),
-      pinnedIndex: this.Shared.note.pinned.findIndex(n => n.id === noteId),
-      unpinnedIndex: this.Shared.note.unpinned.findIndex(n => n.id === noteId),
-      timer: setTimeout(() => {
+    this.removeNotes([note])
+  }
+
+  private removeNotes(notes: NoteI[]) {
+    const pendingNotes = notes.filter(note => note.id && !this.pendingPermanentDeletes.has(note.id) &&
+      (!note.ownerUserId || note.ownerUserId === this.auth.currentUser?.id)).map(note => ({
+        note,
+        allIndex: this.Shared.note.all.findIndex(n => n.id === note.id),
+        pinnedIndex: this.Shared.note.pinned.findIndex(n => n.id === note.id),
+        unpinnedIndex: this.Shared.note.unpinned.findIndex(n => n.id === note.id)
+      }))
+    if (!pendingNotes.length) return
+    for (const pending of pendingNotes) {
+      const noteId = pending.note.id!
+      const timer = setTimeout(() => {
         this.pendingPermanentDeletes.delete(noteId)
         this.notesService.delete(noteId)
       }, 5000)
+      this.pendingPermanentDeletes.set(noteId, { ...pending, timer })
+      this.removePendingDeletedNoteFromView(noteId)
     }
-    this.pendingPermanentDeletes.set(noteId, pending)
-    this.removePendingDeletedNoteFromView(noteId)
     Snackbar.show({
       pos: 'bottom-left',
       text: uiText('notes.note_deleted'),
       actionText: uiText('common.undo'),
       duration: 4200,
       onActionClick: () => {
-        const current = this.pendingPermanentDeletes.get(noteId)
-        if (!current) return
-        clearTimeout(current.timer)
-        this.pendingPermanentDeletes.delete(noteId)
-        this.restorePendingDeletedNoteToView(current)
+        if (!pendingNotes.some(pending => this.pendingPermanentDeletes.has(pending.note.id!))) return
+        for (const pending of pendingNotes) {
+          const noteId = pending.note.id!
+          const current = this.pendingPermanentDeletes.get(noteId)
+          if (!current) continue
+          clearTimeout(current.timer)
+          this.pendingPermanentDeletes.delete(noteId)
+          this.restorePendingDeletedNoteToView(current)
+        }
         Snackbar.show({
           pos: 'bottom-left',
           text: uiText('notes.note_restored'),
@@ -3010,6 +3027,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.Shared.closeSideBar.subscribe(() => { setTimeout(() => { this.scheduleBuildMasonry(true) }, 200) }),
       this.Shared.closeModal.subscribe(x => { if (x) this.closeModal() }),
       this.Shared.openSelectedReminder.subscribe(() => this.openReminderForSelectedNote()),
+      this.Shared.deleteSelectedForever.subscribe(() => this.removeSelectedNotes()),
       this.Shared.noteViewType.subscribe(() => {
         setTimeout(() => this.scheduleBuildMasonry(true), 300);
         this.scheduleIPadMasonrySettle()

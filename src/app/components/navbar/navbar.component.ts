@@ -70,6 +70,15 @@ export class NavbarComponent implements OnInit {
     return this.selectedCount === 1
   }
 
+  get isTrashRoute() {
+    return this.router.url.split('?')[0].split('#')[0] === '/trash'
+  }
+
+  deleteSelected() {
+    if (this.isTrashRoute) this.Shared.deleteSelectedForever.next()
+    else this.Shared.bulkTrashSelected()
+  }
+
   get isBinderRoute() {
     return this.router.url.split('?')[0].split('#')[0].startsWith('/binder/')
   }
@@ -186,7 +195,9 @@ export class NavbarComponent implements OnInit {
     this.Shared.createTooltip(button, tooltipEl)
   }
 
-  openSelectionMore(button: HTMLElement, tooltipEl: HTMLDivElement) {
+  openSelectionMore(button: HTMLElement, tooltipEl: HTMLDivElement, labelTooltipEl: HTMLDivElement, binderTooltipEl: HTMLDivElement) {
+    this.Shared.closeTooltip(labelTooltipEl)
+    this.Shared.closeTooltip(binderTooltipEl)
     this.selectionMoreButton = button
     if (tooltipEl.dataset['isTooltipOpen'] === 'true') {
       this.Shared.closeTooltip(tooltipEl)
@@ -207,7 +218,7 @@ export class NavbarComponent implements OnInit {
 
   selectionMoreMenu(tooltipEl: HTMLDivElement) {
     const actions = {
-      trash: () => this.Shared.bulkTrashSelected(),
+      trash: () => this.deleteSelected(),
       clone: () => this.Shared.bulkCloneSelected(),
       openLabelMenu: (labelTooltipEl: HTMLDivElement) => {
         this.Shared.closeTooltip(tooltipEl)

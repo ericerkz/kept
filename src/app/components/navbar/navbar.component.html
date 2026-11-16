@@ -13,10 +13,15 @@
           [class.disabled]="!canSetSelectedReminder"
           [attr.aria-disabled]="!canSetSelectedReminder"
           (click)="openSelectedReminder()"></button>
-        <button type="button" class="selection-icon archive H pop" [attr.data-pop]="'common.archive' | translate" (click)="Shared.bulkArchiveSelected()"></button>
-        <button type="button" class="selection-icon delete H pop" [attr.data-pop]="'common.delete' | translate" (click)="Shared.bulkTrashSelected()"></button>
+        @let archiveLabel = (Shared.selectedNotesArchived ? 'accessibility.unarchive' : 'common.archive') | translate;
+        <button type="button" class="selection-icon H pop" [class.archive]="!Shared.selectedNotesArchived" [class.unarchive]="Shared.selectedNotesArchived"
+          [attr.data-pop]="archiveLabel" [attr.aria-label]="archiveLabel" (click)="Shared.bulkArchiveSelected()"></button>
+        <button type="button" class="selection-icon delete H pop"
+          [attr.data-pop]="(isTrashRoute ? 'accessibility.delete_forever' : 'common.delete') | translate"
+          [attr.aria-label]="(isTrashRoute ? 'accessibility.delete_forever' : 'common.delete') | translate"
+          (click)="deleteSelected()"></button>
         <button #selectionMoreBtn type="button" class="selection-icon more H pop" [attr.data-pop]="'common.more' | translate"
-          (click)="openSelectionMore(selectionMoreBtn,selectionMoreTt)"></button>
+          (click)="openSelectionMore(selectionMoreBtn,selectionMoreTt,labelMenuTt,binderMenuTt)"></button>
       </div>
     </div>
   } @else {
@@ -288,7 +293,7 @@
 </div>
 
 <div #selectionMoreTt data-tooltip="true" data-is-tooltip-open="false" class="moreMenu selectionMoreMenu">
-  <div (click)="selectionMoreMenu(selectionMoreTt).trash()">{{ 'notes.delete_note' | translate }}</div>
+  <div (click)="selectionMoreMenu(selectionMoreTt).trash()">{{ (isTrashRoute ? 'accessibility.delete_forever' : 'notes.delete_note') | translate }}</div>
   <div (click)="selectionMoreMenu(selectionMoreTt).openLabelMenu(labelMenuTt)">{{ 'labels.add_label' | translate }}</div>
   <div (click)="selectionMoreMenu(selectionMoreTt).openBinderMenu(binderMenuTt,labelMenuTt)">{{ 'binders.move_to_binder' | translate }}</div>
   <div (click)="selectionMoreMenu(selectionMoreTt).clone()">{{ 'notes.make_a_copy' | translate }}</div>
