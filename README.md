@@ -33,7 +33,8 @@
 
 <p align="center">
   <a href="#self-hosting">Self-host Kept</a> ·
-  <a href="#technical-documentation">Technical documentation</a>
+  <a href="#technical-documentation">Technical documentation</a> ·
+  <a href="translations/README.md">Help us translate Kept!</a>
 </p>
 
 ## Kept on the web
@@ -78,6 +79,7 @@ Keep notes on your device with no account or server. Use the native app offline,
 - Nested checklists with drag-to-reorder
 - Images, drawings, links and file attachments
 - Labels, binders, colours and backgrounds
+- See [Search and filters](docs/search.md) for search operators and creation-date examples.
 - Customisable appearance, note density, checklist behaviour and shared-note organization
 - Time-based (one-off or recurring) and location-based reminders.
 - Native iOS and Android widgets
@@ -421,10 +423,6 @@ This works with any SMTP relay — a personal email account's SMTP, or any trans
 Kept includes an optional OAuth 2.1 authorization server for third-party apps and integrations. OAuth clients can request read-only or read/write access to the supported Kept API without receiving a user's password or long-lived local MCP token. See [the OAuth integration guide](docs/oauth.md).
 
 Remote MCP is one consumer of that OAuth layer. Local MCP clients can use stdio with a dedicated token; remote clients such as ChatGPT can connect to the Streamable HTTP endpoint at `/mcp`. OAuth app access and local MCP access are independent, off-by-default settings, so either can be enabled or revoked without affecting the other. Locked notes and permanent deletion have separate shared opt-in controls. See [the MCP setup and security guide](docs/mcp.md).
-
-## Search and filters
-
-See [Search and filters](docs/search.md) for search operators and creation-date examples.
 
 ## Development
 
