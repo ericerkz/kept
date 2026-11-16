@@ -499,14 +499,15 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private syncCurrentPage(url: string) {
-    this.currentPage.archive = url.includes('archive')
-    this.currentPage.trash = url.includes('trash')
-    this.currentPage.shared = url.includes('shared')
-    this.currentPage.reminders = url.includes('reminders')
-    this.currentPage.attachments = url.includes('attachments')
+    const path = url.split(/[?#]/, 1)[0].replace(/\/+$/, '') || '/'
+    this.currentPage.archive = path === '/archive'
+    this.currentPage.trash = path === '/trash'
+    this.currentPage.shared = path === '/shared'
+    this.currentPage.reminders = path === '/reminders'
+    this.currentPage.attachments = path === '/attachments'
     this.currentPage.label = this.labelNameFromUrl(url)
     this.currentPage.binder = this.binderNameFromUrl(url)
-    this.currentPage.sharedBinderId = url.split('?')[0].match(/\/shared-binder\/(\d+)(?:$|\/)/)?.[1]
+    this.currentPage.sharedBinderId = path.match(/^\/shared-binder\/(\d+)$/)?.[1]
     this.updateCurrentPageName()
   }
 

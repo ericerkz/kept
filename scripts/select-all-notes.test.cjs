@@ -53,13 +53,57 @@ function harness() {
 }
 
 for (const [section, ids] of [['home', [1, 2, 6]], ['archived', [3]], ['trashed', [4]],
-  ['binder:Work', [5]], ['Test', [6]], ['shared', [2]], ['shared-binder:9', [2]], ['attachments', [2]]]) {
+  ['binder:Work', [5]], ['label:Test', [6]], ['shared', [2]], ['shared-binder:9', [2]], ['attachments', [2]]]) {
   test(`selects only ${section} notes, including pinned and unpinned`, async () => {
     const { component, shared } = harness();
     component.currentPageName = section;
     await component.selectAllNotes();
     assert.deepEqual([...shared.selectedNoteIds.value], ids);
     assert.ok(shared.note.all.every(note => note.trashed === (note.id === 4)));
+  });
+}
+
+for (const [url, section, flag] of [
+  ['/archive?note=1#editor', 'archived', 'archive'],
+  ['/trash/', 'trashed', 'trash'],
+  ['/shared', 'shared', 'shared'],
+  ['/reminders', 'reminders', 'reminders'],
+  ['/attachments', 'attachments', 'attachments'],
+  ['/label/archived', 'label:archived'],
+  ['/label/trashed', 'label:trashed'],
+  ['/label/shared', 'label:shared'],
+  ['/label/reminders', 'label:reminders'],
+  ['/label/attachments', 'label:attachments'],
+  ['/binder/trash-papers', 'binder:trash-papers'],
+  ['/shared-binder/9#editor', 'shared-binder:9'],
+  ['/?q=trash#attachments', 'home'],
+]) {
+  test(`${url} dispatches the actual route without false collection flags`, () => {
+    const { component } = harness();
+    component.currentPage = {};
+    component.syncCurrentPage(url);
+    assert.equal(component.currentPageName, section);
+    for (const key of ['archive', 'trash', 'shared', 'reminders', 'attachments']) {
+      assert.equal(component.currentPage[key], key === flag, `${url}: ${key}`);
+    }
+  });
+}
+
+for (const name of ['home', 'archived', 'trashed', 'shared', 'reminders', 'attachments',
+  'binder:Work', 'shared-binder:9', 'label:archived', 'client/work #1? 50% 中文']) {
+  test(`Select All scopes the literal label ${name} and excludes unrelated collections`, async () => {
+    const { component, shared, note } = harness();
+    component.currentPage = {};
+    component.syncCurrentPage(`/label/${encodeURIComponent(name)}?note=1#editor`);
+    shared.note.all = [
+      note(1, { labels: [{ name, added: true }] }),
+      note(2, { labels: [{ name, added: true }], archived: true }),
+      note(3, { labels: [{ name, added: true }], trashed: true }),
+      note(4, { archived: true }),
+      note(5, { labels: [{ name, added: false }] }),
+    ];
+    await component.selectAllNotes();
+    assert.deepEqual([...shared.selectedNoteIds.value], [1, 2]);
   });
 }
 
