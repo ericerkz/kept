@@ -533,7 +533,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private updateCurrentPageName() {
-    this.currentPageName = this.currentPage.sharedBinderId ? `shared-binder:${this.currentPage.sharedBinderId}` : this.currentPage.binder ? `binder:${this.currentPage.binder}` : this.currentPage.label ? this.currentPage.label : this.currentPage.archive ? 'archived' : (this.currentPage.trash ? 'trashed' : this.currentPage.reminders ? 'reminders' : this.currentPage.attachments ? 'attachments' : this.currentPage.shared ? 'shared' : 'home')
+    this.currentPageName = this.currentPage.sharedBinderId ? `shared-binder:${this.currentPage.sharedBinderId}` : this.currentPage.binder ? `binder:${this.currentPage.binder}` : this.currentPage.label ? `label:${this.currentPage.label}` : this.currentPage.archive ? 'archived' : (this.currentPage.trash ? 'trashed' : this.currentPage.reminders ? 'reminders' : this.currentPage.attachments ? 'attachments' : this.currentPage.shared ? 'shared' : 'home')
   }
 
   private parseColor(color: string) {
