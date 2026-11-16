@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="src/assets/images/keep2x.png" alt="Kept logo" width="96">
+  <img src="docs/assets/images/kept-logo-transparent.png" alt="Kept logo" width="96">
   <br>
-  <img src="src/assets/images/keep2x_Text.png" alt="Kept" width="180">
+  <img src="docs/assets/images/kept-wordmark-transparent.png" alt="Kept" width="180">
 
 # Kept
 
