@@ -1,3 +1,4 @@
+import { parseDateSearch } from '../../../shared/note-search-date';
 import { createNoteHtmlContainer, sanitizeNoteHtml } from '../utils/note-html';
 import { Pipe, PipeTransform } from '@angular/core';
 import { NoteI } from '../interfaces/notes';
@@ -8,6 +9,7 @@ interface ParsedSearch {
   dateRange: { start: Date; end: Date } | null
   operators: { hasImage: boolean; hasCheckbox: boolean; hasDrawing: boolean; hasAnyLabel: boolean; hasUrl: boolean; hasAttachment: boolean; labels: string[] }
   empty: boolean
+  invalidDate: boolean
   textTokens: string[]
 }
 
@@ -22,6 +24,7 @@ export class NotesToolsPipe implements PipeTransform {
   // Per-pipe-instance caches. Pipes are pure, so identical inputs return cached output.
   private lastQuery?: string
   private lastParsed?: ParsedSearch
+  private lastParsedDay = ''
   private noteHaystackCache = new WeakMap<NoteI, { title: string; body: string; searchText: string; cbCount: number; labelKey: string; binder: string; attachmentKey: string; haystack: string }>()
   private static normalizeEl: HTMLDivElement | null = null
 
@@ -89,6 +92,7 @@ export class NotesToolsPipe implements PipeTransform {
 
   private filterSearch(notes: NoteI[], query: string) {
     const parsed = this.getParsedSearch(query)
+    if (parsed.invalidDate) return []
     if (parsed.empty) return notes
 
     const result: NoteI[] = []
@@ -102,25 +106,25 @@ export class NotesToolsPipe implements PipeTransform {
   }
 
   private getParsedSearch(query: string): ParsedSearch {
-    if (this.lastQuery === query && this.lastParsed) return this.lastParsed
+    const day = new Date().toDateString()
+    if (this.lastQuery === query && this.lastParsed && this.lastParsedDay === day) return this.lastParsed
     const parsed = this.parseSearch(query)
     this.lastQuery = query
+    this.lastParsedDay = day
     this.lastParsed = parsed
     return parsed
   }
 
   private parseSearch(query: string): ParsedSearch {
-    let text = this.normalize(query)
-    const dateRange = this.dateRangeFromQuery(text)
+    const dateSearch = parseDateSearch(query)
+    let text = this.normalize(dateSearch.text)
+    const dateRange = dateSearch.range
     const operators = this.extractOperators(text)
-    if (dateRange) {
-      text = this.removeDateLanguage(text)
-    }
     text = this.removeOperators(text)
     const finalText = text.trim()
     const empty = !finalText && !dateRange && !this.hasOperators(operators)
     const textTokens = finalText ? finalText.split(/\s+/).filter(Boolean) : []
-    return { text: finalText, dateRange, operators, empty, textTokens }
+    return { text: finalText, dateRange, operators, empty, textTokens, invalidDate: dateSearch.invalid }
   }
 
   private extractOperators(query: string) {
@@ -293,105 +297,6 @@ export class NotesToolsPipe implements PipeTransform {
     return row[b.length]
   }
 
-  private dateRangeFromQuery(query: string) {
-    const now = new Date()
-    const yearMatch = query.match(/\b(20\d{2}|19\d{2})\b/)
-    const monthIndex = this.monthIndex(query)
-    const numericDate = query.match(/\b(20\d{2})[-/](\d{1,2})(?:[-/](\d{1,2}))?\b/)
-    const monthDay = query.match(new RegExp(`\\b(${this.months.join('|')})\\s+(\\d{1,2})(?:\\s+(20\\d{2}|19\\d{2}))?\\b`))
-
-    if (query.includes('today')) return this.dayRange(now)
-    if (query.includes('yesterday')) return this.dayRange(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))
-
-    if (query.includes('last year')) {
-      return this.yearRange(now.getFullYear() - 1)
-    }
-    if (query.includes('last month')) {
-      return this.monthRange(now.getFullYear(), now.getMonth() - 1)
-    }
-
-    const relative = query.match(/\b(?:created\s+)?(?:from\s+)?(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(day|week|month|year)s?\s+ago\b/)
-    if (relative) {
-      return this.relativeRange(this.wordNumber(relative[1]), relative[2] as 'day' | 'week' | 'month' | 'year', now)
-    }
-
-    if (numericDate) {
-      const year = Number(numericDate[1])
-      const month = Number(numericDate[2]) - 1
-      if (numericDate[3]) return this.dayRange(new Date(year, month, Number(numericDate[3])))
-      return this.monthRange(year, month)
-    }
-
-    if (monthDay) {
-      return this.dayRange(new Date(Number(monthDay[3] || now.getFullYear()), this.monthMap[monthDay[1]], Number(monthDay[2])))
-    }
-
-    if (monthIndex !== -1 && yearMatch) return this.monthRange(Number(yearMatch[1]), monthIndex)
-    if (monthIndex !== -1) return this.monthRange(now.getFullYear(), monthIndex)
-    if (yearMatch && /\b(?:created|from)\b/.test(query)) return this.yearRange(Number(yearMatch[1]))
-
-    return null
-  }
-
-  private removeDateLanguage(query: string) {
-    return query
-      .replace(/\bnotes?\b/g, ' ')
-      .replace(/\bcreated\b/g, ' ')
-      .replace(/\bfrom\b/g, ' ')
-      .replace(/\blast year\b/g, ' ')
-      .replace(/\blast month\b/g, ' ')
-      .replace(/\btoday\b/g, ' ')
-      .replace(/\byesterday\b/g, ' ')
-      .replace(/\b(20\d{2}|19\d{2})[-/]\d{1,2}(?:[-/]\d{1,2})?\b/g, ' ')
-      .replace(/\b(20\d{2}|19\d{2})\b/g, ' ')
-      .replace(/\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s+(?:day|week|month|year)s?\s+ago\b/g, ' ')
-      .replace(new RegExp(`\\b(${this.months.join('|')})\\b`, 'g'), ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  }
-
-  private relativeRange(amount: number, unit: 'day' | 'week' | 'month' | 'year', now: Date) {
-    if (unit === 'day') return this.dayRange(new Date(now.getFullYear(), now.getMonth(), now.getDate() - amount))
-    if (unit === 'week') {
-      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - amount * 7)
-      const end = new Date(start)
-      end.setDate(start.getDate() + 7)
-      return { start, end }
-    }
-    if (unit === 'month') return this.monthRange(now.getFullYear(), now.getMonth() - amount)
-    return this.yearRange(now.getFullYear() - amount)
-  }
-
-  private dayRange(day: Date) {
-    const start = new Date(day.getFullYear(), day.getMonth(), day.getDate())
-    const end = new Date(start)
-    end.setDate(start.getDate() + 1)
-    return { start, end }
-  }
-
-  private monthRange(year: number, month: number) {
-    const start = new Date(year, month, 1)
-    const end = new Date(start.getFullYear(), start.getMonth() + 1, 1)
-    return { start, end }
-  }
-
-  private yearRange(year: number) {
-    return { start: new Date(year, 0, 1), end: new Date(year + 1, 0, 1) }
-  }
-
-  private monthIndex(query: string) {
-    const match = this.months.find(month => new RegExp(`\\b${month}\\b`).test(query))
-    return match ? this.monthMap[match] : -1
-  }
-
-  private wordNumber(value: string) {
-    const words: Record<string, number> = {
-      one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
-      seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12
-    }
-    return words[value] || Number(value) || 0
-  }
-
   private normalize(value: any) {
     const raw = String(value ?? '')
     if (!raw) return ''
@@ -416,20 +321,4 @@ export class NotesToolsPipe implements PipeTransform {
       .trim()
   }
 
-  private readonly monthMap: Record<string, number> = {
-    january: 0, jan: 0,
-    february: 1, feb: 1,
-    march: 2, mar: 2,
-    april: 3, apr: 3,
-    may: 4,
-    june: 5, jun: 5,
-    july: 6, jul: 6,
-    august: 7, aug: 7,
-    september: 8, sep: 8, sept: 8,
-    october: 9, oct: 9,
-    november: 10, nov: 10,
-    december: 11, dec: 11
-  }
-
-  private readonly months = Object.keys(this.monthMap)
 }

@@ -118,6 +118,22 @@
                     <span class="label">{{ 'navbar.any_label' | translate }}</span>
                   </div>
 
+                  <form class="date-filter" (submit)="$event.preventDefault(); applyDateFilter(dateFilterDraft)">
+                    <label for="creation-date-filter">{{ 'navbar.creation_date' | translate }}</label>
+                    <div class="date-filter-controls">
+                      <input id="creation-date-filter" type="text" autocomplete="off" autocapitalize="none"
+                        [value]="dateFilterDraft" (input)="dateFilterDraft = $any($event.target).value; dateFilterError = ''"
+                        [attr.placeholder]="'navbar.date_filter_placeholder' | translate"
+                        [attr.aria-invalid]="dateFilterError ? 'true' : null" aria-describedby="creation-date-help">
+                      <button type="submit">{{ 'navbar.apply_date_filter' | translate }}</button>
+                    </div>
+                    <p id="creation-date-help">{{ 'navbar.date_filter_examples' | translate: { examples: dateFilterExamples } }}</p>
+                    @if (dateFilterError) { <p role="alert">{{ dateFilterError }}</p> }
+                    @if (hasDateFilter) {
+                      <button type="button" (click)="clearDateFilter()">{{ 'navbar.remove_date_filter' | translate }}</button>
+                    }
+                  </form>
+
                   @if (activeFilters.length > 0) {
                     <div class="dropdown-header">{{ 'navbar.active_labels' | translate }}</div>
                     @for (filter of activeFilters; track filter.code) {

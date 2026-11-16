@@ -1,4 +1,5 @@
 import { uiText } from '../i18n/messages';
+import { parseDateSearch } from '../../../shared/note-search-date';
 import { MAX_FILE_BYTES, prepareNoteImage } from '../utils/note-images';
 import { applyBinderMembership, applyPersonalOrganization, projectSharedOrganization } from '../utils/shared-note-organization';
 import { attachmentMimeType } from '../utils/attachments';
@@ -172,6 +173,7 @@ export class NotesService {
       try {
         const params: Record<string, string> = { view: 'card', limit: String(this.cardPageSize) };
         if (searchQuery.trim()) params['q'] = searchQuery.trim();
+        this.addDateSearchBounds(params, searchQuery);
         if (cacheBust) params['_'] = String(Date.now());
         return await firstValueFrom(this.http.get<NotesCardPage>(this.apiUrl, {
           headers: this.auth.authHeaders(),
@@ -188,6 +190,14 @@ export class NotesService {
 
   private delay(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private addDateSearchBounds(params: Record<string, string>, query: string) {
+    const { range, invalid } = parseDateSearch(query);
+    if (range && !invalid) {
+      params['dateStart'] = range.start.toISOString();
+      params['dateEnd'] = range.end.toISOString();
+    }
   }
 
   setSearchQuery(query: string) {
@@ -224,6 +234,7 @@ export class NotesService {
       const requestedQuery = this.searchQuery;
       const params: Record<string, string> = { view: 'card', limit: String(this.cardPageSize), cursor: this.nextCursor };
       if (this.searchQuery.trim()) params['q'] = this.searchQuery.trim();
+      this.addDateSearchBounds(params, this.searchQuery);
       const page = await firstValueFrom(this.http.get<NotesCardPage>(this.apiUrl, {
         headers: this.auth.authHeaders(),
         params

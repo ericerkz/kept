@@ -62,9 +62,9 @@ for (const browserType of [chromium, firefox]) {
       ['memories 1999', ['Body regression']],
       ['2000 budget', ['Unrelated budget']],
       ['1999 !todo', []],
-      ['created 1999', []],
-      ['from 1999', []],
-      [new Date().toLocaleDateString('en-CA'), ['Title with 1999', 'Body regression', 'Unrelated budget']]
+      ['!date 1999', []],
+      ['!date June 1999', []],
+      ['!date ' + new Date().toLocaleDateString('en-CA'), ['Title with 1999', 'Body regression', 'Unrelated budget']]
     ]) {
       await search.fill('');
       await search.pressSequentially(query);

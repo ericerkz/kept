@@ -314,6 +314,28 @@
             z-index: 1000;
             animation: dropdownFade 0.2s ease-out;
 
+            .date-filter {
+              border-top: 1px solid rgba(128, 128, 128, 0.25);
+              color: #e8eaed;
+              max-width: 320px;
+              padding: 12px 16px;
+              box-sizing: border-box;
+
+              label { display: block; font-size: 13px; margin-bottom: 8px; }
+              p { color: inherit; font-size: 12px; line-height: 1.5; margin: 8px 0 0; opacity: 0.8; }
+              p[role="alert"] { opacity: 1; }
+              .date-filter-controls { display: flex; gap: 6px; }
+              input {
+                background: transparent; border: 1px solid #9aa0a6; border-radius: 6px;
+                color: inherit; font: inherit; font-size: 13px; min-width: 0; padding: 8px; width: 100%;
+              }
+              button {
+                background: transparent; border: 1px solid #9aa0a6; border-radius: 6px;
+                color: inherit; cursor: pointer; font: inherit; font-size: 13px; padding: 8px;
+              }
+              > button { margin-top: 8px; }
+            }
+
             @media (max-width: 599px) {
               // Use viewport units + transform-free chain so iOS Safari
               // correctly escapes the .filters-toggle stacking context.
@@ -1065,6 +1087,8 @@
               background: #fff;
               border-color: #dadce0;
               box-shadow: 0 8px 24px rgba(60, 64, 67, 0.22);
+
+              .date-filter { color: #3c4043; }
 
               .filter-item {
                 .label {

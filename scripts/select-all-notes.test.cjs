@@ -10,6 +10,7 @@ function load(file, globals = {}) {
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, experimentalDecorators: true }
   }).outputText, { exports, console, setTimeout, clearTimeout, ...globals, require(name) {
+    if (name.endsWith('/note-search-date')) return require('../shared/note-search-date');
     if (name === '@angular/core') return {
       ...Object.fromEntries(['Component', 'Injectable', 'Pipe'].map(key => [key, () => value => value])),
       ...Object.fromEntries(['ViewChild', 'ViewChildren', 'HostListener'].map(key => [key, () => () => {}]))

@@ -1,4 +1,5 @@
 import { uiText } from 'src/app/i18n/messages';
+import { parseDateSearch } from '../../../../shared/note-search-date';
 import { Component, ElementRef, HostBinding, HostListener, OnInit, ViewChild, ChangeDetectorRef } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from 'src/app/services/auth.service';
@@ -60,6 +61,9 @@ export class NavbarComponent implements OnInit {
   isResettingPassword = false
   showPasswordReset = false
   isFiltersOpen = false
+  dateFilterDraft = ''
+  dateFilterError = ''
+  readonly dateFilterExamples = '2025, 2025-11, 2025-11-16, November 2025, Monday, today, yesterday'
   private selectionMoreButton?: HTMLElement
 
   get selectedCount() {
@@ -131,7 +135,7 @@ export class NavbarComponent implements OnInit {
   }
 
   get activeFilters() {
-    const query = this.Shared.searchQuery
+    const query = parseDateSearch(this.Shared.searchQuery).text
     const tokens = query.trim().split(/\s+/).filter(Boolean)
     const filters: { label: string, code: string }[] = []
     for (const t of tokens) {
@@ -151,6 +155,32 @@ export class NavbarComponent implements OnInit {
     this.searchExpanded = false
     this.searchInput?.nativeElement.blur()
     this.isFiltersOpen = !this.isFiltersOpen
+    if (this.isFiltersOpen) {
+      this.dateFilterDraft = parseDateSearch(this.Shared.searchQuery).filters[0]?.value || ''
+      this.dateFilterError = ''
+    }
+  }
+
+  get hasDateFilter() {
+    return parseDateSearch(this.Shared.searchQuery).filters.length > 0
+  }
+
+  applyDateFilter(value: string) {
+    const base = parseDateSearch(this.Shared.searchQuery).text
+    const candidate = parseDateSearch(`!date ${value.trim()}`)
+    if (candidate.invalid || !candidate.range || candidate.filters.length !== 1 || candidate.text.trim()) {
+      this.dateFilterError = uiText('navbar.invalid_date_filter')
+      return
+    }
+    this.Shared.setSearchQuery(`${base} ${candidate.filters[0].code}`.trim())
+    this.dateFilterError = ''
+    this.isFiltersOpen = false
+  }
+
+  clearDateFilter() {
+    this.Shared.setSearchQuery(parseDateSearch(this.Shared.searchQuery).text)
+    this.dateFilterDraft = ''
+    this.dateFilterError = ''
   }
 
   removeFilter(code: string) {
@@ -161,7 +191,7 @@ export class NavbarComponent implements OnInit {
   }
 
   clearAllFilters() {
-    const current = this.Shared.searchQuery
+    const current = parseDateSearch(this.Shared.searchQuery).text
     const next = current.split(/\s+/).filter(t => !t.startsWith('!')).join(' ').trim()
     this.Shared.setSearchQuery(next)
     this.isFiltersOpen = false

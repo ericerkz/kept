@@ -1,6 +1,7 @@
 const { secretValue } = require('./secret-files');
 const { plainText, imageSources, validateEmail, stripTrailingSlashes } = require('./text-utils');
 const { normalizeLanguage } = require('../shared/language-preference');
+const { parseDateSearch } = require('../shared/note-search-date');
 const { createRequestLimits, createExclusiveTask } = require('./request-limits');
 const { StorageQuota } = require('./storage-quota');
 const { maxFileBytes: MAX_FILE_BYTES } = require('../shared/upload-limits.json');
@@ -1773,7 +1774,7 @@ function noteLinkCount(row) {
 }
 
 function searchTextFromQuery(query) {
-  return String(query || '')
+  return parseDateSearch(query).text
     .split(/\s+/)
     .filter(token => token &&
       !/^!i(?:m(?:a(?:g(?:e)?)?)?)?$/i.test(token) &&
@@ -2009,11 +2010,18 @@ function noteSummaryFromRow(row) {
 async function accessibleNoteSummaryRows(userId, options = {}) {
   const limit = Math.min(Math.max(Number(options.limit) || 20, 1), 50);
   const query = String(options.query || '').trim();
+  const dateSearch = parseDateSearch(query);
+  if (dateSearch.invalid) return [];
   const noteId = Number(options.noteId || 0);
   const searchTokens = searchTokensFromQuery(query);
   const searchWhere = noteSearchWhere(searchTokens, { protectLockedContent: !!options.protectLockedContent, organizationVisible: true });
   const whereClauses = [];
   const params = [userId, userId, userId, userId];
+
+  if (dateSearch.range) {
+    whereClauses.push('julianday(createdAt) >= julianday(?) AND julianday(createdAt) < julianday(?)');
+    params.push(dateSearch.range.start.toISOString(), dateSearch.range.end.toISOString());
+  }
 
   if (noteId) {
     whereClauses.push('id = ?');
@@ -6238,6 +6246,18 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
   trace?.mark('scheduled-trash-purge');
 
   if (req.query.view === 'card') {
+    const dateSearch = parseDateSearch(req.query.q);
+    if (dateSearch.invalid) return sendJsonWithPerf(res, trace, { notes: [], nextCursor: null });
+    if (dateSearch.range && (req.query.dateStart !== undefined || req.query.dateEnd !== undefined)) {
+      // Native and browser clients supply their local-day boundaries in UTC.
+      // They only narrow this user's existing accessible-note query.
+      const start = new Date(String(req.query.dateStart));
+      const end = new Date(String(req.query.dateEnd));
+      if (!Number.isFinite(+start) || !Number.isFinite(+end) || start >= end) {
+        return res.status(400).json({ error: 'Invalid creation-date range.' });
+      }
+      dateSearch.range = { start, end };
+    }
     const limit = Math.min(Math.max(Number(req.query.limit) || 80, 1), 200);
     const cursor = decodeNotesCursor(req.query.cursor);
     const searchTokens = searchTokensFromQuery(req.query.q);
@@ -6249,6 +6269,10 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
       whereClauses.push('locked = 0');
     }
     const queryParams = [req.user.id, req.user.id, req.user.id, req.user.id];
+    if (dateSearch.range) {
+      whereClauses.push('julianday(createdAt) >= julianday(?) AND julianday(createdAt) < julianday(?)');
+      queryParams.push(dateSearch.range.start.toISOString(), dateSearch.range.end.toISOString());
+    }
     if (cursor) {
       whereClauses.push(`(
         userPinned < ?
@@ -6268,7 +6292,7 @@ app.get('/api/notes', requireAuth, asyncRoute(async (req, res) => {
     const pageWhere = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
     let page;
     let hasMore;
-    if (!searchTokens.length && !operatorWhere.clauses.length) {
+    if (!searchTokens.length && !operatorWhere.clauses.length && !dateSearch.range) {
       const keyRows = await all(
         `WITH accessible_notes AS (
           SELECT notes.id,

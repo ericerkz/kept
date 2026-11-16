@@ -1635,6 +1635,9 @@
       "src/app/components/navbar/navbar.component.html",
       "src/app/components/navbar/navbar.component.ts"
     ],
+    "navbar.apply_date_filter": [
+      "src/app/components/navbar/navbar.component.html"
+    ],
     "navbar.avatar_preview": [
       "src/app/components/navbar/navbar.component.html"
     ],
@@ -1677,9 +1680,18 @@
     "navbar.could_not_save_profile": [
       "src/app/components/navbar/navbar.component.ts"
     ],
+    "navbar.creation_date": [
+      "src/app/components/navbar/navbar.component.html"
+    ],
     "navbar.current_password": [
       "src/app/components/navbar/navbar.component.html",
       "src/app/components/settings/settings.component.html"
+    ],
+    "navbar.date_filter_examples": [
+      "src/app/components/navbar/navbar.component.html"
+    ],
+    "navbar.date_filter_placeholder": [
+      "src/app/components/navbar/navbar.component.html"
     ],
     "navbar.device_settings": [
       "src/app/components/navbar/navbar.component.html"
@@ -1701,6 +1713,9 @@
       "src/app/components/navbar/navbar.component.ts"
     ],
     "navbar.i_know_i_know_i_look_familiar_i_get_that_a_lot": [
+      "src/app/components/navbar/navbar.component.ts"
+    ],
+    "navbar.invalid_date_filter": [
       "src/app/components/navbar/navbar.component.ts"
     ],
     "navbar.keep": [
@@ -1744,6 +1759,9 @@
       "src/app/components/navbar/navbar.component.html"
     ],
     "navbar.re_enter_new_password": [
+      "src/app/components/navbar/navbar.component.html"
+    ],
+    "navbar.remove_date_filter": [
       "src/app/components/navbar/navbar.component.html"
     ],
     "navbar.remove_photo": [
