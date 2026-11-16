@@ -13,6 +13,7 @@
       "src/app/components/input/input.component.html"
     ],
     "accessibility.delete_forever": [
+      "src/app/components/navbar/navbar.component.html",
       "src/app/components/notes/notes.component.html"
     ],
     "accessibility.distance": [
@@ -70,6 +71,7 @@
     ],
     "accessibility.unarchive": [
       "src/app/components/input/input.component.html",
+      "src/app/components/navbar/navbar.component.html",
       "src/app/components/notes/notes.component.html"
     ],
     "accessibility.unpin_note": [
