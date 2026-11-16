@@ -113,6 +113,7 @@ export class SharedService {
   closeMobileComposer = new Subject<boolean>()
   openSelectedReminder = new Subject<void>()
   deleteSelectedForever = new Subject<void>()
+  selectAllNotes = new Subject<void>()
   saveNote = new Subject<boolean>()
   closeModal = new Subject<boolean>()
   noteViewType = new BehaviorSubject<'list' | 'grid'>(this.initialNoteViewType())

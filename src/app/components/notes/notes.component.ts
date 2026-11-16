@@ -831,6 +831,41 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   clickedNoteEl?: HTMLDivElement // needed in setModalStyling()
   private keyboardTrashInFlight = false
 
+  @HostListener('document:keydown', ['$event'])
+  onSelectAllKey(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.repeat || event.altKey || event.shiftKey ||
+      !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'a') return
+    const target = event.target as HTMLElement | null
+    if (this.isTextEntryTarget(target) || target?.closest?.('app-input, [role="dialog"], dialog') ||
+      this.selectionDialogOpen()) return
+    event.preventDefault()
+    return this.selectAllNotes()
+  }
+
+  private selectionDialogOpen() {
+    return this.modalContainer?.nativeElement.style.display === 'block' ||
+      Array.from(document.querySelectorAll('.modal-container, dialog[open], [role="dialog"], [aria-modal="true"], [data-is-tooltip-open="true"]'))
+        .some(element => element.getClientRects().length > 0)
+  }
+
+  async selectAllNotes() {
+    const page = this.currentPageName
+    const query = this.Shared.searchQuery
+    const scope = this.Shared.searchScope.value
+    const draft = this.Shared.composerDraftSyncId
+    const selection = this.Shared.selectedNoteIds.value
+    try {
+      await this.notesService.loadAllPages()
+      // Loading must not resurrect a cleared selection or select a different view.
+      if (this.destroyed || this.selectionDialogOpen() || page !== this.currentPageName ||
+        query !== this.Shared.searchQuery || scope !== this.Shared.searchScope.value ||
+        draft !== this.Shared.composerDraftSyncId || selection !== this.Shared.selectedNoteIds.value) return
+      this.Shared.selectedNoteIds.next([...new Set(this.pageNotes().flatMap(note => note.id ? [note.id] : []))])
+    } catch {
+      this.showMessage(uiText('notes.could_not_select_all_notes_please_try_again'))
+    }
+  }
+
   @HostListener('document:keydown.escape', ['$event'])
   onEscapeKey(event: Event) {
     if (event.defaultPrevented) return
@@ -3028,6 +3063,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.Shared.closeModal.subscribe(x => { if (x) this.closeModal() }),
       this.Shared.openSelectedReminder.subscribe(() => this.openReminderForSelectedNote()),
       this.Shared.deleteSelectedForever.subscribe(() => this.removeSelectedNotes()),
+      this.Shared.selectAllNotes.subscribe(() => { void this.selectAllNotes() }),
       this.Shared.noteViewType.subscribe(() => {
         setTimeout(() => this.scheduleBuildMasonry(true), 300);
         this.scheduleIPadMasonrySettle()

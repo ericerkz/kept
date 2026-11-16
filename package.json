@@ -11,6 +11,8 @@
     "test:note-swipe": "node --test scripts/note-swipe.test.cjs",
     "test:bulk-archive": "node --test scripts/bulk-archive.test.cjs",
     "test:bulk-archive:ui": "node scripts/bulk-archive-ui-test.mjs",
+    "test:select-all": "node --test scripts/select-all-notes.test.cjs",
+    "test:select-all:ui": "node scripts/select-all-notes-ui-test.mjs",
     "test:note-swipe:ui": "node scripts/note-swipe-ui-test.mjs",
     "test:mobile-header:ui": "node scripts/mobile-header-layout-test.mjs",
     "test:bulk-submenu:ui": "node scripts/bulk-submenu-ui-test.mjs",

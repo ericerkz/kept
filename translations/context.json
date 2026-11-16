@@ -1763,6 +1763,9 @@
     "navbar.search_your_notes": [
       "src/app/components/navbar/navbar.component.html"
     ],
+    "navbar.select_all": [
+      "src/app/components/navbar/navbar.component.html"
+    ],
     "navbar.this_binder": [
       "src/app/components/navbar/navbar.component.html"
     ],
@@ -1844,6 +1847,9 @@
       "src/app/services/notes.service.ts"
     ],
     "notes.could_not_refresh_notes": [
+      "src/app/components/notes/notes.component.ts"
+    ],
+    "notes.could_not_select_all_notes_please_try_again": [
       "src/app/components/notes/notes.component.ts"
     ],
     "notes.could_not_unarchive_this_note_please_try_again": [

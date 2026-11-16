@@ -205,6 +205,14 @@ export class NotesService {
     return !!this.nextCursor;
   }
 
+  async loadAllPages() {
+    while (this.searchReloadTimer || this.isLoading || this.isLoadingNextPage || this.hasMoreNotes) {
+      if (this.searchReloadTimer || this.isLoading || this.isLoadingNextPage) await this.delay(25);
+      else await this.loadNextPage();
+    }
+    if (this.loadError) throw new Error('Could not load notes');
+  }
+
   async loadNextPage() {
     if (!navigator.onLine) {
       this.nextCursor = null;
