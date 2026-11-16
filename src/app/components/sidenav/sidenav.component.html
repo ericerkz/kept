@@ -1,19 +1,19 @@
 <div class="sidebar-backdrop" [class.is-open]="isMobileOpen" aria-hidden="true" (click)="collapseSideBar()"></div>
 <div sideBar class="main-sidebar" [class.native-phone-drawer]="nativePhoneDrawer" [inert]="drawerClosed">
   <div class="sidenav-top">
-    <div [class.active]="router.url === '/'" class="item" routerLink="/" (click)="onNavItemClick()">
+    <div routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" class="item" routerLink="/" (click)="onNavItemClick()">
       <span class="pic lamp" aria-hidden="true"></span>
       <span class="text">{{ 'common.notes' | translate }}</span>
     </div>
-    <div [class.active]="router.url === '/reminders'" class="item" routerLink="/reminders" (click)="onNavItemClick()">
+    <div routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" class="item" routerLink="/reminders" (click)="onNavItemClick()">
       <span class="pic reminder" aria-hidden="true"></span>
       <span class="text">{{ 'common.reminders' | translate }}</span>
     </div>
-    <div [class.active]="router.url === '/attachments'" class="item" routerLink="/attachments" (click)="onNavItemClick()">
+    <div routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" class="item" routerLink="/attachments" (click)="onNavItemClick()">
       <span class="pic attachment" aria-hidden="true"></span>
       <span class="text">{{ 'common.attachments' | translate }}</span>
     </div>
-    <div [hidden]="auth.isLocal" [class.active]="router.url === '/shared'" class="item" routerLink="/shared" (click)="onNavItemClick()">
+    <div [hidden]="auth.isLocal" routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" class="item" routerLink="/shared" (click)="onNavItemClick()">
       <span class="pic col" aria-hidden="true"></span>
       <span class="text">{{ 'common.shared' | translate }}</span>
     </div>
@@ -39,7 +39,7 @@
 
   <div id="sidebar-binders" class="sidenav-binders" [hidden]="!bindersExpanded || binderCount === 0">
     @for (binder of Shared.binder.list; track binder.name) {
-      <div routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="item is-binder"
+      <div routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" class="item is-binder"
         [attr.data-binder-drop]="binder.name"
         (click)="onNavItemClick()"
         [title]="binder.name"
@@ -50,7 +50,7 @@
       </div>
     }
     @for (binder of Shared.sharedBinders; track binder.id) {
-      <div class="item is-binder received-binder" routerLinkActive="active" [routerLink]="['/shared-binder', binder.id]" (click)="onNavItemClick()">
+      <div class="item is-binder received-binder" routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" [routerLink]="['/shared-binder', binder.id]" (click)="onNavItemClick()">
         <span class="material-pic material-symbols-outlined binder-row-icon" aria-hidden="true">folder_shared</span>
         <span class="text"><span>{{binder.name}}</span><small>{{binder.ownerDisplayName || binder.ownerUsername}}</small></span>
         <span class="label-abbr" aria-hidden="true">{{compactLabel(binder.name)}}</span>
@@ -79,8 +79,8 @@
   </div>
 
   <div id="sidebar-labels" class="sidenav-labels" [hidden]="!labelsExpanded || Shared.label.list.length === 0">
-    @for (label of Shared.label.list; track label) {
-      <div routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="item is-label"
+    @for (label of Shared.label.list; track label.name) {
+      <div routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" class="item is-label"
         (click)="onNavItemClick()"
         [title]="label.name"
         [routerLink]="['/label', label.name]">
@@ -92,16 +92,16 @@
   </div>
 
   <div class="sidenav-bottom">
-    <div [class.active]="router.url === '/archive'" class="item" routerLink="/archive" (click)="onNavItemClick()">
+    <div routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" class="item" routerLink="/archive" (click)="onNavItemClick()">
       <span class="pic archive" aria-hidden="true"></span>
       <span class="text">{{ 'common.archive' | translate }}</span>
     </div>
-    <div [class.active]="router.url === '/trash'" routerLink="/trash" class="item" (click)="onNavItemClick()">
+    <div routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" routerLink="/trash" class="item" (click)="onNavItemClick()">
       <span class="pic trash" aria-hidden="true"></span>
       <span class="text">{{ 'common.trash' | translate }}</span>
     </div>
     @if (auth.isAdmin) {
-      <div [class.active]="router.url === '/users'" routerLink="/users" class="item" (click)="onNavItemClick()">
+      <div routerLinkActive="active" [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }" routerLink="/users" class="item" (click)="onNavItemClick()">
         <span class="pic users" aria-hidden="true"></span>
         <span class="text">{{ 'sidenav.users_admin_settings' | translate }}</span>
       </div>
