@@ -135,25 +135,6 @@ Built in the open, with the immediacy of Google Keep and control over where your
 
 # Technical documentation
 
-## Search by creation date
-
-Use **Filters → Creation date**, or add `!date` to a search:
-
-| Search | Notes created |
-| --- | --- |
-| `!date 2025` | During 2025 |
-| `!date 2025-11` or `!date November 2025` | During November 2025 |
-| `!date 2025-11-16` or `!date 16 November 2025` | On that day |
-| `!date today` or `!date yesterday` | Today or yesterday |
-| `!date Monday` | On the most recent Monday, including today |
-| `!date last Monday` | On the most recent Monday before today |
-| `!date last week`, `!date last month`, `!date last year` | During that calendar period |
-| `!date two years ago` | During the year two years ago |
-
-Combine a date filter with text or other filters, such as `budget !date 2025 !todo`. Dates use your device's local time; calendar weeks start on Monday. Month and weekday names use English, with abbreviations such as `Nov` and `Mon` also supported. A month or month/day without a year uses the current year.
-
-Without `!date`, years, dates and phrases such as `Created on 2025` or `today` are searched as ordinary note text. Date filters use the note's **creation date**, rather than its reminder or last-edited date.
-
 ## Use Kept Locally Without a Server
 
 With the native iOS and Android apps, you can start using Kept without Docker, a server, or a Kept account:
@@ -440,6 +421,10 @@ This works with any SMTP relay — a personal email account's SMTP, or any trans
 Kept includes an optional OAuth 2.1 authorization server for third-party apps and integrations. OAuth clients can request read-only or read/write access to the supported Kept API without receiving a user's password or long-lived local MCP token. See [the OAuth integration guide](docs/oauth.md).
 
 Remote MCP is one consumer of that OAuth layer. Local MCP clients can use stdio with a dedicated token; remote clients such as ChatGPT can connect to the Streamable HTTP endpoint at `/mcp`. OAuth app access and local MCP access are independent, off-by-default settings, so either can be enabled or revoked without affecting the other. Locked notes and permanent deletion have separate shared opt-in controls. See [the MCP setup and security guide](docs/mcp.md).
+
+## Search and filters
+
+See [Search and filters](docs/search.md) for search operators and creation-date examples.
 
 ## Development
 
