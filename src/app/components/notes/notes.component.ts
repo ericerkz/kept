@@ -12,6 +12,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 import Bricks from 'bricks.js'
 import { firstValueFrom, Subscription, filter, first, timeout } from 'rxjs';
 import { SharedService, type WidgetCreateRequest, type WidgetCreateType } from 'src/app/services/shared.service';
+import { createUuid } from 'src/app/utils/uuid';
 import { bgColors, bgImages } from 'src/app/interfaces/tooltip';
 import { LabelI } from 'src/app/interfaces/labels';
 import { ActivationEnd, NavigationEnd, Router } from '@angular/router';
@@ -3062,6 +3063,11 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.subscriptions.push(
       this.Shared.closeSideBar.subscribe(() => { setTimeout(() => { this.scheduleBuildMasonry(true) }, 200) }),
       this.Shared.closeModal.subscribe(x => { if (x) this.closeModal() }),
+      this.Shared.drawingNoteRequested.subscribe(async () => {
+        if (this.modalContainer.nativeElement.style.display === 'block') await this.closeModal()
+        this.Shared.clearNoteSelection()
+        this.Shared.widgetCreateRequested.next({ requestId: createUuid(), type: 'drawing' })
+      }),
       this.Shared.openSelectedReminder.subscribe(() => this.openReminderForSelectedNote()),
       this.Shared.deleteSelectedForever.subscribe(() => this.removeSelectedNotes()),
       this.Shared.selectAllNotes.subscribe(() => { void this.selectAllNotes() }),
