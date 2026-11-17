@@ -64,3 +64,15 @@ test('normalizeIndentLevels repairs filtered checklist sections without changing
   );
   assert.deepEqual(stored.map(item => item.indentLevel), [0, 1, 2, 1]);
 });
+
+
+test('separate checklists never share indentation or child completion boundaries', () => {
+  const items = [
+    { listId: 'a', indentLevel: 0 }, { listId: 'a', indentLevel: 1 },
+    { listId: 'b', indentLevel: 1 }, { listId: 'b', indentLevel: 2 }
+  ];
+  assert.equal(maxIndentLevelAt(items, 2), 0);
+  assert.deepEqual(descendantIndexes(items, 0), [1]);
+  assert.deepEqual(normalizeIndentLevels(items).map(item => item.indentLevel), [0, 1, 0, 1]);
+  assert.deepEqual(items.map(item => item.indentLevel), [0, 1, 1, 2]);
+});

@@ -19,6 +19,9 @@
     "accessibility.distance": [
       "src/app/components/input/input.component.html"
     ],
+    "accessibility.eraser_size": [
+      "src/app/components/input/input.component.html"
+    ],
     "accessibility.grid_view": [
       "src/app/components/navbar/navbar.component.html"
     ],
@@ -87,7 +90,22 @@
     "appearance.colour": [
       "src/app/components/note-appearance-picker/note-appearance-picker.component.html"
     ],
+    "appearance.illustrations": [
+      "src/app/components/note-appearance-picker/note-appearance-picker.component.html"
+    ],
+    "appearance.on_note_colour": [
+      "src/app/components/note-appearance-picker/note-appearance-picker.component.html"
+    ],
+    "appearance.pattern_label": [
+      "src/app/components/note-appearance-picker/note-appearance-picker.component.html"
+    ],
+    "appearance.patterns": [
+      "src/app/components/note-appearance-picker/note-appearance-picker.component.html"
+    ],
     "appearance.tabs": [
+      "src/app/components/note-appearance-picker/note-appearance-picker.component.html"
+    ],
+    "appearance.whole_note_artwork": [
       "src/app/components/note-appearance-picker/note-appearance-picker.component.html"
     ],
     "attachments.choose_a_supported_document_text_file_or_archive": [
@@ -527,6 +545,12 @@
     "counts.collaborators.other": [
       "src/app/components/main/main.component.ts"
     ],
+    "counts.extra_images.one": [
+      "src/app/components/notes/notes.component.html"
+    ],
+    "counts.extra_images.other": [
+      "src/app/components/notes/notes.component.html"
+    ],
     "counts.extra_links.one": [
       "src/app/components/notes/notes.component.html"
     ],
@@ -545,6 +569,14 @@
     "counts.labels.other": [
       "src/app/components/main/main.component.ts"
     ],
+    "counts.more_images.one": [
+      "src/app/components/notes/notes.component.html",
+      "src/app/components/notes/note-preview-images.component.ts"
+    ],
+    "counts.more_images.other": [
+      "src/app/components/notes/notes.component.html",
+      "src/app/components/notes/note-preview-images.component.ts"
+    ],
     "counts.notes.one": [
       "src/app/components/sidenav/sidenav.component.html"
     ],
@@ -561,9 +593,6 @@
       "src/app/components/input/input.component.html",
       "src/app/components/location-map-picker/location-map-picker.component.html"
     ],
-    "input.add_checkboxes": [
-      "src/app/components/input/input.component.html"
-    ],
     "input.add_image": [
       "src/app/components/input/input.component.html",
       "src/app/components/notes/notes.component.html"
@@ -571,8 +600,11 @@
     "input.add_saved_place": [
       "src/app/components/input/input.component.html"
     ],
-    "input.add_text": [
-      "src/app/components/input/input.component.ts"
+    "input.add_text_above_checklist": [
+      "src/app/components/input/input.component.html"
+    ],
+    "input.add_text_below_checklist": [
+      "src/app/components/input/input.component.html"
     ],
     "input.add_your_home_address": [
       "src/app/components/input/input.component.ts"
@@ -604,9 +636,6 @@
     "input.change_passcode": [
       "src/app/components/input/input.component.html",
       "src/app/components/notes/notes.component.html"
-    ],
-    "input.checklists_shown": [
-      "src/app/components/input/input.component.ts"
     ],
     "input.choose_on_map": [
       "src/app/components/input/input.component.html"
@@ -667,6 +696,9 @@
       "src/app/components/input/input.component.ts",
       "src/app/components/notes/notes.component.ts"
     ],
+    "input.created_on_datetime": [
+      "src/app/components/input/input.component.html"
+    ],
     "input.current_location_is_unavailable_you_can_still_choose_a_spot_on_th": [
       "src/app/components/input/input.component.ts"
     ],
@@ -713,6 +745,9 @@
     "input.edited_just_now": [
       "src/app/components/input/input.component.html"
     ],
+    "input.edited_on_datetime": [
+      "src/app/components/input/input.component.html"
+    ],
     "input.edited_value0": [
       "src/app/components/input/input.component.ts"
     ],
@@ -742,6 +777,9 @@
     "input.fullscreen": [
       "src/app/components/input/input.component.html"
     ],
+    "input.highlight_text": [
+      "src/app/components/input/input.component.html"
+    ],
     "input.highlighter": [
       "src/app/components/input/input.component.html"
     ],
@@ -752,6 +790,9 @@
       "src/app/components/input/input.component.html"
     ],
     "input.image": [
+      "src/app/components/input/input.component.html"
+    ],
+    "input.insert_checklist": [
       "src/app/components/input/input.component.html"
     ],
     "input.jumps_this_note_above_the_rest": [
@@ -977,8 +1018,8 @@
       "src/app/components/input/input.component.html",
       "src/app/components/notes/notes.component.html"
     ],
-    "input.show_checkboxes": [
-      "src/app/components/input/input.component.ts"
+    "input.show_creation_date": [
+      "src/app/components/input/input.component.html"
     ],
     "input.square": [
       "src/app/components/input/input.component.html"
@@ -1635,9 +1676,6 @@
       "src/app/components/navbar/navbar.component.html",
       "src/app/components/navbar/navbar.component.ts"
     ],
-    "navbar.apply_date_filter": [
-      "src/app/components/navbar/navbar.component.html"
-    ],
     "navbar.avatar_preview": [
       "src/app/components/navbar/navbar.component.html"
     ],
@@ -1687,10 +1725,13 @@
       "src/app/components/navbar/navbar.component.html",
       "src/app/components/settings/settings.component.html"
     ],
-    "navbar.date_filter_examples": [
+    "navbar.date": [
       "src/app/components/navbar/navbar.component.html"
     ],
-    "navbar.date_filter_placeholder": [
+    "navbar.date_example_action": [
+      "src/app/components/navbar/navbar.component.html"
+    ],
+    "navbar.date_examples_prefix": [
       "src/app/components/navbar/navbar.component.html"
     ],
     "navbar.device_settings": [
@@ -1713,9 +1754,6 @@
       "src/app/components/navbar/navbar.component.ts"
     ],
     "navbar.i_know_i_know_i_look_familiar_i_get_that_a_lot": [
-      "src/app/components/navbar/navbar.component.ts"
-    ],
-    "navbar.invalid_date_filter": [
       "src/app/components/navbar/navbar.component.ts"
     ],
     "navbar.keep": [
@@ -1759,9 +1797,6 @@
       "src/app/components/navbar/navbar.component.html"
     ],
     "navbar.re_enter_new_password": [
-      "src/app/components/navbar/navbar.component.html"
-    ],
-    "navbar.remove_date_filter": [
       "src/app/components/navbar/navbar.component.html"
     ],
     "navbar.remove_photo": [
@@ -1956,6 +1991,9 @@
     "notes.only_the_owner_of_this_note_can_delete_it_forever": [
       "src/app/components/notes/notes.component.ts"
     ],
+    "notes.open_image": [
+      "src/app/components/notes/note-preview-images.component.ts"
+    ],
     "notes.other": [
       "src/app/interfaces/workspace.ts",
       "src/app/services/offline-store.service.ts",
@@ -2146,6 +2184,87 @@
     ],
     "organization.selected_labels": [
       "src/app/services/shared.service.ts"
+    ],
+    "patterns.budget": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.cafes": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.candy": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.cherries": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.flowers": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.garden": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.groceries": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.gym": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.hearts": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.home": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.ideas": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.leaves": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.lemons": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.movies": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.music": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.night": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.oranges": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.party": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.pets": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.pizza": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.reading": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.recipes": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.restaurants": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.roses": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.study": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.todos": [
+      "src/app/utils/note-appearance.ts"
+    ],
+    "patterns.travel": [
+      "src/app/utils/note-appearance.ts"
     ],
     "push_notification.enable": [
       "src/app/services/push-notification.service.ts"
@@ -2570,6 +2689,15 @@
       "src/app/components/settings/settings.component.html"
     ],
     "settings.default": [
+      "src/app/components/settings/settings.component.ts"
+    ],
+    "settings.default_note_colour": [
+      "src/app/components/settings/settings.component.html"
+    ],
+    "settings.default_note_colour_description": [
+      "src/app/components/settings/settings.component.html"
+    ],
+    "settings.default_note_colour_save_failed": [
       "src/app/components/settings/settings.component.ts"
     ],
     "settings.delete_my_account_permanently": [

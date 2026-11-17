@@ -61,9 +61,7 @@ export class NavbarComponent implements OnInit {
   isResettingPassword = false
   showPasswordReset = false
   isFiltersOpen = false
-  dateFilterDraft = ''
-  dateFilterError = ''
-  readonly dateFilterExamples = '2025, 2025-11, 2025-11-16, November 2025, Monday, today, yesterday'
+  readonly dateFilterExamples = ['today', 'november', '2025']
   private selectionMoreButton?: HTMLElement
 
   get selectedCount() {
@@ -110,7 +108,7 @@ export class NavbarComponent implements OnInit {
   onSearchFocus() {
     // Mobile-only expansion. The CSS gates this on a media query so
     // adding the class on desktop is a no-op.
-    this.searchExpanded = true
+    this.searchExpanded = !this.isFiltersOpen
   }
 
   onSearchBlur() {
@@ -150,37 +148,49 @@ export class NavbarComponent implements OnInit {
     return filters
   }
 
+  get activeLabelFilters() {
+    return this.activeFilters.filter(filter => filter.code.startsWith('!label:'))
+  }
+
   toggleFilters(event?: Event) {
     if (event) event.stopPropagation()
     this.searchExpanded = false
     this.searchInput?.nativeElement.blur()
     this.isFiltersOpen = !this.isFiltersOpen
-    if (this.isFiltersOpen) {
-      this.dateFilterDraft = parseDateSearch(this.Shared.searchQuery).filters[0]?.value || ''
-      this.dateFilterError = ''
-    }
   }
 
   get hasDateFilter() {
     return parseDateSearch(this.Shared.searchQuery).filters.length > 0
   }
 
+  toggleDateFilter() {
+    if (this.hasDateFilter) this.clearDateFilter()
+    else this.Shared.setSearchQuery(`${this.Shared.searchQuery.trim()} !date `.trimStart())
+    this.focusDateSearch()
+  }
+
   applyDateFilter(value: string) {
     const base = parseDateSearch(this.Shared.searchQuery).text
     const candidate = parseDateSearch(`!date ${value.trim()}`)
-    if (candidate.invalid || !candidate.range || candidate.filters.length !== 1 || candidate.text.trim()) {
-      this.dateFilterError = uiText('navbar.invalid_date_filter')
-      return
-    }
+    if (candidate.invalid || !candidate.range || candidate.filters.length !== 1 || candidate.text.trim()) return
     this.Shared.setSearchQuery(`${base} ${candidate.filters[0].code}`.trim())
-    this.dateFilterError = ''
-    this.isFiltersOpen = false
+    this.focusDateSearch()
+  }
+
+  isDateExampleActive(value: string) {
+    return parseDateSearch(this.Shared.searchQuery).filters.some(filter => filter.valid && filter.value.toLowerCase() === value)
   }
 
   clearDateFilter() {
     this.Shared.setSearchQuery(parseDateSearch(this.Shared.searchQuery).text)
-    this.dateFilterDraft = ''
-    this.dateFilterError = ''
+  }
+
+  private focusDateSearch() {
+    const input = this.searchInput?.nativeElement
+    if (!input) return
+    input.value = this.Shared.searchQuery
+    input.focus()
+    input.setSelectionRange(input.value.length, input.value.length)
   }
 
   removeFilter(code: string) {
@@ -236,9 +246,18 @@ export class NavbarComponent implements OnInit {
     this.Shared.createTooltip(button, tooltipEl, 'bottom-end')
   }
 
+  get selectionAppearance() {
+    const notes = this.Shared.note.all.filter(note => note.id && this.Shared.selectedNoteIds.value.includes(note.id));
+    const first = notes[0];
+    return { bgColor: notes.every(note => note.bgColor === first?.bgColor) ? first?.bgColor || '' : '',
+      bgImage: notes.every(note => note.bgImage === first?.bgImage) ? first?.bgImage || '' : '',
+      pattern: notes.every(note => note.pattern === first?.pattern) ? first?.pattern || null : null };
+  }
+
   selectionColorMenu = {
-    bgColor: (data: bgColors) => this.Shared.bulkUpdateSelected({ bgColor: data, bgImage: '' }),
-    bgImage: (data: bgImages) => this.Shared.bulkUpdateSelected({ bgImage: data ? `url(${data})` : '' })
+    pattern: (id: string | null) => this.Shared.bulkUpdateSelected({ pattern: id, ...(id ? { bgImage: '' } : {}) }),
+    bgColor: (data: bgColors) => this.Shared.bulkUpdateSelected({ bgColor: data }),
+    bgImage: (data: bgImages) => this.Shared.bulkUpdateSelected({ bgImage: data ? `url(${data})` : '', ...(data ? { pattern: null } : {}) })
   }
 
   openSelectedReminder() {
@@ -248,6 +267,10 @@ export class NavbarComponent implements OnInit {
 
   selectionMoreMenu(tooltipEl: HTMLDivElement) {
     const actions = {
+      selectAll: () => {
+        this.Shared.closeTooltip(tooltipEl)
+        this.Shared.selectAllNotes.next()
+      },
       trash: () => this.deleteSelected(),
       clone: () => this.Shared.bulkCloneSelected(),
       openLabelMenu: (labelTooltipEl: HTMLDivElement) => {

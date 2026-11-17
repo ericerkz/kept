@@ -1,11 +1,13 @@
 import { uiLocale, uiWeekdays, uiPlural, uiText, uiTimepickerLabels } from 'src/app/i18n/messages';
 import { MAX_FILE_BYTES, isNoteImageFile } from '../../utils/note-images';
 import { createNoteHtmlContainer, hasJoinedNoteUrls, sanitizeNoteHtml } from '../../utils/note-html';
+import { checklistBodyParts, serializeChecklistBody, checklistId, DEFAULT_CHECKLIST_ID, type ChecklistBodyPart } from '../../utils/checklist-placement';
 import { NoteI, CheckboxI, NoteImageI, NoteAttachmentI } from '../../interfaces/notes';
 import { Component, OnInit, ViewChild, ElementRef, ChangeDetectorRef, Input, HostBinding, HostListener } from '@angular/core';
 import { Router } from '@angular/router';
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 
+import { noteAppearance, notePatternImage, validNotePattern } from '../../utils/note-appearance';
 import { bgImages, bgColors } from 'src/app/interfaces/tooltip';
 import { SharedService, type WidgetCreateRequest } from 'src/app/services/shared.service';
 import { BehaviorSubject, Subscription, Subject } from 'rxjs';
@@ -35,6 +37,8 @@ type InputLengthI = { title?: number, body?: number, cb?: number }
 type DrawingTool = 'select' | 'pen' | 'marker' | 'highlighter' | 'eraser'
 type DrawingPoint = { x: number, y: number }
 type DrawingSelection = { x: number, y: number, w: number, h: number }
+type ChecklistModeSnapshot = { titleHtml: string, bodyHtml: string, checkBoxes: CheckboxI[], drafts?: Record<string, string>, isCbox: boolean, isHybridNote: boolean, showTextAfterChecklist: boolean }
+type ChecklistModeChange = { before: ChecklistModeSnapshot, after: ChecklistModeSnapshot }
 type PlaceDialogView = 'choose' | 'manage' | 'add' | 'search'
 type PlaceListItem = LocationSavedPlace | { id: 'home-prompt' | 'work-prompt'; name: string; address: string; placeType: SavedPlaceType; prompt: true }
 type EditorAppPlugin = {
@@ -71,7 +75,20 @@ export class InputComponent implements OnInit {
   @ViewChild("drawingWrap") drawingWrap?: ElementRef<HTMLDivElement>
   //? checkbox  -----------------------------------------------------
   @ViewChild("cboxInput") cboxInput!: ElementRef<HTMLDivElement>
-  @ViewChild("cboxPh") cboxPh?: ElementRef<HTMLDivElement>
+  checklistBlocks: { id: string; showText: boolean }[] = []
+  private activeChecklistId = DEFAULT_CHECKLIST_ID
+  private checklistDrafts() {
+    return Array.from(this.noteContainer?.nativeElement.querySelectorAll<HTMLDivElement>('[data-checklist-draft]') || [])
+  }
+  get cboxPh(): ElementRef<HTMLDivElement> | undefined {
+    const drafts = this.checklistDrafts()
+    const el = drafts.find(el => el.dataset['checklistDraft'] === this.activeChecklistId) || drafts[0]
+    return el ? new ElementRef(el) : undefined
+  }
+  activateChecklist(id: string) { this.activeChecklistId = id }
+  private bodyAfterChecklist(id: string) {
+    return this.editorBodies().find(body => body.dataset['bodyAfter'] === id)
+  }
   @ViewChild("moreMenuTtBtn") moreMenuTtBtn?: ElementRef<HTMLDivElement> // needed in the html
   //? -----------------------------------------------------
   @Input() isEditing = false
@@ -98,6 +115,7 @@ export class InputComponent implements OnInit {
   isArchived = false
   isTrashed = false
   isCboxCompletedListCollapsed = false
+  private completedCollapsedByList: Record<string, boolean> = Object.create(null)
   showTextFormatting = false
   showSelectionFormatting = false
   selectionFormattingStyle: Record<string, string> = {}
@@ -190,13 +208,17 @@ export class InputComponent implements OnInit {
   collaboratorError = ''
   isSavingCollaborators = false
   labelMenuError = ''
+  pattern: string | null = null
+  illustrationBackground = ''
   hasBackgroundImage = false
   isDrawingNote = false
   isDrawingFullscreen = false
-  // Set true when the loaded note has both a body and a checklist (hybrid note,
-  // typically from a merge). Latches for the session so the body stays
-  // visible even if the user momentarily clears it while editing.
+  // Keep the text area visible for a mixed text/checklist note, even when the
+  // user momentarily clears its text while editing.
   isHybridNote = false
+  showTextAfterChecklist = false
+  private checklistModeUndo: ChecklistModeChange[] = []
+  private checklistModeRedo: ChecklistModeChange[] = []
   drawingTool: DrawingTool = 'pen'
   drawingBackground: 'square' | 'dots' | 'rules' | 'none' = 'rules'
   showDrawingBackgroundMenu = false
@@ -206,6 +228,8 @@ export class InputComponent implements OnInit {
   drawingOpenToolMenu?: 'pen' | 'marker' | 'highlighter'
   drawingColors = ['#000000', '#ff4b55', '#ffb52e', '#20bf55', '#26a7df', '#bd10e0', '#8d6e63', '#ffffff', '#b3261e', '#f57c00', '#558b2f', '#0b5c99', '#8e24aa', '#4e342e', '#9eb0b9', '#f5367a', '#ff674d', '#aeea00', '#3454f4', '#6f4df6', '#35d7b7', '#d5e1e5', '#f8b5cf', '#ffc8b8', '#eef4bd', '#a8b7e8', '#d1c4e9', '#b2dfdb']
   drawingSizes = [2, 4, 7, 10, 14, 19, 25]
+  drawingEraserSizes = [4, 8, 12, 16, 24, 32, 48]
+  drawingEraserSize = 24
   drawingToolOptions = {
     pen: { color: '#202124', size: 4 },
     marker: { color: '#ff4b55', size: 7 },
@@ -268,6 +292,10 @@ export class InputComponent implements OnInit {
   mobileComposeMode = false
   mobileNewNoteStarterDismissed = false
   lastEditedTime = ''
+  showCreatedTime = false
+
+  @HostListener('document:click')
+  dismissCreatedTime() { this.showCreatedTime = false; }
   //
   moreMenuEls = {
     delete: {
@@ -276,14 +304,17 @@ export class InputComponent implements OnInit {
     copy: {
       disabled: true,
     },
-    checkbox: {
-      value: 'Show checkboxes'
-    },
   }
   //? placeholder  --------------------------------------------------
 
   toggleNoteVisibility(condition: boolean) {
     if (condition) {
+      if (!this.isEditing && this.noteMain.nativeElement.hidden && !this.currentNoteId()) {
+        const color = this.preferences?.value.defaultNoteColor || ''
+        this.noteMain.nativeElement.style.backgroundColor = color
+        this.noteMain.nativeElement.style.borderColor = color
+        this.updateTextColor(color)
+      }
       this.notePlaceholder.nativeElement.hidden = true; this.noteMain.nativeElement.hidden = false
     } else {
       this.notePlaceholder.nativeElement.hidden = false; this.noteMain.nativeElement.hidden = true
@@ -367,7 +398,11 @@ export class InputComponent implements OnInit {
         if (!this.noteMain.nativeElement.hidden) this.closeNote()
       }
 
-      this.openMobileComposer()
+      // Desktop New drawing also uses this request path. Do not lock the body
+      // or apply a phone-only fullscreen layout to the desktop composer.
+      const desktop = Capacitor.getPlatform() === 'web' && !shouldUseFullscreenNoteEditor()
+      if (desktop) this.notePhClick()
+      else this.openMobileComposer()
       this.mobileNewNoteStarterDismissed = true
       if (request.type === 'checklist') this.startMobileChecklist()
       else if (request.type === 'drawing') this.startMobileDrawing()
@@ -377,7 +412,12 @@ export class InputComponent implements OnInit {
       await new Promise<void>(resolve => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
       })
-      const openedInRequestedMode = this.mobileComposeMode
+      if (desktop) {
+        const navbar = document.querySelector('app-navbar .navbar')?.getBoundingClientRect()
+        const top = this.main.nativeElement.getBoundingClientRect().top + window.scrollY
+        window.scrollTo({ top: Math.max(0, top - Math.max(0, navbar?.bottom || 0) - 16) })
+      }
+      const openedInRequestedMode = (desktop ? !this.mobileComposeMode : this.mobileComposeMode)
         && !this.noteMain.nativeElement.hidden
         && (request.type !== 'checklist' || this.isCbox.value)
         && (request.type !== 'drawing' || this.isDrawingNote)
@@ -390,31 +430,183 @@ export class InputComponent implements OnInit {
 
   mobileBack() {
     void this.saveNote()
+
   }
 
-  toggleCbox() {
-    const currentBodyHtml = this.noteBody?.nativeElement.innerHTML || ''
-    if (this.isCbox.value) {
-      if (this.checkBoxes.length) {
-        this.isHybridNote = false
-        this.isCbox.next(false)
-        this.cd.detectChanges()
-        this.restoreBodyHtmlAfterTemplateSwap(currentBodyHtml)
-        this.noteBody?.nativeElement.focus()
-        this.updateCheckboxMenuLabel()
-        return
-      }
-      this.isCbox.next(false)
+  insertChecklist() {
+    const focused = this.textHistoryTarget?.closest<HTMLElement>('[data-checklist-id]')
+    if (focused?.isConnected && this.noteContainer.nativeElement.contains(focused) && !this.bodyContaining(this.lastBodyRange?.commonAncestorContainer)) {
+      this.activeChecklistId = focused.dataset['checklistId'] || DEFAULT_CHECKLIST_ID
+      this.cboxPh?.nativeElement.focus()
       return
     }
-
-    if (this.hasMeaningfulBody(this.noteBody?.nativeElement.innerHTML)) {
-      this.isHybridNote = true
+    const before = this.checklistModeSnapshot()
+    const body = this.activeBody()
+    const parts = this.editorBodyParts()
+    const bodyIndex = body?.dataset['bodyAfter']
+      ? parts.findIndex(part => part.type === 'checklist' && part.id === body.dataset['bodyAfter']) + 1 : 0
+    const split = this.splitBodyAtCursor()
+    const id = createUuid()
+    const nextId = Math.max(-1, ...before.checkBoxes.map(row => row.id)) + 1
+    parts.splice(bodyIndex, 1, { type: 'text', html: split.before }, { type: 'checklist', id }, { type: 'text', html: split.after })
+    this.activeChecklistId = id
+    this.applyChecklistModeSnapshot({ ...before, bodyHtml: serializeChecklistBody(parts),
+      checkBoxes: [...before.checkBoxes, { id: nextId, listId: id, data: '', done: false, indentLevel: 0 }],
+      isCbox: true, isHybridNote: this.hasMeaningfulBody(parts[0].type === 'text' ? parts[0].html : '') })
+    this.recordChecklistModeChange(before)
+    const row = this.noteContainer.nativeElement.querySelector<HTMLDivElement>(`[data-cbox-id="${nextId}"]`)
+    if (row) {
+      const caret = document.createRange(); caret.selectNodeContents(row); caret.collapse(false)
+      this.focusCboxAtRange(row, caret)
     }
-    this.isCbox.next(true)
+  }
+
+  private recordChecklistModeChange(before: ChecklistModeSnapshot) {
+    this.checklistModeUndo.push({ before, after: this.checklistModeSnapshot() })
+    if (this.checklistModeUndo.length > 30) this.checklistModeUndo.shift()
+    this.checklistModeRedo = []
+  }
+
+  addChecklistText(after = false, id = this.checklistBlocks[this.checklistBlocks.length - 1]?.id) {
+    if (after) {
+      const block = this.checklistBlocks.find(block => block.id === id)
+      if (block) block.showText = true
+      this.showTextAfterChecklist = true
+    } else this.isHybridNote = true
     this.cd.detectChanges()
-    this.restoreBodyHtmlAfterTemplateSwap(currentBodyHtml)
-    requestAnimationFrame(() => this.cboxPh?.nativeElement.focus())
+    ;(after ? this.bodyAfterChecklist(id) : this.noteBody?.nativeElement)?.focus()
+  }
+
+  noteContainerClicked(event: MouseEvent) {
+    if (!this.isCbox.value || event.target !== this.noteContainer.nativeElement) return
+    const lists = Array.from(this.noteContainer.nativeElement.querySelectorAll<HTMLElement>('[data-checklist-id]'))
+    const previous = lists.filter(list => list.getBoundingClientRect().top <= event.clientY).pop()
+    const id = previous?.dataset['checklistId']
+    this.addChecklistText(!!previous, id)
+    const body = previous ? this.bodyAfterChecklist(id!) : this.noteBody?.nativeElement
+    if (!body) return
+    const caret = document.createRange(); caret.selectNodeContents(body); caret.collapse(false)
+    const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(caret)
+  }
+
+  private editorBodies(): HTMLDivElement[] {
+    return Array.from(this.noteContainer?.nativeElement.querySelectorAll<HTMLDivElement>('.note-body[contenteditable="true"]') || [])
+  }
+
+  private bodyContaining(node?: Node | null) {
+    return node ? this.editorBodies().find(body => body.contains(node)) : undefined
+  }
+
+  private activeBody() {
+    const selection = window.getSelection()
+    return this.bodyContaining(selection?.rangeCount ? selection.getRangeAt(0).commonAncestorContainer : undefined)
+      || this.bodyContaining(this.lastBodyRange?.commonAncestorContainer)
+      || this.noteBody?.nativeElement
+  }
+
+  private editorBodyParts(): ChecklistBodyPart[] {
+    const parts: ChecklistBodyPart[] = [{ type: 'text', html: this.cleanEditorBodyForSave(this.noteBody?.nativeElement.innerHTML || '') }]
+    if (this.isCbox.value) for (const block of this.checklistBlocks) {
+      parts.push({ type: 'checklist', id: block.id }, { type: 'text', html: this.cleanEditorBodyForSave(this.bodyAfterChecklist(block.id)?.innerHTML || '') })
+    }
+    return parts
+  }
+
+  private editorBodyHtml() {
+    return serializeChecklistBody(this.editorBodyParts())
+  }
+
+  private setEditorBodyHtml(html: string, preserveCursor = false) {
+    const parts = checklistBodyParts(html, this.checkBoxes, !!this.isCbox.value)
+    let leading = ''
+    const blocks: { id: string; html: string; showText: boolean }[] = []
+    for (const part of parts) {
+      if (part.type === 'checklist') blocks.push({ id: part.id, html: '', showText: false })
+      else if (blocks.length) blocks[blocks.length - 1].html += part.html
+      else leading += part.html
+    }
+    this.isHybridNote = this.hasMeaningfulBody(leading) || (preserveCursor && this.isHybridNote)
+    this.checklistBlocks = blocks.map(block => ({ id: block.id,
+      showText: !!block.html || !!(preserveCursor && this.checklistBlocks.find(old => old.id === block.id)?.showText) }))
+    this.showTextAfterChecklist = this.checklistBlocks.some(block => block.showText)
+    // Flat rows stay contiguous by list, with globally unique IDs for widget ticks.
+    if (blocks.length) this.checkBoxes = blocks.flatMap(block => this.checkBoxes.filter(row => checklistId(row) === block.id))
+    this.cd.detectChanges()
+    const values: [HTMLDivElement | undefined, string][] = [[this.noteBody?.nativeElement, leading],
+      ...blocks.map(block => [this.bodyAfterChecklist(block.id), block.html] as [HTMLDivElement | undefined, string])]
+    for (const [body, content] of values) {
+      if (!body) continue
+      if (preserveCursor && this.cleanEditorBodyForSave(body.innerHTML) === this.auth.canonicalImageHtml(content)) continue
+      const decorated = sanitizeNoteHtml(this.decorateLinksForEditor(content))
+      if (preserveCursor) this.updateHtmlWithCursorPreservation(body, decorated)
+      else body.innerHTML = decorated
+    }
+  }
+
+  private splitBodyAtCursor() {
+    const body = this.activeBody()
+    if (!body) return { before: this.editorBodyHtml(), after: '' }
+    const selection = window.getSelection()
+    const selected = selection?.rangeCount ? selection.getRangeAt(0) : undefined
+    const saved = selected && body.contains(selected.commonAncestorContainer) ? selected
+      : this.lastBodyRange && body.contains(this.lastBodyRange.commonAncestorContainer) ? this.lastBodyRange : undefined
+    const caret = saved?.cloneRange() || document.createRange()
+    if (!saved) caret.selectNodeContents(body)
+    caret.collapse(saved ? true : false)
+    const prefix = document.createRange()
+    prefix.selectNodeContents(body)
+    prefix.setEnd(caret.startContainer, caret.startOffset)
+    const suffix = document.createRange()
+    suffix.selectNodeContents(body)
+    suffix.setStart(caret.startContainer, caret.startOffset)
+    const serialize = (range: Range) => {
+      const div = createNoteHtmlContainer()
+      div.append(range.cloneContents())
+      // A range at the edge of rich text can clone empty ancestor wrappers.
+      if (!div.textContent && !div.querySelector('br, img, hr, table, .editor-link-preview-slot')) return ''
+      return this.cleanEditorBodyForSave(div.innerHTML)
+    }
+    return { before: serialize(prefix), after: serialize(suffix) }
+  }
+
+  private checklistModeSnapshot(): ChecklistModeSnapshot {
+    return {
+      titleHtml: this.noteTitle?.nativeElement.innerHTML || '',
+      bodyHtml: this.editorBodyHtml(),
+      checkBoxes: this.currentCheckBoxesForSave(false),
+      drafts: Object.fromEntries(this.checklistDrafts().map(el => [el.dataset['checklistDraft']!, el.innerHTML])),
+      isCbox: this.isCbox.value, isHybridNote: this.isHybridNote, showTextAfterChecklist: this.showTextAfterChecklist
+    }
+  }
+
+  private applyChecklistModeSnapshot(snapshot: ChecklistModeSnapshot) {
+    if (this.noteTitle) this.noteTitle.nativeElement.innerHTML = sanitizeNoteHtml(snapshot.titleHtml)
+    this.checkBoxes = this.cloneCheckBoxes(snapshot.checkBoxes)
+    this.isHybridNote = snapshot.isHybridNote
+    this.showTextAfterChecklist = snapshot.showTextAfterChecklist
+    this.isCbox.next(snapshot.isCbox)
+    this.resetCboxHistory()
+    this.cd.detectChanges()
+    this.setEditorBodyHtml(snapshot.bodyHtml)
+    for (const el of this.checklistDrafts()) el.innerHTML = sanitizeNoteHtml(snapshot.drafts?.[el.dataset['checklistDraft']!] || '')
+    this.hydrateEditorLinkPreviews()
+    this.hydrateInlineImageButtons()
+    this.updateInputLength({ body: snapshot.bodyHtml.length, cb: this.checkBoxes.length })
+    this.queueAutosave()
+  }
+
+  private stepChecklistModeHistory(command: 'undo' | 'redo') {
+    const from = command === 'undo' ? this.checklistModeUndo : this.checklistModeRedo
+    const change = from[from.length - 1]
+    if (!change) return false
+    // Never replace edits made since the mode change (including remote edits).
+    const expected = command === 'undo' ? change.after : change.before
+    if (JSON.stringify(this.checklistModeSnapshot()) !== JSON.stringify(expected)) return false
+    from.pop()
+    this.applyChecklistModeSnapshot(command === 'undo' ? change.before : change.after)
+    const to = command === 'undo' ? this.checklistModeRedo : this.checklistModeUndo
+    to.push(change)
+    return true
   }
 
   showMobileNewNoteStarters() {
@@ -432,7 +624,7 @@ export class InputComponent implements OnInit {
 
   startMobileChecklist() {
     this.mobileNewNoteStarterDismissed = true
-    this.toggleCbox()
+    this.insertChecklist()
   }
 
   startMobileDrawing(event?: Event) {
@@ -449,33 +641,15 @@ export class InputComponent implements OnInit {
   }
 
   canFormatText(): boolean {
-    return !this.isCbox.value || this.hasHybridBody()
+    return !this.isDrawingNote
   }
 
   private hasMeaningfulBody(value?: string | null) {
     const div = createNoteHtmlContainer()
     div.innerHTML = sanitizeNoteHtml(value || '')
     return (div.textContent || div.innerText || '').replace(/[\u200b-\u200d\ufeff]/g, '').trim().length > 0
-      || !!div.querySelector('img, hr, .editor-link-preview-slot')
-  }
+      || !!div.querySelector('img, hr, table, .editor-link-preview-slot')
 
-  private updateCheckboxMenuLabel() {
-    if (this.isCbox.value) {
-      this.moreMenuEls.checkbox.value = this.isHybridNote ? 'Checklists shown' : 'Add text'
-    } else {
-      this.moreMenuEls.checkbox.value = 'Show checkboxes'
-    }
-  }
-
-  private restoreBodyHtmlAfterTemplateSwap(html: string) {
-    if (!this.noteBody || !html) return
-    const body = this.noteBody.nativeElement
-    if (!body.innerHTML) {
-      body.innerHTML = sanitizeNoteHtml(html)
-      this.hydrateEditorLinkPreviews()
-      this.hydrateInlineImageButtons()
-      this.updateInputLength({ body: body.innerHTML.length })
-    }
   }
 
   //? note  -----------------------------------------------------
@@ -483,8 +657,10 @@ export class InputComponent implements OnInit {
   get canSaveNote(): boolean {
     return this.isEditing || !!this.currentNoteId() || this.isDrawingNote || !!(
       this.hasMeaningfulBody(this.noteTitle?.nativeElement.innerHTML)
-      || this.hasMeaningfulBody(this.noteBody?.nativeElement.innerHTML)
-      || this.hasMeaningfulBody(this.cboxPh?.nativeElement.innerHTML)
+      || this.editorBodies().some(body => this.hasMeaningfulBody(body.innerHTML))
+      || this.checklistDrafts().some(draft => this.hasMeaningfulBody(draft.innerHTML))
+      || this.pendingReminderDate || this.pendingReminderLocation
+
       || this.checkBoxes.length || this.images.length
       || this.attachments.length || this.pendingAttachmentFiles.length
     )
@@ -517,26 +693,32 @@ export class InputComponent implements OnInit {
 
   private async persistNote(closeAfterSave: boolean): Promise<boolean | void> {
     if (closeAfterSave) this.cboxInput?.nativeElement.blur()
+    const labelsForSave = await this.labelsForSave()
     if (this.isDrawingNote) this.syncDrawingImage()
-    if (closeAfterSave && this.isCbox.value && this.hasMeaningfulBody(this.cboxPh?.nativeElement.innerHTML)) {
+    if (closeAfterSave && this.isCbox.value) for (const draft of this.checklistDrafts()) {
+      if (!this.hasMeaningfulBody(draft.innerHTML)) continue
+      this.activeChecklistId = draft.dataset['checklistDraft']!
       this.addCheckBoxFromPlaceholder()
     }
     const checkBoxesForSave = this.currentCheckBoxesForSave(closeAfterSave)
-    // Preserve any uncommitted checklist text without moving focus while autosaving.
-    const placeholderText = this.cboxPh?.nativeElement.innerHTML || ''
-    if (!closeAfterSave && this.isCbox.value && this.hasMeaningfulBody(placeholderText)) {
-      checkBoxesForSave.push({ id: Math.max(-1, ...checkBoxesForSave.map(cb => cb.id)) + 1, data: placeholderText, done: false, indentLevel: 0 })
+    if (!closeAfterSave && this.isCbox.value) for (const draft of this.checklistDrafts()) {
+      if (this.hasMeaningfulBody(draft.innerHTML)) checkBoxesForSave.push({
+        id: Math.max(-1, ...checkBoxesForSave.map(cb => cb.id)) + 1, listId: draft.dataset['checklistDraft'],
+        data: draft.innerHTML, done: false, indentLevel: 0 })
+
     }
-    const labelsForSave = await this.labelsForSave()
     const sharedTarget = !this.isEditing ? (this.sharedBinderChoiceMade ? this.selectedSharedBinder : this.sharedBinderFromRoute()) : undefined;
     // The drawing template has no body editor, but the note can still have text.
-    const bodyHtml = this.noteBody?.nativeElement.innerHTML ?? (this.isDrawingNote ? this.noteToEdit.noteBody : '')
+    const bodyHtml = this.isDrawingNote
+      ? this.cleanEditorBodyForSave(this.noteToEdit.noteBody || '')
+      : this.editorBodyHtml()
     const noteObj: NoteI = {
       noteTitle: this.noteTitle.nativeElement.innerHTML,
-      noteBody: bodyHtml ? this.cleanEditorBodyForSave(bodyHtml) : '',
+      noteBody: bodyHtml,
       pinned: this.notePin.nativeElement.dataset['pinned'] === "true", // converting string to bool,
       bgColor: this.noteMain.nativeElement.style.backgroundColor,
-      bgImage: this.noteMain.nativeElement.style.backgroundImage || this.noteContainer.nativeElement.style.backgroundImage,
+      bgImage: this.illustrationBackground,
+      pattern: this.pattern,
       checkBoxes: checkBoxesForSave,
       images: this.images.map(image => ({ ...image, dataUrl: this.auth.canonicalImageUrl(image.dataUrl) })),
       isCbox: this.isCbox.value,
@@ -694,6 +876,7 @@ export class InputComponent implements OnInit {
       pinned: !!note.pinned,
       bgColor: note.bgColor || '',
       bgImage: note.bgImage || '',
+      pattern: validNotePattern(note.pattern),
       checkBoxes: this.normalizeCheckBoxes(note.checkBoxes || []),
       images: this.normalizeImages(note.images || []),
       isCbox: !!note.isCbox,
@@ -753,6 +936,7 @@ export class InputComponent implements OnInit {
         usedIds.add(id)
         return id
       })(),
+      ...(checklistId(item) !== DEFAULT_CHECKLIST_ID ? { listId: checklistId(item) } : {}),
       done: !!item.done,
       data: item.data || '',
       indentLevel: this.normalizedCboxIndentLevel(item.indentLevel)
@@ -767,19 +951,34 @@ export class InputComponent implements OnInit {
     return this.checkboxIndentLevel(cb) * 32
   }
 
-  checklistRowsForSection(isDone: boolean) {
+  checklistRowsForSection(isDone: boolean, listId = this.activeChecklistId) {
+    const items = this.checkBoxes.filter(cb => checklistId(cb) === listId)
     const rows = this.preferences.value.moveCompletedChecklistItemsToBottom
-      ? this.checkBoxes.filter(cb => cb.done === isDone)
-      : (isDone ? [] : this.checkBoxes)
+      ? items.filter(cb => cb.done === isDone)
+      : (isDone ? [] : items)
     return normalizeIndentLevels(rows)
   }
 
-  completedChecklistCount() {
-    return this.checkBoxes.filter(cb => cb.done).length
+  completedChecklistCount(listId = this.activeChecklistId) {
+    return this.checkBoxes.filter(cb => cb.done && checklistId(cb) === listId).length
   }
 
-  toggleCompletedChecklistCollapse() {
-    this.isCboxCompletedListCollapsed = !this.isCboxCompletedListCollapsed
+  isChecklistCollapsed(listId: string) {
+    return this.completedCollapsedByList[listId] ?? this.isCboxCompletedListCollapsed
+  }
+
+  toggleCompletedChecklistCollapse(listId = DEFAULT_CHECKLIST_ID) {
+    if (this.checklistBlocks.length > 1) {
+      this.completedCollapsedByList[listId] = !this.isChecklistCollapsed(listId)
+      const key = this.completedChecklistCollapseStorageKey()
+      if (key) try { localStorage.setItem(key + ':lists', JSON.stringify(this.completedCollapsedByList)) } catch {}
+      return
+    }
+    const collapsed = !this.isChecklistCollapsed(listId)
+    delete this.completedCollapsedByList[listId]
+    const key = this.completedChecklistCollapseStorageKey()
+    if (key) try { localStorage.setItem(key + ':lists', JSON.stringify(this.completedCollapsedByList)) } catch {}
+    this.isCboxCompletedListCollapsed = collapsed
     this.saveCompletedChecklistCollapseState()
     if (this.isEditing && this.noteToEdit.id) {
       this.noteToEdit.completedChecklistCollapsed = this.isCboxCompletedListCollapsed
@@ -797,6 +996,11 @@ export class InputComponent implements OnInit {
   }
 
   private loadCompletedChecklistCollapseState(note: NoteI) {
+    this.completedCollapsedByList = Object.create(null)
+    try {
+      const stored = JSON.parse(localStorage.getItem(this.completedChecklistCollapseStorageKey(note) + ':lists') || '{}')
+      for (const [id, value] of Object.entries(stored || {})) if (typeof value === 'boolean') this.completedCollapsedByList[id] = value
+    } catch {}
     if (typeof note.completedChecklistCollapsed === 'boolean') {
       this.isCboxCompletedListCollapsed = note.completedChecklistCollapsed
       this.saveCompletedChecklistCollapseState()
@@ -965,13 +1169,13 @@ export class InputComponent implements OnInit {
     return this.isCbox.value && this.checkBoxes.some(cb => cb.done)
   }
 
-  uncheckAllCboxItems(tooltipEl?: HTMLDivElement) {
+  uncheckAllCboxItems(tooltipEl?: HTMLDivElement, listId?: string) {
     this.syncCboxDomIntoModel()
     if (!this.checkBoxes.some(cb => cb.done)) {
       if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
       return
     }
-    this.checkBoxes = this.checkBoxes.map(cb => cb.done ? { ...cb, done: false } : cb)
+    this.checkBoxes = this.checkBoxes.map(cb => cb.done && (!listId || checklistId(cb) === listId) ? { ...cb, done: false } : cb)
     this.noteToEdit.checkBoxes = this.checkBoxes
     this.pushCboxHistorySnapshot()
     this.cd.detectChanges()
@@ -979,15 +1183,15 @@ export class InputComponent implements OnInit {
     if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
   }
 
-  deleteAllCompletedCboxItems(tooltipEl?: HTMLDivElement) {
+  deleteAllCompletedCboxItems(tooltipEl?: HTMLDivElement, listId?: string) {
     this.syncCboxDomIntoModel()
-    const completedCount = this.checkBoxes.filter(cb => cb.done).length
+    const completedCount = this.checkBoxes.filter(cb => cb.done && (!listId || checklistId(cb) === listId)).length
     if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
     if (!completedCount) return
 
     if (!confirm(uiPlural('checklist.delete_completed', completedCount))) return
 
-    this.checkBoxes = normalizeIndentLevels(this.checkBoxes.filter(cb => !cb.done))
+    this.checkBoxes = normalizeIndentLevels(this.checkBoxes.filter(cb => !cb.done || (!!listId && checklistId(cb) !== listId)))
     this.noteToEdit.checkBoxes = this.checkBoxes
     this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
     this.pushCboxHistorySnapshot()
@@ -1003,6 +1207,8 @@ export class InputComponent implements OnInit {
 
   reset() {
     this.editorGeneration++
+    this.checklistModeUndo = []
+    this.checklistModeRedo = []
     this.clearComposerDraft()
     this.newNoteId = undefined
     this.newNoteSyncId = undefined
@@ -1011,7 +1217,7 @@ export class InputComponent implements OnInit {
     this.selectedSharedBinder = undefined
     this.lastExternalUpdateSnapshot = undefined
     this.noteTitle.nativeElement.innerHTML = ''
-    if (this.noteBody) this.noteBody.nativeElement.innerHTML = ''
+    this.editorBodies().forEach(body => body.innerHTML = '')
     this.notePin.nativeElement.dataset['pinned'] = 'false'
     this.noteContainer.nativeElement.style.backgroundImage = ''
     this.noteMain.nativeElement.style.backgroundImage = ''
@@ -1019,6 +1225,8 @@ export class InputComponent implements OnInit {
     this.noteMain.nativeElement.style.borderColor = ''
     this.noteMain.nativeElement.style.color = ''
     this.hasBackgroundImage = false
+    this.pattern = null
+    this.illustrationBackground = ''
     this.updateTextColor('')
     //
     this.checkBoxes = []
@@ -1036,6 +1244,9 @@ export class InputComponent implements OnInit {
     this.mobileNewNoteStarterDismissed = false
     this.isDrawingFullscreen = false
     this.isHybridNote = false
+    this.checklistBlocks = []
+    this.activeChecklistId = DEFAULT_CHECKLIST_ID
+    this.showTextAfterChecklist = false
     this.showTextFormatting = false
     this.showDrawingBackgroundMenu = false
     this.showDrawingMoreMenu = false
@@ -1048,6 +1259,7 @@ export class InputComponent implements OnInit {
     this.isArchived = false
     this.isTrashed = false
     this.isCboxCompletedListCollapsed = false
+    this.completedCollapsedByList = Object.create(null)
     this.isPanning = false
     this.drawingTransform = { scale: 1, x: 0, y: 0 }
     this.activePointers.clear()
@@ -1081,7 +1293,7 @@ export class InputComponent implements OnInit {
     let target = event.currentTarget as HTMLDivElement
     this.insertPlainTextAtCursor(target, text || '')
     if (text) this.dismissMobileNewNoteStarters()
-    if (this.noteBody?.nativeElement === target) {
+    if (this.editorBodies().includes(target)) {
       this.queueEditorLinkDecoration()
     } else if (this.noteTitle?.nativeElement === target) {
       this.onNoteTitleInput()
@@ -1150,11 +1362,10 @@ export class InputComponent implements OnInit {
   }
 
   rememberBodySelection() {
-    const body = this.noteBody?.nativeElement
     const selection = window.getSelection()
-    if (!body || !selection?.rangeCount) return
+    if (!selection?.rangeCount) return
     const range = selection.getRangeAt(0)
-    if (body.contains(range.commonAncestorContainer)) {
+    if (this.bodyContaining(range.commonAncestorContainer)) {
       this.lastBodyRange = range.cloneRange()
     }
   }
@@ -1213,14 +1424,15 @@ export class InputComponent implements OnInit {
     if (!fileList?.length) return
     const files = Array.from(fileList).filter(file => isNoteImageFile(file))
     if (!files.length) return
-    if (this.isCbox.value) {
-      this.isCbox.next(false)
+    if (this.isCbox.value && !this.isHybridNote && !this.showTextAfterChecklist) {
+      // An inline image needs a text body, but must not hide the checklist.
+      this.isHybridNote = true
       this.cd.detectChanges()
     }
     if (event) this.placeCaretFromDrop(event)
     const imageData = await Promise.all(files.map(file => this.fileToImage(file, 'bottom')))
     imageData.forEach(image => this.insertInlineImage(image))
-    this.updateInputLength({ body: this.noteBody?.nativeElement.innerHTML.length || 0 })
+    this.updateInputLength({ body: this.editorBodyHtml().length })
     if (this.isEditing) await this.saveNote(false)
     this.queueAutosave()
   }
@@ -1385,12 +1597,12 @@ export class InputComponent implements OnInit {
 
   removeImage(imageId: string) {
     this.images = this.images.filter(image => image.id !== imageId)
-    this.inputLength.next({ ...this.inputLength.value, body: (this.noteBody?.nativeElement.innerHTML.length || 0) + this.images.length })
+    this.inputLength.next({ ...this.inputLength.value, body: this.editorBodyHtml().length + this.images.length })
     this.queueAutosave()
   }
 
   private insertInlineImage(image: NoteImageI) {
-    const body = this.noteBody?.nativeElement
+    const body = this.activeBody()
     if (!body) return
     body.focus()
 
@@ -1436,19 +1648,19 @@ export class InputComponent implements OnInit {
   // Adds delete buttons to inline images that came in via saved noteBody HTML
   // (which doesn't include the button markup since it's stripped on save).
   private hydrateInlineImageButtons() {
-    const body = this.noteBody?.nativeElement
-    if (!body) return
-    body.querySelectorAll<HTMLElement>('.inline-note-image-wrap').forEach(wrap => {
-      if (wrap.querySelector('.inline-image-delete-btn')) return
-      wrap.contentEditable = 'false'
-      const del = document.createElement('button')
-      del.type = 'button'
-      del.className = 'inline-image-delete-btn H'
-      del.setAttribute('aria-label', uiText('input.delete_image'))
-      del.dataset['inlineImageTool'] = 'delete'
-      del.innerHTML = '<span class="material-symbols-outlined">close</span>'
-      wrap.appendChild(del)
-    })
+    for (const body of this.editorBodies()) {
+      body.querySelectorAll<HTMLElement>('.inline-note-image-wrap').forEach(wrap => {
+        if (wrap.querySelector('.inline-image-delete-btn')) return
+        wrap.contentEditable = 'false'
+        const del = document.createElement('button')
+        del.type = 'button'
+        del.className = 'inline-image-delete-btn H'
+        del.setAttribute('aria-label', uiText('input.delete_image'))
+        del.dataset['inlineImageTool'] = 'delete'
+        del.innerHTML = '<span class="material-symbols-outlined">close</span>'
+        wrap.appendChild(del)
+      })
+    }
   }
 
   onNoteBodyClick(event: Event) {
@@ -1463,13 +1675,13 @@ export class InputComponent implements OnInit {
     const next = wrap.nextElementSibling
     wrap.remove()
     if (next && next.tagName === 'DIV' && next.innerHTML.trim().toLowerCase() === '<br>') next.remove()
-    const body = this.noteBody?.nativeElement
+    const body = this.bodyContaining(event.currentTarget as Node)
     if (body) this.onNoteBodyInput(body)
     this.queueAutosave()
   }
 
   private moveInlineObjectToDrop(event: DragEvent) {
-    const body = this.noteBody?.nativeElement
+    const body = this.bodyContaining(event.target as Node) || this.activeBody()
     const inlineObject = this.draggedInlineObject
     if (!body || !inlineObject) return
 
@@ -1510,7 +1722,7 @@ export class InputComponent implements OnInit {
   }
 
   private placeCaretFromDrop(event: DragEvent) {
-    const body = this.noteBody?.nativeElement
+    const body = this.bodyContaining(event.target as Node) || this.activeBody()
     if (!body) return
     const documentWithCaret = document as Document & {
       caretRangeFromPoint?: (x: number, y: number) => Range | null
@@ -1535,6 +1747,13 @@ export class InputComponent implements OnInit {
   //? checkboxes  --------------------------------------------------
 
   cboxPhKeyDown($event: KeyboardEvent) {
+    if ($event.isComposing || $event.keyCode === 229) return
+    if ($event.ctrlKey || $event.metaKey || $event.altKey) return
+    if ($event.key === 'Enter') {
+      $event.preventDefault()
+      this.enterFromChecklistPlaceholder()
+      return
+    }
     const isLetter = /^[a-zA-Z0-9!@#$%^&*()_+\-=\[\]{};':"²^\\|,.<>\/?éèçµ]$/i.test($event.key)
     // ex : if he clicked the f1 btn for example, nothing would happen, otherwise : 
     if (!isLetter) return
@@ -1543,6 +1762,65 @@ export class InputComponent implements OnInit {
     this.addCheckBox(enteredValue) // a new checkbox will appear in the html
     this.cd.detectChanges()
     this.focusLastCboxInput()
+  }
+
+  cboxPhBeforeInput(event: InputEvent) {
+    if (event.isComposing || !['insertParagraph', 'insertLineBreak'].includes(event.inputType)) return
+    event.preventDefault()
+    this.enterFromChecklistPlaceholder()
+  }
+
+  private enterFromChecklistPlaceholder() {
+    if (this.hasMeaningfulBody(this.cboxPh?.nativeElement.innerHTML)) {
+      this.addCheckBoxFromPlaceholder()
+      this.addCheckBox('')
+      this.cd.detectChanges()
+      this.focusLastCboxInput()
+    } else this.leaveChecklistForText()
+  }
+
+  private leaveChecklistForText(id?: number, target?: HTMLDivElement) {
+    if (id !== undefined) {
+      const current = this.checkBoxes.find(cb => cb.id === id)
+      if (!current || this.hasMeaningfulBody(target?.innerHTML || current.data)) return false
+      const section = this.checklistRowsForSection(this.preferences.value.moveCompletedChecklistItemsToBottom ? current.done : false, checklistId(current))
+      if (section[section.length - 1]?.id !== id) return false
+    }
+    const before = this.checklistModeSnapshot()
+    const listId = id === undefined ? this.activeChecklistId : checklistId(this.checkBoxes.find(row => row.id === id))
+    const remaining = before.checkBoxes.filter(cb => cb.id !== id)
+    const keepList = remaining.some(row => checklistId(row) === listId)
+    const parts = this.editorBodyParts()
+    const index = parts.findIndex(part => part.type === 'checklist' && part.id === listId)
+    if (index < 0) return false
+    const exitLineHtml = '<div class="editor-checklist-exit-line"><br></div>'
+    const following = parts[index + 1]
+    if (following?.type === 'text') following.html = exitLineHtml + following.html
+    if (!keepList) {
+      parts.splice(index, 1)
+      const previous = parts[index - 1], next = parts[index]
+      if (previous?.type === 'text' && next?.type === 'text') {
+        previous.html += next.html; parts.splice(index, 1)
+      }
+    }
+    const previousList = [...parts.slice(0, index)].reverse().find(part => part.type === 'checklist')
+    this.applyChecklistModeSnapshot({ ...before, checkBoxes: remaining,
+      drafts: { ...before.drafts, [listId]: '' }, isCbox: parts.some(part => part.type === 'checklist'),
+      bodyHtml: serializeChecklistBody(parts) })
+    const body = keepList ? this.bodyAfterChecklist(listId)
+      : previousList?.type === 'checklist' ? this.bodyAfterChecklist(previousList.id) : this.noteBody?.nativeElement
+    if (!body) return true
+    const exitLine = body.querySelector<HTMLElement>('.editor-checklist-exit-line')
+    exitLine?.removeAttribute('class')
+    this.recordChecklistModeChange(before)
+    body.focus()
+    const caret = document.createRange()
+    caret.selectNodeContents(exitLine || body)
+    caret.collapse(true)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(caret)
+    return true
   }
 
   cboxPhInput() {
@@ -1555,11 +1833,12 @@ export class InputComponent implements OnInit {
   }
 
   cboxPhClick() {
-    requestAnimationFrame(() => this.cboxPh?.nativeElement.focus())
+    this.cboxPh?.nativeElement.focus()
   }
 
   private focusLastCboxInput() {
-    const el = document.querySelector(`[data-cbox-last="true"]`) as HTMLDivElement | null
+    const rows = this.visibleCboxInputs(this.activeChecklistId)
+    const el = rows[rows.length - 1]
     if (!el) return
     el.focus()
     const sel = window.getSelection()
@@ -1573,7 +1852,9 @@ export class InputComponent implements OnInit {
       .map(c => Number(c.id))
       .filter(id => Number.isSafeInteger(id) && id >= 0)
     const maxId = numericIds.length ? Math.max(...numericIds) : -1
-    const cb = {
+    const listId = insertAfterId === undefined ? this.activeChecklistId : checklistId(this.checkBoxes.find(row => row.id === insertAfterId))
+    const cb: CheckboxI = {
+      ...(listId !== DEFAULT_CHECKLIST_ID ? { listId } : {}),
       done: options.done ?? false,
       data: data,
       id: maxId + 1,
@@ -1588,7 +1869,8 @@ export class InputComponent implements OnInit {
         this.checkBoxes.push(cb)
       }
     } else {
-      this.checkBoxes.push(cb)
+      const last = this.checkBoxes.map(row => checklistId(row)).lastIndexOf(listId)
+      this.checkBoxes.splice(last < 0 ? this.checkBoxes.length : last + 1, 0, cb)
     }
     this.cboxSuggestionEligibleIds.add(cb.id)
     this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
@@ -1606,6 +1888,7 @@ export class InputComponent implements OnInit {
   cboxInputFocus(event: FocusEvent) {
     const el = event.target as HTMLDivElement
     if (this.cboxSuggestionBlurTimer) clearTimeout(this.cboxSuggestionBlurTimer)
+    this.activeChecklistId = el.closest<HTMLElement>('[data-checklist-id]')?.dataset['checklistId'] || DEFAULT_CHECKLIST_ID
     const focusedId = Number(el.dataset['cboxId'])
     this.activeCboxSuggestionRowId = Number.isFinite(focusedId) ? focusedId : undefined
     const focusRange = this.pendingCboxFocusRange
@@ -1756,7 +2039,7 @@ export class InputComponent implements OnInit {
     if (!query) return []
 
     return this.checkBoxes
-      .filter(item => item.done && this.normalizedCboxSuggestionText(item.data).startsWith(query))
+      .filter(item => item.done && checklistId(item) === checklistId(draft) && this.normalizedCboxSuggestionText(item.data).startsWith(query))
       .slice(0, 5)
   }
 
@@ -1816,7 +2099,8 @@ export class InputComponent implements OnInit {
 
     const draftIndex = this.checkBoxes.findIndex(item => item.id === draftId)
     const completedIndex = this.checkBoxes.findIndex(item => item.id === completedId && item.done)
-    if (draftIndex < 0 || completedIndex < 0 || draftId === completedId) return
+    if (draftIndex < 0 || completedIndex < 0 || draftId === completedId
+      || checklistId(this.checkBoxes[draftIndex]) !== checklistId(this.checkBoxes[completedIndex])) return
 
     const draftIndent = this.checkboxIndentLevel(this.checkBoxes[draftIndex])
     const subtreeIndexes = [completedIndex, ...this.childIndexesForParent(completedIndex)]
@@ -1900,9 +2184,9 @@ export class InputComponent implements OnInit {
     this.splitCboxAtSelection(id, event.currentTarget as HTMLDivElement)
   }
 
-  private visibleCboxInputs() {
+  private visibleCboxInputs(listId?: string) {
     return Array.from(this.noteContainer.nativeElement.querySelectorAll<HTMLDivElement>('[data-cbox-id]'))
-      .filter(el => el.getClientRects().length > 0)
+      .filter(el => el.getClientRects().length > 0 && (!listId || el.closest<HTMLElement>('[data-checklist-id]')?.dataset['checklistId'] === listId))
   }
 
   private focusCboxAtRange(el: HTMLDivElement, range: Range) {
@@ -1925,7 +2209,7 @@ export class InputComponent implements OnInit {
     const content = prefix.cloneContents()
     if (content.textContent || content.querySelector('br, img')) return false
 
-    const inputs = this.visibleCboxInputs()
+    const inputs = this.visibleCboxInputs(checklistId(this.checkBoxes.find(cb => cb.id === Number(target.dataset['cboxId']))))
     const previous = inputs[inputs.indexOf(target) - 1]
     // There is no row to join into above the first visible item.
     if (!previous) return true
@@ -1980,7 +2264,7 @@ export class InputComponent implements OnInit {
       if (direction < 0 && caretRect.top > firstTop + caretRect.height / 2) return false
       if (direction > 0 && caretRect.bottom < lastBottom - caretRect.height / 2) return false
     }
-    const inputs = this.visibleCboxInputs()
+    const inputs = this.visibleCboxInputs(checklistId(this.checkBoxes.find(cb => cb.id === Number(target.dataset['cboxId']))))
     const next = inputs[inputs.indexOf(target) + direction]
     if (!next) return false
     contents.selectNodeContents(next)
@@ -1997,6 +2281,7 @@ export class InputComponent implements OnInit {
     this.syncCboxDomIntoModel()
     const current = this.checkBoxes.find(cb => cb.id === id)
     if (!current) return
+    if (this.leaveChecklistForText(id, target)) return
     this.pushCboxHistorySnapshot()
 
     const selection = window.getSelection()
@@ -2061,7 +2346,8 @@ export class InputComponent implements OnInit {
   onNoteBodyInput(body: HTMLDivElement) {
     this.dismissMobileNewNoteStarters()
     const saveHtml = this.cleanEditorBodyForSave(body.innerHTML)
-    this.updateInputLength({ body: saveHtml.length })
+    this.updateInputLength({ body: this.editorBodies().reduce((length, editor) =>
+      length + (editor === body ? saveHtml.length : editor.innerHTML.length), 0) })
     this.queueAutosave()
   }
 
@@ -2182,7 +2468,7 @@ export class InputComponent implements OnInit {
   }
 
   private replaceEditorLink(node: Node, marker: HTMLElement) {
-    const body = this.noteBody?.nativeElement
+    const body = this.bodyContaining(node)
     const selection = window.getSelection()
     const range = selection?.rangeCount && body?.contains(node) ? selection.getRangeAt(0) : undefined
     const parent = node.parentNode!
@@ -2297,16 +2583,17 @@ export class InputComponent implements OnInit {
   }
 
   private decorateCurrentBodyLinks() {
-    const body = this.noteBody?.nativeElement
-    if (!body || this.destroyed) return
-    if (!this.preferences.value.richLinkPreviews || this.noteToEdit?.linkPreviews === false) {
-      if (body.querySelector('.editor-link-preview-slot')) {
-        this.editorPreviewGeneration++
-        body.innerHTML = sanitizeNoteHtml(this.auth.authenticatedImageHtml(this.cleanEditorBodyForSave(body.innerHTML)))
+    if (this.destroyed) return
+    for (const body of this.editorBodies()) {
+      if (!this.preferences.value.richLinkPreviews || this.noteToEdit?.linkPreviews === false) {
+        if (body.querySelector('.editor-link-preview-slot')) {
+          this.editorPreviewGeneration++
+          body.innerHTML = sanitizeNoteHtml(this.auth.authenticatedImageHtml(this.cleanEditorBodyForSave(body.innerHTML)))
+        }
+        continue
       }
-      return
+      this.decorateEditorLinks(body)
     }
-    this.decorateEditorLinks(body)
     this.hydrateEditorLinkPreviews()
   }
 
@@ -2315,7 +2602,7 @@ export class InputComponent implements OnInit {
     this.editorLinkDecorationFrame = requestAnimationFrame(() => {
       this.editorLinkDecorationFrame = undefined
       if (this.destroyed) return
-      const body = this.noteBody?.nativeElement
+      const body = this.activeBody()
       if (!body) return
       this.decorateCurrentBodyLinks()
       this.onNoteBodyInput(body)
@@ -2324,34 +2611,33 @@ export class InputComponent implements OnInit {
 
   private hydrateEditorLinkPreviews() {
     if (!this.preferences.value.richLinkPreviews || this.noteToEdit?.linkPreviews === false) return
-    const body = this.noteBody?.nativeElement
-    if (!body || this.destroyed) return
-    this.ensureEditorLinkCaretLines(body)
-    const generation = this.editorPreviewGeneration
-    body.querySelectorAll<HTMLElement>('.editor-link-preview-slot:not([data-hydrated])').forEach(slot => {
-      const url = slot.dataset['url']
-      if (!url) return
-      slot.dataset['hydrated'] = 'true'
-      slot.replaceChildren(this.editorPreviewShell(url))
-      this.notesService.getLinkPreview(url)
-        .then(preview => {
-          if (!this.isLiveEditorPreviewSlot(slot, generation)) return
-          slot.replaceChildren(this.editorPreviewCard(url, preview))
-        })
-        .catch(() => {
-          if (!this.isLiveEditorPreviewSlot(slot, generation)) return
-          slot.replaceChildren(this.editorPreviewCard(url))
-        })
-    })
+    if (this.destroyed) return
+    for (const body of this.editorBodies()) {
+      this.ensureEditorLinkCaretLines(body)
+      const generation = this.editorPreviewGeneration
+      body.querySelectorAll<HTMLElement>('.editor-link-preview-slot:not([data-hydrated])').forEach(slot => {
+        const url = slot.dataset['url']
+        if (!url) return
+        slot.dataset['hydrated'] = 'true'
+        slot.replaceChildren(this.editorPreviewShell(url))
+        this.notesService.getLinkPreview(url)
+          .then(preview => {
+            if (!this.isLiveEditorPreviewSlot(slot, generation)) return
+            slot.replaceChildren(this.editorPreviewCard(url, preview))
+          })
+          .catch(() => {
+            if (!this.isLiveEditorPreviewSlot(slot, generation)) return
+            slot.replaceChildren(this.editorPreviewCard(url))
+          })
+      })
+    }
   }
 
   private isLiveEditorPreviewSlot(slot: HTMLElement, generation: number) {
-    const body = this.noteBody?.nativeElement
     return !this.destroyed
       && generation === this.editorPreviewGeneration
-      && !!body
       && slot.isConnected
-      && body.contains(slot)
+      && !!this.bodyContaining(slot)
   }
 
   private editorPreviewShell(url: string) {
@@ -2432,8 +2718,9 @@ export class InputComponent implements OnInit {
       event.preventDefault()
       event.stopPropagation()
       const slot = remove.closest('.editor-link-preview-slot')
+      const body = this.bodyContaining(slot)
       slot?.remove()
-      if (this.noteBody?.nativeElement) this.onNoteBodyInput(this.noteBody.nativeElement)
+      if (body) this.onNoteBodyInput(body)
     })
     return remove
   }
@@ -2496,7 +2783,7 @@ export class InputComponent implements OnInit {
       this.showSelectionFormatting = false
       return
     }
-    const toolbarHalfWidth = 132
+    const toolbarHalfWidth = 155
     const minLeft = toolbarHalfWidth + 8
     const maxLeft = Math.max(minLeft, noteRect.width - toolbarHalfWidth - 8)
     const left = Math.min(maxLeft, Math.max(minLeft, rect.left + rect.width / 2 - noteRect.left))
@@ -2516,8 +2803,7 @@ export class InputComponent implements OnInit {
       : container.parentElement
     if (!element) return false
     const title = this.noteTitle?.nativeElement
-    const body = this.noteBody?.nativeElement
-    return !!(title?.contains(element) || body?.contains(element))
+    return !!(title?.contains(element) || this.bodyContaining(element) || element.closest('.cbox-note[contenteditable="true"]'))
   }
 
   private firstVisibleRangeRect(range: Range) {
@@ -2532,11 +2818,14 @@ export class InputComponent implements OnInit {
   rememberTextHistoryTarget(target?: HTMLElement | null) {
     if (!target?.isContentEditable) return
     this.textHistoryTarget = target
+    if (!this.editorBodies().includes(target as HTMLDivElement)) this.lastBodyRange = undefined
   }
 
   runTextHistory(command: 'undo' | 'redo', event: Event) {
     event.preventDefault()
     event.stopPropagation()
+
+    if (this.stepChecklistModeHistory(command)) return
 
     if (this.shouldUseCboxHistory(command)) {
       this.stepCboxHistory(command)
@@ -2549,6 +2838,15 @@ export class InputComponent implements OnInit {
     this.scheduleTextHistoryRefresh()
   }
 
+  @HostListener('keydown', ['$event'])
+  checklistModeHistoryKeyDown(event: KeyboardEvent) {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'z') return
+    if (!(event.target instanceof HTMLElement) || !event.target.isContentEditable) return
+    if (!this.stepChecklistModeHistory(event.shiftKey ? 'redo' : 'undo')) return
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
   private activeTextHistoryTarget() {
     const active = document.activeElement as HTMLElement | null
     if (active?.isContentEditable) {
@@ -2556,17 +2854,83 @@ export class InputComponent implements OnInit {
       return active
     }
     if (this.textHistoryTarget?.isConnected) return this.textHistoryTarget
-    return this.noteBody?.nativeElement || this.noteTitle?.nativeElement
+    return this.activeBody() || this.noteTitle?.nativeElement
   }
 
   private scheduleTextHistoryRefresh() {
     setTimeout(() => {
       this.updateInputLength({
         title: this.noteTitle?.nativeElement.innerHTML.length || 0,
-        body: this.noteBody?.nativeElement.innerHTML.length || 0
+        body: this.editorBodyHtml().length
       })
       this.queueAutosave()
     }, 0)
+  }
+
+  private highlightSelection() {
+    const selection = window.getSelection()
+    if (!selection?.rangeCount || selection.isCollapsed) return
+    const range = selection.getRangeAt(0)
+    const editableFor = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)
+      ?.closest<HTMLElement>('[contenteditable="true"]')
+    const root = editableFor(range.startContainer)
+    if (!root || root !== editableFor(range.endContainer) || !this.noteMain.nativeElement.contains(root)) return
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    const nodes: { node: Text; start: number; end: number; highlighted: boolean }[] = []
+    let node: Node | null
+    while ((node = walker.nextNode())) {
+      const text = node as Text
+      if (text.parentElement?.closest('[contenteditable="false"], button, .editor-link-preview-slot')) continue
+      const intersects = range.intersectsNode(text)
+      const start = intersects ? (range.startContainer === text ? range.startOffset : 0) : 0
+      const end = intersects ? (range.endContainer === text ? range.endOffset : text.length) : 0
+      nodes.push({ node: text, start, end, highlighted: !!text.parentElement?.closest('mark.hl') })
+    }
+    if (!nodes.some(item => item.end > item.start)) return
+    return { root, nodes }
+  }
+
+  selectionIsHighlighted() {
+    const selection = this.highlightSelection()
+    return !!selection && selection.nodes.filter(item => item.end > item.start).every(item => item.highlighted)
+  }
+
+  toggleTextHighlight(event: Event) {
+    event.preventDefault()
+    event.stopPropagation()
+    const selection = this.highlightSelection()
+    if (!selection) return
+    const before = this.checklistModeSnapshot()
+    const highlight = !selection.nodes.filter(item => item.end > item.start).every(item => item.highlighted)
+    // Rebuild only text runs, keeping rich formatting, images and preview DOM
+    // intact. A semantic mark carries no stored colour or executable styles.
+    selection.root.querySelectorAll('mark.hl').forEach(mark => mark.replaceWith(...Array.from(mark.childNodes)))
+    let first: Text | undefined, last: Text | undefined
+    for (const item of selection.nodes) {
+      const value = item.node.data
+      const fragment = document.createDocumentFragment()
+      const append = (text: string, marked: boolean, selected = false) => {
+        if (!text) return
+        const node = document.createTextNode(text)
+        if (marked) { const mark = document.createElement('mark'); mark.className = 'hl'; mark.append(node); fragment.append(mark) }
+        else fragment.append(node)
+        if (selected) { first ??= node; last = node }
+      }
+      if (item.end > item.start) {
+        append(value.slice(0, item.start), item.highlighted)
+        append(value.slice(item.start, item.end), highlight, true)
+        append(value.slice(item.end), item.highlighted)
+      } else append(value, item.highlighted)
+      item.node.replaceWith(fragment)
+    }
+    if (first && last) {
+      const range = document.createRange(); range.setStart(first, 0); range.setEnd(last, last.length)
+      selection.root.focus(); const active = window.getSelection(); active?.removeAllRanges(); active?.addRange(range)
+    }
+    this.syncCboxDomIntoModel()
+    this.recordChecklistModeChange(before)
+    this.scheduleSelectionFormattingUpdate()
+    this.queueAutosave()
   }
 
   applyTextFormat(command: 'h1' | 'h2' | 'body' | 'bold' | 'italic' | 'underline' | 'clear', event: Event) {
@@ -2582,7 +2946,7 @@ export class InputComponent implements OnInit {
     this.scheduleSelectionFormattingUpdate()
     this.updateInputLength({
       title: this.noteTitle?.nativeElement.innerHTML.length || 0,
-      body: this.noteBody?.nativeElement.innerHTML.length || 0
+      body: this.editorBodyHtml().length
     })
     this.queueAutosave()
   }
@@ -2776,7 +3140,7 @@ export class InputComponent implements OnInit {
     ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over'
     ctx.globalAlpha = tool === 'highlighter' ? 0.35 : 1
     ctx.strokeStyle = options.color
-    ctx.lineWidth = tool === 'eraser' ? 24 : options.size
+    ctx.lineWidth = tool === 'eraser' ? this.drawingEraserSize : options.size
     ctx.beginPath()
     ctx.moveTo(this.drawingLastPoint.x, this.drawingLastPoint.y)
     ctx.lineTo(point.x, point.y)
@@ -3044,6 +3408,42 @@ export class InputComponent implements OnInit {
     this.setupDrawingCanvas()
   }
 
+  toggleDrawingMoreMenu(event: Event) {
+    event.stopPropagation()
+    this.showDrawingMoreMenu = !this.showDrawingMoreMenu
+    this.showDrawingBackgroundMenu = false
+    this.showDrawingEraserMenu = false
+    this.drawingOpenToolMenu = undefined
+    if (this.showDrawingMoreMenu) {
+      this.cd.detectChanges()
+      this.positionDrawingMenus()
+    }
+  }
+
+  @HostListener('window:resize')
+  positionDrawingMenus() {
+    if (!this.showDrawingMoreMenu && !this.showDrawingEraserMenu && !this.showDrawingBackgroundMenu && !this.drawingOpenToolMenu) return
+    const viewport = window.visualViewport
+    const left = (viewport?.offsetLeft || 0) + 8
+    const width = viewport?.width || window.innerWidth
+    const right = left + width - 16
+    const bottom = (viewport?.offsetTop || 0) + (viewport?.height || window.innerHeight) - 8
+    for (const menu of this.hostElement.nativeElement.querySelectorAll<HTMLElement>('.drawing-popover')) {
+      // Preserve the background picker's centred anchor before measuring.
+      const anchor = menu.classList.contains('background-picker') ? 'translateX(-50%) ' : ''
+      menu.style.transform = anchor
+      menu.style.maxWidth = `${Math.max(0, width - 16)}px`
+      menu.style.maxHeight = ''
+      const rect = menu.getBoundingClientRect()
+      const toolbar = menu.closest('.drawing-toolbar')?.getBoundingClientRect()
+      // Wrapped toolbars need the palette below both rows, not over the tools.
+      const top = Math.max(rect.top, (toolbar?.bottom || rect.top) + 4)
+      const shift = Math.max(left - rect.left, Math.min(0, right - rect.right))
+      menu.style.transform = `${anchor}translate(${shift}px, ${top - rect.top}px)`
+      menu.style.maxHeight = `${Math.max(0, bottom - top)}px`
+    }
+  }
+
   async newDrawing() {
     if (this.newDrawingPending) return
     this.newDrawingPending = true
@@ -3117,6 +3517,8 @@ export class InputComponent implements OnInit {
     this.showDrawingBackgroundMenu = false
     this.showDrawingMoreMenu = false
     this.showDrawingEraserMenu = false
+    this.cd.detectChanges()
+    this.positionDrawingMenus()
   }
 
   setDrawingToolColor(tool: 'pen' | 'marker' | 'highlighter', color: string) {
@@ -3141,11 +3543,31 @@ export class InputComponent implements OnInit {
 
   toggleEraserMenu(event: Event) {
     event.stopPropagation()
+    const open = !this.showDrawingEraserMenu
     this.selectDrawingTool('eraser')
-    this.showDrawingEraserMenu = !this.showDrawingEraserMenu
+    this.showDrawingEraserMenu = open
     this.drawingOpenToolMenu = undefined
     this.showDrawingBackgroundMenu = false
     this.showDrawingMoreMenu = false
+    this.cd.detectChanges()
+    this.positionDrawingMenus()
+  }
+
+  setDrawingEraserSize(size: number) {
+    if (!this.drawingEraserSizes.includes(size)) return
+    this.drawingEraserSize = size
+    this.drawingTool = 'eraser'
+    this.showDrawingEraserMenu = false
+  }
+
+  toggleDrawingBackgroundMenu(event: Event) {
+    event.stopPropagation()
+    this.showDrawingBackgroundMenu = !this.showDrawingBackgroundMenu
+    this.showDrawingMoreMenu = false
+    this.showDrawingEraserMenu = false
+    this.drawingOpenToolMenu = undefined
+    this.cd.detectChanges()
+    this.positionDrawingMenus()
   }
 
   setDrawingBackground(background: 'square' | 'dots' | 'rules' | 'none') {
@@ -3201,9 +3623,8 @@ export class InputComponent implements OnInit {
   cboxDragOver(id: number, isDone: boolean, event: DragEvent) {
     if (this.draggedCboxId === undefined) return
     const draggedCb = this.checkBoxes.find(cb => cb.id === this.draggedCboxId)
-    if (!draggedCb || !this.cboxSectionMatches(draggedCb, isDone)) return
+    if (!draggedCb || !this.cboxSectionMatches(draggedCb, isDone) || checklistId(draggedCb) !== checklistId(this.checkBoxes.find(cb => cb.id === id))) return
     event.preventDefault()
-    event.stopPropagation()
     event.stopPropagation()
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
     this.moveCboxDragImage(event)
@@ -3276,8 +3697,8 @@ export class InputComponent implements OnInit {
   private reorderCboxAround(id: number, isDone: boolean, clientY: number) {
     if (this.draggedCboxId === undefined) return
     const draggedCb = this.checkBoxes.find(cb => cb.id === this.draggedCboxId)
-    if (!draggedCb || !this.cboxSectionMatches(draggedCb, isDone)) return
-    if (id === this.draggedCboxId) return
+    if (!draggedCb || !this.cboxSectionMatches(draggedCb, isDone) || checklistId(draggedCb) !== checklistId(this.checkBoxes.find(cb => cb.id === id))) return
+    if (id === this.draggedCboxId || checklistId(draggedCb) !== checklistId(this.checkBoxes.find(cb => cb.id === id))) return
 
     const row = document.querySelector<HTMLElement>(`[data-cbox-row-id="${id}"]`)
     if (!row) return
@@ -3311,7 +3732,7 @@ export class InputComponent implements OnInit {
     event.stopPropagation()
     if (this.draggedCboxId === undefined) return
     const draggedCb = this.checkBoxes.find(cb => cb.id === this.draggedCboxId)
-    if (!draggedCb || !this.cboxSectionMatches(draggedCb, isDone)) return
+    if (!draggedCb || !this.cboxSectionMatches(draggedCb, isDone) || checklistId(draggedCb) !== checklistId(this.checkBoxes.find(cb => cb.id === id))) return
     this.persistCboxDragOrder()
     this.clearCboxDragState()
   }
@@ -3465,11 +3886,14 @@ export class InputComponent implements OnInit {
   //? isEditing  -----------------------------------------------------------
 
   innerData(note: NoteI) {
+    this.checklistModeUndo = []
+    this.checklistModeRedo = []
     this.notePhClick()
     this.images = (note.images || []).map(image => ({ ...image, dataUrl: this.auth.authenticatedImageUrl(image.dataUrl) }))
     this.attachments = note.attachments || []
     this.isDrawingNote = this.images.some(image => image.id === 'drawing')
     this.notePin.nativeElement.dataset['pinned'] = String(note.pinned)
+    this.pattern = validNotePattern(note.pattern)
     this.applyBackgroundImage(note.bgImage)
     // applyBackgroundImage already sets this.hasBackgroundImage with the
     // correct logic (treats empty `url("")` as "no image"); do not override it.
@@ -3483,11 +3907,6 @@ export class InputComponent implements OnInit {
     this.checkBoxes = this.normalizeCheckBoxes(note.checkBoxes || [])
     this.loadCompletedChecklistCollapseState(note)
     this.resetCboxHistory()
-    // Hybrid: latch BEFORE flipping isCbox so the noteBody ViewChild is
-    // present after change detection (otherwise the body assignment below
-    // would silently no-op when loading a hybrid note from a checklist-only
-    // previous editor state).
-    this.isHybridNote = !!note.isCbox && this.hasMeaningfulBody(note.noteBody)
     this.isCbox.next(note.isCbox)
     this.isArchived = note.archived
     this.isTrashed = note.trashed
@@ -3507,7 +3926,7 @@ export class InputComponent implements OnInit {
     // Force the templates to materialize before we touch the title or body.
     this.cd.detectChanges()
     this.noteTitle.nativeElement.innerHTML = sanitizeNoteHtml(note.noteTitle)
-    if (this.noteBody) this.noteBody.nativeElement.innerHTML = sanitizeNoteHtml(this.decorateLinksForEditor(note.noteBody || ''))
+    this.setEditorBodyHtml(note.noteBody || '')
     this.hydrateEditorLinkPreviews()
     this.hydrateInlineImageButtons()
     const body = this.noteBody?.nativeElement
@@ -3793,9 +4212,6 @@ export class InputComponent implements OnInit {
         }
         await this.saveNote()
       },
-      toggleCbox: () => {
-        this.toggleCbox()
-      }
     }
     this.Shared.closeTooltip(tooltipEl)
     return actions
@@ -3909,18 +4325,35 @@ export class InputComponent implements OnInit {
       this.updateTextColor(data)
       this.queueAutosave()
     },
+    pattern: (id: string | null) => {
+      this.pattern = validNotePattern(id)
+      if (this.pattern) this.applyBackgroundImage('')
+      this.queueAutosave()
+    },
     bgImage: (data: bgImages) => {
+      if (data) this.pattern = null
       this.applyBackgroundImage(data)
       this.queueAutosave()
     }
   }
 
   private applyBackgroundImage(data: string) {
-    const bgImage = data ? (data.startsWith('url(') ? data : `url(${data})`) : ''
+    const value = String(data || '').trim()
+    const bgImage = ['', 'none', 'url()', 'url("")', "url('')"].includes(value) ? '' : (value.startsWith('url(') ? value : `url(${value})`)
+    this.illustrationBackground = bgImage
     this.noteContainer.nativeElement.style.backgroundImage = bgImage
     this.noteMain.nativeElement.style.backgroundImage = bgImage
-    this.hasBackgroundImage = !!bgImage && bgImage !== 'url("")'
+    this.hasBackgroundImage = !!bgImage
+    if (this.hasBackgroundImage) this.pattern = null
     this.updateTextColor(this.noteMain.nativeElement.style.backgroundColor)
+  }
+
+  noteHighlight() {
+    return noteAppearance(this.noteMain?.nativeElement.style.backgroundColor, document.body.classList.contains('light-theme'), this.hasBackgroundImage).highlight
+  }
+
+  editorBackgroundImage() {
+    return notePatternImage(this.pattern, this.noteMain?.nativeElement.style.backgroundColor, document.body.classList.contains('light-theme')) || this.illustrationBackground
   }
 
   private updateTextColor(color: string) {
@@ -4017,9 +4450,6 @@ export class InputComponent implements OnInit {
       });
     }
     //? ----------------------------------------------------------------
-    this.isCbox.subscribe(value => {
-      this.updateCheckboxMenuLabel()
-    })
     //? ----------------------------------------------------------------
     this.inputLength.subscribe(x => {
       if ((x.title) || (x.body) || (x.cb)) {
@@ -4106,6 +4536,31 @@ export class InputComponent implements OnInit {
     this.viewportListener = undefined;
   }
 
+  private noteTimestampCache?: { key: string; value: { edited: string; editedIso: string; created: string; createdIso: string } };
+
+  get noteTimestamps() {
+    const current = this.notesService.notesList$.value?.find(note => note.id === this.currentNoteId());
+    const updatedAt = current?.updatedAt || this.noteToEdit.updatedAt;
+    const createdAt = current?.createdAt || this.noteToEdit.createdAt;
+    const locale = uiLocale();
+    const twentyFourHour = this.preferences.value.useTwentyFourHourTime;
+    const key = JSON.stringify([updatedAt, createdAt, locale, twentyFourHour]);
+    if (this.noteTimestampCache?.key === key) return this.noteTimestampCache.value;
+    const edited = new Date(updatedAt || '');
+    if (!Number.isFinite(edited.getTime())) return null;
+    const created = new Date(createdAt || '');
+    const format = new Intl.DateTimeFormat(locale, {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: twentyFourHour ? '2-digit' : 'numeric', minute: '2-digit',
+      hour12: twentyFourHour ? false : undefined
+    });
+    const validCreated = Number.isFinite(created.getTime());
+    const value = { edited: format.format(edited), editedIso: edited.toISOString(),
+      created: validCreated ? format.format(created) : '', createdIso: validCreated ? created.toISOString() : '' };
+    this.noteTimestampCache = { key, value };
+    return value;
+  }
+
   private updateLastEditedTime() {
     if (!this.noteToEdit.updatedAt) {
       this.lastEditedTime = uiText('input.just_now');
@@ -4175,13 +4630,10 @@ export class InputComponent implements OnInit {
     if (this.noteTitle?.nativeElement && this.noteTitle.nativeElement.innerHTML !== note.noteTitle) {
       this.updateHtmlWithCursorPreservation(this.noteTitle.nativeElement, note.noteTitle);
     }
-    const nextBody = note.noteBody !== undefined ? this.decorateLinksForEditor(note.noteBody || '') : undefined;
-    if (this.noteBody?.nativeElement && nextBody !== undefined &&
-      this.cleanEditorBodyForSave(this.noteBody.nativeElement.innerHTML) !== this.auth.canonicalImageHtml(note.noteBody || '')) {
-      this.updateHtmlWithCursorPreservation(this.noteBody.nativeElement, nextBody);
-    }
+    const nextBody = note.noteBody;
     if (this.noteMain?.nativeElement) {
       this.noteMain.nativeElement.style.backgroundColor = note.bgColor || "";
+      this.pattern = validNotePattern(note.pattern);
       this.applyBackgroundImage(note.bgImage || '');
     }
     if (!this.cboxDragImage) {
@@ -4197,9 +4649,9 @@ export class InputComponent implements OnInit {
       this.drawingHistoryIndex = 0;
       this.restoreDrawingHistory();
     }
-    this.isHybridNote = !!note.isCbox && this.hasMeaningfulBody(note.noteBody);
     this.isCbox.next(note.isCbox);
     this.cd.detectChanges();
+    if (nextBody !== undefined) this.setEditorBodyHtml(nextBody, true);
     this.hydrateEditorLinkPreviews();
     this.hydrateInlineImageButtons();
     // Received content is already saved. Advance only the fields applied above,
@@ -4207,9 +4659,10 @@ export class InputComponent implements OnInit {
     this.saveBaselineSnapshot = this.noteSaveSnapshot({
       ...baseline,
       noteTitle: this.noteTitle.nativeElement.innerHTML,
-      noteBody: nextBody === undefined ? baseline.noteBody : this.cleanEditorBodyForSave(this.noteBody?.nativeElement.innerHTML ?? nextBody),
+      noteBody: nextBody === undefined ? baseline.noteBody : this.editorBodyHtml(),
       bgColor: this.noteMain.nativeElement.style.backgroundColor,
-      bgImage: this.noteMain.nativeElement.style.backgroundImage || this.noteContainer.nativeElement.style.backgroundImage,
+      bgImage: this.illustrationBackground,
+      pattern: this.pattern,
       checkBoxes: this.cboxDragImage ? baseline.checkBoxes : this.currentCheckBoxesForSave(false),
       images: this.images,
       isCbox: this.isCbox.value,
@@ -5258,7 +5711,7 @@ export class InputComponent implements OnInit {
       const note = this.noteToEdit
       const noteId = this.noteToEdit.id
       const title = this.notePlainText(this.noteTitle?.nativeElement?.innerHTML || this.noteToEdit.noteTitle || '')
-      const body = this.notePlainText(this.noteBody?.nativeElement?.innerHTML || this.noteToEdit.noteBody || '')
+      const body = this.notePlainText(this.editorBodyHtml() || this.noteToEdit.noteBody || '')
       this.reminderService.create({
         noteId,
         locationName: pendingLocation.locationName,

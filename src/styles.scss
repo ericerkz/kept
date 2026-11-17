@@ -725,6 +725,14 @@ app-navbar .selection-icon {
   }
 }
 
+.selectionMoreMenu .selection-select-all-menu {
+  background: transparent;
+  color: inherit;
+  display: none;
+  text-align: start;
+  width: 100%;
+}
+
 @media (max-width: 399px) {
   app-navbar .selection-navbar {
     height: auto;
@@ -735,8 +743,15 @@ app-navbar .selection-icon {
   }
   app-navbar .selection-actions {
     flex: 1;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: space-between;
+  }
+  app-navbar .selection-icon.select-all {
+    display: none;
+  }
+  .selectionMoreMenu .selection-select-all-menu {
+    display: block;
+    min-height: 40px;
   }
 }
 
@@ -956,6 +971,7 @@ body.light-theme [data-tooltip="true"] {
 }
 
 body.light-theme [data-tooltip="true"].moreMenu div:hover,
+body.light-theme [data-tooltip="true"].moreMenu .selection-select-all-menu:hover,
 body.light-theme [data-tooltip="true"].labelMenu .label-list:hover {
   background-color: rgba(60, 64, 67, 0.08);
 }
@@ -967,6 +983,8 @@ body.light-theme [data-tooltip="true"].colorMenu {
   .appearance-tabs button[aria-selected="true"] { background: #feefc3; color: #202124; }
   .color-swatch:hover, .background-choice:hover .background-choice-preview { border-color: #3c4043; }
   .background-choice { color: #5f6368; }
+  .appearance-section-hint { color: #5f6368; }
+  .appearance-divider { border-color: #dadce0; }
 }
 
 body.light-theme [data-tooltip="true"].labelMenu {
@@ -3656,23 +3674,26 @@ app-notes .overview-cbox-note {
   text-align: start;
 }
 
-// Mirror UI chrome, not physical camera/safe-area offsets or drawing canvases.
-html[dir='rtl'] {
-  app-main .sidenav-sticky app-sidenav { left: auto; right: 0; }
-  app-sidenav .main-sidebar { left: auto !important; right: 0 !important; }
-  app-sidenav .main-sidebar .item { padding-left: 0; padding-right: 12px; border-radius: 25px 0 0 25px; }
-  app-sidenav .main-sidebar .item .text { margin-left: 0; margin-right: 20px; padding-left: 0; padding-right: 2px; }
-  app-sidenav .main-sidebar.close .item.active { padding: 0; margin-left: 0; margin-right: 12px; border-radius: 50%; }
-  app-sidenav .main-sidebar.native-phone-drawer { border-radius: 16px 0 0 16px; }
-  app-sidenav .main-sidebar.native-phone-drawer.close { transform: translateX(calc(100% + 16px)); }
-  @media (max-width: 599px) {
-    app-sidenav .main-sidebar { border-radius: 16px 0 0 16px; }
-    app-sidenav .main-sidebar.close { transform: translateX(calc(100% + 16px)); }
-  }
-  app-navbar .profile-menu { right: auto; left: max(12px, env(safe-area-inset-left, 0px)); }
-  app-input :is(input[type='url'], input[type='email'], input[type='password']),
-  .auth-form input[autocomplete='username'],
-  #interface-language { unicode-bidi: isolate; }
+// Resolve translated text from its own content without reversing flex rows,
+// navigation, action buttons or the grid. English fallback text stays readable.
+:where(h1, h2, h3, h4, h5, h6, p, label, legend, button, a, summary,
+  input, textarea, option, .text, .label, .title, .section-desc,
+  .dropdown-header, .error, .success, [role='status']) {
+  unicode-bidi: plaintext;
+}
+:where(input[type='url'], input[type='email'], input[type='password']) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+// Placeholder copy stays at the control's usual left edge, even when its
+// translation starts with RTL text. Entered text keeps content-based bidi.
+:where(input, textarea):placeholder-shown {
+  text-align: left;
+}
+app-input .note-title.ph,
+app-input .note-body.ph {
+  text-align: left;
 }
 
 #interface-language {
@@ -3684,4 +3705,36 @@ html[dir='rtl'] {
   max-width: min(230px, 45vw);
   min-height: 44px;
   padding: 8px 12px;
+}
+
+// Semantic highlights adapt to the containing note; every wrapped line keeps
+// the hand-drawn marker ends from the design handoff.
+app-input .note-main mark.hl,
+app-notes .note-main mark.hl {
+  color: inherit;
+  padding: .02em .3em .06em;
+  margin: 0 -.1em;
+  border-radius: .3em .2em .35em .15em;
+  background: linear-gradient(78deg, transparent .16em, var(--hl) .26em,
+    var(--hl) calc(100% - .26em), transparent calc(100% - .16em));
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+app-input .note-container.has-note-pattern,
+app-notes .note-main.has-note-pattern {
+  background-size: 100px 100px !important;
+  background-repeat: repeat !important;
+  background-position: 0 0 !important;
+  background-attachment: local;
+}
+app-input .text-format-toolbar .highlight-format {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  &[aria-pressed="true"] { background: #feefc3; color: #202124; }
+}
+body:not(.light-theme) app-input .text-format-toolbar .highlight-format[aria-pressed="true"] {
+  background: #8a6400;
+  color: #e8eaed;
 }

@@ -1,4 +1,6 @@
+import { SharedService } from 'src/app/services/shared.service';
 import { uiText } from 'src/app/i18n/messages';
+import { checklistBodyParts, checklistId } from '../../utils/checklist-placement';
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
 import { I18nService } from 'src/app/i18n/i18n.service';
 import { WorkspaceBackupService, BACKUP_NOTICE } from 'src/app/services/workspace-backup.service';
@@ -168,6 +170,7 @@ export class SettingsComponent implements OnInit, OnDestroy {
 
   constructor(
     public i18n: I18nService,
+    public Shared: SharedService,
     private reminderService: ReminderService,
     private notesService: NotesService,
     private route: ActivatedRoute,
@@ -362,6 +365,18 @@ export class SettingsComponent implements OnInit, OnDestroy {
       input.checked = this.authService.currentUser?.[field] !== false;
       this.error = uiText('settings.could_not_save_the_shared_note_preference');
     } finally { this.savingSharedOrganization = false; }
+  }
+
+  savingDefaultNoteColor = false;
+  get defaultNoteColor() { return this.preferences.value.defaultNoteColor; }
+
+  async setDefaultNoteColor(color: string, menu: HTMLDivElement) {
+    if (this.savingDefaultNoteColor) return;
+    this.Shared.closeTooltip(menu);
+    this.savingDefaultNoteColor = true;
+    try { await this.preferences.updateDefaultNoteColor(color); }
+    catch { this.error = uiText('settings.default_note_colour_save_failed'); }
+    finally { this.savingDefaultNoteColor = false; }
   }
 
   setNotePreviewTextSize(size: 'compact' | 'default' | 'large') {
@@ -965,12 +980,11 @@ export class SettingsComponent implements OnInit, OnDestroy {
         }
         md += '\n';
 
-        if (n.isCbox && n.checkBoxes?.length) {
-          n.checkBoxes.forEach(cb => {
-            md += `- [${cb.done ? 'x' : ' '}] ${cb.data}\n`;
-          });
-        } else if (n.noteBody) {
-          md += `${n.noteBody}\n`;
+        for (const part of checklistBodyParts(n.noteBody || '', n.checkBoxes, !!n.isCbox)) {
+          if (part.type === 'text') { if (part.html) md += `${part.html}\n`; }
+          else for (const cb of (n.checkBoxes || []).filter(row => checklistId(row) === part.id)) {
+            md += `${'  '.repeat(Math.min(8, Math.max(0, Number(cb.indentLevel) || 0)))}- [${cb.done ? 'x' : ' '}] ${cb.data}\n`;
+          }
         }
 
         if (n.images?.length) {

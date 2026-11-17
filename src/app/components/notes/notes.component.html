@@ -132,8 +132,9 @@
 
 <!--*  note template -->
 <ng-template #noteTemplate let-notes="notes">
+  @let filteredNotes = notes | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value:Shared.composerDraftSyncId;
+  <!-- Bricks measures every direct child; keep controls outside the card grid. -->
   <div #noteEl class="notes-layout" [class.list-layout]="Shared.noteViewType.value === 'list'">
-    @let filteredNotes = notes | notesTools:currentPageName:Shared.searchQuery:Shared.searchScope.value:Shared.composerDraftSyncId;
     @for (note of visibleNotes(filteredNotes); track note.id) {
       <div #noteEL class="note-container"
         [attr.data-note-ink]="note.bgColor || hasRealBgImage(note.bgImage) ? noteTextColor(note) : null"
@@ -159,8 +160,9 @@
           @let noteIsLinkOnly = isLinkOnlyNote(note);
           @let noteHasTitle = hasVisibleNoteTitle(note);
           <div class="note-main" [class.note-main--link-only]="noteIsLinkOnly"
-          [class.note-main--untitled]="!noteHasTitle && !noteIsLinkOnly"
-          [ngStyle]="{'background-color':note.bgColor,'border-color':note.bgColor,'background-image' : note.bgImage, 'color': noteTextColor(note)}">
+          [class.note-main--image-cover]="noteCoverImages(note).length && !noteLock.lockPreviewHidden(note)"
+          [class.note-main--untitled]="!noteHasTitle && !noteIsLinkOnly" [class.has-note-pattern]="!!note.pattern && !hasRealBgImage(note.bgImage)"
+          [ngStyle]="{'background-color':note.bgColor,'border-color':note.bgColor,'background-image' : noteBackground(note), '--hl': noteHighlight(note), 'color': noteTextColor(note)}">
           @if (note.ownerUserId && auth.currentUser?.id && note.ownerUserId !== auth.currentUser?.id) {
             <div class="shared-indicator H pop" [attr.data-pop]="'accessibility.shared_by' | translate: { name: (note.ownerDisplayName || note.ownerUsername || ('notes.another_user' | translate)) }">
               @if (note.ownerAvatarDataUrl) {
@@ -175,7 +177,9 @@
               }
             </div>
           }
-          <div (click)="openModal(noteEL,note)">
+          <div class="note-preview-frame" (click)="openModal(noteEL,note)">
+            <div class="note-preview-window" [appNotePreview]="noteHasPhotoPreview(note) && !noteLock.lockPreviewHidden(note)" #preview="notePreview">
+            <div class="note-preview-content">
             @if (noteLock.lockPreviewHidden(note)) {
               @if (noteHasTitle) {
               <div class="title" dir="auto">
@@ -197,21 +201,16 @@
                   <div class="link-overflow-chip">{{ 'counts.extra_links' | uiPlural: extraLinks }}</div>
                 }
             } @else {
+            @let coverImages = noteCoverImages(note);
+            @if (coverImages.length) {
+              <app-note-preview-images [images]="coverImages" [cover]="true" (imageRequested)="openPreviewImage(note, $event)"></app-note-preview-images>
+            }
             @if (noteHasTitle) {
             <div class="title" dir="auto">
               <span [innerHTML]="note.noteTitle"></span>
             </div>
             }
-            <div class="note-images">
-                @for (image of note.images || []; track image.id) {
-                  @if (image.placement === 'top') {
-                    <img [src]="imageSrc(image.dataUrl)" [alt]="image.name" decoding="async"
-                      [attr.data-drawing-background]="drawingPreviewBackground(image)"
-                      (contextmenu)="downloadImage(image.dataUrl, image.name, $event)">
-                  }
-                }
-            </div>
-            @if (!note.isCbox || isHybridCard(note)) {
+            <div class="note-images"></div>
               <section class="body-segments" [class.min]="note.noteBody!.length > 68">
                 @for (segment of noteBodySegments(note); track trackBodySegment($index, segment)) {
                   @if (segment.type === 'html') {
@@ -220,10 +219,20 @@
                     } @else {
                       <div class="body" dir="auto" [innerHTML]="segment.value" (contextmenu)="downloadInlineImage($event)"></div>
                     }
-                  } @else {
+                  } @else if (segment.type === 'url') {
                     <div class="link-previews">
                       <app-link-preview [url]="segment.value"></app-link-preview>
                     </div>
+                  } @else if (segment.type === 'images') {
+                    <app-note-preview-images [images]="segment.images" (imageRequested)="openPreviewImage(note, $event)"></app-note-preview-images>
+                  } @else if (segment.type === 'drawing') {
+                    <div class="note-images">
+                      <img [src]="imageSrc(segment.image.dataUrl)" [alt]="segment.image.name" decoding="async"
+                        [attr.data-drawing-background]="drawingPreviewBackground(segment.image)"
+                        (contextmenu)="downloadImage(segment.image.dataUrl, segment.image.name, $event)">
+                    </div>
+                  } @else {
+                    <ng-container [ngTemplateOutlet]="overviewChecklistTemplate" [ngTemplateOutletContext]="{ $implicit: note, listId: segment.value }"></ng-container>
                   }
                 }
                 @let extraLinks = hiddenLinkCount(note);
@@ -231,51 +240,17 @@
                   <div class="link-overflow-chip">{{ 'counts.extra_links' | uiPlural: extraLinks }}</div>
                 }
               </section>
-            }
-            @if (note.isCbox) {
-              <div class="cboxes min">
-                @let completedCboxesCount = overviewCompletedChecklistCount(note);
-                @let cboxPreview = overviewChecklistPreview(overviewChecklistItems(note));
-                @for (cb of cboxPreview.items; track cb.id) {
-                  <div class="cbox-container overview-cbox-row">
-                    <div (touchstart)="$event.stopPropagation()" (touchend)="toggleOverviewCheckbox(note, cb, $event)"
-                    (mousedown)="$event.stopPropagation()" (mouseup)="toggleOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()" [class.done]="cb.done"
-                    [style.--overview-cbox-indent.px]="checkboxIndentPx(cb)"
-                    class="cbox-icon"></div>
-                    <div class="cbox-note-container min overview-cbox-note-container">
-                      <div [attr.data-id]="cb.id" [class.cbox-done]="cb.done"
-                        class="cbox-note overview-cbox-note" dir="auto"
-                        [innerHTML]="cb.data">
-                      </div>
-                    </div>
-                    <div (touchstart)="$event.stopPropagation()" (touchend)="removeOverviewCheckbox(note, cb, $event)"
-                    (mousedown)="$event.stopPropagation()" (mouseup)="removeOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()"
-                      class="cbox-cancel-icon min H">
-                    </div>
-                  </div>
-                }
-                @if (cboxPreview.more) {
-                  <div class="overview-cbox-more">{{ 'notes.value0_more' | translate: { value0: (cboxPreview.more) } }}</div>
-                }
-                @if (preferences.value.moveCompletedChecklistItemsToBottom && completedCboxesCount) {
-                  <div class="hr min"></div>
-                  <div class="cbox-done-container min">
-                    <div class="cbox-arrow"></div>
-                    <span>{{ 'checklist.completed' | uiPlural:completedCboxesCount }}</span>
-                  </div>
-                }
-              </div>
-            }
-            <div class="note-images">
-              @for (image of note.images || []; track image.id) {
-                @if (image.placement === 'bottom') {
-                  <img [src]="imageSrc(image.dataUrl)" [alt]="image.name" decoding="async"
-                    [attr.data-drawing-background]="drawingPreviewBackground(image)"
-                    (contextmenu)="downloadImage(image.dataUrl, image.name, $event)">
-                }
-              }
-            </div>
             } <!-- end @else (not link-only) -->
+            </div>
+            </div>
+            @if (preview.hiddenCount && !noteLock.lockPreviewHidden(note)) {
+              <button type="button" class="preview-overflow-pill"
+                [attr.aria-label]="'counts.more_images' | uiPlural:preview.hiddenCount"
+                (touchstart)="$event.stopPropagation()" (mousedown)="$event.stopPropagation()" (click)="openPreviewImage(note, preview.firstHiddenIndex, $event)">
+                <span class="material-symbols-outlined" aria-hidden="true">photo_library</span>
+                {{ 'counts.extra_images' | uiPlural:preview.hiddenCount }}
+              </button>
+            }
           </div>
           <!-- Removed collaborator avatars from overview as requested -->
           <div class="labels-container min">
@@ -394,10 +369,10 @@
       [attr.data-pop]="!note.pinned ? ('accessibility.pin_note' | translate):('accessibility.unpin_note' | translate) "></div>
     </div>
   }
+</div>
   @if (canShowMoreLoadedNotes(filteredNotes)) {
     <button type="button" class="load-more-notes" (click)="increaseVisibleNoteLimit()">{{ 'notes.load_more' | translate }}</button>
   }
-</div>
 </ng-template>
 
 <!--? Time picker host. Date picking happens via per-note transparent
@@ -408,7 +383,7 @@
 <!--? --------tooltips-------- -->
 <!--? more MENU -->
 <div #moreMenuTt data-tooltip="true" data-is-tooltip-open="false" class="moreMenu">
-  <div (click)="moreMenu(moreMenuTt).trash(activeNote!)">{{ ((activeNote && activeNote.ownerUserId !== auth.currentUser?.id && !activeNote.sharedBinder)) ? ('input.unshare_this_with_me' | translate) : ('notes.delete_note' | translate) }}</div>
+  <div (click)="moreMenu(moreMenuTt).trash(activeNote!)">{{ ((activeNote && activeNote.ownerUserId && auth.currentUser?.id && activeNote.ownerUserId !== auth.currentUser?.id && !activeNote.sharedBinder)) ? ('input.unshare_this_with_me' | translate) : ('notes.delete_note' | translate) }}</div>
   <div #labelMenuBtn (click)="moreMenu(moreMenuTt).openLabelMenu(labelMenuTt)">{{ 'labels.add_label' | translate }}
   </div>
   <div (click)="moreMenu(moreMenuTt).openBinderMenu(binderMenuTt,labelMenuTt)">{{ 'binders.move_to_binder' | translate }}</div>
@@ -426,7 +401,8 @@
 </div>
 <!--? color MENU -->
 <div #colorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="colorMenu">
-  <app-note-appearance-picker (colorSelected)="colorMenu.bgColor($event)" (backgroundSelected)="colorMenu.bgImage($event)"
+  <app-note-appearance-picker [noteColor]="appearanceNote?.bgColor || ''" [noteBackground]="appearanceNote?.bgImage || ''" [pattern]="appearanceNote?.pattern"
+    (patternSelected)="colorMenu.pattern($event)" (colorSelected)="colorMenu.bgColor($event)" (backgroundSelected)="colorMenu.bgImage($event)"
     (layoutChanged)="Shared.updateTooltip(colorMenuTt)"></app-note-appearance-picker>
 </div>
 <!--? label MENU -->
@@ -554,3 +530,38 @@
     </div>
   }
 </div>
+
+<ng-template #overviewChecklistTemplate let-note let-listId="listId">
+              <div class="cboxes min">
+                @let completedCboxesCount = overviewCompletedChecklistCount(note, listId);
+                @let cboxPreview = overviewChecklistPreview(overviewChecklistItems(note, listId));
+                @for (cb of cboxPreview.items; track cb.id) {
+                  <div class="cbox-container overview-cbox-row">
+                    <div (touchstart)="$event.stopPropagation()" (touchend)="toggleOverviewCheckbox(note, cb, $event)"
+                    (mousedown)="$event.stopPropagation()" (mouseup)="toggleOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()" [class.done]="cb.done"
+                    [style.--overview-cbox-indent.px]="checkboxIndentPx(cb)"
+                    class="cbox-icon"></div>
+                    <div class="cbox-note-container min overview-cbox-note-container">
+                      <div [attr.data-id]="cb.id" [class.cbox-done]="cb.done"
+                        class="cbox-note overview-cbox-note" dir="auto">
+                        <div class="overview-cbox-content" [innerHTML]="cb.data"></div>
+                      </div>
+                    </div>
+                    <div (touchstart)="$event.stopPropagation()" (touchend)="removeOverviewCheckbox(note, cb, $event)"
+                    (mousedown)="$event.stopPropagation()" (mouseup)="removeOverviewCheckbox(note, cb, $event)" (click)="$event.stopPropagation()"
+                      class="cbox-cancel-icon min H">
+                    </div>
+                  </div>
+                }
+                @if (cboxPreview.more) {
+                  <div class="overview-cbox-more">{{ 'notes.value0_more' | translate: { value0: (cboxPreview.more) } }}</div>
+                }
+                @if (preferences.value.moveCompletedChecklistItemsToBottom && completedCboxesCount) {
+                  <div class="hr min"></div>
+                  <div class="cbox-done-container min">
+                    <div class="cbox-arrow"></div>
+                    <span>{{ 'checklist.completed' | uiPlural:completedCboxesCount }}</span>
+                  </div>
+                }
+              </div>
+</ng-template>

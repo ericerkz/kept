@@ -21,7 +21,7 @@ try {
   const source=await workspaces.createLocal();
   const native={flush:async()=>{},ready:Promise.resolve()};
   const backups=new WorkspaceBackupService(store,workspaces,native);
-  const note=await store.commitMutation(source,'note.upsert','note-portable',{noteTitle:'Portable note',noteBody:'<p>Stored locally</p>',pinned:false,isCbox:true,bgColor:'',bgImage:'',labels:[],checkBoxes:[{id:25,data:'Indented',done:false,indentLevel:2}],locked:true,lockSalt:'salt',lockHash:'hash'});
+  const note=await store.commitMutation(source,'note.upsert','note-portable',{noteTitle:'Portable note',pattern:'travel',noteBody:'<p>Stored <mark class="hl">locally</mark></p><div class="kept-checklist-anchor kept-list-first"></div><p>Between lists</p><div class="kept-checklist-anchor kept-list-second"></div><p>After both</p>',pinned:false,isCbox:true,bgColor:'',bgImage:'',labels:[],checkBoxes:[{id:25,listId:'first',data:'Indented',done:false,indentLevel:2},{id:26,listId:'second',data:'Another list',done:true}],locked:true,lockSalt:'salt',lockHash:'hash'});
   await store.commitMutation(source,'binder.upsert','empty-binder',{name:'Empty binder'});
   await store.commitMutation(source,'attachment.upsert','file-portable',{noteId:note.id,noteSyncId:note.syncId,originalName:'file.txt',mimeType:'text/plain',fileSize:5},{blobs:[{key:'attachment:file-portable',value:new Blob(['bytes'],{type:'text/plain'})}]});
   const directory=await navigator.storage.getDirectory();const handle=await directory.getFileHandle('backup.zip',{create:true});
@@ -31,6 +31,8 @@ try {
   const restored=await backups.restoreFromBlob(await handle.getFile());
   const notes=await store.listNotes(restored.partition);
   if(notes[0].syncId!=='note-portable'||notes[0].checkBoxes[0].indentLevel!==2||!notes[0].locked)throw Error('Restore lost note fields');
+  if(notes[0].checkBoxes[0].listId!=='first'||notes[0].checkBoxes[1].listId!=='second'||!notes[0].noteBody.includes('Between lists')||!notes[0].noteBody.includes('kept-list-second'))throw Error('Restore lost checklist structure');
+  if(notes[0].pattern!=='travel'||!notes[0].noteBody.includes('<mark class="hl">'))throw Error('Restore lost patterns or semantic highlights');
   if(await(await store.getBlob(restored.partition,'attachment:file-portable')).text()!=='bytes')throw Error('Restore lost file');
   if((await store.listResources('binder',restored.partition))[0].name!=='Empty binder')throw Error('Restore lost empty binder');
   const sourceNotes=await store.listNotes(source.partition);
@@ -47,7 +49,7 @@ try {
   const {NativeWorkspaceService,BehaviorSubject,Subject}=window.testWorkspace;
   const store=window.keptTestStore,workspaces=window.keptTestWorkspaces;
   const workspace=await workspaces.createLocal();
-  const note=await store.commitMutation(workspace,'note.upsert','widget-note',{noteTitle:'Widget',checkBoxes:[{id:1,data:'keep',done:false}],labels:[]});
+  const note=await store.commitMutation(workspace,'note.upsert','widget-note',{noteTitle:'Widget',checkBoxes:[{id:1,listId:'first',data:'keep',done:false},{id:2,listId:'second',data:'other list',done:false}],labels:[]});
   const access=new Subject(),changed=new Subject();
   const auth={accessChanges$:access,isLocal:true,workspace:workspaces};
   const sync={partition:workspace.partition,cacheChanged$:changed,workspace:()=>store.getWorkspace(workspace.id),commit:(type,id,payload,options)=>store.commitMutation(workspace,type,id,payload,options)};
@@ -62,6 +64,8 @@ try {
   await native.flush();
   if((await store.getWorkspace(workspace.id)).revision!==revision)throw Error('Native replay changed the note twice');
   if(!(await store.listNotes(workspace.partition))[0].checkBoxes[0].done)throw Error('Widget set action was lost');
+  const checked=(await store.listNotes(workspace.partition))[0];
+  if(checked.checkBoxes[0].listId!=='first'||checked.checkBoxes[1].listId!=='second'||checked.checkBoxes[1].done)throw Error('Widget tick changed another list or lost membership');
   if(quarantined)throw Error('Acknowledgement transport failure was incorrectly quarantined');
   actions.push({actionId:'obsolete',workspaceId:workspace.id,generation:'old-generation',sequence:2,kind:'note.delete',targetSyncId:'widget-note',payload:{}});
   await native.flush();

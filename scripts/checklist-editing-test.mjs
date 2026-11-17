@@ -27,7 +27,7 @@ try {
     { name: 'selection', rows: [row('Alpha bravo', 0)], index: 0, start: 2, end: 8, expected: ['Al', 'avo'] },
     { name: 'nested', rows: [row('Parent', 0), row('Child row', 1, 1), row('Grandchild', 2, 2)], index: 1, start: 4, expected: ['Parent', 'Chil', 'd row', 'Grandchild'], indents: [0, 1, 1, 2] },
     { name: 'completed', rows: [row('Alpha', 0), row('Done row', 1, 0, true)], index: 1, start: 4, expected: ['Alpha', 'Done', ' row'], completed: true },
-    { name: 'empty', rows: [row('', 0)], index: 0, start: 0, expected: ['', ''] }
+    { name: 'empty', rows: [row('', 0), row('Following row', 1)], index: 0, start: 0, expected: ['', '', 'Following row'] }
   ];
   browser = await chromium.launch({ headless: true });
   for (const mobile of [false, true]) {

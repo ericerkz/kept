@@ -17,7 +17,7 @@ For example, `holiday !image` finds notes matching “holiday” that contain im
 
 ## Creation dates
 
-Use **Filters → Creation date**, or add `!date` to a search:
+Select **Filters → Date**, then type a date after `!date` in the search bar or click an example below the checkbox. You can also enter `!date` directly:
 
 | Search | Notes created |
 | --- | --- |

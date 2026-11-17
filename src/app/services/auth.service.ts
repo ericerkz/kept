@@ -140,6 +140,8 @@ export class AuthService implements OnDestroy {
 
   get isLocal() { return this.workspace.isLocal; }
 
+  get defaultNoteColor() { return this.isLocal ? this.workspace.local?.preferences.defaultNoteColor || '' : this.currentUser?.defaultNoteColor || ''; }
+
   get accessChanges$() { return merge(this.currentUser$, this.workspace.local$).pipe(map(() => this.currentUser)); }
 
   get followsSystemTheme() {
@@ -308,14 +310,23 @@ export class AuthService implements OnDestroy {
   // Native image elements cannot attach Authorization headers. Fetch through
   // HttpClient (including gateway headers) and display a local blob instead.
   // Callers prepare images before inserting their HTML into a live document.
-  async prepareImageUrl(value: string): Promise<string> {
-    const url = this.authenticatedImageUrl(value);
+  private imageRequestUrl(value: string, previewSize?: number) {
+    const canonical = this.canonicalImageUrl(value);
+    if ([160, 320, 480, 640, 960].includes(previewSize!) && canonical.startsWith('/api/uploads/images/')) {
+      const base = this.apiUrl.startsWith('http') ? `${this.apiUrl}${canonical.slice('/api'.length)}` : canonical;
+      return `${base}?preview=${previewSize}`;
+    }
+    return this.authenticatedImageUrl(value);
+  }
+
+  async prepareImageUrl(value: string, previewSize?: number): Promise<string> {
+    const url = this.imageRequestUrl(value, previewSize);
     if (this.usesBrowserSession || !this.isProtectedMediaUrl(url)) return url;
     const existing = this.mediaUrls.get(url);
     if (existing) return existing;
     if (!this.mediaRequests.has(url)) {
       const token = this.token;
-      const request = this.fetchMediaBlob(url).then(async blob => {
+      const request = this.fetchMediaBlob(value, previewSize).then(async blob => {
         // A blob URL has the app's origin and does not retain the proxy's CSP.
         // Rasterize proxy thumbnails so an SVG cannot become an executable
         // document if someone opens its local rendering URL directly.
@@ -356,8 +367,8 @@ export class AuthService implements OnDestroy {
     } catch { return false; }
   }
 
-  async fetchMediaBlob(value: string) {
-    const url = this.authenticatedImageUrl(value);
+  async fetchMediaBlob(value: string, previewSize?: number) {
+    const url = this.imageRequestUrl(value, previewSize);
     // Never send a Kept credential to an external image host.
     return firstValueFrom(this.http.get(url, {
       headers: this.isProtectedMediaUrl(url) ? this.authHeaders() : undefined,
@@ -515,6 +526,7 @@ export class AuthService implements OnDestroy {
       displayName: result.user.displayName,
       role: result.user.role,
       theme: result.user.theme || 'light',
+      defaultNoteColor: result.user.defaultNoteColor || '',
       followSystemTheme: result.user.followSystemTheme === true,
       language: result.user.language || 'system',
       languagePreferencesSupported: result.user.languagePreferencesSupported === true,
@@ -563,7 +575,7 @@ export class AuthService implements OnDestroy {
     return user;
   }
 
-  async updateAccountPreferences(patch: { theme?: UserTheme; followSystemTheme?: boolean; showPastReminders?: boolean; inheritSharedLabels?: boolean; inheritSharedBinders?: boolean; language?: string }) {
+  async updateAccountPreferences(patch: { theme?: UserTheme; defaultNoteColor?: string; followSystemTheme?: boolean; showPastReminders?: boolean; inheritSharedLabels?: boolean; inheritSharedBinders?: boolean; language?: string }) {
     if (this.isLocal) return this.workspace.updatePreferences(patch);
     if (this.currentUser) {
       const workspace = await this.offlineStore.ensureServerWorkspace(this.offlineStore.partition(this.currentUser.id));
@@ -645,7 +657,7 @@ export class AuthService implements OnDestroy {
 
   applyWorkspacePreferences(preferences: Partial<UserI>) {
     if (!this.currentUser) return;
-    if (['theme','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders','language','languagePreferencesSupported'].every(key => (this.currentUser as any)[key] === (preferences as any)[key])) return;
+    if (['theme','defaultNoteColor','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders','language','languagePreferencesSupported'].every(key => (this.currentUser as any)[key] === (preferences as any)[key])) return;
     this.mergeAccountPreferences({...this.currentUser,...preferences,
       ...(preferences.language !== undefined ? { languagePreferencesSupported: true } : {}) });
   }
@@ -656,6 +668,7 @@ export class AuthService implements OnDestroy {
     const session = {
       ...current,
       theme: user.theme || current.theme,
+      defaultNoteColor: user.defaultNoteColor ?? current.defaultNoteColor ?? '',
       language: user.language ?? current.language ?? 'system',
       languagePreferencesSupported: user.languagePreferencesSupported ?? current.languagePreferencesSupported ?? false,
       followSystemTheme: user.followSystemTheme ?? current.followSystemTheme ?? false,
@@ -666,7 +679,7 @@ export class AuthService implements OnDestroy {
     // Older cached preferences can omit newer fields. Compare the effective
     // settings after defaults are applied, or each sync re-emits the session
     // and starts another sync even though nothing has actually changed.
-    if (['theme','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders','language','languagePreferencesSupported']
+    if (['theme','defaultNoteColor','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders','language','languagePreferencesSupported']
       .every(key => (session as any)[key] === (current as any)[key])) return;
     localStorage.setItem(this.sessionKey, JSON.stringify(session));
     this.currentUser$.next(session);

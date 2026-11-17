@@ -142,3 +142,22 @@ test('a failed save restores the card and does not announce a successful archive
   const h=harness({saveFails:true});h.start();h.move(260);h.end(260);await settle();
   assert.equal(h.calls.errors.length,1);assert.equal(h.calls.undo.length,0);assert.equal(h.classes.size,0);
 });
+
+test('image tiles and link preview surfaces allow hold pickup without becoming archive swipes', () => {
+  for (const media of ['photo', 'link']) {
+    const h = harness();
+    const button = { classList: { contains: name => name === 'preview-image-tile' } };
+    const target = { closest(selector) {
+      if (selector === h.component.noteTouchControl) return media === 'photo' ? button : null;
+      if (selector === 'app-link-preview, app-note-preview-images') return {};
+      return null;
+    } };
+    h.start(120, 200, { target });
+    h.tick(400);
+    assert.equal(h.calls.drags, 1, `${media} content must reach the note hold handler`);
+    assert.equal(h.component.noteArchiveSwipe, undefined);
+    h.end(120, 200, { target });
+    assert.equal(h.calls.opens, 0);
+    assert.equal(h.calls.saves.length, 0);
+  }
+});

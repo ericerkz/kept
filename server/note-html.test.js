@@ -5,6 +5,13 @@ const { sanitizeNoteHtml, safeUrl } = require('./note-html');
 const { startFixture } = require('../test-support/session-fixture.cjs');
 const cases = require('../test-support/note-html-cases.json');
 
+test('checklist position markers preserve surrounding text without allowing executable markup', () => {
+  const body = '<p>Before</p><div class="kept-checklist-anchor kept-list-example"></div><p>After</p>';
+  assert.equal(sanitizeNoteHtml(body), body);
+  const malicious = body.replace('class="kept-checklist-anchor kept-list-example"', 'class="kept-checklist-anchor kept-list-example" onclick="alert(1)"');
+  assert.equal(sanitizeNoteHtml(malicious), body);
+});
+
 test('note HTML removes executable content while preserving supported rich content', () => {
   assert.equal(sanitizeNoteHtml(0), '0');
   const rich = '<h1>Heading</h1><p><b>Bold</b> <i>italic</i> <u>underline</u><s>strike</s></p><ul><li>List</li></ul><blockquote>Quote</blockquote><pre><code>code</code></pre><span style="color: red; font-weight: bold; text-decoration: underline">Styled</span><a href="https://example.test">Link</a><img src="/api/uploads/images/pixel.png" alt="Pixel" width="100"><table><tr><td>Cell</td></tr></table>';
@@ -37,13 +44,15 @@ test('REST, sync, legacy data, shared notes and Takeout use the safe content pol
   const assertClean = note => {
     assert.doesNotMatch(note.noteTitle + note.noteBody + JSON.stringify(note.checkBoxes), /onerror=/i);
     assert.ok(note.noteBody.includes('<b>Keep formatting</b>'));
+    assert.equal(note.checkBoxes[0].listId, 'first-list');
+    assert.equal(note.checkBoxes[1].listId, 'second-list');
   };
   try {
     await api('/setup/admin', { username: 'owner', displayName: 'Owner', password }, 'POST', 201);
     token = (await api('/auth/login', { username: 'owner', password })).token;
     const editor = await api('/users', { username: 'editor', displayName: 'Editor', password, role: 'user' }, 'POST', 201);
     const editorToken = (await api('/auth/login', { username: 'editor', password })).token;
-    const fields = { noteTitle: payload, noteBody: payload, checkBoxes: [{ id: 1, data: payload, done: false, indentLevel: 2 }], images: [], labels: [], clientMetadata: { schema: 7 } };
+    const fields = { noteTitle: payload, noteBody: payload, checkBoxes: [{ id: 1, listId: 'first-list', data: payload, done: false, indentLevel: 2 }, { id: 2, listId: 'second-list', data: 'Second list', done: true }], images: [], labels: [], clientMetadata: { schema: 7 } };
     const note = await api('/notes', fields, 'POST', 201);
     assertClean(note);
     assert.deepEqual(note.clientMetadata, { schema: 7 });

@@ -33,6 +33,7 @@ export interface NoteI {
     pinned: boolean
     bgColor: string
     bgImage: string
+    pattern?: string | null
     checkBoxes?: CheckboxI[]
     images?: NoteImageI[]
     attachments?: NoteAttachmentI[]
@@ -82,6 +83,7 @@ export interface NoteAttachmentI {
 }
 
 export interface CheckboxI {
+    listId?: string
     done: boolean,
     data: any,
     id: number

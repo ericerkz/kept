@@ -9,7 +9,9 @@
 #   3. The Node process should never run as root.
 #
 # How it works:
-#   - The image starts as root (so we can chown).
+#   - Normally the image starts as root (so we can chown).
+#   - With an explicit non-root user, keep that identity and supplementary
+#     groups, check the data directory, and run the command directly.
 #   - We figure out the desired UID/GID:
 #       a) If PUID/PGID env vars are set explicitly, use them.
 #       b) Otherwise, if /app/data exists and has a non-root owner already
@@ -25,7 +27,20 @@
 
 set -e
 
-DATA_DIR=/app/data
+DATA_DIR="${DATA_DIR:-/app/data}"
+
+# Docker --user / Compose user: / Kubernetes runAsUser already selected the
+# runtime identity. su-exec cannot setgroups as this user, even if PUID matches.
+if [ "$(id -u)" -ne 0 ]; then
+  # A real write also detects read-only mounts; mode-bit checks alone can pass.
+  if ! mkdir -p "$DATA_DIR" || [ ! -w "$DATA_DIR" ] || [ ! -x "$DATA_DIR" ] ||
+      ! WRITE_CHECK=$(mktemp "$DATA_DIR/.kept-write-check.XXXXXX"); then
+    printf >&2 'Kept cannot write to %s as UID %s / GID %s. Check the mounted data folder permissions, free space and read-only settings. This user or one of its groups needs write and directory-access permissions. With an explicit non-root user, PUID/PGID do not change ownership.\n' "$DATA_DIR" "$(id -u)" "$(id -g)"
+    exit 1
+  fi
+  rm -f "$WRITE_CHECK"
+  exec "$@"
+fi
 
 # Decide target UID/GID.
 TARGET_UID="${PUID:-}"

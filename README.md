@@ -174,6 +174,54 @@ Open `http://localhost:6767` and create the first admin account.
 
 Kept stores its database, uploads, attachments, and generated server data in `./data`. Back that folder up if you are not using the built-in backup tools.
 
+<details>
+<summary>Alternative: install on Unraid</summary>
+
+Already running Unraid? Install [Kept from Community Applications](https://ca.unraid.net/apps/kept-158xyap1pzllg5?q=kept&view=sidebar) instead of setting up Docker Compose manually.
+
+1. Open **Apps** on your Unraid server and search for **Kept**.
+2. Review the storage and port settings, then install.
+3. Open Kept's **WebUI** and create your first admin account.
+
+</details>
+
+<details>
+<summary>Optional: start the container as a non-root user</summary>
+
+By default, Kept briefly starts as root to prepare the data folder, then runs the app as the user set by `PUID`/`PGID`. You can also start it as non-root from the beginning.
+
+Add `user:` under the existing `kept` service in your Compose file:
+
+```yaml
+services:
+  kept:
+    user: "1000:1000"
+```
+
+Replace `1000:1000` with the Linux user and group IDs that should own Kept's files. Prepare the data folder on your host before starting:
+
+```bash
+mkdir -p ./data
+sudo chown -R 1000:1000 ./data
+docker compose up -d
+```
+
+With `user:` set, Kept uses that identity and keeps its supplementary groups. `PUID`/`PGID` are ignored, and Kept cannot fix file ownership for you. The data folder and existing files must be writable by that user or one of its groups; mounted secret files must be readable. If permissions prevent access, startup stops with an error.
+
+For Kubernetes, the equivalent pod settings are:
+
+```yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+```
+
+Use IDs appropriate for your deployment. Your storage driver must support `fsGroup`, or the volume permissions need to be prepared separately. No root startup or extra user-switching capabilities are needed in this mode.
+
+</details>
+
 ## Kept Cloud — Hosting Handled for You
 
 Want web access, sharing, and sync across devices without setting up Docker or managing a server? Kept Cloud runs and maintains your own private Kept server for you.
@@ -375,7 +423,7 @@ Useful environment variables are documented in `docker-compose.yml`. The common 
 - `KEPT_CALDAV_ALLOWED_PRIVATE_ORIGINS`: optional comma-separated origins for trusted CalDAV services on private networks, for example `http://calendar:5232,https://calendar.home:8443`.
 - `KEPT_PUSH_ALLOWED_PRIVATE_ORIGINS`: optional comma-separated HTTPS origins for custom private web-push services. Standard browser push providers need no exception.
 - `KEPT_TAKEOUT_UPLOAD_MAX`: Google Takeout ZIP upload cap. Defaults to `5GB`; only affects Takeout imports.
-- `PUID` / `PGID`: run the container as a specific Linux user/group.
+- `PUID` / `PGID`: choose the app user/group when the container starts as root. An explicit Compose `user:` overrides these; see the optional non-root setup above.
 - `KEPT_ALLOW_RESTORE`: temporarily enables restore from backup during setup.
 - `VAPID_SUBJECT`: optional public URL/contact identity for web push. Kept auto-generates VAPID keys if you do not set them; only set this if push notifications need a more explicit public origin.
 
@@ -404,7 +452,7 @@ Put the secret value in that file and keep it out of version control. This examp
 
 The `_FILE` alternative is supported for `KEPT_OIDC_CLIENT_SECRET`, `KEPT_SMTP_USER`, `KEPT_SMTP_PASS`, `KEPT_SETUP_TOKEN`, `KEPT_METRICS_TOKEN`, `VAPID_PUBLIC_KEY`, and `VAPID_PRIVATE_KEY`. Existing direct variables continue to work. Set only one source per value; an empty direct variable is treated as unset.
 
-Files are read once at startup and must be readable by the runtime user configured through `PUID`/`PGID`. Kept removes trailing line endings while preserving spaces. Missing, unreadable, empty, invalid UTF-8, oversized (over 64 KiB), or conflicting secrets stop startup with an error naming the setting, without printing the value. Restart Kept after replacing a secret. The example's `secrets/` directory is excluded from Git and Docker builds; if you use another location, keep it out of version control and the Docker build context too.
+Files are read once at startup and must be readable by the runtime user configured through Compose `user:` or `PUID`/`PGID`. Kept removes trailing line endings while preserving spaces. Missing, unreadable, empty, invalid UTF-8, oversized (over 64 KiB), or conflicting secrets stop startup with an error naming the setting, without printing the value. Restart Kept after replacing a secret. The example's `secrets/` directory is excluded from Git and Docker builds; if you use another location, keep it out of version control and the Docker build context too.
 
 ### Inviting users by email (optional)
 

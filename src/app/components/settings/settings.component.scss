@@ -869,3 +869,18 @@ h1 { margin-bottom: 0; }
 @media (max-width: 520px) {
   .device-data .device-actions { grid-template-columns: minmax(0, 1fr); }
 }
+
+.default-note-colour {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.default-note-colour-swatch {
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  display: inline-block;
+  height: 24px;
+  width: 24px;
+}

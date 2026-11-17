@@ -1,3 +1,4 @@
+const { imagePreview } = require('./image-preview');
 const { secretValue } = require('./secret-files');
 const { plainText, imageSources, validateEmail, stripTrailingSlashes } = require('./text-utils');
 const { normalizeLanguage } = require('../shared/language-preference');
@@ -604,6 +605,9 @@ async function init() {
     )
   `);
   const userColumns = await all('PRAGMA table_info(users)');
+  if (!userColumns.some(column => column.name === 'defaultNoteColor')) {
+    await run(`ALTER TABLE users ADD COLUMN defaultNoteColor TEXT NOT NULL DEFAULT ''`);
+  }
   if (!userColumns.some(column => column.name === 'theme')) {
     await run(`ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'light'`);
   }
@@ -1214,6 +1218,7 @@ function publicUser(user) {
     displayName: user.displayName,
     role: user.role,
     theme: user.theme || 'light',
+    defaultNoteColor: user.defaultNoteColor || '',
     followSystemTheme: !!user.followSystemTheme,
     language: user.language || 'system',
     languagePreferencesSupported: true,
@@ -1487,7 +1492,7 @@ function canonicalizeNotePayload(payload) {
   const content = sanitizeNoteContent(payload);
   return {
     ...content,
-    extraFields: noteExtraFields(payload),
+    extraFields: { ...noteExtraFields(payload), pattern: content.pattern },
     noteBody: canonicalizeNoteHtmlImages(content.noteBody),
     images: canonicalizeNoteImages(content.images),
     labels: appliedNoteLabels(payload.labels || []),
@@ -1896,6 +1901,8 @@ function escapeHtml(value) {
 function cardNoteBody(row, previewText) {
   const body = row.noteBody || '';
   if (/<img\b/i.test(body)) return body;
+  // Keep checklist markers and surrounding text together in card responses.
+  if (row.isCbox && body.includes('kept-checklist-anchor')) return body;
   if (row.isCbox && !plainText(body).trim()) return '';
   if (body.length <= 12000) return body;
   return escapeHtml(previewText);
@@ -1936,6 +1943,7 @@ function dbNoteToCard(row, options = {}) {
     pinned: Boolean(pinned),
     bgColor: row.bgColor || '',
     bgImage: row.bgImage || '',
+    pattern: parseJson(row.extraFields || '{}', {}).pattern || null,
     checkBoxes: locked ? [] : (Array.isArray(checkBoxes) ? checkBoxes.slice(0, 8) : []),
     images: locked ? [] : images,
     hasMoreImages: false,
@@ -2458,7 +2466,7 @@ async function smartCreateNote(userId, action, options = {}) {
 	      userId,
 	      content.noteTitle,
 	      content.noteBody,
-	      String(action.bgColor || ''),
+	      String(action.bgColor ?? (await get('SELECT defaultNoteColor FROM users WHERE id = ?', [userId]))?.defaultNoteColor ?? ''),
 	      JSON.stringify(content.checkBoxes),
       isTodo ? 1 : 0,
       JSON.stringify(labels),
@@ -2489,10 +2497,11 @@ async function smartAddChecklistItems(userId, noteId, items) {
   const note = await getAccessibleNote(noteId, userId);
   if (!note) throw new Error(`Note ${noteId} is not accessible.`);
   const current = parseJson(note.checkBoxes || '[]', []);
-  const base = Date.now();
+  const base = Math.max(Date.now(), ...current.map(row => Number(row.id) + 1).filter(Number.isSafeInteger));
+  const listId = current.at(-1)?.listId;
   const next = [
     ...current,
-    ...items.map((item, index) => ({ id: base + index, data: sanitizeNoteHtml(item), done: false }))
+    ...items.map((item, index) => ({ id: base + index, ...(listId ? { listId } : {}), data: sanitizeNoteHtml(item), done: false }))
   ];
   await run('UPDATE notes SET checkBoxes = ?, isCbox = 1, updatedAt = ?, lastEditorUserId = ? WHERE id = ?', [
     JSON.stringify(next),
@@ -4115,6 +4124,11 @@ app.get('/api/users/me/preferences', requireAuth, asyncRoute(async (req, res) =>
 app.patch('/api/users/me/preferences', requireAuth, asyncRoute(async (req, res) => {
   const assignments = [];
   const params = [];
+  if (req.body.defaultNoteColor !== undefined) {
+    const color = req.body.defaultNoteColor;
+    if (typeof color !== 'string' || (color !== '' && !/^#[0-9a-f]{6}$/i.test(color))) return res.status(400).json({ error: 'Invalid default note colour.' });
+    assignments.push('defaultNoteColor = ?'); params.push(color.toLowerCase());
+  }
   if (req.body.language !== undefined) {
     const language = normalizeLanguage(req.body.language);
     if (!language) return res.status(400).json({ error: 'Invalid language preference.' });
@@ -5321,6 +5335,8 @@ app.get('/api/uploads/images/:filename', requireAuth, asyncRoute(async (req, res
   res.vary('Cookie');
   res.setHeader('Cache-Control', req.mcpToken ? 'private, no-store' : 'private, max-age=3600');
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  const preview = await imagePreview(filePath, Number(req.query.preview));
+  if (preview) return res.type('image/webp').send(preview);
   res.sendFile(filePath);
 }));
 
@@ -6898,7 +6914,7 @@ app.patch('/api/notes/reorder', requireAuth, databaseRoute(async (req, res) => {
 }));
 
 app.post('/api/notes', requireAuth, databaseRoute(async (req, res) => {
-  const noteData = canonicalizeNotePayload(req.body);
+  const noteData = canonicalizeNotePayload({ ...req.body, bgColor: req.body.bgColor ?? req.user.defaultNoteColor ?? '' });
   const now = new Date().toISOString();
   const trashedAt = noteData.trashed ? now : null;
   const syncId = String(noteData.syncId || noteData.clientId || `note-${crypto.randomUUID()}`);

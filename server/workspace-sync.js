@@ -81,7 +81,7 @@ function createWorkspaceSync(deps) {
       for (const row of known) if (!ids.has(row.resourceId)) await publish(userId,resourceType,row.syncId,null,serverLwwStamp());
     }
     const user = await get('SELECT * FROM users WHERE id = ?', [userId]);
-    const value = { syncId: 'account-preferences', language: user.language || 'system', theme: user.theme || 'light', followSystemTheme: !!user.followSystemTheme, showPastReminders: !!user.showPastReminders, inheritSharedLabels: user.inheritSharedLabels !== 0, inheritSharedBinders: user.inheritSharedBinders !== 0 };
+    const value = { syncId: 'account-preferences', language: user.language || 'system', defaultNoteColor: user.defaultNoteColor || '', theme: user.theme || 'light', followSystemTheme: !!user.followSystemTheme, showPastReminders: !!user.showPastReminders, inheritSharedLabels: user.inheritSharedLabels !== 0, inheritSharedBinders: user.inheritSharedBinders !== 0 };
     const old = await get("SELECT * FROM workspace_catalog WHERE userId = ? AND resourceType = 'preferences'", [userId]);
     if (!old || JSON.stringify(value) !== old.payload) await publish(userId,'preferences',value.syncId,value,serverLwwStamp());
   }
@@ -126,12 +126,16 @@ function createWorkspaceSync(deps) {
         if (!language) return { ok:false, error:'Invalid language preference.' };
         patch.language = language;
       }
+      if (payload.defaultNoteColor !== undefined) {
+        if (typeof payload.defaultNoteColor !== 'string' || (payload.defaultNoteColor !== '' && !/^#[0-9a-f]{6}$/i.test(payload.defaultNoteColor))) return { ok:false, error:'Invalid default note colour.' };
+        patch.defaultNoteColor = payload.defaultNoteColor.toLowerCase();
+      }
       for (const key of ['theme','followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders']) if (payload[key] !== undefined) patch[key] = payload[key];
       if ((patch.theme !== undefined && !['light','dark'].includes(patch.theme)) || ['followSystemTheme','showPastReminders','inheritSharedLabels','inheritSharedBinders'].some(key => patch[key] !== undefined && typeof patch[key] !== 'boolean')) return { ok:false, error:'Invalid account preference.' };
       if (Object.keys(patch).length) await run(`UPDATE users SET ${Object.keys(patch).map(key => `${key} = ?`).join(',')} WHERE id = ?`, [...Object.values(patch).map(value => typeof value === 'boolean' ? Number(value) : value),userId]);
       await deps.sharedOrganization.preferencesChanged(userId, patch);
       const user = publicUser(await get('SELECT * FROM users WHERE id = ?', [userId]));
-      const value = { syncId, language:user.language, theme:user.theme, followSystemTheme:user.followSystemTheme, showPastReminders:user.showPastReminders,inheritSharedLabels:user.inheritSharedLabels,inheritSharedBinders:user.inheritSharedBinders };
+      const value = { syncId, language:user.language, defaultNoteColor:user.defaultNoteColor || '', theme:user.theme, followSystemTheme:user.followSystemTheme, showPastReminders:user.showPastReminders,inheritSharedLabels:user.inheritSharedLabels,inheritSharedBinders:user.inheritSharedBinders };
       await publish(userId,type,syncId,value,stamp);
       return { ok:true, resourceType:type,syncId,canonical:value };
     }

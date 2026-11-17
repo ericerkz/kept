@@ -116,7 +116,7 @@ test('date filter controls apply, remove and clear the whole operand while prese
   const source = fs.readFileSync('src/app/components/navbar/navbar.component.ts', 'utf8');
   const ast = ts.createSourceFile('navbar.ts', source, ts.ScriptTarget.Latest, true);
   const component = ast.statements.find(node => ts.isClassDeclaration(node));
-  const names = ['applyDateFilter', 'clearDateFilter', 'clearAllFilters', 'hasDateFilter'];
+  const names = ['applyDateFilter', 'clearDateFilter', 'clearAllFilters', 'hasDateFilter', 'toggleDateFilter', 'focusDateSearch', 'isDateExampleActive', 'onSearchFocus'];
   const methods = component.members.filter(node => node.name && names.includes(node.name.getText(ast)))
     .map(node => node.getText(ast)).join('\n');
   const exports = {};
@@ -128,12 +128,28 @@ test('date filter controls apply, remove and clear the whole operand while prese
   assert.equal(navbar.hasDateFilter, true);
   navbar.clearDateFilter();
   assert.equal(navbar.Shared.searchQuery.replace(/\s+/g, ' '), 'budget 1999 !todo');
+  navbar.isFiltersOpen = true;
+  const input = { value: '', focus() { navbar.onSearchFocus(); }, setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; } };
+  navbar.searchInput = {nativeElement: input};
+  navbar.toggleDateFilter();
+  assert.equal(navbar.Shared.searchQuery, 'budget 1999 !todo !date ');
+  assert.equal(navbar.hasDateFilter, true);
+  navbar.applyDateFilter('november');
+  assert.equal(navbar.Shared.searchQuery, 'budget 1999 !todo !date november');
+  assert.equal(navbar.isDateExampleActive('november'),true);
+  assert.equal(navbar.isDateExampleActive('2025'),false);
   navbar.applyDateFilter('yesterday');
   assert.equal(navbar.Shared.searchQuery, 'budget 1999 !todo !date yesterday');
   const before = navbar.Shared.searchQuery;
   navbar.applyDateFilter('2025-02-30');
   assert.equal(navbar.Shared.searchQuery, before);
-  assert.equal(navbar.dateFilterError, 'navbar.invalid_date_filter');
+  assert.equal(navbar.isFiltersOpen,true,'examples leave the panel open');
+  assert.equal(navbar.searchExpanded,false,'focusing search must not hide the mobile filter panel');
+  assert.equal(input.selectionStart,input.value.length);
+  navbar.toggleDateFilter();
+  assert.equal(navbar.Shared.searchQuery,'budget 1999 !todo');
+  assert.equal(navbar.hasDateFilter,false);
+  navbar.applyDateFilter('2025');
   navbar.clearAllFilters();
   assert.equal(navbar.Shared.searchQuery, 'budget 1999');
 });

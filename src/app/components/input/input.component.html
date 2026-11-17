@@ -5,13 +5,13 @@
     (change)="attachmentInputChange($event)">
   <div #notePlaceholder (click)="notePhClick()" (dragover)="dragOverImages($event)" (drop)="dropImages($event)" class="placeholder">
     <input class="input" [attr.placeholder]="'input.take_a_note' | translate" type="text">
-    <div class="check H pop" [attr.data-pop]="'accessibility.new_list' | translate" (click)="isCbox.next(true)"></div>
+    <div class="check H pop" [attr.data-pop]="'accessibility.new_list' | translate" (click)="notePhClick(); startMobileChecklist(); $event.stopPropagation()"></div>
     <div class="paint H pop" [attr.data-pop]="'accessibility.new_note_with_drawing' | translate" (click)="openDrawingNote($event)"></div>
     <div class="picture H pop" [attr.data-pop]="'accessibility.new_note_with_image' | translate" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)"></div>
   </div>
   <!--? new note -->
   <div #noteMain class="note-main" [class.detail-bg]="isEditing && hasBackgroundImage"
-    [class.drawing-note]="isDrawingNote" [class.drawing-fullscreen]="isDrawingFullscreen"
+    [style.--hl]="noteHighlight()" [class.drawing-note]="isDrawingNote" [class.drawing-fullscreen]="isDrawingFullscreen"
     (dragstart)="dragInlineImage($event)" (dragend)="dragEndInlineImage()" (dragover)="dragOverImages($event)"
     (drop)="dropImages($event)" hidden>
 
@@ -48,6 +48,15 @@
             </button>
             @if (showDrawingEraserMenu) {
               <div class="drawing-popover eraser-menu">
+                <div class="drawing-size-row">
+                  @for (size of drawingEraserSizes; track size) {
+                    <button type="button" class="drawing-size-swatch" [class.active]="drawingEraserSize === size"
+                      [attr.aria-label]="'accessibility.eraser_size' | translate: { size: size }" [attr.aria-pressed]="drawingEraserSize === size"
+                      (click)="setDrawingEraserSize(size)">
+                      <span [style.width.px]="size / 2 + 2" [style.height.px]="size / 2 + 2"></span>
+                    </button>
+                  }
+                </div>
                 <button type="button" (click)="clearDrawingPage()">{{ 'input.clear_page' | translate }}</button>
               </div>
             }
@@ -85,7 +94,7 @@
           <div class="drawing-tool-menu drawing-background-tool">
             <button type="button" class="drawing-icon grid" [class.active]="showDrawingBackgroundMenu" [attr.aria-label]="'input.canvas_background' | translate"
               [attr.aria-expanded]="showDrawingBackgroundMenu"
-              (click)="showDrawingBackgroundMenu = !showDrawingBackgroundMenu; showDrawingMoreMenu = false">
+              (click)="toggleDrawingBackgroundMenu($event)">
               <span class="material-symbols-outlined">grid_on</span>
             </button>
             @if (showDrawingBackgroundMenu) {
@@ -116,7 +125,7 @@
             <span class="material-symbols-outlined">fullscreen</span>
           </button>
           <div class="drawing-tool-menu">
-            <button type="button" class="drawing-icon more" [attr.aria-label]="'common.more' | translate" (click)="showDrawingMoreMenu = !showDrawingMoreMenu; showDrawingBackgroundMenu = false">
+            <button type="button" class="drawing-icon more" [attr.aria-label]="'common.more' | translate" (click)="toggleDrawingMoreMenu($event)">
               <span class="material-symbols-outlined">more_vert</span>
             </button>
             @if (showDrawingMoreMenu) {
@@ -124,6 +133,9 @@
                 <button type="button" (click)="newDrawing()">{{ 'input.new_drawing' | translate }}</button>
                 <button type="button" (click)="exportDrawing()">{{ 'input.export_as_image' | translate }}</button>
                 <button type="button" (click)="deleteCurrentDrawing()">{{ 'input.delete_current_drawing' | translate }}</button>
+                <button type="button" (click)="showDrawingMoreMenu = false; moreMenu(moreMenuTt).trash()">
+                  {{ (isSharedNoteForCurrentUser() && !noteToEdit.sharedBinder) ? ('input.unshare_this_with_me' | translate) : ('notes.delete_note' | translate) }}
+                </button>
               </div>
             }
           </div>
@@ -147,7 +159,8 @@
         </div>
       </div>
     } @else {
-    <div #noteContainer class="note-container" [class.mobile-new-note-empty]="showMobileNewNoteStarters()">
+    <div #noteContainer class="note-container" [class.has-checklist]="isCbox.value" [class.has-note-pattern]="!!pattern" [style.background-image]="editorBackgroundImage()"
+      [class.mobile-new-note-empty]="showMobileNewNoteStarters()" (click)="noteContainerClicked($event)">
       <!--? Mobile Top Bar -->
       <div class="mobile-top-bar">
         <button type="button" class="mobile-icon back" (click)="mobileBack()">
@@ -191,12 +204,30 @@
       </div>
       <ng-container [ngTemplateOutlet]="imagesTemplate" [ngTemplateOutletContext]="{ placement: 'top' }">
       </ng-container>
-      <!--? note OR checkboxes (or both, in the case of merged hybrid notes) -->
-      @if (isCbox.value && hasHybridBody()) {
+      <!-- Keep the body editor mounted when checklist mode changes. -->
+      @if (isCbox.value && !hasHybridBody()) {
+        <button type="button" class="checklist-text-entry checklist-text-before"
+          [attr.aria-label]="'input.add_text_above_checklist' | translate" (click)="addChecklistText()"></button>
+      }
+      <div class="checklist-text-section" [hidden]="isCbox.value && !hasHybridBody()">
         <ng-container [ngTemplateOutlet]="noteTemplate"></ng-container>
-        <ng-container [ngTemplateOutlet]="checkboxesTemplate"></ng-container>
-      } @else {
-        <ng-container [ngTemplateOutlet]="isCbox.value ? checkboxesTemplate : noteTemplate"></ng-container>
+      </div>
+      @if (isCbox.value) {
+        @for (block of checklistBlocks; track block.id) {
+          <div class="checklist-block" [attr.data-checklist-id]="block.id">
+            <ng-container [ngTemplateOutlet]="checkboxesTemplate" [ngTemplateOutletContext]="{ listId: block.id }"></ng-container>
+          </div>
+          <div class="checklist-text-section" [hidden]="!block.showText">
+            <div #sectionBody [attr.data-body-after]="block.id" (input)="onNoteBodyInput(sectionBody)" (paste)="pasteEvent($event)"
+              (focus)="rememberTextHistoryTarget(sectionBody)" (click)="onNoteBodyClick($event)" (contextmenu)="downloadInlineImage($event)"
+              class="note-body note-body-after" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off"
+              autocorrect="off" autocapitalize="sentences" inputmode="text"></div>
+          </div>
+          @if (!block.showText) {
+            <button type="button" class="checklist-text-entry checklist-text-after"
+              [attr.aria-label]="'input.add_text_below_checklist' | translate" (click)="addChecklistText(true, block.id)"></button>
+          }
+        }
       }
       <ng-container [ngTemplateOutlet]="imagesTemplate" [ngTemplateOutletContext]="{ placement: 'bottom' }">
       </ng-container>
@@ -236,6 +267,10 @@
       <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
       <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
       <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
+      <button type="button" class="highlight-format" [attr.aria-label]="'input.highlight_text' | translate" [attr.title]="'input.highlight_text' | translate"
+        [attr.aria-pressed]="selectionIsHighlighted()" (mousedown)="toggleTextHighlight($event)">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 16 9-12 6 5-9 12-6-5Z M3 21h7 M7 14l6 5"/></svg>
+      </button>
       <button type="button" class="clear-format" [attr.aria-label]="'input.clear_formatting' | translate" [attr.title]="'input.clear_formatting' | translate"
         (mousedown)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
     </div>
@@ -246,6 +281,22 @@
     [attr.data-pop]="notePin.dataset['pinned'] === 'false' ? ('accessibility.pin_note' | translate):('accessibility.unpin_note' | translate) ">
   </div>
   <!--? icons -->
+  @if (isEditing && !mobileComposeMode && !isDrawingFullscreen) {
+    @if (noteTimestamps; as timestamps) {
+      <div class="desktop-note-metadata">
+        <span class="desktop-note-timestamp" [attr.tabindex]="timestamps.created ? 0 : null"
+          [attr.aria-describedby]="timestamps.created ? 'note-created-time-' + noteToEdit.id : null">
+          <time [attr.datetime]="timestamps.editedIso">{{ 'input.edited_on_datetime' | translate: { datetime: timestamps.edited } }}</time>
+          @if (timestamps.created) {
+            <span class="created-time-pill" role="tooltip" [id]="'note-created-time-' + noteToEdit.id">
+              <time [attr.datetime]="timestamps.createdIso">{{ 'input.created_on_datetime' | translate: { datetime: timestamps.created } }}</time>
+            </span>
+          }
+        </span>
+      </div>
+    }
+  }
+
   @if (!isTrashed && !isDrawingNote) {
     <div class="icons-container">
       @if (showTextFormatting && canFormatText()) {
@@ -257,6 +308,10 @@
           <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
           <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
           <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
+      <button type="button" class="highlight-format" [attr.aria-label]="'input.highlight_text' | translate" [attr.title]="'input.highlight_text' | translate"
+        [attr.aria-pressed]="selectionIsHighlighted()" (mousedown)="toggleTextHighlight($event)">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 16 9-12 6 5-9 12-6-5Z M3 21h7 M7 14l6 5"/></svg>
+      </button>
           <button type="button" class="clear-format" [attr.aria-label]="'input.clear_formatting' | translate" [attr.title]="'input.clear_formatting' | translate"
             (mousedown)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
         </div>
@@ -275,6 +330,11 @@
         </div>
         <div class="image H pop" [attr.data-pop]="'input.add_image' | translate" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)"></div>
         <div class="attachment H pop" [attr.data-pop]="'common.attachments' | translate" (click)="openAttachmentPicker($event)"></div>
+        <div class="checklist-action H pop" role="button" tabindex="0"
+          [attr.aria-label]="'input.insert_checklist' | translate"
+          [attr.data-pop]="'input.insert_checklist' | translate"
+          (mousedown)="$event.preventDefault(); rememberBodySelection()" (click)="insertChecklist()"
+          (keydown.enter)="$event.preventDefault(); insertChecklist()" (keydown.space)="$event.preventDefault(); insertChecklist()"></div>
         <div [ngClass]="isArchived ? 'unarchive' : 'archive'" class="H pop"
           (click)="isArchived = !isArchived;saveNote()"
           [attr.data-pop]="isArchived ? ('accessibility.unarchive' | translate) : ('common.archive' | translate)"></div>
@@ -306,6 +366,10 @@
           <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
           <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
           <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
+      <button type="button" class="highlight-format" [attr.aria-label]="'input.highlight_text' | translate" [attr.title]="'input.highlight_text' | translate"
+        [attr.aria-pressed]="selectionIsHighlighted()" (mousedown)="toggleTextHighlight($event)">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 16 9-12 6 5-9 12-6-5Z M3 21h7 M7 14l6 5"/></svg>
+      </button>
           <button type="button" class="clear-format" [attr.aria-label]="'input.clear_formatting' | translate" [attr.title]="'input.clear_formatting' | translate"
             (mousedown)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
         </div>
@@ -322,7 +386,11 @@
         </div>
         <button type="button" class="mobile-icon format" [class.active]="showTextFormatting" [disabled]="!canFormatText()"
           (click)="toggleTextFormatting($event)" [attr.title]="'input.formatting_options' | translate">A</button>
-        <div class="mobile-icon check" (click)="toggleCbox()" [attr.title]="'input.add_checkboxes' | translate">
+        <div class="mobile-icon check checklist-action" role="button" tabindex="0"
+          [attr.aria-label]="'input.insert_checklist' | translate"
+          [attr.title]="'input.insert_checklist' | translate"
+          (mousedown)="$event.preventDefault(); rememberBodySelection()" (click)="insertChecklist()"
+          (keydown.enter)="$event.preventDefault(); insertChecklist()" (keydown.space)="$event.preventDefault(); insertChecklist()">
           <div class="glyph check"></div>
         </div>
         <div #colorMenuTtBtnMobile class="mobile-icon color" (click)="openTooltip(colorMenuTtBtnMobile,colorMenuTt)" [attr.title]="'backgrounds.options' | translate">
@@ -330,7 +398,26 @@
         </div>
       </div>
       <div class="timestamp">
-        {{(lastEditedTime) || ('input.edited_just_now' | translate)}}
+        @if (noteTimestamps; as timestamps) {
+          @if (timestamps.created) {
+            <button type="button" class="timestamp-toggle" [attr.aria-expanded]="showCreatedTime"
+              [attr.aria-controls]="'mobile-note-created-time-' + noteToEdit.id"
+              [attr.aria-label]="((lastEditedTime) || ('input.edited_just_now' | translate)) + '. ' + ('input.show_creation_date' | translate)"
+              (click)="$event.stopPropagation(); showCreatedTime = !showCreatedTime"
+              (blur)="showCreatedTime = false" (keydown.escape)="$event.stopPropagation(); showCreatedTime = false">
+              {{(lastEditedTime) || ('input.edited_just_now' | translate)}}
+            </button>
+            @if (showCreatedTime) {
+              <span class="created-time-pill mobile-created-time" role="status" [id]="'mobile-note-created-time-' + noteToEdit.id">
+                <time [attr.datetime]="timestamps.createdIso">{{ 'input.created_on_datetime' | translate: { datetime: timestamps.created } }}</time>
+              </span>
+            }
+          } @else {
+            {{(lastEditedTime) || ('input.edited_just_now' | translate)}}
+          }
+        } @else {
+          {{(lastEditedTime) || ('input.edited_just_now' | translate)}}
+        }
       </div>
       <div #moreMenuTtBtnMobile class="mobile-icon more" (click)="openTooltip(moreMenuTtBtnMobile,moreMenuTt)" [attr.title]="'common.more' | translate">
         <div class="glyph more"></div>
@@ -346,6 +433,7 @@
     </div>
   }
   <!--? icons if trashed -->
+
 
   @if (showReminderPicker && getDisplayedReminder(); as displayedReminder) {
     <div class="reminder-picker reminder-picker--inline"
@@ -769,7 +857,9 @@
 </ng-template>
 <!--* note template -->
 <ng-template #noteTemplate>
+  @if (!isEditing && !isCbox.value) {
   <div [hidden]="noteBody.innerHTML.length" class="note-body ph">{{ 'input.take_a_note' | translate }}</div>
+  }
   <div #noteBody (input)="onNoteBodyInput(noteBody)" (paste)="pasteEvent($event)" (focus)="rememberTextHistoryTarget(noteBody)"
     (click)="onNoteBodyClick($event)" (contextmenu)="downloadInlineImage($event)"
     class="note-body" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
@@ -795,25 +885,25 @@
   }
 </ng-template>
 <!--* cboxes template -->
-<ng-template #checkboxesTemplate>
+<ng-template #checkboxesTemplate let-listId="listId">
   <!--? isDone: false -->
-  <ng-container [ngTemplateOutlet]="cboxTemplate" [ngTemplateOutletContext]="{ isDone: false }">
+  <ng-container [ngTemplateOutlet]="cboxTemplate" [ngTemplateOutletContext]="{ isDone: false, listId: listId }">
   </ng-container>
-  <div class="cbox-ph-container" (click)="cboxPhClick()">
+  <div class="cbox-ph-container" (click)="activateChecklist(listId); cboxPhClick()">
     <div class="cbox-plus-icon"></div>
     <div class="cbox-note-container">
       <div class="cbox-note ph">{{ 'input.list_item' | translate }}</div>
-      <div #cboxPh (keydown)="cboxPhKeyDown($event)" (input)="cboxPhInput()" (focus)="rememberTextHistoryTarget(cboxPh)" class="cbox-note" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
+      <div #cboxPh [attr.data-checklist-draft]="listId" (keydown)="cboxPhKeyDown($event)" (beforeinput)="cboxPhBeforeInput($event)" (input)="cboxPhInput()" (focus)="activateChecklist(listId); rememberTextHistoryTarget(cboxPh)" class="cbox-note" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
       </div>
     </div>
   </div>
   <!--? isDone: true -->
-  @if (preferences.value.moveCompletedChecklistItemsToBottom && completedChecklistCount()) {
+  @if (preferences.value.moveCompletedChecklistItemsToBottom && completedChecklistCount(listId)) {
     <div class="hr"></div>
-    <div class="cbox-done-container completed-items-header" (click)="toggleCompletedChecklistCollapse()">
-      <div [class.rotate]="!isCboxCompletedListCollapsed" class="cbox-arrow"></div>
+    <div class="cbox-done-container completed-items-header" (click)="toggleCompletedChecklistCollapse(listId)">
+      <div [class.rotate]="!isChecklistCollapsed(listId)" class="cbox-arrow"></div>
       <div>
-        <span>{{ 'checklist.completed' | uiPlural:completedChecklistCount() }}</span>
+        <span>{{ 'checklist.completed' | uiPlural:completedChecklistCount(listId) }}</span>
       </div>
       <button #completedItemsMenuBtn type="button" class="completed-items-menu-button"
         [attr.aria-label]="'input.completed_item_actions' | translate" [attr.title]="'input.completed_item_actions' | translate"
@@ -822,15 +912,15 @@
       </button>
     </div>
   }
-  @if (preferences.value.moveCompletedChecklistItemsToBottom && !isCboxCompletedListCollapsed) {
+  @if (preferences.value.moveCompletedChecklistItemsToBottom && !isChecklistCollapsed(listId)) {
     <ng-container [ngTemplateOutlet]="cboxTemplate"
-      [ngTemplateOutletContext]="{ isDone: true }">
+      [ngTemplateOutletContext]="{ isDone: true, listId: listId }">
     </ng-container>
   }
 
   <!--* cbox template -->
-  <ng-template let-isDone="isDone" #cboxTemplate>
-    @for (cb of checklistRowsForSection(isDone); track cb.id; let last = $last) {
+  <ng-template let-isDone="isDone" let-listId="listId" #cboxTemplate>
+    @for (cb of checklistRowsForSection(isDone, listId); track cb.id; let last = $last) {
       <div class="cbox-container" [attr.data-cbox-row-id]="cb.id" [class.cbox-dragging]="draggedCboxId === cb.id"
         [draggable]="dragReadyCboxId === cb.id"
         (dragstart)="cboxDragStart(cb.id, $event)" (dragend)="cboxDragEnd()"
@@ -880,8 +970,8 @@
 
   <div #completedItemsMenuTt data-tooltip="true" data-is-tooltip-open="false"
     class="moreMenu selectionMoreMenu completed-items-menu">
-    <div (click)="uncheckAllCboxItems(completedItemsMenuTt)">{{ 'input.uncheck_all' | translate }}</div>
-    <div class="destructive" (click)="deleteAllCompletedCboxItems(completedItemsMenuTt)">{{ 'input.delete_completed_items' | translate }}</div>
+    <div (click)="uncheckAllCboxItems(completedItemsMenuTt, listId)">{{ 'input.uncheck_all' | translate }}</div>
+    <div class="destructive" (click)="deleteAllCompletedCboxItems(completedItemsMenuTt, listId)">{{ 'input.delete_completed_items' | translate }}</div>
   </div>
 </ng-template>
 
@@ -903,9 +993,6 @@
   <!-- <div [hidden]="moreMenuEls.drawing.disabled">{{moreMenuEls.drawing.value}}</div> -->
   <div [hidden]="moreMenuEls.copy.disabled" (click)="moreMenu(moreMenuTt).clone()">
     {{ 'notes.make_a_copy' | translate }}
-  </div>
-  <div (click)="moreMenu(moreMenuTt).toggleCbox()">
-    {{(moreMenuEls.checkbox.value) | uiText}}
   </div>
   @if (hasCheckedCboxItems()) {
     <div (click)="uncheckAllCboxItems(moreMenuTt)">{{ 'input.uncheck_all_items' | translate }}</div>
@@ -967,7 +1054,8 @@
 </div>
 <!--? color MENU -->
 <div #colorMenuTt data-tooltip="true" data-is-tooltip-open="false" class="colorMenu">
-  <app-note-appearance-picker (colorSelected)="colorMenu.bgColor($event)" (backgroundSelected)="colorMenu.bgImage($event)"
+  <app-note-appearance-picker [noteColor]="noteMain.style.backgroundColor" [noteBackground]="illustrationBackground" [pattern]="pattern"
+    (patternSelected)="colorMenu.pattern($event)" (colorSelected)="colorMenu.bgColor($event)" (backgroundSelected)="colorMenu.bgImage($event)"
     (layoutChanged)="Shared.updateTooltip(colorMenuTt)"></app-note-appearance-picker>
 </div>
 <!--? collaborator MENU -->

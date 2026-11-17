@@ -1,3 +1,4 @@
+@if (!colorOnly) {
 <div class="appearance-tabs" role="tablist" [attr.aria-label]="'appearance.tabs' | translate" (keydown)="onTabKeydown($event)">
   <button type="button" role="tab" data-appearance-tab="colour" [id]="pickerId + '-colour-tab'"
     [attr.aria-controls]="pickerId + '-colour-panel'" [attr.aria-selected]="activeTab === 'colour'"
@@ -6,8 +7,10 @@
     [attr.aria-controls]="pickerId + '-background-panel'" [attr.aria-selected]="activeTab === 'background'"
     [tabIndex]="activeTab === 'background' ? 0 : -1" (click)="selectTab('background')">{{ 'appearance.background' | translate }}</button>
 </div>
-<div class="appearance-panel" role="tabpanel" [id]="pickerId + '-colour-panel'"
-  [attr.aria-labelledby]="pickerId + '-colour-tab'" [hidden]="activeTab !== 'colour'">
+}
+<div class="appearance-panel" [attr.role]="colorOnly ? 'group' : 'tabpanel'" [id]="pickerId + '-colour-panel'"
+  [attr.aria-label]="colorOnly ? ('appearance.colour' | translate) : null"
+  [attr.aria-labelledby]="colorOnly ? null : pickerId + '-colour-tab'" [hidden]="!colorOnly && activeTab !== 'colour'">
   <div class="first-row">
     @for (family of families; track family.key) {
       @let familyLabel = family.label | translate;
@@ -15,23 +18,43 @@
         @for (color of family.colors; track color; let shadeIndex = $index) {
           @let swatchLabel = colors[color] === '' ? ('colors.default' | translate) : ('colors.shade' | translate: { family: familyLabel, shade: shadeIndex + 1 });
           <button type="button" class="color-swatch" [attr.data-bg-color]="color" [style.background-color]="colors[color]"
-            [attr.aria-label]="swatchLabel" [attr.title]="swatchLabel" [class.nocolor]="colors[color] === ''"
+            [attr.aria-label]="swatchLabel" [attr.title]="swatchLabel" [class.nocolor]="colors[color] === ''" [attr.aria-pressed]="isColorSelected(colors[color])"
             (click)="colorSelected.emit(colors[color])"></button>
         }
       </div>
     }
   </div>
 </div>
+@if (!colorOnly) {
 <div class="appearance-panel" role="tabpanel" [id]="pickerId + '-background-panel'"
   [attr.aria-labelledby]="pickerId + '-background-tab'" [hidden]="activeTab !== 'background'">
+  <div class="appearance-section-heading">
+    <span>{{ 'appearance.patterns' | translate }}</span>
+    <span class="appearance-section-hint"><i [style.background-color]="currentColor" aria-hidden="true"></i>{{ 'appearance.on_note_colour' | translate }}</span>
+  </div>
+  <div class="pattern-grid">
+    @for (item of patterns; track item.id) {
+      @let label = item.label | translate;
+      <button type="button" class="pattern-choice" [attr.data-pattern]="item.id"
+        [attr.aria-label]="'appearance.pattern_label' | translate: { name: label }" [attr.title]="label"
+        [attr.aria-pressed]="pattern === item.id" [style.background-color]="currentColor"
+        [style.background-image]="patternPreview(item.id)" (click)="selectPattern(item.id)"></button>
+    }
+  </div>
+  <div class="appearance-divider"></div>
+  <div class="appearance-section-heading">
+    <span>{{ 'appearance.illustrations' | translate }}</span><span class="appearance-section-hint">{{ 'appearance.whole_note_artwork' | translate }}</span>
+  </div>
   <div class="background-grid">
     @for (image of backgrounds; track image.key) {
       @let label = image.label | translate;
       <button type="button" class="background-choice" [attr.data-bg-image]="image.key"
-        [attr.aria-label]="label" [attr.title]="label" (click)="backgroundSelected.emit(image.value)">
+        [attr.aria-label]="label" [attr.title]="label" [attr.aria-pressed]="isBackgroundSelected(image.value)" (click)="backgroundSelected.emit(image.value)">
         <span class="background-choice-preview" [class.noimage]="image.value === ''" [style.background-image]="image.value | ph" aria-hidden="true"></span>
         <span class="background-choice-label">{{label}}</span>
       </button>
     }
   </div>
 </div>
+
+}

@@ -181,7 +181,11 @@ export class NativeWorkspaceService {
       for (const field of ['noteTitle', 'noteBody', 'bgColor', 'bgImage', 'pinned', 'archived', 'trashed', 'binder', 'isCbox'] as const) if (payload[field] !== undefined) (note as any)[field] = payload[field];
       note.noteTitle = sanitizeNoteHtml(String(note.noteTitle || ''));
       note.noteBody = sanitizeNoteHtml(String(note.noteBody || ''));
-      if (payload.checkBoxes) note.checkBoxes = payload.checkBoxes.map((item: any) => ({ id: Number(item.id), done: item.done === true, data: sanitizeNoteHtml(String(item.data || '')), indentLevel: Math.min(4, Math.max(0, Number(item.indentLevel || 0))) }));
+      if (payload.checkBoxes) note.checkBoxes = payload.checkBoxes.map((item: any) => ({ id: Number(item.id),
+        ...(typeof item.listId === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(item.listId) ? { listId: item.listId }
+          : previous?.checkBoxes?.find(row => row.id === Number(item.id))?.listId
+            ? { listId: previous.checkBoxes.find(row => row.id === Number(item.id))!.listId } : {}),
+        done: item.done === true, data: sanitizeNoteHtml(String(item.data || '')), indentLevel: Math.min(4, Math.max(0, Number(item.indentLevel || 0))) }));
       if (images.length) note.images = [...(note.images || []), ...images];
       await this.sync.commit('note.upsert', action.targetSyncId, note, { action, blobs, attachments });
       return;

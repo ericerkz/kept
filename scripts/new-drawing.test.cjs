@@ -88,3 +88,35 @@ test('a closed draft autosave cannot save the fresh composer, but fresh edits st
     instance.autoSaveSubscription.unsubscribe();
   }
 });
+
+for (const [platform, phone] of [['web', false], ['web', true], ['ios', false], ['android', false]]) {
+  test(`${platform} ${phone ? 'phone' : 'wide'} quick-create uses the appropriate composer and acknowledges it`, async () => {
+    const calls = [];
+    const sandbox = vm.createContext({
+      console,
+      Capacitor: { getPlatform: () => platform },
+      shouldUseFullscreenNoteEditor: () => phone,
+      requestAnimationFrame: callback => callback(),
+      document: { querySelector: () => ({ getBoundingClientRect: () => ({ bottom: 80 }) }) },
+      window: { scrollY: 300, scrollTo: value => calls.push(['scroll', value.top]) }
+    });
+    vm.runInContext(stripTypeScriptTypes(`class Composer { ${method('openWidgetComposer')} } globalThis.Composer = Composer;`), sandbox);
+    const instance = new sandbox.Composer();
+    const request = { requestId: 'new-drawing', type: 'drawing' };
+    Object.assign(instance, {
+      isEditing: false, isDrawingNote: false, isCbox: { value: false }, mobileComposeMode: false,
+      noteMain: { nativeElement: { hidden: true } },
+      main: { nativeElement: { getBoundingClientRect: () => ({ top: -200 }) } },
+      notePhClick() { this.noteMain.nativeElement.hidden = false; calls.push(['inline']); },
+      openMobileComposer() { this.noteMain.nativeElement.hidden = false; this.mobileComposeMode = true; calls.push(['fullscreen']); },
+      startMobileDrawing() { this.isDrawingNote = true; }, cd: { detectChanges() {} },
+      Shared: { widgetComposerOpened: { next: value => calls.push(['ack', value.requestId]) } }
+    });
+    await instance.openWidgetComposer(request);
+    const desktop = platform === 'web' && !phone;
+    assert.equal(instance.mobileComposeMode, !desktop);
+    assert.deepEqual(calls[0], [desktop ? 'inline' : 'fullscreen']);
+    assert.equal(calls.filter(call => call[0] === 'scroll').length, desktop ? 1 : 0);
+    assert.deepEqual(calls.at(-1), ['ack', request.requestId]);
+  });
+}

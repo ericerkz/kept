@@ -130,7 +130,9 @@ export class I18nService {
       this.currentLanguage = UI_LANGUAGES.find(item => item.code === this.translate.getCurrentLang()) || UI_LANGUAGES[0];
       setUiLocale(this.preference === 'system' ? navigator.language : this.currentLanguage.code);
       document.documentElement.lang = this.currentLanguage.code;
-      document.documentElement.dir = this.currentLanguage.direction;
+      // Language direction describes text, not the app's physical layout.
+      // Keep navigation, toolbars and the notes grid in their usual positions.
+      document.documentElement.dir = 'ltr';
       window.dispatchEvent(new CustomEvent('kept-language-changed', { detail: {
         preference: this.preference, language: this.currentLanguage.code, direction: this.currentLanguage.direction
       } }));

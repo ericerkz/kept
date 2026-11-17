@@ -7,6 +7,7 @@ export interface UserI {
     displayName: string
     role: UserRole
     theme: UserTheme
+    defaultNoteColor?: string
     followSystemTheme?: boolean
     language?: string
     languagePreferencesSupported?: boolean
@@ -30,6 +31,7 @@ export interface AuthSessionI {
     displayName: string
     role: UserRole
     theme: UserTheme
+    defaultNoteColor?: string
     followSystemTheme?: boolean
     language?: string
     languagePreferencesSupported?: boolean

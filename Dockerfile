@@ -28,8 +28,8 @@ RUN mkdir -p /app/data
 
 ENV PORT=6767
 ENV NODE_ENV=production
-# Override these at runtime (docker-compose `environment:`) to make the
-# container run as your host user. Defaults to the alpine "node" user (1000).
+# When starting as root, the entrypoint drops to these IDs after preparing data.
+# An explicit Docker/Compose user overrides them and skips ownership changes.
 ENV PUID=1000
 ENV PGID=1000
 

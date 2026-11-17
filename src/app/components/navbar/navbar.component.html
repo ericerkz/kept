@@ -118,25 +118,28 @@
                     <span class="label">{{ 'navbar.any_label' | translate }}</span>
                   </div>
 
-                  <form class="date-filter" (submit)="$event.preventDefault(); applyDateFilter(dateFilterDraft)">
-                    <label for="creation-date-filter">{{ 'navbar.creation_date' | translate }}</label>
-                    <div class="date-filter-controls">
-                      <input id="creation-date-filter" type="text" autocomplete="off" autocapitalize="none"
-                        [value]="dateFilterDraft" (input)="dateFilterDraft = $any($event.target).value; dateFilterError = ''"
-                        [attr.placeholder]="'navbar.date_filter_placeholder' | translate"
-                        [attr.aria-invalid]="dateFilterError ? 'true' : null" aria-describedby="creation-date-help">
-                      <button type="submit">{{ 'navbar.apply_date_filter' | translate }}</button>
+                  <button type="button" class="filter-item date-filter-toggle" role="checkbox"
+                    [class.active]="hasDateFilter" [attr.aria-checked]="hasDateFilter"
+                    [attr.title]="'navbar.creation_date' | translate" (click)="toggleDateFilter()">
+                    <span class="checkbox" aria-hidden="true"><span class="check-mark"></span></span>
+                    <span class="label">{{ 'navbar.date' | translate }}</span>
+                  </button>
+                  @if (hasDateFilter) {
+                    <div class="date-filter-examples">
+                      <span>{{ 'navbar.date_examples_prefix' | translate }}</span>
+                      @for (example of dateFilterExamples; track example; let last = $last) {
+                        <button type="button" [class.selected]="isDateExampleActive(example)"
+                          [attr.aria-pressed]="isDateExampleActive(example)"
+                          [attr.aria-label]="'navbar.date_example_action' | translate: { value: example }"
+                          (click)="applyDateFilter(example)">{{ example }}</button>
+                        @if (!last) { <span aria-hidden="true">·</span> }
+                      }
                     </div>
-                    <p id="creation-date-help">{{ 'navbar.date_filter_examples' | translate: { examples: dateFilterExamples } }}</p>
-                    @if (dateFilterError) { <p role="alert">{{ dateFilterError }}</p> }
-                    @if (hasDateFilter) {
-                      <button type="button" (click)="clearDateFilter()">{{ 'navbar.remove_date_filter' | translate }}</button>
-                    }
-                  </form>
+                  }
 
-                  @if (activeFilters.length > 0) {
+                  @if (activeLabelFilters.length > 0) {
                     <div class="dropdown-header">{{ 'navbar.active_labels' | translate }}</div>
-                    @for (filter of activeFilters; track filter.code) {
+                    @for (filter of activeLabelFilters; track filter.code) {
                       @if (filter.code.startsWith('!label:')) {
                         <div class="filter-item active" (click)="toggleFilter(filter.code)">
                           <div class="checkbox"><div class="check-mark"></div></div>
@@ -146,7 +149,7 @@
                     }
                   }
 
-                  <div class="filter-item" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 4px;" (click)="clearAllFilters(); isFiltersOpen = false">
+                  <div class="filter-item clear-filters" (click)="clearAllFilters(); isFiltersOpen = false">
                     <span class="label" style="opacity: 0.7;">{{ 'navbar.clear_all' | translate }}</span>
                   </div>
                 </div>
@@ -307,11 +310,13 @@
   </section>
 
 <div #selectionColorTt data-tooltip="true" data-is-tooltip-open="false" class="colorMenu">
-  <app-note-appearance-picker (colorSelected)="selectionColorMenu.bgColor($event)" (backgroundSelected)="selectionColorMenu.bgImage($event)"
+  <app-note-appearance-picker [noteColor]="selectionAppearance.bgColor" [noteBackground]="selectionAppearance.bgImage" [pattern]="selectionAppearance.pattern"
+    (patternSelected)="selectionColorMenu.pattern($event)" (colorSelected)="selectionColorMenu.bgColor($event)" (backgroundSelected)="selectionColorMenu.bgImage($event)"
     (layoutChanged)="Shared.updateTooltip(selectionColorTt)"></app-note-appearance-picker>
 </div>
 
 <div #selectionMoreTt data-tooltip="true" data-is-tooltip-open="false" class="moreMenu selectionMoreMenu">
+  <button type="button" class="selection-select-all-menu" (click)="selectionMoreMenu(selectionMoreTt).selectAll()">{{ 'navbar.select_all' | translate }}</button>
   <div (click)="selectionMoreMenu(selectionMoreTt).trash()">{{ (isTrashRoute ? 'accessibility.delete_forever' : 'notes.delete_note') | translate }}</div>
   <div (click)="selectionMoreMenu(selectionMoreTt).openLabelMenu(labelMenuTt)">{{ 'labels.add_label' | translate }}</div>
   <div (click)="selectionMoreMenu(selectionMoreTt).openBinderMenu(binderMenuTt,labelMenuTt)">{{ 'binders.move_to_binder' | translate }}</div>

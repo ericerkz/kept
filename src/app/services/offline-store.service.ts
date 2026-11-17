@@ -1,3 +1,4 @@
+import { uiText } from '../i18n/messages';
 import { applyBinderMembership, applyPersonalOrganization, projectSharedOrganization } from '../utils/shared-note-organization';
 import { Capacitor } from '@capacitor/core';
 import { Injectable } from '@angular/core';
@@ -25,6 +26,8 @@ export type SyncMutationType =
   | 'attachment.delete'
   | 'label.upsert' | 'label.delete' | 'binder.upsert' | 'binder.delete'
   | 'savedPlace.upsert' | 'savedPlace.delete' | 'preferences.patch';
+
+type MutationOptions = { blobs?: Array<{ key: string; value: Blob }>; attachments?: Record<string,any>[]; action?: NativeAction };
 
 export interface LwwStamp {
   physicalMs: number;
@@ -562,10 +565,36 @@ export class OfflineStoreService {
   /** User-visible projection, outgoing operation and native replay receipt share one commit. */
   async commitMutation<T extends Record<string, any>>(
     workspace: Workspace, type: SyncMutationType, syncId: string, input: T,
-    options: { blobs?: Array<{ key: string; value: Blob }>; attachments?: Record<string,any>[]; action?: NativeAction } = {}
+    options: MutationOptions = {}
   ): Promise<T> {
     const stamp = this.nextStamp((await this.getSyncState(workspace.partition)).serverOffsetMs);
+    return this.atomic([...Object.values(RESOURCE_STORES), 'outbox', 'blobs', 'workspaces', 'receipts', 'conflicts'],
+      tx => this.applyMutation(tx, workspace, type, syncId, input, options, stamp));
+  }
+
+  async trashNotes(workspace: Workspace, syncIds: string[], userId?: number) {
+    const offset = (await this.getSyncState(workspace.partition)).serverOffsetMs;
     return this.atomic([...Object.values(RESOURCE_STORES), 'outbox', 'blobs', 'workspaces', 'receipts', 'conflicts'], async tx => {
+      const affected: NoteI[] = [];
+      let leftSharedCount = 0;
+      for (const syncId of new Set(syncIds)) {
+        // Read inside the transaction so edits queued just before this action survive.
+        const row = await this.request<StoredResource<NoteI> | undefined>(tx.objectStore('notes').get(this.resourceKey(workspace.partition, syncId)));
+        if (!row) throw new Error(uiText('notes.this_note_is_unavailable_on_this_device'));
+        const note = row.value;
+        const leaveShared = !!(note.ownerUserId && userId && note.ownerUserId !== userId && !note.sharedBinder);
+        await this.applyMutation(tx, workspace, leaveShared ? 'note.delete' : 'note.upsert', syncId,
+          leaveShared ? note : { ...note, trashed: true, archived: false }, {}, this.nextStamp(offset));
+        affected.push({ ...note, trashed: true, archived: false });
+        if (leaveShared) leftSharedCount++;
+      }
+      return { affected, leftSharedCount };
+    });
+  }
+
+  private async applyMutation<T extends Record<string, any>>(
+    tx: IDBTransaction, workspace: Workspace, type: SyncMutationType, syncId: string, input: T, options: MutationOptions, stamp: LwwStamp
+  ): Promise<T> {
       const partition = workspace.partition;
       const meta = await this.request<Workspace | undefined>(tx.objectStore('workspaces').get(workspace.id));
       if (!meta || meta.generation !== workspace.generation || meta.status !== 'active') {
@@ -618,6 +647,7 @@ export class OfflineStoreService {
         const store = tx.objectStore(RESOURCE_STORES[resource]);
         const key = this.resourceKey(partition, syncId);
         const previous = await this.request<StoredResource<any> | undefined>(store.get(key));
+        if (type === 'note.upsert' && !previous && payload['bgColor'] === undefined) payload['bgColor'] = meta.preferences.defaultNoteColor || '';
         if (type === 'note.upsert' && !previous && payload['sortOrder'] == null) {
           const notes = await this.request<StoredResource<NoteI>[]>(store.index('partition').getAll(partition));
           payload['sortOrder'] = notes.reduce((highest, note) => Math.max(highest, Number(note.value.sortOrder) || 0), stamp.physicalMs) + 1;
@@ -770,7 +800,6 @@ export class OfflineStoreService {
       tx.objectStore('workspaces').put(meta);
       if (action) tx.objectStore('receipts').put({ key: `${partition}|${action.actionId}`, partition, actionId: action.actionId, result: payload, revision: meta.revision });
       return payload as T;
-    });
   }
 
   async prepareQueuedImage(workspace: Workspace, entry: OutboxEntry, blob: Blob, filename: string) {

@@ -10,13 +10,18 @@ function method(name) {
   assert.ok(match, `Missing method ${name}`);
   return source.slice(match.index, source.indexOf('\n  }', match.index) + 4);
 }
+const placement = {};
+vm.runInNewContext(require('typescript').transpileModule(readFileSync('src/app/utils/checklist-placement.ts', 'utf8'), {
+  compilerOptions: { module: require('typescript').ModuleKind.CommonJS }
+}).outputText, { exports: placement, require: () => ({}) });
 let uuid = 0;
 const context = vm.createContext({
   Capacitor: { getPlatform: () => 'web' }, createUuid: () => `fixture-${++uuid}`,
-  console: { error() {} }
+  console: { error() {} }, serializeChecklistBody: placement.serializeChecklistBody
 });
 vm.runInContext(stripTypeScriptTypes(`class Editor {
-  ${['saveNote', 'persistNote', 'currentNoteId', 'clearComposerDraft'].map(method).join('\n')}
+  ${['saveNote', 'persistNote', 'currentNoteId', 'clearComposerDraft', 'editorBodyParts', 'editorBodyHtml'].map(method).join('\n')}
+  ${source.slice(source.indexOf('  get canSaveNote()'), source.indexOf('\n  }', source.indexOf('  get canSaveNote()')) + 4)}
 }
 globalThis.Editor = Editor;`), context);
 
@@ -24,17 +29,21 @@ function editor() {
   const rows = new Map();
   const instance = new context.Editor();
   Object.assign(instance, {
-    saveQueue: Promise.resolve(), editorGeneration: 0, canSaveNote: true, noteToEdit: {},
+    saveQueue: Promise.resolve(), editorGeneration: 0, noteToEdit: {},
     noteTitle: { nativeElement: { innerHTML: '' } },
     noteBody: { nativeElement: { innerHTML: '' } },
     noteMain: { nativeElement: { style: {} } },
     noteContainer: { nativeElement: { style: {} } },
     notePin: { nativeElement: { dataset: {} } },
+    checkBoxes: [], checklistBlocks: [],
+    editorBodies: () => [instance.noteBody.nativeElement],
+    checklistDrafts: () => instance.cboxPh ? [instance.cboxPh.nativeElement] : [],
+    bodyAfterChecklist: id => instance.trailingBodies?.[id],
     isCbox: { value: false }, images: [], attachments: [], pendingAttachmentFiles: [],
     selectedCollaboratorIds: [],
     labelsForSave: async () => [], sharedBinderFromRoute: () => undefined,
     currentCheckBoxesForSave: () => [], cleanEditorBodyForSave: html => html,
-    hasMeaningfulBody: html => !!html?.trim(),
+    hasMeaningfulBody: html => !!html?.replace(/<[^>]*>/g, '').replace(/[\u200b-\u200d\ufeff]/g, '').trim() || /<(img|hr|table)\b/.test(html || ''),
     auth: { canonicalImageUrl: url => url, isAuthExpiredError: () => false },
     reminderService: { reminders$: { value: [] } },
     noteChangedForSave: () => true, noteSaveSnapshot: JSON.stringify,
@@ -130,7 +139,7 @@ for (const [name, patch] of [
   ['image', { images: [{ dataUrl: '/image.png' }] }],
   ['attachment', { attachments: [{ id: 1 }] }],
   ['pending attachment', { pendingAttachmentFiles: [{}] }],
-  ['checklist', { currentCheckBoxesForSave: () => [{ id: 1, data: '', done: false }] }],
+  ['checklist', { checkBoxes: [{ id: 1, data: '', done: false }], currentCheckBoxesForSave: () => [{ id: 1, data: '', done: false }] }],
   ['drawing', { isDrawingNote: true, syncDrawingImage: () => {} }],
   ['pending reminder', { pendingReminderDate: new Date('2030-01-01') }],
   ['saved reminder', { newNoteId: 12, newNoteSyncId: 'reminder-note', reminderService: { reminders$: { value: [{ noteId: 12 }] } } }]
@@ -190,4 +199,49 @@ test('discard replaces queued writes and survives an acknowledgement of an in-fl
   });
   assert.deepEqual(Array.from(await store.listNotes(workspace.partition), note => note.noteBody), ['Keep this note']);
   assert.equal((await store.listOutbox(workspace.partition)).some(entry => entry.type === 'note.delete' && entry.syncId === 'draft'), true);
+});
+
+for (const listId of ['first', 'second']) test(`text after checklist ${listId} keeps a draft and its placement`, async () => {
+  const { instance, rows } = editor();
+  instance.isCbox.value = true;
+  instance.checklistBlocks = [{ id: 'first' }, { id: 'second' }];
+  instance.trailingBodies = { [listId]: { innerHTML: '<b>Keep this text</b>' } };
+  instance.editorBodies = () => Object.values(instance.trailingBodies);
+  assert.equal(instance.canSaveNote, true);
+  await instance.saveNote(false);
+  assert.equal(rows.size, 1);
+  assert.match(rows.get(12).noteBody, /kept-list-first/);
+  assert.match(rows.get(12).noteBody, /kept-list-second/);
+  assert.ok(rows.get(12).noteBody.includes('<b>Keep this text</b>'));
+});
+
+test('an unfinished row in a non-active checklist is autosaved with its list identity', async () => {
+  const { instance, rows } = editor();
+  instance.isCbox.value = true;
+  instance.checklistBlocks = [{ id: 'first' }, { id: 'second' }];
+  instance.checklistDrafts = () => [{ innerHTML: '<i>Still typing</i>', dataset: { checklistDraft: 'second' } }];
+  assert.equal(instance.canSaveNote, true);
+  await instance.saveNote(false);
+  assert.equal(rows.size, 1);
+  assert.equal(rows.get(12).checkBoxes[0].data, '<i>Still typing</i>');
+  assert.equal(rows.get(12).checkBoxes[0].listId, 'second');
+});
+
+test('empty checklist markers alone do not preserve a cleared new draft', async () => {
+  const { instance, rows } = editor();
+  instance.isCbox.value = true;
+  instance.checklistBlocks = [{ id: 'first' }, { id: 'second' }];
+  await instance.saveNote();
+  assert.equal(rows.size, 0);
+  assert.equal(instance.closed, true);
+});
+
+test('saving a drawing retains its stored body without a text editor', async () => {
+  const { instance, rows } = editor();
+  instance.noteBody = undefined;
+  instance.isDrawingNote = true;
+  instance.syncDrawingImage = () => {};
+  instance.noteToEdit = { noteBody: '<b>Drawing description</b>' };
+  await instance.saveNote(false);
+  assert.equal(rows.get(12).noteBody, '<b>Drawing description</b>');
 });

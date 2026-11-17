@@ -56,7 +56,7 @@ test('protocol v2 catalog replay, ownership, tombstones, v1 compatibility and re
   await record('binder',{id:2,syncId:'source-binder',name:'Empty imported binder',sortOrder:3});
   const imageSource='/__kept_local_media/migration-photo';
   const imageBytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/C8kAAAAASUVORK5CYII=','base64');
-  await record('note',{id:before[0].id,syncId:'source-note',noteTitle:'Imported <script>alert(1)</script>',noteBody:`<p>Local</p><img src="${imageSource}" alt="Photo"><script>alert(1)</script>`,images:[{id:'photo',dataUrl:imageSource,name:'photo.png',placement:'top'}],binder:'Empty imported binder',checkBoxes:[{id:55,data:'item',done:false,indentLevel:2}],isCbox:true,labels:[{id:1,syncId:'source-label',name:'Personal',added:true}],locked:true,lockSalt:'salt',lockHash:'hash'});
+  await record('note',{id:before[0].id,syncId:'source-note',pattern:'travel',noteTitle:'Imported <script>alert(1)</script>',noteBody:`<p>Local</p><div class="kept-checklist-anchor kept-list-first"></div><p>Between lists</p><div class="kept-checklist-anchor kept-list-second"></div><img src="${imageSource}" alt="Photo"><script>alert(1)</script>`,images:[{id:'photo',dataUrl:imageSource,name:'photo.png',placement:'top'}],binder:'Empty imported binder',checkBoxes:[{id:55,listId:'first',data:'item',done:false,indentLevel:2},{id:56,listId:'second',data:'second item',done:true}],isCbox:true,labels:[{id:1,syncId:'source-label',name:'Personal',added:true}],locked:true,lockSalt:'salt',lockHash:'hash'});
   const imageKey=`blob:media:${imageSource}`,imageDigest=hash(imageBytes);
   await request(`/workspace-import/${job.id}/items`,{key:imageKey,kind:'blob',digest:imageDigest,payload:{blobKey:`media:${imageSource}`,size:imageBytes.length,mimeType:'image/png',name:'photo.png'},offset:0,base64:imageBytes.toString('base64')},'PUT');
   manifest.push({key:imageKey,digest:imageDigest});
@@ -76,7 +76,7 @@ test('protocol v2 catalog replay, ownership, tombstones, v1 compatibility and re
   const imported=await request(`/notes/${result.mappings.notes[before[0].id].id}`);
   assert.equal((await request('/sync/bootstrap?protocolVersion=2')).binders.find(item=>item.name==='Empty imported binder').sortOrder,3,'local-to-server imports preserve binder order');
   assert.equal((await request('/sync/bootstrap?protocolVersion=2')).labels.find(item=>item.name==='Personal').sortOrder,2,'local-to-server imports preserve label order');
-  assert.equal(imported.checkBoxes[0].indentLevel,2);assert.equal(imported.locked,true);assert.equal(imported.labels[0].id,result.mappings.labels[1].id);
+  assert.equal(imported.checkBoxes[0].indentLevel,2);assert.equal(imported.checkBoxes[0].listId,'first');assert.equal(imported.checkBoxes[1].listId,'second');assert.match(imported.noteBody,/kept-list-second/);assert.equal(imported.pattern,'travel');assert.equal(imported.locked,true);assert.equal(imported.labels[0].id,result.mappings.labels[1].id);
   assert.equal(imported.noteBody.includes('<script'),false);assert.equal(imported.attachments.length,1);
   const imageUrl=imported.images[0].dataUrl;
   assert.match(imageUrl,/^\/api\/uploads\/images\/import-[a-f0-9]{64}\.png$/);

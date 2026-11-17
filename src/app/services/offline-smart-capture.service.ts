@@ -151,7 +151,10 @@ export class OfflineSmartCaptureService {
           if (action.type === 'append_to_note') note.noteBody = `${note.noteBody || ''}<p>${sanitizeNoteHtml(this.actionText(action))}</p>`;
           if (action.type === 'add_checklist_items') {
             if (!note.isCbox) throw new Error('The target note is not a checklist.');
-            note.checkBoxes = [...(note.checkBoxes || []),...this.checklistItems(action).map((data,index)=>({id:Date.now()+index,data:sanitizeNoteHtml(data),done:false}))];
+            const rows = note.checkBoxes || [];
+            const listId = rows[rows.length - 1]?.listId;
+            const base = Math.max(Date.now(), ...rows.map(row => Number(row.id) + 1).filter(Number.isSafeInteger));
+            note.checkBoxes = [...rows, ...this.checklistItems(action).map((data,index)=>({id:base+index,...(listId ? {listId} : {}),data:sanitizeNoteHtml(data),done:false}))];
           }
           if (action.type === 'add_labels') {
             await this.labels.load();
@@ -246,7 +249,7 @@ export class OfflineSmartCaptureService {
       noteTitle: this.actionTitle(action),
       noteBody: this.actionText(action),
       pinned: false,
-      bgColor: String(action.bgColor || ''),
+      bgColor: String(action.bgColor ?? this.auth.defaultNoteColor ?? ''),
       bgImage: '',
       checkBoxes: isChecklist
         ? this.checklistItems(action).map((item, index) => ({ id: Date.now() + index, data: item, done: false }))

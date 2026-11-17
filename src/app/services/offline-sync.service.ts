@@ -164,6 +164,20 @@ export class OfflineSyncService implements OnDestroy {
     } catch (error) { this.state$.next('error'); throw error; }
   }
 
+  async trashNotes(syncIds: string[]) {
+    try {
+      const result = await this.store.trashNotes(await this.workspace(), syncIds, this.auth.currentUser?.id);
+      // One publication and one sync kick for the entire durable batch.
+      this.cacheChanged$.next();
+      if (this.auth.isLocal) this.state$.next('saved');
+      else {
+        await this.readPending();
+        void this.syncNow().catch(console.error);
+      }
+      return result;
+    } catch (error) { this.state$.next('error'); throw error; }
+  }
+
   isConnectionDegraded() {
     return this.connectionUnavailable || Date.now() < this.degradedUntil;
   }

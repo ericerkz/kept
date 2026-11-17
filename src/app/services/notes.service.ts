@@ -82,6 +82,7 @@ export class NotesService {
   private lastNonEmptyNotes: NoteI[] = [];
   private visibleWorkspace = '';
   private iosReminderRefreshTimer?: ReturnType<typeof setTimeout>;
+  private localReminderRefreshQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private http: HttpClient,
@@ -472,10 +473,11 @@ export class NotesService {
   }
 
   async add(noteObj: NoteI) {
+    if (noteObj.bgColor === undefined) noteObj = { ...noteObj, bgColor: this.auth.defaultNoteColor };
     if (this.offlineSync.writesLocally) {
       const value = this.canonicalizeNoteMedia({ ...noteObj, id: undefined, isCardPreview: false, syncId: noteObj.syncId || `note-${createUuid()}` });
       const saved = await this.offlineSync.commit('note.upsert', value.syncId, value);
-      await this.load();
+      this.prependNotesIntoList([saved]);
       return saved.id!;
     }
     noteObj = this.canonicalizeNoteMedia(noteObj);
@@ -552,9 +554,12 @@ export class NotesService {
       const existing = await this.offlineStore.getNote(this.offlineSync.partition, id);
       if (!existing?.syncId) throw new Error('This note is unavailable on this device.');
       const local = this.canonicalizeNoteMedia({ ...existing, ...object, sharedOrganization: existing.sharedOrganization, id, isCardPreview: false });
-      await this.offlineSync.commit('note.upsert', existing.syncId, local);
-      await this.reminders.refreshNoteContent(local);
-      await this.load();
+      const saved = await this.offlineSync.commit('note.upsert', existing.syncId, local);
+      this.mergeNoteIntoList(saved);
+      // The note and outgoing mutation are durable now. Closing the editor
+      // must not wait for native reminders or another full-library hydration;
+      // commit's cache notification already refreshes the overview.
+      this.refreshLocalReminderContent(saved);
       return;
     }
     object = this.canonicalizeNoteMedia(object);
@@ -594,6 +599,19 @@ export class NotesService {
       await this.load(this.searchQuery, { cacheBust: true }).catch(console.error);
       throw error;
     }
+  }
+
+  private refreshLocalReminderContent(note: NoteI) {
+    const partition = this.offlineSync.partition;
+    const generation = this.offlineSync.generation;
+    this.localReminderRefreshQueue = this.localReminderRefreshQueue.then(async () => {
+      if (partition !== this.offlineSync.partition || generation !== this.offlineSync.generation) return;
+      // Read the latest committed version so rapid successive saves cannot
+      // leave a reminder with an older title/body. Keep refreshes serialized.
+      const current = await this.offlineStore.getNote(partition, note.id!);
+      if (!current || current.syncId !== note.syncId || partition !== this.offlineSync.partition || generation !== this.offlineSync.generation) return;
+      await this.reminders.refreshNoteContent(current);
+    }).catch(error => console.error('Could not refresh saved note reminders', error));
   }
 
   async updateKey(object: UpdateKeyI, id: number) {
@@ -1318,6 +1336,44 @@ export class NotesService {
     );
     await this.load();
     return result;
+  }
+
+  async trashMany(ids: number[]): Promise<number> {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) return 0;
+    if (this.offlineSync.writesLocally) {
+      const cached = await this.offlineStore.listNotes(this.offlineSync.partition);
+      const byId = new Map(cached.map(note => [note.id, note]));
+      const syncIds = uniqueIds.map(id => {
+        const note = byId.get(id);
+        if (!note?.syncId) throw new Error(uiText('notes.this_note_is_unavailable_on_this_device'));
+        return note.syncId;
+      });
+      const result = await this.offlineSync.trashNotes(syncIds);
+      this.reminders.updateNoteLifecycle(result.affected);
+      return result.leftSharedCount;
+    }
+
+    // Older servers keep their existing permission checks and offline fallback.
+    // Bound requests rather than opening a connection for every selected note.
+    const pending = [...uniqueIds];
+    let leftSharedCount = 0;
+    let failed: unknown;
+    const worker = async () => {
+      while (pending.length) {
+        const id = pending.shift()!;
+        try {
+          const note = await this.cachedOrLoadedNote(id);
+          if (note?.ownerUserId && this.auth.currentUser?.id && note.ownerUserId !== this.auth.currentUser.id && !note.sharedBinder) {
+            await this.delete(id);
+            leftSharedCount++;
+          } else await this.updateKey({ trashed: true, archived: false }, id);
+        } catch (error) { failed ||= error; }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, pending.length) }, worker));
+    if (failed) throw failed;
+    return leftSharedCount;
   }
 
   async discardDraft(syncId: string) {

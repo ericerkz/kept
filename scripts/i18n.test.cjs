@@ -54,10 +54,11 @@ test('system, regional fallback, all registered languages, explicit override and
   assert.equal(h.exports.resolveUiLanguage('system',['fr-CA']).code,'fr');
   assert.equal(h.exports.resolveUiLanguage('system',['xx']).code,'en');
   await h.service.selectLanguage('he');
-  assert.equal(h.document.documentElement.lang,'he');assert.equal(h.document.documentElement.dir,'rtl');
+  assert.equal(h.document.documentElement.lang,'he');assert.equal(h.document.documentElement.dir,'ltr');
   assert.equal(h.service.text('language.label'),'שפה');
   assert.equal(h.auth.calls.length,1);assert.equal(h.auth.calls[0].language,'he');
   assert.equal(h.events.at(-1).detail.preference,'he');
+  assert.equal(h.events.at(-1).detail.direction,'rtl','native consumers still receive the language text direction');
   await h.service.selectLanguage('fr');assert.equal(h.auth.calls.length,2);
   assert.equal(h.document.documentElement.lang,'fr');
   await h.service.selectLanguage('xx');assert.equal(h.auth.calls.length,2);

@@ -29,7 +29,10 @@
 //? placeholder  ---------------------
 .placeholder {
   .input {
-    padding: 10px 6px 10px 16px;
+    // Keep translated starter copy clear of the three fixed action icons.
+    padding: 10px 174px 10px 16px;
+    box-sizing: border-box;
+    text-align: left;
     font-family: "Google Sans Light 2", Roboto, "Noto Sans Hebrew", "Segoe UI", Arial, sans-serif;
     font-size: 1rem;
     line-height: 24px;
@@ -209,7 +212,9 @@
     //? title
     .note-title {
       color: inherit;
-      padding: 10px 16px;
+      // The pin stays on the right for every language, including RTL titles.
+      box-sizing: border-box;
+      padding: 10px 56px 10px 16px;
       margin-top: 0;
       font-size: 1.35rem; // larger title like Keep mobile
       font-weight: 400;
@@ -651,6 +656,10 @@
 }
 
 .drawing-popover {
+  box-sizing: border-box;
+  max-width: calc(100vw - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: #fff;
   border: 1px solid #dadce0;
   border-radius: 4px;
@@ -664,10 +673,17 @@
 .eraser-menu {
   display: grid;
   left: 0;
-  min-width: 128px;
+  min-width: 0;
+  width: 344px;
   padding: 8px 0;
 
-  button {
+  .drawing-size-row {
+    border-top: 0;
+    border-bottom: 1px solid #dadce0;
+    padding: 2px 14px 10px;
+  }
+
+  > button {
     background: transparent;
     border: 0;
     color: #3c4043;
@@ -692,8 +708,8 @@
 
 .drawing-color-grid {
   display: grid;
-  gap: 12px 16px;
-  grid-template-columns: repeat(7, 1fr);
+  gap: 12px clamp(4px, 2vw, 16px);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   padding-bottom: 12px;
 }
 
@@ -713,8 +729,10 @@
 .drawing-size-row {
   align-items: center;
   border-top: 1px solid #dadce0;
-  display: flex;
-  gap: 15px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  justify-items: center;
+  gap: 4px;
   padding-top: 10px;
 }
 
@@ -728,7 +746,7 @@
   height: 34px;
   justify-content: center;
   padding: 0;
-  width: 34px;
+  width: min(34px, 100%);
 
   span {
     background: #000;
@@ -843,13 +861,49 @@
   }
 }
 
+.checklist-text-section {
+  position: relative;
+}
+
+.checklist-text-entry {
+  background: transparent;
+  border: 0;
+  cursor: text;
+  display: block;
+  min-height: 24px;
+  padding: 0;
+  width: 100%;
+}
+
+.icons .checklist-action {
+  cursor: pointer;
+  height: 34px;
+  margin: 0 8px;
+  width: 34px;
+
+  &::after {
+    mask: url(/assets/images/svg/check.svg) center / contain no-repeat;
+    -webkit-mask: url(/assets/images/svg/check.svg) center / contain no-repeat;
+  }
+}
+
+@media (min-width: 600px) {
+  .note-main .icons-container .icons > div,
+  .note-main .icons-container .icons > button {
+    margin-left: 4px;
+    margin-right: 4px;
+  }
+}
+
 .note-main:hover .delete-image-btn {
   opacity: 1;
 }
 
 .more-menu {
+  box-sizing: border-box;
   display: grid;
-  min-width: 176px;
+  min-width: min(176px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
   padding: 8px 0;
   right: 0;
 
@@ -1118,6 +1172,9 @@
       width: 100%;
     }
 
+    // Full-screen mobile has its pin in the top bar, outside the title.
+    .note-main .note-container .note-title { padding-right: 16px; }
+
     .note-main .note-body {
       max-height: none;
       min-height: 60vh;
@@ -1127,6 +1184,11 @@
       // a note doesn't leave the page zoomed-in.
       font-size: 16px;
       line-height: 1.4;
+    }
+
+    .note-main .note-container.has-checklist .note-body {
+      min-height: 46px;
+      padding-bottom: 12px;
     }
 
     .note-container.mobile-new-note-empty {
@@ -1463,4 +1525,66 @@
 :host-context(.dark-theme) .active-editors-presence .editor-avatar {
   border-color: #202124;
   background: #202124;
+}
+
+.desktop-note-metadata {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  font: 400 11px/1.4 Roboto, Arial, sans-serif;
+  padding: 2px 16px 0;
+  text-align: right;
+  width: 100%;
+}
+
+.desktop-note-timestamp {
+  display: inline-block;
+  max-width: 100%;
+  position: relative;
+
+  > time { opacity: .68; }
+
+  &:hover .created-time-pill,
+  &:focus .created-time-pill { display: block; }
+}
+
+.created-time-pill {
+  background: #303134;
+  border-radius: 8px;
+  bottom: calc(100% + 6px);
+  color: #e8eaed;
+  display: none;
+  padding: 6px 10px;
+  position: absolute;
+  right: 0;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 48px));
+  z-index: 10;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 24%);
+}
+
+// Keep the existing mobile bar footprint; the date floats above it.
+.mobile-bottom-bar .timestamp {
+  min-width: 0;
+  position: relative;
+
+  .timestamp-toggle {
+    background: transparent;
+    border: 0;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    min-height: 44px;
+    padding: 0;
+    width: 100%;
+  }
+
+  .mobile-created-time {
+    display: block;
+    max-width: min(260px, calc(100vw - 80px));
+    text-align: center;
+  }
+}
+
+@media (max-width: 599px) {
+  .desktop-note-metadata { display: none; }
 }

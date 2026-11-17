@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { startFixture } from '../test-support/session-fixture.cjs';
 
-// Run after npm run build. Uses an isolated server/database; native lifecycle
+// Run after npm run build. Exercises the legacy direct-write protocol (current
+// local-first saves are covered by checklist-mode-test.mjs). Native lifecycle
 // callbacks are emulated here, not tested on a physical device.
 const fixture = await startFixture();
 let browser;
@@ -64,6 +65,11 @@ try {
     page.on('pageerror', error => console.error('Browser error:', error));
     page.setDefaultTimeout(10000);
     await page.route(/https:\/\/(fonts\.|cdn\.jsdelivr)/, route => route.abort());
+    await page.route(/\/api\/sync\/(bootstrap|changes)\?/, route => {
+      const url = new URL(route.request().url());
+      url.searchParams.set('protocolVersion', '1');
+      return route.continue({ url: url.toString() });
+    });
     await page.goto(fixture.origin, { waitUntil: 'domcontentloaded' });
     await page.getByLabel('Username', { exact: true }).fill(credentials.username);
     await page.getByLabel('Password', { exact: true }).fill(credentials.password);
@@ -73,7 +79,7 @@ try {
     await page.locator('app-input .placeholder:visible input').click();
     const editor = page.locator('app-input .note-main:visible').first();
     const title = editor.getByRole('textbox', { name: 'Title', exact: true });
-    const body = editor.locator('.note-body[contenteditable]');
+    const body = editor.locator('.note-body[contenteditable]:not(.note-body-after)');
     await saved(page, () => title.fill(`Autosave ${platform}`), 'POST');
     assert.equal(await editor.isVisible(), true, 'autosave must leave the composer open');
     assert.equal((await rows()).length, before + 1);
@@ -106,7 +112,7 @@ try {
 
     await page.getByText(`Autosave ${platform}`, { exact: true }).click();
     const existing = page.locator('app-input .note-main:visible').last();
-    await saved(page, () => existing.locator('.note-body[contenteditable]').fill('Personal note autosaved'));
+    await saved(page, () => existing.locator('.note-body[contenteditable]:not(.note-body-after)').fill('Personal note autosaved'));
     await existing.getByRole('button', { name: 'Close', exact: true }).click();
     await existing.waitFor({ state: 'hidden' });
     if (platform !== 'web') {
@@ -123,7 +129,7 @@ try {
     };
     page.on('request', countWrites);
     await api(`/notes/${id}`, collaboratorLogin.token, { noteBody: '<b>Collaborator edit</b>' });
-    await existing.locator('.note-body[contenteditable]').getByText('Collaborator edit', { exact: true }).waitFor();
+    await existing.locator('.note-body[contenteditable]:not(.note-body-after)').getByText('Collaborator edit', { exact: true }).waitFor();
     await page.evaluate(name => {
       if (name === 'web') window.dispatchEvent(new Event('pagehide'));
       else {
@@ -133,8 +139,8 @@ try {
     }, platform);
     await page.waitForTimeout(750); // Includes any already-pending 550ms debounce.
     assert.equal(writes, 0, 'backgrounding must not echo received collaborator content');
-    await saved(page, () => existing.locator('.note-body[contenteditable]').fill('Local edit after collaborator')).catch(async error => {
-      console.error('Shared editor after local edit:', await existing.locator('.note-body[contenteditable]').innerHTML(), 'writes:', writes);
+    await saved(page, () => existing.locator('.note-body[contenteditable]:not(.note-body-after)').fill('Local edit after collaborator')).catch(async error => {
+      console.error('Shared editor after local edit:', await existing.locator('.note-body[contenteditable]:not(.note-body-after)').innerHTML(), 'writes:', writes);
       throw error;
     });
     assert.equal(writes, 1, 'a subsequent local edit must still save');

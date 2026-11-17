@@ -92,6 +92,26 @@
   }
 }
 
+// Phones keep compact capture controls even when a foldable's viewport widens.
+@mixin compact-smart-capture {
+  border-radius: 16px;
+  box-sizing: border-box;
+  height: 56px;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0;
+  width: 56px;
+
+  &::before {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .material-symbols-outlined { font-size: 28px; }
+  .smart-capture-label { display: none; }
+}
+
 .main-section.native-phone-layout {
   .padding {
     padding: 0 12px;
@@ -124,6 +144,12 @@
       font-size: 28px;
       line-height: 1;
     }
+  }
+
+  .smart-capture-fab {
+    @include compact-smart-capture;
+    bottom: max(92px, calc(env(safe-area-inset-bottom, 0px) + 76px));
+    right: max(16px, calc(env(safe-area-inset-right, 0px) + 8px));
   }
 
   .desktop-placeholder-input {
@@ -377,22 +403,8 @@
   }
 
   .smart-capture-fab {
-    border-radius: 16px;
+    @include compact-smart-capture;
     bottom: 92px;
-    justify-content: center;
-    min-height: 56px;
-    padding: 0;
-    width: 56px;
-
-    &::before {
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-    }
-
-    .smart-capture-label {
-      display: none;
-    }
   }
 
   :host-context(.light-theme) .mobile-compose-fab {

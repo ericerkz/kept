@@ -1,6 +1,8 @@
+import { OverviewImage, OverviewImageGroup } from '../../utils/overview-images';
 import { uiLocale, uiWeekdays, uiPlural, uiText, uiTimepickerLabels } from 'src/app/i18n/messages';
 import { isNoteImageFile } from '../../utils/note-images';
 import { drawingPreviewBackground } from '../../utils/drawing-background';
+import { checklistAnchorHtml, checklistAnchorId, checklistBodyParts, checklistId, isChecklistAnchor } from '../../utils/checklist-placement';
 import { OfflineSyncService } from 'src/app/services/offline-sync.service';
 import { BinderDropService } from 'src/app/services/binder-drop.service';
 import { NativeWorkspaceService } from 'src/app/services/native-workspace.service';
@@ -13,6 +15,7 @@ import Bricks from 'bricks.js'
 import { firstValueFrom, Subscription, filter, first, timeout } from 'rxjs';
 import { SharedService, type WidgetCreateRequest, type WidgetCreateType } from 'src/app/services/shared.service';
 import { createUuid } from 'src/app/utils/uuid';
+import { noteAppearance, notePatternImage, validNotePattern } from '../../utils/note-appearance';
 import { bgColors, bgImages } from 'src/app/interfaces/tooltip';
 import { LabelI } from 'src/app/interfaces/labels';
 import { ActivationEnd, NavigationEnd, Router } from '@angular/router';
@@ -44,13 +47,13 @@ type KeptWidgetIntentsPlugin = {
   getPendingCreateType: () => Promise<{ type: WidgetCreateType | null; workspaceId?: string; generation?: string }>;
   acknowledgeCreateType: () => Promise<void>;
 };
-type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string }
+type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string } | { type: 'checklist'; value: string } | OverviewImageGroup | { type: 'drawing'; value: string; image: NoteImageI }
 type NoteBodyPreview = { segments: NoteBodySegment[]; urls: string[] }
 type NoteArchiveSwipe = {
   note: NoteI; card: HTMLElement; identifier: number; width: number;
   startX: number; startY: number; offset: number; horizontal: boolean;
 }
-type NoteMeta = { rawBody: string; title: string; bgKey: string; urls: string[]; linkOnly: boolean; textColor: string; displayBody: string; bodySegments: NoteBodySegment[]; hiddenLinkCount: number; visibleUrls: string[] }
+type NoteMeta = { rawBody: string; title: string; bgKey: string; urls: string[]; linkOnly: boolean; textColor: string; displayBody: string; bodySegments: NoteBodySegment[]; hiddenLinkCount: number; visibleUrls: string[]; leadImage?: OverviewImage; leadImages: OverviewImage[]; photoCount: number; imageState: NoteImageI[] }
 type PullRefreshState = 'idle' | 'pulling' | 'ready' | 'refreshing'
 type NoteHistoryEntry = { baseUrl: string; workspaceId: string; generation: string }
 
@@ -232,6 +235,34 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     return this.noteMeta(note).bodySegments
   }
 
+  noteCoverImages(note: NoteI) { return this.noteMeta(note).leadImages }
+
+  noteHasPhotoPreview(note: NoteI) { return this.noteMeta(note).photoCount > 0 }
+
+  async openPreviewImage(note: NoteI, index: number, event?: Event) {
+    event?.stopPropagation()
+    if (this.suppressNextOpen) { this.suppressNextOpen = false; return }
+    if (this.Shared.selectedNoteIds.value.length) { this.Shared.toggleNoteSelection(note.id!); return }
+    if (!await this.openModal(null, note)) return
+    // Hydration inserts inline images after opening; follow the original image
+    // order, not the cropped/grouped overview DOM. Never save preview markup.
+    for (let attempt = 0; attempt < 12; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, attempt ? 80 : 0))
+      if (this.destroyed || this.clickedNoteData?.id !== note.id || this.modalContainer.nativeElement.style.display !== 'block') return
+      const images = this.modal.nativeElement.querySelectorAll<HTMLImageElement>('.note-main .note-images img, .note-main .note-body img')
+      const image = images[index]
+      if (!image) continue
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+      await Promise.race([
+        Promise.all(Array.from(images).slice(0, index + 1).map(image => image.decode().catch(() => {}))),
+        new Promise(resolve => { timeoutId = setTimeout(resolve, 1200) })
+      ]).finally(() => clearTimeout(timeoutId))
+      if (this.clickedNoteData?.id !== note.id || this.modalContainer.nativeElement.style.display !== 'block') return
+      image.scrollIntoView({ block: 'center', behavior: 'instant' })
+      return
+    }
+  }
+
   visibleLinkUrls(note: NoteI): string[] {
     return this.noteMeta(note).visibleUrls
   }
@@ -282,16 +313,16 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     return 3
   }
 
-  overviewChecklistItems(note: NoteI) {
-    const checkBoxes = note.checkBoxes || []
+  overviewChecklistItems(note: NoteI, listId?: string) {
+    const checkBoxes = (note.checkBoxes || []).filter(row => !listId || checklistId(row) === listId)
     const rows = this.preferences.value.moveCompletedChecklistItemsToBottom
       ? checkBoxes.filter(item => !item.done)
       : checkBoxes
     return normalizeIndentLevels(rows)
   }
 
-  overviewCompletedChecklistCount(note: NoteI) {
-    return (note.checkBoxes || []).filter(item => item.done).length
+  overviewCompletedChecklistCount(note: NoteI, listId?: string) {
+    return (note.checkBoxes || []).filter(item => item.done && (!listId || checklistId(item) === listId)).length
   }
 
   checkboxIndentLevel(cb?: CheckboxI) {
@@ -323,36 +354,52 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const title = note.noteTitle || ''
     const themeKey = document.body.classList.contains('light-theme') ? 'l' : 'd'
     const richLinkPreviews = this.preferences.value.richLinkPreviews && note.linkPreviews !== false
-    const bgKey = `${note.bgColor || ''}|${note.bgImage || ''}|${note.isCbox ? 1 : 0}|${themeKey}|links:${richLinkPreviews ? 1 : 0}`
+    const bgKey = `${note.bgColor || ''}|${note.bgImage || ''}|${note.pattern || ''}|${note.isCbox ? 1 : 0}|${themeKey}|links:${richLinkPreviews ? 1 : 0}|lists:${Array.from(new Set((note.checkBoxes || []).map(checklistId))).join(',')}`
     const cached = this.noteMetaCache.get(note)
-    if (cached && cached.rawBody === rawBody && cached.title === title && cached.bgKey === bgKey) return cached
+    if (cached && cached.rawBody === rawBody && cached.title === title && cached.bgKey === bgKey
+      && cached.imageState.length === (note.images || []).length && cached.imageState.every((image, index) => {
+        const current = note.images![index]
+        return image.id === current.id && image.dataUrl === current.dataUrl && image.name === current.name && image.placement === current.placement
+      })) return cached
 
     const body = this.auth.authenticatedImageHtml(rawBody)
-    const bodyPreview = richLinkPreviews ? this.buildBodySegments(body) : { segments: [{ type: 'html' as const, value: body }], urls: [] }
-    const bodySegments = bodyPreview.segments
+    const orderedBody = checklistBodyParts(body, note.checkBoxes, !!note.isCbox)
+      .map(part => part.type === 'text' ? part.html : checklistAnchorHtml(part.id)).join('')
+    const bodyPreview = this.buildBodySegments(orderedBody, richLinkPreviews, note.isCbox, note.images)
+    const photoCount = bodyPreview.segments.reduce((count, segment) => count + (segment.type === 'images' ? segment.images.length : 0), 0)
+    let bodySegments = bodyPreview.segments
+    let leadImage: OverviewImage | undefined
+    const firstSegment = bodySegments[0]
+    if (firstSegment?.type === 'images' && !(note.images || []).some(image => image.id === 'drawing' && image.placement === 'top')) {
+      leadImage = firstSegment.images[0]
+      bodySegments = [...bodySegments]
+      if (firstSegment.images.length === 1) bodySegments.shift()
+      else bodySegments[0] = { ...firstSegment, images: firstSegment.images.slice(1) }
+    }
     const urls = bodyPreview.urls
     const visibleUrls = urls.slice(0, 3)
     const totalLinkCount = note.linkPreviews === false ? 0 : Math.max(note.linkCount || 0, urls.length)
     const hiddenLinkCount = Math.max(0, totalLinkCount - visibleUrls.length)
     const plainBody = body.replace(/<[^>]+>/g, ' ')
     const bodyWithoutUrls = plainBody.replace(/https?:\/\/\S+/g, url => hasJoinedNoteUrls(url) ? url : '').replace(/&nbsp;/g, ' ').trim()
-    const linkOnly = !note.isCbox && urls.length > 0 && !title.trim() && !bodyWithoutUrls
+    const linkOnly = !photoCount && !note.images?.length && !note.isCbox && urls.length > 0 && !title.trim() && !bodyWithoutUrls
     const isLightMode = document.body.classList.contains('light-theme');
-    const defaultTextColor = isLightMode ? '#202124' : '#e8eaed';
-    const textColor = this.hasRealBgImage(note.bgImage) || (note.bgColor && this.isLightColor(note.bgColor)) ? '#202124' : (note.bgColor ? '#e8eaed' : defaultTextColor);
+    const textColor = noteAppearance(note.bgColor, isLightMode, this.hasRealBgImage(note.bgImage)).text;
 
     const displayBody = richLinkPreviews && urls.length ? this.hideLinksInHtml(body) : body
-    const next = { rawBody, title, bgKey, urls, linkOnly, textColor, displayBody, bodySegments, hiddenLinkCount, visibleUrls }
+    const next = { rawBody, title, bgKey, urls, linkOnly, textColor, displayBody, bodySegments, hiddenLinkCount, visibleUrls, leadImage, leadImages: leadImage ? [leadImage] : [], photoCount, imageState: (note.images || []).map(image => ({ ...image })) }
     this.noteMetaCache.set(note, next)
     return next
   }
 
-  private buildBodySegments(html: string): NoteBodyPreview {
+  private buildBodySegments(html: string, richLinkPreviews = true, hasChecklist = false, images: NoteImageI[] = []): NoteBodyPreview {
     const div = createNoteHtmlContainer()
     div.innerHTML = sanitizeNoteHtml(html || '')
     div.querySelectorAll('app-link-preview, .editor-link-previews, .editor-link-preview-slot, .lp-card').forEach(el => el.remove())
 
+    if (richLinkPreviews) {
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
+      if (anchor.querySelector('img')) return
       const href = anchor.href || anchor.getAttribute('href') || ''
       const text = (anchor.textContent || '').trim()
       const url = /^https?:\/\//i.test(href) ? href : (/^https?:\/\//i.test(text) ? text : '')
@@ -392,49 +439,80 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       if (lastIndex < text.length) fragment.append(document.createTextNode(text.slice(lastIndex)))
       node.replaceWith(fragment)
     })
+    }
 
     const segments: NoteBodySegment[] = []
     const urls: string[] = []
     const seenUrls = new Set<string>()
     const renderedUrls = new Set<string>()
     let buffer = document.implementation.createHTMLDocument('').createElement('div')
+    let wrappers = new Map<Element, Element>()
+    let imageIndex = 0
 
     const flushBuffer = () => {
       const html = buffer.innerHTML.replace(/^(?:<br\s*\/?>|\s)+|(?:<br\s*\/?>|\s)+$/g, '')
-      if (html) segments.push({ type: 'html', value: html })
+      // Empty paragraphs between adjacent images are layout whitespace, not a
+      // reason to split a photo group. Real text/links/checklists always split it.
+      if ((buffer.textContent || '').replace(/\u00a0/g, ' ').trim() || buffer.querySelector('hr, table')) {
+        segments.push({ type: 'html', value: html })
+      }
       buffer = document.implementation.createHTMLDocument('').createElement('div')
+      wrappers = new Map()
     }
-
-    const walk = (root: Node) => {
+    const append = (node: Node, ancestors: Element[]) => {
+      let parent: Node = buffer
+      for (const ancestor of ancestors) {
+        let wrapper = wrappers.get(ancestor)
+        if (!wrapper) {
+          wrapper = ancestor.cloneNode(false) as Element
+          wrappers.set(ancestor, wrapper)
+          parent.appendChild(wrapper)
+        }
+        parent = wrapper
+      }
+      parent.appendChild(node.cloneNode(true))
+    }
+    const addImage = (src: string, alt: string, index: number) => {
+      flushBuffer()
+      const image = { src, alt, index }
+      const previous = segments[segments.length - 1]
+      if (previous?.type === 'images') previous.images.push(image)
+      else segments.push({ type: 'images', value: `images-${index}`, images: [image] })
+    }
+    for (const image of images.filter(image => image.placement === 'top')) {
+      if (image.id !== 'drawing') addImage(image.dataUrl, image.name, imageIndex)
+      else { flushBuffer(); segments.push({ type: 'drawing', value: `drawing-${imageIndex}`, image }) }
+      imageIndex++
+    }
+    const walk = (root: Node, ancestors: Element[] = []) => {
       for (const node of Array.from(root.childNodes)) {
-        if (node.nodeType === 1 && (node as HTMLElement).dataset?.['previewUrl']) {
+        if (node instanceof HTMLImageElement) {
+          addImage(node.getAttribute('src') || '', node.alt, imageIndex++)
+        } else if (hasChecklist && isChecklistAnchor(node)) {
+          flushBuffer()
+          segments.push({ type: 'checklist', value: checklistAnchorId(node) })
+        } else if (node.nodeType === 1 && (node as HTMLElement).dataset?.['previewUrl']) {
           const url = (node as HTMLElement).dataset['previewUrl']!
-          if (!seenUrls.has(url)) {
-            seenUrls.add(url)
-            urls.push(url)
-          }
+          if (!seenUrls.has(url)) { seenUrls.add(url); urls.push(url) }
           if (!renderedUrls.has(url) && renderedUrls.size < 3) {
             flushBuffer()
             segments.push({ type: 'url', value: url })
             renderedUrls.add(url)
           }
-        } else if (node.nodeType === 1) {
-          const placeholders = (node as Element).querySelectorAll('[data-preview-url]')
-          if (placeholders.length === 0) {
-            buffer.appendChild(node.cloneNode(true))
-          } else {
-            flushBuffer()
-            walk(node)
-            flushBuffer()
-          }
+        } else if (node.nodeType === 1 && (node as Element).querySelector('img, [data-preview-url], .kept-checklist-anchor')) {
+          walk(node, [...ancestors, node as Element])
         } else {
-          buffer.appendChild(node.cloneNode(true))
+          append(node, ancestors)
         }
       }
     }
-
     walk(div)
     flushBuffer()
+    for (const image of images.filter(image => image.placement === 'bottom')) {
+      if (image.id !== 'drawing') addImage(image.dataUrl, image.name, imageIndex)
+      else { flushBuffer(); segments.push({ type: 'drawing', value: `drawing-${imageIndex}`, image }) }
+      imageIndex++
+    }
 
     return { segments, urls }
   }
@@ -1242,7 +1320,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   private touchMoved = false
   private noteArchiveSwipe?: NoteArchiveSwipe
   private pendingSwipeArchives = new Set<number>()
-  private readonly noteTouchControl = 'button, a, input, textarea, select, [contenteditable="true"], [role="button"], [role="checkbox"], app-link-preview, .reminder-chip, .reminder-picker, .check-icon, .cbox-icon, .cbox-cancel-icon, .pin-icon, .icons-container, .cancel-icon'
+  private readonly noteTouchControl = 'button, a, input, textarea, select, [contenteditable="true"], [role="button"], [role="checkbox"], .reminder-chip, .reminder-picker, .check-icon, .cbox-icon, .cbox-cancel-icon, .pin-icon, .icons-container, .cancel-icon'
   pullRefreshState: PullRefreshState = 'idle'
   pullRefreshDistance = 0
   private readonly pullRefreshThreshold = 118
@@ -1265,7 +1343,12 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   onTouchStart(note: NoteI, event: TouchEvent) {
     this.onTouchCancel()
     const touch = event.touches[0]
-    if (!touch || event.touches.length !== 1 || (event.target as HTMLElement).closest(this.noteTouchControl)) return
+    const target = event.target as HTMLElement
+    const control = target.closest(this.noteTouchControl)
+    // Photo tiles and link preview surfaces are note content: a hold should
+    // select/pick up the note. Actual controls (including link actions) keep
+    // their own gestures; a quick photo tap still opens the full image note.
+    if (!touch || event.touches.length !== 1 || (control && !control.classList?.contains('preview-image-tile'))) return
     this.longPressStartX = touch?.clientX ?? 0
     this.longPressStartY = touch?.clientY ?? 0
     this.longPressFired = false
@@ -1274,7 +1357,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const noteEl = (event.currentTarget as HTMLDivElement) || ((event.target as HTMLElement).closest('.note-container') as HTMLDivElement)
     // Leave screen-edge navigation to the OS. Touch events are the sole entry
     // point: mouse drags and trackpad wheel events never start an archive.
-    if (this.canSwipeArchive(note) && touch.clientX > 32 && touch.clientX < window.innerWidth - 32) {
+    if (!target.closest('app-link-preview, app-note-preview-images') && this.canSwipeArchive(note) && touch.clientX > 32 && touch.clientX < window.innerWidth - 32) {
       this.noteArchiveSwipe = { note, card: noteEl, identifier: touch.identifier,
         width: noteEl.getBoundingClientRect().width, startX: touch.clientX, startY: touch.clientY, offset: 0, horizontal: false }
       this.zone.runOutsideAngular(() => {
@@ -2151,12 +2234,19 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     return !!(this.activeNote?.id && (!this.activeNote.ownerUserId || this.activeNote.ownerUserId === this.auth.currentUser?.id))
   }
 
+  get appearanceNote() {
+    return (this.notesService.notesList$.value || []).find(note => note.id === this.activeNote?.id) || this.activeNote;
+  }
+  noteHighlight(note: NoteI) { return noteAppearance(note.bgColor, document.body.classList.contains('light-theme'), this.hasRealBgImage(note.bgImage)).highlight; }
+  noteBackground(note: NoteI) { return this.hasRealBgImage(note.bgImage) ? note.bgImage : notePatternImage(note.pattern, note.bgColor, document.body.classList.contains('light-theme')); }
+
   colorMenu = {
+    pattern: (id: string | null) => this.Shared.note.db.updateKey({ pattern: validNotePattern(id), ...(id ? { bgImage: '' } : {}) }),
     bgColor: (data: bgColors) => {
       this.Shared.note.db.updateKey({ bgColor: data })
     },
     bgImage: (data: bgImages) => {
-      this.Shared.note.db.updateKey({ bgImage: this.normalizeBgImage(data) })
+      this.Shared.note.db.updateKey({ bgImage: this.normalizeBgImage(data), ...(data ? { pattern: null } : {}) })
     }
   }
 
@@ -3065,6 +3155,9 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.Shared.closeModal.subscribe(x => { if (x) this.closeModal() }),
       this.Shared.drawingNoteRequested.subscribe(async () => {
         if (this.modalContainer.nativeElement.style.display === 'block') await this.closeModal()
+        // A desktop composer is revealed next; do not restore the old overview
+        // scroll position over its explicit scroll into view.
+        if (Capacitor.getPlatform() === 'web' && !shouldUseFullscreenNoteEditor()) this.clearModalScrollRestoreTimers()
         this.Shared.clearNoteSelection()
         this.Shared.widgetCreateRequested.next({ requestId: createUuid(), type: 'drawing' })
       }),

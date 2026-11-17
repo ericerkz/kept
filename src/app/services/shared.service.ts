@@ -316,16 +316,7 @@ export class SharedService {
 
   async bulkTrashSelected() {
     const selected = this.note.all.filter(note => note.id && this.selectedNoteIds.value.includes(note.id))
-    const me = this.auth.currentUser?.id
-    let leftSharedCount = 0
-    for (const note of selected) {
-      if (note.ownerUserId && me && note.ownerUserId !== me && !note.sharedBinder) {
-        await this.Notes.delete(note.id!)
-        leftSharedCount++
-      } else {
-        await this.Notes.updateKey({ trashed: true, archived: false }, note.id!)
-      }
-    }
+    const leftSharedCount = await this.Notes.trashMany(selected.map(note => note.id!))
     this.clearNoteSelection()
     if (leftSharedCount) {
       Snackbar.show({
@@ -588,6 +579,17 @@ export class SharedService {
     // than the button's position halfway across the toolbar.
     const appearanceSize: Partial<Modifier<'appearanceSize', Record<string, never>>> = {
       name: 'appearanceSize', enabled: true, phase: 'beforeRead',
+      fn: () => {
+        const rect = button.getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const top = viewport?.offsetTop || 0;
+        const bottom = top + (viewport?.height || window.innerHeight);
+        const below = bottom - rect.bottom - 20;
+        const above = rect.top - top - 20;
+        // Prefer a scrollable menu below the toolbar when it can show a useful
+        // portion of the grids, rather than flipping it over the note's text.
+        tooltipEl.style.maxHeight = `${Math.max(120, below >= 260 ? below : Math.max(above, below))}px`;
+      },
       effect: ({ instance }) => {
         const updateSize = () => {
           // offsetWidth excludes the editor's opening animation scale.
@@ -605,6 +607,7 @@ export class SharedService {
           observer?.disconnect();
           modal?.removeEventListener('transitionend', updateSize);
           tooltipEl.style.removeProperty('--appearance-anchor-width');
+          tooltipEl.style.removeProperty('max-height');
         };
       }
     };

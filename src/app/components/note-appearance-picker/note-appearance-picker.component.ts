@@ -1,5 +1,7 @@
-import { Component, EventEmitter, OnDestroy, Output } from '@angular/core';
+import { Component, EventEmitter, Input, OnDestroy, Output } from '@angular/core';
 import { bgColors, bgImages, noteBackgroundChoices, noteColorFamilies } from '../../interfaces/tooltip';
+
+import { noteAppearance, noteColourHex, notePatternImage, notePatterns } from '../../utils/note-appearance';
 
 type AppearanceTab = 'colour' | 'background';
 
@@ -15,6 +17,21 @@ export class NoteAppearancePickerComponent implements OnDestroy {
   readonly families = noteColorFamilies;
   readonly backgrounds = noteBackgroundChoices;
   activeTab: AppearanceTab = 'colour';
+  @Input() colorOnly = false;
+  @Input() noteColor = '';
+  @Input() noteBackground = '';
+  @Input() pattern: string | null | undefined = null;
+  readonly patterns = notePatterns;
+  get currentColor() { return noteAppearance(this.noteColor, document.body.classList.contains('light-theme')).background; }
+  patternPreview(id: string) { return notePatternImage(id, this.noteColor, document.body.classList.contains('light-theme'), true); }
+  isBackgroundSelected(value: string) {
+    if (!value && this.pattern) return false;
+    return value ? this.noteBackground.includes(value) : !this.noteBackground || ['none', 'url()', 'url("")'].includes(this.noteBackground);
+  }
+  isColorSelected(value: string) { return noteColourHex(value) === noteColourHex(this.noteColor); }
+  @Output() patternSelected = new EventEmitter<string | null>();
+  selectPattern(id: string) { this.patternSelected.emit(this.pattern === id ? null : id); }
+
   private layoutFrame?: number;
 
   @Output() colorSelected = new EventEmitter<bgColors>();

@@ -439,6 +439,19 @@
 
         <div class="preference-row">
           <div class="preference-info">
+            <span class="preference-label">{{ 'settings.default_note_colour' | translate }}</span>
+            <span class="preference-desc">{{ 'settings.default_note_colour_description' | translate }}</span>
+          </div>
+          <button #defaultNoteColorButton type="button" class="btn-secondary default-note-colour"
+            [disabled]="savingDefaultNoteColor" [attr.aria-label]="'settings.default_note_colour' | translate"
+            (click)="Shared.createTooltip(defaultNoteColorButton, defaultNoteColorMenu)">
+            <span class="default-note-colour-swatch" [style.background-color]="defaultNoteColor" aria-hidden="true"></span>
+            {{ (defaultNoteColor ? 'common.change' : 'colors.default') | translate }}
+          </button>
+        </div>
+
+        <div class="preference-row">
+          <div class="preference-info">
             <span class="preference-label">{{ 'settings.24_hour_time' | translate }}</span>
             <span class="preference-desc">{{ 'settings.show_reminder_times_without_am_pm' | translate }}</span>
           </div>
@@ -882,3 +895,8 @@
 
   </section>
 </main>
+
+<div #defaultNoteColorMenu data-tooltip="true" data-is-tooltip-open="false" class="colorMenu">
+  <app-note-appearance-picker [colorOnly]="true" [noteColor]="defaultNoteColor"
+    (colorSelected)="setDefaultNoteColor($event, defaultNoteColorMenu)"></app-note-appearance-picker>
+</div>

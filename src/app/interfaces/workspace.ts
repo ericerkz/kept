@@ -4,6 +4,7 @@ export const RESOURCE_STORES: Record<ResourceType, string> = {
   binder: 'binders', savedPlace: 'savedPlaces', preferences: 'preferences'
 };
 export type WorkspacePreferences = {
+  defaultNoteColor?: string;
   language?: string;
   inheritSharedLabels?: boolean; inheritSharedBinders?: boolean;
   theme: 'light' | 'dark'; followSystemTheme: boolean; showPastReminders: boolean;

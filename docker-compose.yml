@@ -4,6 +4,9 @@ services:
     container_name: kept-app
     ports:
       - "6767:6767"
+    # Optional: start as non-root from the beginning. Prepare ./data ownership
+    # first; this overrides PUID/PGID. See the README's non-root setup option.
+    # user: "1000:1000"
     environment:
       - NODE_ENV=production
       - PORT=6767

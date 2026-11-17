@@ -196,16 +196,18 @@ try {
       await cards.first().hover();
       await cards.first().locator('.check-icon').click();
       await checkCount(1);
-      await checkIcon(width);
-      await selectAll.click();
+      assert.equal(await page.locator('.selection-actions .select-all').isVisible(), false);
+      await page.locator('.selection-actions .more').click();
+      await page.locator('.selection-select-all-menu').click();
+      await page.locator('.selectionMoreMenu').waitFor({ state: 'hidden' });
       await checkCount(cases[0][1].length);
-      const bounds = await page.locator('.selection-navbar button').evaluateAll(buttons => buttons.map(button => {
+      const bounds = await page.locator('.selection-navbar button').evaluateAll(buttons => buttons.filter(button => button.getClientRects().length).map(button => {
         const box = button.getBoundingClientRect();
-        return { left: box.left, right: box.right, height: box.height };
+        return { left: box.left, right: box.right, top: box.top, height: box.height };
       }));
       assert.ok(bounds.every(box => box.left >= 0 && box.right <= width && box.height >= 32),
         `${width}px toolbar controls fit and remain tappable: ${JSON.stringify(bounds)}`);
-      await selectAll.hover();
+      assert.ok(bounds.every(box => Math.abs(box.top - bounds[0].top) < 1), 'all toolbar buttons stay on one row');
       await clear.click();
       await page.keyboard.press('Control+a');
       await checkCount(cases[0][1].length);

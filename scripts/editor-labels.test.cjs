@@ -14,9 +14,13 @@ function loadClass(path, name) {
     if (name === '@angular/core') return { Injectable: decorator, Component: decorator, ViewChild: () => () => {}, Input: () => () => {}, HostBinding: () => () => {}, HostListener: () => () => {} };
     if (name === '@capacitor/core') return { registerPlugin: () => ({}), Capacitor: { getPlatform: () => 'ios' } };
     if (name.endsWith('/note-html')) return { sanitizeNoteHtml: text => text };
+    if (name.endsWith('/note-appearance')) return loadClass('src/app/utils/note-appearance.ts');
+    if (name.endsWith('/interfaces/tooltip')) return loadClass('src/app/interfaces/tooltip.ts');
+    if (name.endsWith('/shared/note-appearance.json')) return { default: require('../shared/note-appearance.json') };
+    if (name.endsWith('/checklist-placement')) return loadClass('src/app/utils/checklist-placement.ts');
     return {};
   } });
-  return exports[name];
+  return name ? exports[name] : exports;
 }
 
 const Input = loadClass('src/app/components/input/input.component.ts', 'InputComponent');
@@ -28,7 +32,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 
 function editor({ labels = [], editing = true, route = '/', catalog = [foreign, work] } = {}) {
   const component = Object.create(Input.prototype);
-  const element = () => ({ nativeElement: { style: {}, dataset: {}, innerHTML: '' } });
+  const element = () => ({ nativeElement: { style: {}, dataset: {}, innerHTML: '', querySelectorAll: () => [] } });
   Object.assign(component, {
     Shared: { label: { list: plain(catalog) } }, isEditing: editing, noteToEdit: note(labels), activeEditors: [],
     router: { url: route }, auth: { currentUser: { id: 7 }, canonicalImageHtml: html => html, canonicalImageUrl: url => url },

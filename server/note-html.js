@@ -1,5 +1,6 @@
 const sanitizeHtml = require('sanitize-html');
 const policy = require('../shared/note-html-policy.json');
+const patternIds = new Set(require('../shared/note-appearance.json').patterns.map(pattern => pattern.id));
 const { plainText } = require('./text-utils');
 
 function safeUrl(value, image = false) {
@@ -42,6 +43,8 @@ function sanitizeNoteContent(note) {
   note = note && typeof note === 'object' ? note : {};
   return {
     ...note,
+    ...(Object.hasOwn(note, 'pattern') ? { pattern: patternIds.has(note.pattern)
+      && ['', 'none', 'url()', 'url("")', "url('')"].includes(String(note.bgImage || '').trim()) ? note.pattern : null } : {}),
     noteTitle: sanitizeNoteHtml(note.noteTitle),
     noteBody: sanitizeNoteHtml(note.noteBody),
     checkBoxes: (Array.isArray(note.checkBoxes) ? note.checkBoxes : []).filter(item => item && typeof item === 'object')

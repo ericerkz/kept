@@ -8,6 +8,7 @@ export interface UserPreferences {
   richLinkPreviews: boolean;
   notePreviewTextSize: 'compact' | 'default' | 'large';
   showPastReminders: boolean;
+  defaultNoteColor: string;
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -16,6 +17,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   richLinkPreviews: true,
   notePreviewTextSize: 'default',
   showPastReminders: false,
+  defaultNoteColor: '',
 };
 
 @Injectable({ providedIn: 'root' })
@@ -26,13 +28,13 @@ export class UserPreferencesService {
 
   constructor(private auth: AuthService) {
     this.auth.accessChanges$.subscribe(user => {
-      if (this.auth.isLocal) { this.preferences$.next(this.load()); this.apply({ showPastReminders: this.auth.workspace.local?.preferences.showPastReminders === true }); return; }
+      if (this.auth.isLocal) { this.preferences$.next(this.load()); this.apply({ showPastReminders: this.auth.workspace.local?.preferences.showPastReminders === true, defaultNoteColor: this.auth.workspace.local?.preferences.defaultNoteColor || '' }); return; }
       if (!user) {
         this.loadedServerPreferenceToken = '';
-        this.apply({ showPastReminders: false });
+        this.apply({ showPastReminders: false, defaultNoteColor: '' });
         return;
       }
-      this.apply({ showPastReminders: user.showPastReminders === true });
+      this.apply({ showPastReminders: user.showPastReminders === true, defaultNoteColor: user.defaultNoteColor || '' });
       if (user.token === this.loadedServerPreferenceToken) return;
       this.loadedServerPreferenceToken = user.token;
       this.auth.loadAccountPreferences().catch(() => {});
@@ -58,6 +60,14 @@ export class UserPreferencesService {
     }
   }
 
+  async updateDefaultNoteColor(color: string) {
+    if (color !== '' && !/^#[0-9a-f]{6}$/i.test(color)) return;
+    const previous = this.value.defaultNoteColor;
+    this.apply({ defaultNoteColor: color });
+    try { await this.auth.updateAccountPreferences({ defaultNoteColor: color }); }
+    catch (error) { this.apply({ defaultNoteColor: previous }); throw error; }
+  }
+
   private get scopedStorageKey() { return this.auth?.isLocal ? `${this.storageKey}:${this.auth.workspace.local?.id || 'local'}` : this.storageKey; }
 
   private load(): UserPreferences {
@@ -71,6 +81,7 @@ export class UserPreferencesService {
         richLinkPreviews: parsed.richLinkPreviews !== false,
         notePreviewTextSize: this.normalizeNotePreviewTextSize(parsed.notePreviewTextSize),
         showPastReminders: parsed.showPastReminders === true,
+        defaultNoteColor: '',
       };
     } catch {
       return { ...DEFAULT_PREFERENCES };

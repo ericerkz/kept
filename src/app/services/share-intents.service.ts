@@ -261,7 +261,7 @@ export class ShareIntentsService {
       noteTitle: body ? '' : fallbackTitle,
       noteBody: body,
       pinned: false,
-      bgColor: '',
+      bgColor: this.auth.defaultNoteColor,
       bgImage: '',
       checkBoxes: [],
       images,

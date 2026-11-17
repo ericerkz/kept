@@ -1,3 +1,5 @@
+import { NotePreviewDirective } from './components/notes/note-preview.directive';
+import { NotePreviewImagesComponent } from './components/notes/note-preview-images.component';
 import { APP_INITIALIZER, NgModule } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
@@ -47,6 +49,8 @@ import { UiTextPipe, UiPluralPipe, UiDatePipe } from './i18n/ui-text.pipe';
         NoteAppearancePickerComponent,
         NavbarComponent,
         NotesComponent,
+        NotePreviewDirective,
+        NotePreviewImagesComponent,
         InputComponent,
         LocationMapPickerComponent,
         ph,
