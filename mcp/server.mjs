@@ -1,6 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import sanitizeHtml from 'sanitize-html';
 import { z } from 'zod';
+import { Parser } from 'htmlparser2';
+import { createRequire } from 'node:module';
+import { sanitizeNoteHtml } from '../server/note-html.js';
+
+const require = createRequire(import.meta.url);
+const appearance = require('../shared/note-appearance.json');
+const palette = require('../shared/note-palette.json');
 
 const noteIdSchema = z.number().int().positive().describe('Kept note id');
 const titleSchema = z.string().max(500).describe('Plain-text note title');
@@ -9,6 +16,10 @@ const labelsSchema = z.array(z.string().trim().min(1).max(80)).max(50).describe(
 const bodySchema = z.string().max(500_000).describe('Note body');
 const bodyFormatSchema = z.enum(['plain_text', 'html']).default('plain_text');
 const colorSchema = z.string().max(200);
+const patternSchema = z.enum(appearance.patterns.map(pattern => pattern.id)).nullable()
+  .describe('Repeating pattern ID from kept_get_appearance_options; null clears the pattern. A pattern replaces any illustration.');
+const listIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/).describe('Stable checklist block ID; legacy lists use default.');
+const rowIdSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER - 1000);
 const imageBase64Schema = z.string().max(14_000_000).describe('Base64-encoded image content without a data URL prefix');
 const attachmentBase64Schema = z.string().max(36_000_000).describe('Base64-encoded file content without a data URL prefix');
 const openAiFileSchema = z.object({
@@ -29,22 +40,83 @@ const checklistItemSchema = z.object({
   format: bodyFormatSchema.optional().default('plain_text')
 });
 
-const ALLOWED_HTML = {
-  allowedTags: ['p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'h1', 'h2', 'h3', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'a'],
-  allowedAttributes: { a: ['href', 'title', 'target', 'rel'] },
-  allowedSchemes: ['http', 'https', 'mailto'],
-  allowProtocolRelative: false,
-  transformTags: {
-    a: (_tagName, attribs) => ({ tagName: 'a', attribs: { ...attribs, rel: 'noopener noreferrer' } })
-  }
-};
+const contentBlocksSchema = z.array(z.discriminatedUnion('type', [
+  z.object({ type: z.literal('text'), text: bodySchema, format: bodyFormatSchema.optional().default('plain_text') }).strict(),
+  z.object({ type: z.literal('checklist'), id: listIdSchema,
+    items: z.array(checklistItemSchema.extend({ id: rowIdSchema.optional() })).max(500) }).strict()
+])).max(100).describe('Ordered text and checklist blocks. Replaces the entire body and all checklist rows; retain existing block/row IDs when editing. Cannot be combined with body or checklist. Text HTML supports <mark class="hl">highlights</mark> and safe inline images.');
 
 function escapeText(value) {
   return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\r?\n/g, '<br>');
 }
 
 function noteHtml(value, format = 'plain_text') {
-  return format === 'html' ? sanitizeHtml(String(value || ''), ALLOWED_HTML) : escapeText(value);
+  return format === 'html' ? sanitizeNoteHtml(value) : escapeText(value);
+}
+
+function appearanceChanges({ color, backgroundImage, pattern }) {
+  // Accept the asset paths returned by older clients as well as saved CSS URLs.
+  const bgImage = backgroundImage?.startsWith('/assets/images/backgrounds/') ? `url(${backgroundImage})` : backgroundImage;
+  const illustrated = bgImage !== undefined && !['', 'none', 'url()', 'url("")', "url('')"].includes(bgImage.trim());
+  if (pattern && illustrated) throw new Error('Choose a pattern or an illustration, not both.');
+  return {
+    ...(color === undefined ? {} : { bgColor: color }),
+    ...(bgImage === undefined ? {} : { bgImage }),
+    ...(pattern === undefined ? {} : { pattern }),
+    ...(pattern ? { bgImage: '' } : {}),
+    ...(illustrated ? { pattern: null } : {})
+  };
+}
+
+function checklistAnchor(id) {
+  return `<div class="kept-checklist-anchor${id === 'default' ? '' : ` kept-list-${id}`}"></div>`;
+}
+
+function checklistAnchors(html = '') {
+  const ids = new Set();
+  const parser = new Parser({ onopentag(tag, attrs) {
+    const classes = (attrs.class || '').split(/\s+/);
+    if (tag !== 'div' || !classes.includes('kept-checklist-anchor')) return;
+    const id = classes.find(name => name.startsWith('kept-list-'))?.slice(10) || 'default';
+    if (/^[a-zA-Z0-9_-]{1,80}$/.test(id)) ids.add(id);
+  } });
+  parser.end(html);
+  return ids;
+}
+
+const rowListId = item => typeof item.listId === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(item.listId) ? item.listId : 'default';
+
+function blockContent(blocks) {
+  const listIds = new Set(), rowIds = new Set();
+  const characters = blocks.reduce((sum, block) => sum + (block.type === 'text' ? block.text.length : block.items.reduce((size, item) => size + item.text.length, 0)), 0);
+  const rows = blocks.reduce((sum, block) => sum + (block.type === 'checklist' ? block.items.length : 0), 0);
+  if (rows > 500 || characters > 500_000) throw new Error('Content blocks support at most 500 checklist rows and 500000 characters in total.');
+  const suppliedIds = blocks.flatMap(block => block.type === 'checklist' ? block.items.flatMap(item => item.id === undefined ? [] : [item.id]) : []);
+  let nextId = Math.max(Date.now(), ...suppliedIds) + 1;
+  const checkBoxes = [];
+  const body = blocks.map(block => {
+    if (block.type === 'text') {
+      const html = noteHtml(block.text, block.format);
+      if (checklistAnchors(html).size) throw new Error('Use checklist blocks rather than checklist markers inside text blocks.');
+      return html;
+    }
+    if (listIds.has(block.id)) throw new Error('Each checklist block must have a unique ID.');
+    listIds.add(block.id);
+    for (const item of block.items) {
+      const id = item.id ?? nextId++;
+      if (rowIds.has(id)) throw new Error('Each checklist row must have a unique ID.');
+      rowIds.add(id);
+      checkBoxes.push({ id, listId: block.id, data: noteHtml(item.text, item.format), done: item.done, indentLevel: item.indentLevel });
+    }
+    return checklistAnchor(block.id);
+  });
+  return { noteBody: body.join(''), checkBoxes, isCbox: listIds.size > 0 };
+}
+
+function validateContentInput({ contentBlocks, body, checklist }) {
+  if (contentBlocks !== undefined && (body !== undefined && body !== '' || checklist !== undefined)) {
+    throw new Error('Use either contentBlocks or body/checklist, not both.');
+  }
 }
 
 function plainText(value) {
@@ -71,7 +143,7 @@ function safely(handler) {
   };
 }
 
-function notePayload({ title = '', body = '', format = 'plain_text', binder, labels, pinned, color, backgroundImage, checklist, drawingUrl, drawingName, drawingBackground = 'none' }) {
+function notePayload({ title = '', body = '', format = 'plain_text', binder, labels, pinned, checklist, content, appearanceFields, drawingUrl, drawingName, drawingBackground = 'none' }) {
   const checkBoxes = checklist?.map((item, index) => ({
     id: Date.now() + index,
     data: noteHtml(item.text, item.format),
@@ -90,9 +162,9 @@ function notePayload({ title = '', body = '', format = 'plain_text', binder, lab
     ...(binder === undefined ? {} : { binder }),
     ...(labels === undefined ? {} : { labels }),
     ...(pinned === undefined ? {} : { pinned }),
-    ...(color === undefined ? {} : { bgColor: color }),
-    ...(backgroundImage === undefined ? {} : { bgImage: backgroundImage }),
+    ...appearanceFields,
     ...(checkBoxes === undefined ? {} : { checkBoxes, isCbox: true }),
+    ...content,
     ...(images === undefined ? {} : { images })
   };
 }
@@ -143,61 +215,97 @@ export function createKeptMcpServer(client, { oauth = false, scopes = null } = {
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
   }, safely(async () => toolResult(await client.listLabels())));
 
+  server.registerTool('kept_get_appearance_options', {
+    title: 'Get note appearance options',
+    description: 'List the app palette, illustration backgrounds and repeating patterns, with values for create/update tools. Highlights use <mark class="hl">text</mark> in HTML and automatically adapt to the note colour. Patterns combine with colours; illustrations replace patterns.',
+    inputSchema: {},
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, safely(async () => toolResult({
+    colors: palette.families.flatMap(family => family.colors.map(key => ({
+      name: palette.colorNames[key], family: family.name, color: palette.colors[key]
+    }))),
+    backgrounds: palette.backgroundChoices.map(choice => ({
+      name: choice.name,
+      backgroundImage: palette.backgrounds[choice.key] ? `url(${palette.backgrounds[choice.key]})` : ''
+    })),
+    patterns: appearance.patterns.map(({ id, name }) => ({ name, pattern: id })),
+    clearPattern: null,
+    highlight: { format: 'html', example: '<mark class="hl">Highlighted text</mark>', color: 'Automatic for the note colour and theme' }
+  })));
+
   server.registerTool('kept_create_note', {
-    title: 'Create a Kept note', description: 'Create a text, rich-text, checklist, or drawing note.',
+    title: 'Create a Kept note', description: 'Create a text, rich-text, checklist, or drawing note. Use contentBlocks for multiple checklists with text between them, and kept_get_appearance_options for colours, illustrations and patterns.',
     inputSchema: {
       title: titleSchema.optional().default(''), body: bodySchema.optional().default(''), format: bodyFormatSchema.optional().default('plain_text'),
-      binder: binderSchema.optional(), labels: labelsSchema.optional(), pinned: z.boolean().optional(), color: colorSchema.optional(), backgroundImage: colorSchema.optional(),
+      binder: binderSchema.optional(), labels: labelsSchema.optional(), pinned: z.boolean().optional(), color: colorSchema.optional(), backgroundImage: colorSchema.optional(), pattern: patternSchema.optional(),
+      contentBlocks: contentBlocksSchema.optional(),
       checklist: z.array(checklistItemSchema).max(500).optional(), drawingPngBase64: imageBase64Schema.optional(),
       drawingBackground: z.enum(['square', 'dots', 'rules', 'none']).optional().default('none')
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, safely(async input => {
-    if (!input.title.trim() && !input.body.trim() && !input.checklist?.length && !input.drawingPngBase64) throw new Error('A title, body, checklist item, or drawing is required.');
+    validateContentInput(input);
+    const content = input.contentBlocks === undefined ? undefined : blockContent(input.contentBlocks);
+    const appearanceFields = appearanceChanges(input);
+    if (!input.title.trim() && !input.body.trim() && !input.checklist?.length && !input.drawingPngBase64 && !content?.noteBody && !content?.checkBoxes.length) throw new Error('A title, body, checklist item, or drawing is required.');
     const labels = input.labels === undefined ? undefined : await client.resolveLabels(input.labels);
     const drawing = input.drawingPngBase64
       ? await client.uploadImage({ filename: 'drawing.png', mimeType: 'image/png', base64Data: input.drawingPngBase64 })
       : null;
-    return toolResult(await client.createNote(notePayload({ ...input, labels, drawingUrl: drawing?.url, drawingName: drawing?.name })));
+    return toolResult(await client.createNote(notePayload({ ...input, labels, content, appearanceFields, drawingUrl: drawing?.url, drawingName: drawing?.name })));
   }));
 
   server.registerTool('kept_update_note', {
-    title: 'Update a Kept note', description: 'Update selected content, organization, pin, or appearance fields without replacing unspecified fields.',
+    title: 'Update a Kept note', description: 'Update selected content, organization, pin, or appearance fields without replacing unspecified fields. Read the note first when replacing body/contentBlocks; preserve existing inline images, highlight markup, checklist anchors and row IDs. contentBlocks replaces the entire body and all lists.',
     inputSchema: {
       noteId: noteIdSchema, title: titleSchema.optional(), body: bodySchema.optional(), format: bodyFormatSchema.optional().default('plain_text'),
-      binder: binderSchema.optional(), labels: labelsSchema.optional(), pinned: z.boolean().optional(), color: colorSchema.optional(), backgroundImage: colorSchema.optional()
+      binder: binderSchema.optional(), labels: labelsSchema.optional(), pinned: z.boolean().optional(), color: colorSchema.optional(), backgroundImage: colorSchema.optional(), pattern: patternSchema.optional(),
+      contentBlocks: contentBlocksSchema.optional()
     },
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
-  }, safely(async ({ noteId, title, body, format, binder, labels, pinned, color, backgroundImage }) => {
-    const ownerOnlyChange = binder !== undefined || labels !== undefined || color !== undefined || backgroundImage !== undefined;
-    if (ownerOnlyChange) await client.assertNoteOwner(noteId, 'change this note\'s binder, labels, or appearance');
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, safely(async input => {
+    const { noteId, title, body, format, binder, labels, pinned, contentBlocks } = input;
+    validateContentInput(input);
+    const content = contentBlocks === undefined ? undefined : blockContent(contentBlocks);
+    const appearanceFields = appearanceChanges(input);
+    const ownerOnlyChange = binder !== undefined || labels !== undefined;
+    if (ownerOnlyChange) await client.assertNoteOwner(noteId, 'change this note\'s binder or labels');
     const resolvedLabels = labels === undefined ? undefined : await client.resolveLabels(labels);
     const changes = {
       ...(title === undefined ? {} : { noteTitle: plainText(title) }),
       ...(body === undefined ? {} : { noteBody: noteHtml(body, format) }),
       ...(binder === undefined ? {} : { binder }), ...(resolvedLabels === undefined ? {} : { labels: resolvedLabels }),
-      ...(pinned === undefined ? {} : { pinned }), ...(color === undefined ? {} : { bgColor: color }),
-      ...(backgroundImage === undefined ? {} : { bgImage: backgroundImage })
+      ...(pinned === undefined ? {} : { pinned }), ...appearanceFields, ...content
     };
     if (!Object.keys(changes).length) throw new Error('At least one note field is required.');
     return toolResult(await client.updateNote(noteId, changes));
   }));
 
   server.registerTool('kept_manage_checklist', {
-    title: 'Manage a Kept checklist', description: 'Add, edit, complete, indent, reorder, or remove checklist items without replacing the rest of the note.',
+    title: 'Manage a Kept checklist', description: 'Add, edit, complete, indent, reorder, or remove checklist items without replacing the rest of the note. Use listId to add to a particular list (required if several exist), or move a row between lists. A new listId appends a checklist block after the body. For text/list placement use kept_update_note contentBlocks.',
     inputSchema: {
       noteId: noteIdSchema, action: z.enum(['add', 'update', 'delete', 'move']), itemId: z.number().int().nonnegative().optional(),
       text: z.string().max(20_000).optional(), format: bodyFormatSchema.optional().default('plain_text'), done: z.boolean().optional(),
-      indentLevel: z.number().int().min(0).max(4).optional(), beforeItemId: z.number().int().nonnegative().nullable().optional()
+      indentLevel: z.number().int().min(0).max(4).optional(), beforeItemId: z.number().int().nonnegative().nullable().optional(),
+      listId: listIdSchema.optional()
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, safely(async ({ noteId, action, itemId, text, format, done, indentLevel, beforeItemId }) => {
+  }, safely(async ({ noteId, action, itemId, text, format, done, indentLevel, beforeItemId, listId }) => {
     const note = await client.getNote(noteId);
     if (note.locked && note.lockedContentAvailable === false) throw new Error('Unlock this note before changing its checklist.');
     const items = Array.isArray(note.checkBoxes) ? note.checkBoxes.map(item => ({ ...item })) : [];
+    const anchors = checklistAnchors(note.noteBody);
+    const lists = new Set([...anchors, ...items.map(rowListId)]);
+    if (listId !== undefined && !['add', 'move'].includes(action)) throw new Error('Use action move to change a row\'s listId.');
+    let destination;
     if (action === 'add') {
       if (!text?.trim()) throw new Error('text is required when adding an item.');
-      items.push({ id: Math.max(Date.now(), ...items.map(item => Number(item.id) + 1)), data: noteHtml(text, format), done: !!done, indentLevel: indentLevel || 0 });
+      if (listId === undefined && lists.size > 1) throw new Error('Specify listId when adding to a note with multiple checklists.');
+      if (items.length >= 500) throw new Error('A note supports at most 500 checklist rows through MCP.');
+      destination = listId ?? [...lists][0] ?? 'default';
+      const id = Math.max(Date.now(), ...items.map(item => Number(item.id) + 1));
+      if (!Number.isSafeInteger(id)) throw new Error('Cannot allocate a checklist row ID.');
+      items.push({ id, ...(destination === 'default' ? {} : { listId: destination }), data: noteHtml(text, format), done: !!done, indentLevel: indentLevel || 0 });
     } else {
       if (itemId === undefined) throw new Error('itemId is required when updating, deleting, or moving a checklist item.');
       const index = items.findIndex(item => Number(item.id) === Number(itemId));
@@ -205,13 +313,25 @@ export function createKeptMcpServer(client, { oauth = false, scopes = null } = {
       if (action === 'delete') items.splice(index, 1);
       if (action === 'update') items[index] = { ...items[index], ...(text === undefined ? {} : { data: noteHtml(text, format) }), ...(done === undefined ? {} : { done }), ...(indentLevel === undefined ? {} : { indentLevel }) };
       if (action === 'move') {
+        if (beforeItemId === itemId) throw new Error('An item cannot be moved before itself.');
+        const before = beforeItemId == null ? null : items.find(item => Number(item.id) === Number(beforeItemId));
+        if (beforeItemId != null && !before) throw new Error('Target checklist item not found.');
+        destination = listId ?? (before ? rowListId(before) : rowListId(items[index]));
+        if (before && rowListId(before) !== destination) throw new Error('beforeItemId must belong to the destination listId.');
         const [item] = items.splice(index, 1);
+        if (destination !== rowListId(item)) item.listId = destination;
         if (indentLevel !== undefined) item.indentLevel = indentLevel;
-        const target = beforeItemId == null ? items.length : items.findIndex(candidate => Number(candidate.id) === Number(beforeItemId));
-        items.splice(target < 0 ? items.length : target, 0, item);
+        const target = before ? items.findIndex(candidate => Number(candidate.id) === Number(before.id)) : items.findLastIndex(candidate => rowListId(candidate) === destination) + 1;
+        items.splice(target, 0, item);
       }
     }
-    return toolResult(await client.updateNote(noteId, { checkBoxes: items, isCbox: true }));
+    const changes = { checkBoxes: items, isCbox: true };
+    if (destination && !lists.has(destination)) {
+      // Anchor legacy lists before the new list so their existing text/list order
+      // does not change when the first explicit block is appended.
+      changes.noteBody = (note.noteBody || '') + [...lists, destination].filter(id => !anchors.has(id)).map(checklistAnchor).join('');
+    }
+    return toolResult(await client.updateNote(noteId, changes));
   }));
 
   server.registerTool('kept_add_image', {

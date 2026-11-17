@@ -107,16 +107,52 @@ Agents can archive, trash, and restore owned notes by default after External Acc
 
 | Area | Tools and capabilities |
 | --- | --- |
-| Notes | Search, read, create, and update text or rich-text notes |
-| Checklists | Create lists; add, edit, complete, indent, reorder, and remove items |
+| Notes | Search, read, create, and update text or rich-text notes, including highlights and inline images |
+| Checklists | Create multiple lists with text between them; add, edit, complete, indent, reorder, move between lists, and remove items |
 | Drawings and images | Create drawing notes and add, replace, or read note images |
-| Organization | Resolve labels, assign labels and binders, change appearance, and pin notes |
+| Organization | Resolve labels, assign labels and binders, discover colours/backgrounds/patterns, change appearance, and pin notes |
 | Lifecycle | Archive, trash, restore, and optionally permanently delete owned notes |
 | Reminders | List, create, update, dismiss, and delete time, recurring, or location reminders |
 | Sharing | Search users and replace collaborators on owned notes |
 | Attachments | Upload, read, and delete supported attachments |
 
-Collaborators can edit shared note content and manage their own pin state. Owner-only operations such as changing labels, binders, appearance, lifecycle state, collaborators, deleting attachments, or permanently deleting the note are rejected when the connected user is not the owner.
+Collaborators can edit shared note content, colours, backgrounds and patterns, and manage their own pin state. Owner-only operations such as changing labels, binders, lifecycle state, collaborators, deleting attachments, or permanently deleting the note are rejected when the connected user is not the owner.
+
+## Appearance and rich content
+
+Call **`kept_get_appearance_options`** to list the same colours and illustrated backgrounds offered in the app, plus all repeating pattern IDs. Pass the returned `color`, `backgroundImage` or `pattern` values to **`kept_create_note`** or **`kept_update_note`**. An empty `color` uses the theme's default background. `pattern: null` clears a pattern; `backgroundImage: ""` clears an illustration.
+
+A pattern combines with the note colour and clears an existing illustration. Selecting an illustration clears the pattern. Sending both a non-empty illustration and a pattern in one call is rejected.
+
+For highlights, use `format: "html"` and `<mark class="hl">important text</mark>` in the body or a checklist item's text. The app chooses a readable highlight colour from the note colour and theme. HTML uses the same sanitization policy as ordinary notes: supported formatting, inline images and checklist position markers survive, while executable markup is removed.
+
+## Multiple checklists and text placement
+
+The existing `body` and `checklist` inputs still create a simple note. To place text before, between or after several checklists, use **`contentBlocks`** instead:
+
+```json
+{
+  "title": "Weekend picnic",
+  "color": "#fff8b8",
+  "pattern": "lemons",
+  "contentBlocks": [
+    { "type": "text", "text": "<p>Meet <mark class=\"hl\">Saturday</mark>.</p>", "format": "html" },
+    { "type": "checklist", "id": "packing", "items": [
+      { "text": "Blanket" },
+      { "text": "Cups", "indentLevel": 1 }
+    ] },
+    { "type": "text", "text": "Before we leave:" },
+    { "type": "checklist", "id": "errands", "items": [
+      { "text": "Buy lemons" }
+    ] },
+    { "type": "text", "text": "See you there!" }
+  ]
+}
+```
+
+`contentBlocks` replaces the whole body and all checklist rows, so read the note first when editing and retain its existing content and IDs. Checklist block IDs use letters, numbers, underscores or hyphens (up to 80 characters); they correspond to `checkBoxes[].listId`. Legacy rows without a `listId` belong to `default`. Existing row IDs can be supplied as `items[].id`; omitted row IDs are generated. Blocks support up to 100 blocks, 500 rows and 500,000 characters in total. Do not combine `contentBlocks` with `body` or `checklist`. An empty array explicitly clears the body and all lists, while unrelated fields such as images, reminders and appearance remain unchanged.
+
+For a small row edit, use **`kept_manage_checklist`** instead of replacing content. `listId` selects the destination for `add` or `move`. Adding without it is allowed when the note has only one list; multiple lists require an explicit target. A new destination ID appends a list after the body. `beforeItemId` places a moved row before another row in that destination list; without it, the row goes to the end of its list. These operations preserve surrounding text and the other lists.
 
 ## Security considerations
 

@@ -1,0 +1,317 @@
+{
+  "colors": {
+    "_": "",
+    "aqua": "#cbf0f8",
+    "apricot": "#fddcbb",
+    "blush": "#fdcfe8",
+    "cream": "#fff8b8",
+    "lavender": "#d7aefb",
+    "lemon": "#fef7cc",
+    "lilac": "#e8d7ff",
+    "mint": "#ccff90",
+    "peach": "#ffd8b5",
+    "rose": "#f8c7c0",
+    "sage": "#e6f4d7",
+    "sky": "#d2e3fc",
+    "creamsicle": "#ffb74d",
+    "cornflower": "#abc4ff",
+    "flamingo": "#ffc2d1",
+    "red": "#5b2121",
+    "orange": "#5b3a21",
+    "yellow": "#4a4a1a",
+    "green": "#1a4a1a",
+    "teal": "#1a4a4a",
+    "blue": "#1a2e4a",
+    "darkblue": "#0f172a",
+    "purple": "#2e1a4a",
+    "pink": "#4a1a2e",
+    "brown": "#3a211a",
+    "gray": "#334155",
+    "mist": "#e2e8ed",
+    "sand": "#efe5d0",
+    "stone": "#e5e3dd",
+    "butter": "#f4ebc4",
+    "citron": "#e4f571",
+    "sunflower": "#ffdf4d",
+    "pistachio": "#e0f4ad",
+    "eucalyptus": "#d6e1c5",
+    "olive": "#cfd8ae",
+    "seafoam": "#bcefdc",
+    "ice": "#b4e6eb",
+    "seaglass": "#c8e0dd",
+    "jade": "#6ce6b5",
+    "turquoise": "#60dfd0",
+    "fog": "#c1d1e1",
+    "azure": "#80d3f9",
+    "heather": "#d8d1e4",
+    "periwinkle": "#c9c5f5",
+    "violet": "#b6a0ff",
+    "petal": "#f3d7df",
+    "orchid": "#edc9e4",
+    "magenta": "#e9a2ef",
+    "bubblegum": "#ff9bd1",
+    "coral": "#ffc2b0",
+    "salmon": "#ff9f8e",
+    "watermelon": "#ff8787",
+    "honey": "#ffe1a0",
+    "clay": "#ecc8b0"
+  },
+  "families": [
+    {
+      "key": "neutral",
+      "label": "colors.neutral",
+      "colors": [
+        "_",
+        "mist",
+        "sand",
+        "stone",
+        "gray",
+        "darkblue"
+      ],
+      "name": "Neutral"
+    },
+    {
+      "key": "yellow",
+      "label": "colors.yellow",
+      "colors": [
+        "lemon",
+        "cream",
+        "butter",
+        "citron",
+        "sunflower",
+        "yellow"
+      ],
+      "name": "Yellow"
+    },
+    {
+      "key": "green",
+      "label": "colors.green",
+      "colors": [
+        "sage",
+        "pistachio",
+        "mint",
+        "eucalyptus",
+        "olive",
+        "green"
+      ],
+      "name": "Green"
+    },
+    {
+      "key": "teal",
+      "label": "colors.teal",
+      "colors": [
+        "seafoam",
+        "ice",
+        "seaglass",
+        "jade",
+        "turquoise",
+        "teal"
+      ],
+      "name": "Teal"
+    },
+    {
+      "key": "blue",
+      "label": "colors.blue",
+      "colors": [
+        "aqua",
+        "sky",
+        "fog",
+        "cornflower",
+        "azure",
+        "blue"
+      ],
+      "name": "Blue"
+    },
+    {
+      "key": "purple",
+      "label": "colors.purple",
+      "colors": [
+        "lilac",
+        "heather",
+        "periwinkle",
+        "lavender",
+        "violet",
+        "purple"
+      ],
+      "name": "Purple"
+    },
+    {
+      "key": "pink",
+      "label": "colors.pink",
+      "colors": [
+        "petal",
+        "blush",
+        "orchid",
+        "magenta",
+        "bubblegum",
+        "pink"
+      ],
+      "name": "Pink"
+    },
+    {
+      "key": "red",
+      "label": "colors.red",
+      "colors": [
+        "flamingo",
+        "rose",
+        "coral",
+        "salmon",
+        "watermelon",
+        "red"
+      ],
+      "name": "Red"
+    },
+    {
+      "key": "orange",
+      "label": "colors.orange",
+      "colors": [
+        "honey",
+        "apricot",
+        "clay",
+        "creamsicle",
+        "orange",
+        "brown"
+      ],
+      "name": "Orange"
+    }
+  ],
+  "backgrounds": {
+    "zNone": "",
+    "groceries": "/assets/images/backgrounds/groceries.svg",
+    "tasks": "/assets/images/backgrounds/tasks.svg",
+    "movies": "/assets/images/backgrounds/movies.svg",
+    "cafes": "/assets/images/backgrounds/cafes.svg",
+    "romantic": "/assets/images/backgrounds/romantic.svg",
+    "gym": "/assets/images/backgrounds/gym.svg",
+    "recipes": "/assets/images/backgrounds/recipes.svg",
+    "travel": "/assets/images/backgrounds/travel.svg",
+    "study": "/assets/images/backgrounds/study.svg",
+    "ideas": "/assets/images/backgrounds/ideas.svg",
+    "meetings": "/assets/images/backgrounds/meetings.svg",
+    "budget": "/assets/images/backgrounds/budget.svg"
+  },
+  "backgroundChoices": [
+    {
+      "key": "zNone",
+      "label": "common.none",
+      "name": "None"
+    },
+    {
+      "key": "budget",
+      "label": "backgrounds.budget",
+      "name": "Budget"
+    },
+    {
+      "key": "cafes",
+      "label": "backgrounds.cafes",
+      "name": "Cafes"
+    },
+    {
+      "key": "groceries",
+      "label": "backgrounds.groceries",
+      "name": "Groceries"
+    },
+    {
+      "key": "gym",
+      "label": "backgrounds.gym",
+      "name": "Gym"
+    },
+    {
+      "key": "ideas",
+      "label": "backgrounds.ideas",
+      "name": "Ideas"
+    },
+    {
+      "key": "meetings",
+      "label": "backgrounds.meetings",
+      "name": "Meetings"
+    },
+    {
+      "key": "movies",
+      "label": "backgrounds.movies",
+      "name": "Movies"
+    },
+    {
+      "key": "recipes",
+      "label": "backgrounds.recipes",
+      "name": "Recipes"
+    },
+    {
+      "key": "romantic",
+      "label": "backgrounds.love",
+      "name": "Love"
+    },
+    {
+      "key": "study",
+      "label": "backgrounds.study",
+      "name": "Study"
+    },
+    {
+      "key": "tasks",
+      "label": "backgrounds.errands",
+      "name": "Errands"
+    },
+    {
+      "key": "travel",
+      "label": "backgrounds.travel",
+      "name": "Travel"
+    }
+  ],
+  "colorNames": {
+    "_": "Default",
+    "aqua": "Aqua",
+    "apricot": "Apricot",
+    "blush": "Blush",
+    "cream": "Cream",
+    "lavender": "Lavender",
+    "lemon": "Lemon",
+    "lilac": "Lilac",
+    "mint": "Mint",
+    "peach": "Peach",
+    "rose": "Rose",
+    "sage": "Sage",
+    "sky": "Sky",
+    "creamsicle": "Creamsicle",
+    "cornflower": "Cornflower",
+    "flamingo": "Flamingo",
+    "red": "Red",
+    "orange": "Orange",
+    "yellow": "Yellow",
+    "green": "Green",
+    "teal": "Teal",
+    "blue": "Blue",
+    "darkblue": "Darkblue",
+    "purple": "Purple",
+    "pink": "Pink",
+    "brown": "Brown",
+    "gray": "Gray",
+    "mist": "Mist",
+    "sand": "Sand",
+    "stone": "Stone",
+    "butter": "Butter",
+    "citron": "Citron",
+    "sunflower": "Sunflower",
+    "pistachio": "Pistachio",
+    "eucalyptus": "Eucalyptus",
+    "olive": "Olive",
+    "seafoam": "Seafoam",
+    "ice": "Ice",
+    "seaglass": "Seaglass",
+    "jade": "Jade",
+    "turquoise": "Turquoise",
+    "fog": "Fog",
+    "azure": "Azure",
+    "heather": "Heather",
+    "periwinkle": "Periwinkle",
+    "violet": "Violet",
+    "petal": "Petal",
+    "orchid": "Orchid",
+    "magenta": "Magenta",
+    "bubblegum": "Bubblegum",
+    "coral": "Coral",
+    "salmon": "Salmon",
+    "watermelon": "Watermelon",
+    "honey": "Honey",
+    "clay": "Clay"
+  }
+}

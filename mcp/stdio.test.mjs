@@ -23,8 +23,10 @@ test('stdio entrypoint completes an MCP handshake', async () => {
   await client.connect(transport);
   try {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 23);
+    assert.equal(tools.length, 24);
     assert(tools.some((tool) => tool.name === 'kept_create_note'));
+    const options = await client.callTool({ name: 'kept_get_appearance_options', arguments: {} });
+    assert.equal(options.structuredContent.result.patterns.length, 27);
   } finally {
     await client.close();
   }

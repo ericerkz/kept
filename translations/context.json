@@ -168,31 +168,31 @@
       "src/app/services/auth-expired.interceptor.ts"
     ],
     "backgrounds.budget": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "backgrounds.cafes": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "backgrounds.errands": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "backgrounds.groceries": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "backgrounds.gym": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "backgrounds.ideas": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "backgrounds.love": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "backgrounds.meetings": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "backgrounds.movies": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "backgrounds.options": [
       "src/app/components/input/input.component.html",
@@ -200,13 +200,13 @@
       "src/app/components/notes/notes.component.html"
     ],
     "backgrounds.recipes": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "backgrounds.study": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "backgrounds.travel": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "binder_sharing.delete_confirm": [
       "src/app/components/sidenav/sidenav.component.ts"
@@ -300,37 +300,37 @@
       "src/app/components/input/input.component.ts"
     ],
     "colors.blue": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "colors.default": [
       "src/app/components/note-appearance-picker/note-appearance-picker.component.html"
     ],
     "colors.green": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "colors.neutral": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "colors.orange": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "colors.pink": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "colors.purple": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "colors.red": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "colors.shade": [
       "src/app/components/note-appearance-picker/note-appearance-picker.component.html"
     ],
     "colors.teal": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "colors.yellow": [
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "common.add": [
       "src/app/components/main/main.component.html"
@@ -444,7 +444,7 @@
     ],
     "common.none": [
       "src/app/components/input/input.component.html",
-      "src/app/interfaces/tooltip.ts"
+      "shared/note-palette.json"
     ],
     "common.notes": [
       "src/app/components/sidenav/sidenav.component.html"

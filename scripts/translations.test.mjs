@@ -114,6 +114,7 @@ test('web messages have production references, with no orphaned entries or extra
   assert.deepEqual(Object.keys(context).sort(),Object.keys(source).sort());
   const files=fs.readdirSync('src/app',{recursive:true})
     .filter(file=>/\.(html|ts)$/.test(file)&&!/(?:\.test|\.spec)\.ts$/.test(file)).map(file=>`src/app/${file}`);
+  files.push('shared/note-palette.json');
   const texts=new Map(files.map(file=>[file,fs.readFileSync(file,'utf8')]));
   const literals=new Map();
   for(const [file,text] of texts)if(file.endsWith('.ts')) {
