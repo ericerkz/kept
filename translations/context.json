@@ -980,6 +980,9 @@
     "input.show_checkboxes": [
       "src/app/components/input/input.component.ts"
     ],
+    "input.sort_a_to_z": [
+      "src/app/components/input/input.component.html"
+    ],
     "input.square": [
       "src/app/components/input/input.component.html"
     ],

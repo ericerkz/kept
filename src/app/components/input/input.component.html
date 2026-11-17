@@ -907,6 +907,9 @@
   <div (click)="moreMenu(moreMenuTt).toggleCbox()">
     {{(moreMenuEls.checkbox.value) | uiText}}
   </div>
+  @if (canSortCboxItems()) {
+    <div (click)="sortCboxItems(moreMenuTt)">{{ 'input.sort_a_to_z' | translate }}</div>
+  }
   @if (hasCheckedCboxItems()) {
     <div (click)="uncheckAllCboxItems(moreMenuTt)">{{ 'input.uncheck_all_items' | translate }}</div>
   }
