@@ -28,6 +28,7 @@ import { NoteLockService } from 'src/app/services/note-lock.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
 import { MAX_INDENT_LEVEL, descendantIndexes, maxIndentLevelAt, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
+import { sortChecklistItems } from 'src/app/utils/checklist-sort';
 import { environment } from 'src/environments/environment';
 import { createUuid } from 'src/app/utils/uuid';
 import type { LocationPin } from '../location-map-picker/location-map-picker.component';
@@ -1181,6 +1182,36 @@ export class InputComponent implements OnInit {
     this.cd.detectChanges()
     this.queueAutosave()
     if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
+  }
+
+  canSortCboxItems() {
+    if (!this.isCbox.value) return false
+    const lists = new Set<string>()
+    for (const cb of this.checkBoxes) {
+      const id = checklistId(cb)
+      if (lists.has(id)) return true
+      lists.add(id)
+    }
+    return false
+  }
+
+  sortCboxItems(tooltipEl?: HTMLDivElement) {
+    this.syncCboxDomIntoModel()
+    if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
+    const sorted = sortChecklistItems(this.checkBoxes, {
+      text: cb => this.notePlainText(String(cb.data || '')),
+      separateCompleted: this.preferences.value.moveCompletedChecklistItemsToBottom,
+      locale: uiLocale()
+    })
+    if (sorted.every((cb, index) => cb === this.checkBoxes[index])) return
+
+    // Snapshot the current rows first so Undo restores any text typed since the last change.
+    this.pushCboxHistorySnapshot()
+    this.checkBoxes = normalizeIndentLevels(sorted)
+    this.noteToEdit.checkBoxes = this.checkBoxes
+    this.pushCboxHistorySnapshot()
+    this.cd.detectChanges()
+    this.queueAutosave()
   }
 
   deleteAllCompletedCboxItems(tooltipEl?: HTMLDivElement, listId?: string) {

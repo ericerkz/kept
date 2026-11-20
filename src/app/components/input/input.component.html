@@ -994,6 +994,9 @@
   <div [hidden]="moreMenuEls.copy.disabled" (click)="moreMenu(moreMenuTt).clone()">
     {{ 'notes.make_a_copy' | translate }}
   </div>
+  @if (canSortCboxItems()) {
+    <div (click)="sortCboxItems(moreMenuTt)">{{ 'input.sort_a_to_z' | translate }}</div>
+  }
   @if (hasCheckedCboxItems()) {
     <div (click)="uncheckAllCboxItems(moreMenuTt)">{{ 'input.uncheck_all_items' | translate }}</div>
   }

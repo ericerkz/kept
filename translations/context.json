@@ -1021,6 +1021,9 @@
     "input.show_creation_date": [
       "src/app/components/input/input.component.html"
     ],
+    "input.sort_a_to_z": [
+      "src/app/components/input/input.component.html"
+    ],
     "input.square": [
       "src/app/components/input/input.component.html"
     ],
