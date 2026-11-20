@@ -1,5 +1,6 @@
 import createDOMPurify from 'dompurify';
 import policy from '../../../shared/note-html-policy.json';
+import languages from '../../../shared/code-languages.json';
 
 // Use a private instance: editor helpers must sanitize BEFORE parsing in the
 // live document, including content restored from pre-patch offline caches.
@@ -25,6 +26,11 @@ export function hasJoinedNoteUrls(value: string): boolean {
 }
 
 purifier.addHook('uponSanitizeAttribute', (_node, data) => {
+  if (policy.codeAttributes.includes(data.attrName)) {
+    data.keepAttr = _node.nodeName === 'PRE' && (data.attrName === 'data-code-source'
+      ? ['auto', 'user'].includes(data.attrValue)
+      : data.attrValue === 'auto' || languages.some(language => language.id === data.attrValue));
+  }
   if (data.attrName === 'href' || data.attrName === 'src') {
     data.attrValue = safeNoteUrl(data.attrValue, data.attrName === 'src');
     if (!data.attrValue) data.keepAttr = false;
@@ -46,10 +52,10 @@ purifier.addHook('afterSanitizeAttributes', node => {
 export function sanitizeNoteHtml(value: unknown): string {
   return purifier.sanitize(String(value ?? ''), {
     ALLOWED_TAGS: [...policy.tags, 'button'],
-    ALLOWED_ATTR: [...policy.attributes, ...policy.editorAttributes],
+    ALLOWED_ATTR: [...policy.attributes, ...policy.editorAttributes, ...policy.codeAttributes],
     ALLOW_DATA_ATTR: false,
     ALLOW_ARIA_ATTR: false,
-    ADD_URI_SAFE_ATTR: policy.editorAttributes,
+    ADD_URI_SAFE_ATTR: [...policy.editorAttributes, ...policy.codeAttributes],
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|kept|blob):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
     ADD_DATA_URI_TAGS: ['img']
   });

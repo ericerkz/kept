@@ -23,7 +23,7 @@ export class BindersService {
   readonly items$ = new BehaviorSubject<CatalogItem[]>([]);
   readonly sharedItems$ = new BehaviorSubject<CatalogItem[]>([]);
   constructor(private store: OfflineStoreService, public sync: OfflineSyncService,private auth: AuthService, private http: HttpClient) {
-    this.sync.cacheChanged$.subscribe(() => this.load().catch(console.error));
+    this.sync.cacheChanged$.subscribe(change => { if (!change?.positionsOnly) this.load().catch(console.error); });
   }
   async load() {
     const revision = ++this.loadRevision;

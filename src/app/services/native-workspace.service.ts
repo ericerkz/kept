@@ -53,21 +53,33 @@ export class NativeWorkspaceService {
   private tail = Promise.resolve();
   private reminderTail = Promise.resolve();
   private revisionPublished = '';
+  private cacheFlushTimer?: ReturnType<typeof setTimeout>;
   private thumbnailCache = new Map<string, Promise<string | undefined>>();
   readonly plugin = Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('KeptWorkspace')
     ? registerPlugin<KeptWorkspacePlugin>('KeptWorkspace') : null;
 
   constructor(private auth: AuthService, private sync: OfflineSyncService, private store: OfflineStoreService, private zone: NgZone) {
     this.ready = this.initialize();
-    const resume = () => { if (document.visibilityState === 'visible') void this.flush().catch(error => this.report(error)); };
+    const resume = () => { if (document.visibilityState === 'visible' || this.cacheFlushTimer !== undefined) void this.flush().catch(error => this.report(error)); };
     document.addEventListener('visibilitychange', resume);
     window.addEventListener('focus', resume);
     if (Capacitor.isNativePlatform()) {
       const app = registerPlugin<{ addListener(name: string, callback: () => void): Promise<unknown> }>('App');
       void app.addListener('resume', () => void this.flush().catch(error => this.report(error))).catch(() => undefined);
+      void app.addListener('pause', () => { if (this.cacheFlushTimer !== undefined) void this.flush().catch(error => this.report(error)); }).catch(() => undefined);
     }
     this.auth.accessChanges$.subscribe(() => { this.revisionPublished = ''; this.locationPermissionRequired$.next(false); void this.flush().catch(error => this.report(error)); });
-    this.sync.cacheChanged$.subscribe(() => { void this.flush().catch(error => this.report(error)); });
+    this.sync.cacheChanged$.subscribe(() => {
+      if (!this.plugin) return;
+      if (this.cacheFlushTimer !== undefined) return;
+      // Commit, acknowledgement and incoming changes often arrive together.
+      // Publish the latest complete snapshot once, without changing the native
+      // contract. Lifecycle/manual flushes bypass this short collection window.
+      this.cacheFlushTimer = setTimeout(() => {
+        this.cacheFlushTimer = undefined;
+        void this.flush().catch(error => this.report(error));
+      },100);
+    });
   }
 
   private async initialize() {
@@ -86,6 +98,7 @@ export class NativeWorkspaceService {
   private flushOperation?: Promise<void>;
   private flushAgain = false;
   flush() {
+    if (this.cacheFlushTimer !== undefined) { clearTimeout(this.cacheFlushTimer); this.cacheFlushTimer = undefined; }
     if (this.flushOperation) {this.flushAgain = true;return this.flushOperation;}
     const operation = this.tail.then(async () => {
       do {this.flushAgain = false;await this.flushOnce();} while (this.flushAgain);
@@ -161,7 +174,7 @@ export class NativeWorkspaceService {
     if (blobs.length && action.kind !== 'note.upsert') throw new Error('Files must accompany a note capture.');
     const payload = { ...action.payload } as any;
     if (action.kind.startsWith('note.') || action.kind === 'checklist.set') {
-      const previous = (await this.store.listNotes(workspace.partition)).find(note => note.syncId === action.targetSyncId);
+      const previous = await this.store.getNoteBySyncId(workspace.partition,action.targetSyncId);
       if (previous?.locked) throw new Error('Unlock the note in Kept before applying a queued structural edit.');
       if (action.kind === 'note.delete') {
         if (!previous) { await this.sync.commit('note.delete', action.targetSyncId, {}, { action }); return; }
@@ -194,7 +207,7 @@ export class NativeWorkspaceService {
     const reminder = (await this.store.listReminders(workspace.partition)).find(item => item.syncId === action.targetSyncId);
     if (!reminder) {
       if (action.kind !== 'reminder.upsert') throw new Error('The reminder is no longer available.');
-      const note = (await this.store.listNotes(workspace.partition)).find(note=>note.syncId === payload.noteSyncId);
+      const note = await this.store.getNoteBySyncId(workspace.partition,payload.noteSyncId);
       if (!note || note.locked) throw new Error('The queued reminder does not have an available unlocked note.');
       if (!payload.dueAtUtc && !payload.locationName) throw new Error('A queued reminder needs a date or location.');
       if (payload.dueAtUtc && !Number.isFinite(Date.parse(payload.dueAtUtc))) throw new Error('The queued reminder date is invalid.');
@@ -242,6 +255,8 @@ export class NativeWorkspaceService {
     try {
       const currentMeta = await this.store.getWorkspace(workspace.id);
       if (!currentMeta || currentMeta.generation !== workspace.generation || currentMeta.status !== 'active') return;
+      if (this.sync.partition !== currentMeta.partition || this.sync.generation !== currentMeta.generation) return;
+      if (`${currentMeta.id}:${currentMeta.generation}:${currentMeta.revision}` === this.revisionPublished) return;
       const projection = await this.store.nativeProjection(workspace);
       current = projection.workspace;
       const key = `${current.id}:${current.generation}:${current.revision}`;

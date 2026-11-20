@@ -83,6 +83,12 @@ export class NotesService {
   private visibleWorkspace = '';
   private iosReminderRefreshTimer?: ReturnType<typeof setTimeout>;
   private localReminderRefreshQueue: Promise<void> = Promise.resolve();
+  private cachedNotesPublish?: Promise<void>;
+  private cachedNotesPublishVersion = 0;
+  private cachedLibraryIdentity = '';
+  private pendingCachedNoteIds = new Set<string>();
+  private pendingCachedFullRead = false;
+  private pendingCachedContentIds = new Set<string>();
 
   constructor(
     private http: HttpClient,
@@ -92,8 +98,8 @@ export class NotesService {
     private offlineSync: OfflineSyncService,
     private preferences: UserPreferencesService
   ) {
-    this.offlineSync.cacheChanged$.subscribe(() => {
-      this.publishCachedNotes(this.searchQuery).catch(console.error);
+    this.offlineSync.cacheChanged$.subscribe(change => {
+      this.publishCachedNotes(this.searchQuery, change || undefined).catch(console.error);
     });
     this.authSubscription = this.auth.accessChanges$.subscribe(user => {
       const identity = `${this.offlineSync.partition}:${this.offlineSync.generation || ''}`;
@@ -295,8 +301,9 @@ export class NotesService {
           }
           if (this.shouldSuppressRealtimeCreate(message)) return;
           if (this.consumeSuppressedRealtimeReload(message.noteId)) return;
-          this.load();
-          this.reminders.load().catch(console.error);
+          if (this.offlineSync.writesLocally) void this.offlineSync.syncNow().catch(console.error);
+          else this.load();
+          if (message.action !== 'reordered') this.reminders.load().catch(console.error);
         }
         if (message.type === 'reminder-fired') this.reminders.handleFired(message);
         if (message.type === 'presence-update') this.activeEditors$.next({ noteId: message.noteId, editors: message.activeEditors || [] });
@@ -675,7 +682,7 @@ export class NotesService {
     if (!note?.syncId) throw new Error('This shared note is unavailable.');
     if (this.offlineSync.writesLocally) {
       await this.offlineSync.commit('note.binder',note.syncId,target);
-      await this.load();return;
+      await this.publishCachedNotes(this.searchQuery,{noteSyncIds:[note.syncId]});return;
     }
     if (!navigator.onLine || id<0) {
       if (this.offlineSync.partition) await this.offlineStore.putNote(this.offlineSync.partition,applyBinderMembership(note,target));
@@ -701,7 +708,7 @@ export class NotesService {
     if (!note.syncId || !note.id) throw new Error('This shared note is unavailable.');
     if (this.offlineSync.writesLocally) {
       await this.offlineSync.commit('note.organization', note.syncId, patch);
-      await this.load();
+      await this.publishCachedNotes(this.searchQuery,{noteSyncIds:[note.syncId]});
       return;
     }
     const local = applyPersonalOrganization(note, patch);
@@ -742,12 +749,17 @@ export class NotesService {
     return error.status === 0 || error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500;
   }
 
-  async reorder(ids: number[]) {
+  async reorder(ids: number[], movedId?: number) {
     if (this.offlineSync.writesLocally) {
-      const notes = await this.offlineStore.listNotes(this.offlineSync.partition);
-      const syncIds = ids.map(id => notes.find(note => note.id === id)?.syncId).filter(Boolean);
-      await this.offlineSync.commit('note.reorder', 'note-order', { syncIds });
-      await this.load(); return;
+      const byId = new Map((this.notesList$.value || []).map(note => [note.id,note.syncId]));
+      await Promise.all(ids.filter(id => !byId.get(id)).map(async id => {
+        const note = await this.offlineStore.getNote(this.offlineSync.partition,id);
+        if (note) byId.set(id,note.syncId);
+      }));
+      const syncIds = ids.map(id => byId.get(id)).filter((id): id is string => !!id);
+      await this.offlineSync.commit('note.reorder', 'note-order', { syncIds, ...(movedId && byId.get(movedId) ? {movedSyncId:byId.get(movedId)} : {}) });
+      // commit emits the cache change once; do not restart its in-flight read.
+      return;
     }
     if (!ids.length) return;
     try {
@@ -1417,18 +1429,81 @@ export class NotesService {
     }
   }
 
-  private async publishCachedNotes(searchQuery: string) {
-    if (!this.offlineSync.partition) return;
-    const partition = this.offlineSync.partition;
-    const generation = this.offlineSync.generation;
-    const cached = await this.offlineStore.listNotes(partition);
-    if (partition !== this.offlineSync.partition || generation !== this.offlineSync.generation) return;
-    const hydrated = await Promise.all(cached.map(note => this.hydrateOfflineNoteMedia(note)));
-    if (partition !== this.offlineSync.partition || generation !== this.offlineSync.generation) return;
-    hydrated.sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.sortOrder || 0) - Number(a.sortOrder || 0));
-    this.nextCursor = null;
-    this.hasLoaded = true;
-    this.publishNotes(this.withOptimisticNotes(hydrated));
+  private async publishCachedNotes(_searchQuery: string, change?: {noteSyncIds:string[];positionsOnly?:boolean}) {
+    this.pendingCachedNoteIds ||= new Set<string>();
+    this.pendingCachedContentIds ||= new Set<string>();
+    if (change) for (const id of change.noteSyncIds) {
+      this.pendingCachedNoteIds.add(id);
+      if (!change.positionsOnly) this.pendingCachedContentIds.add(id);
+    }
+    else this.pendingCachedFullRead = true;
+    this.cachedNotesPublishVersion++;
+    if (this.cachedNotesPublish) return this.cachedNotesPublish;
+    // Merge notifications while a read is in flight. Targeted changes preserve
+    // unchanged hydrated notes; unknown changes still request a complete read.
+    let version = this.cachedNotesPublishVersion;
+    this.cachedNotesPublish = (async () => {
+      do {
+        version = this.cachedNotesPublishVersion;
+        const partition = this.offlineSync.partition;
+        if (!partition) return;
+        // On a cached launch the notes can be ready before the workspace's
+        // generation. Resolve that identity before labelling the cached view.
+        if (!this.offlineSync.generation && this.offlineSync.writesLocally) await this.offlineSync.workspace();
+        if (partition !== this.offlineSync.partition) {
+          this.pendingCachedFullRead = true;
+          this.cachedNotesPublishVersion++;
+          continue;
+        }
+        const generation = this.offlineSync.generation;
+        const identity = `${partition}:${generation || ''}`;
+        const fullRead = this.pendingCachedFullRead || this.cachedLibraryIdentity !== identity ||
+          !this.offlineSync.writesLocally || !this.notesList$?.value;
+        const ids = [...this.pendingCachedNoteIds];
+        const contentIds = new Set(this.pendingCachedContentIds);
+        this.pendingCachedContentIds.clear();
+        this.pendingCachedFullRead = false;
+        this.pendingCachedNoteIds.clear();
+        const current = () => version === this.cachedNotesPublishVersion && partition === this.offlineSync.partition && generation === this.offlineSync.generation;
+        const retry = () => {
+          // Include superseded changes in the next read, even if no further
+          // notification follows a workspace generation becoming ready.
+          this.pendingCachedFullRead ||= fullRead;
+          for (const id of ids) this.pendingCachedNoteIds.add(id);
+          for (const id of contentIds) this.pendingCachedContentIds.add(id);
+          if (version === this.cachedNotesPublishVersion) this.cachedNotesPublishVersion++;
+        };
+        const cached = fullRead ? await this.offlineStore.listNotes(partition)
+          : ids.length ? await this.offlineStore.getNotesBySyncIds(partition,ids) : [];
+        if (!current()) { retry(); continue; }
+        const visible = new Map((this.notesList$?.value || []).map(note => [note.syncId,note]));
+        const hydrated = await Promise.all(cached.map(note => {
+          const previous = visible.get(note.syncId);
+          // A move cannot change text, media or card dimensions. Keep the
+          // rendered content and image URLs instead of hydrating them again.
+          if (!fullRead && !contentIds.has(note.syncId || '') && previous) return previous.sortOrder === note.sortOrder
+            ? previous : {...previous,sortOrder:note.sortOrder};
+          return this.hydrateOfflineNoteMedia(note);
+        }));
+        if (!current()) { retry(); continue; }
+        if (!fullRead && !ids.length) continue;
+        const changed = new Set(ids);
+        const updatedIds = new Set(hydrated.map(note => note.id));
+        const notes = fullRead ? hydrated : [
+          ...(this.notesList$.value || []).filter(note => !changed.has(note.syncId || '') && !updatedIds.has(note.id)), ...hydrated
+        ];
+        notes.sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.sortOrder || 0) - Number(a.sortOrder || 0));
+        this.nextCursor = null;
+        this.hasLoaded = true;
+        this.cachedLibraryIdentity = identity;
+        this.publishNotes(this.withOptimisticNotes(notes));
+      } while (version !== this.cachedNotesPublishVersion);
+    })().finally(() => {
+      this.cachedNotesPublish = undefined;
+      if (version !== this.cachedNotesPublishVersion) return this.publishCachedNotes(_searchQuery,{noteSyncIds:[],positionsOnly:true});
+      return undefined;
+    });
+    return this.cachedNotesPublish;
   }
 
   private async cachedOrLoadedNote(id: number) {
@@ -1444,15 +1519,9 @@ export class NotesService {
 
   private async persistLocalOrder(ids: number[]) {
     if (!this.offlineSync.partition) return;
-    const current = this.notesList$.value || [];
-    const byId = new Map(current.map(note => [note.id, note]));
     const base = Date.now();
-    for (let index = 0; index < ids.length; index += 1) {
-      const note = byId.get(ids[index]);
-      if (!note) continue;
-      const updated = { ...note, sortOrder: base + ids.length - index, updatedAt: new Date().toISOString() };
-      await this.offlineStore.putNote(this.offlineSync.partition, updated);
-    }
+    await this.offlineStore.putNotePositions(this.offlineSync.partition,
+      ids.map((id,index) => ({ id, sortOrder: base + ids.length - index })));
   }
 
   private async queueReorder(ids: number[]) {

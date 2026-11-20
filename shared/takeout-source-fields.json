@@ -1,0 +1,12 @@
+[
+  "title",
+  "color",
+  "textContent",
+  "textContentHtml",
+  "listContent",
+  "isPinned",
+  "isArchived",
+  "isTrashed",
+  "createdTimestampUsec",
+  "userEditedTimestampUsec"
+]

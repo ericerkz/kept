@@ -218,7 +218,7 @@
             <ng-container [ngTemplateOutlet]="checkboxesTemplate" [ngTemplateOutletContext]="{ listId: block.id }"></ng-container>
           </div>
           <div class="checklist-text-section" [hidden]="!block.showText">
-            <div #sectionBody [attr.data-body-after]="block.id" (input)="onNoteBodyInput(sectionBody)" (paste)="pasteEvent($event)"
+            <div #sectionBody [attr.data-body-after]="block.id" appCodeBlocks="editor" (codeEditStart)="beginCodeEdit()" (codeEdited)="finishCodeEdit(sectionBody)" (keydown)="codeShortcut($event)" (input)="onNoteBodyInput(sectionBody)" (paste)="pasteEvent($event)"
               (focus)="rememberTextHistoryTarget(sectionBody)" (click)="onNoteBodyClick($event)" (contextmenu)="downloadInlineImage($event)"
               class="note-body note-body-after" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off"
               autocorrect="off" autocapitalize="sentences" inputmode="text"></div>
@@ -259,20 +259,21 @@
   }
   @if (showSelectionFormatting && canFormatText()) {
     <div class="text-format-toolbar selection-format-toolbar" [ngStyle]="selectionFormattingStyle"
-      (mousedown)="$event.preventDefault()" (click)="$event.stopPropagation()">
-      <button type="button" (mousedown)="applyTextFormat('h1',$event)">H1</button>
-      <button type="button" (mousedown)="applyTextFormat('h2',$event)">H2</button>
-      <button type="button" class="body-format" (mousedown)="applyTextFormat('body',$event)">Aa</button>
+      (pointerdown)="$event.preventDefault()" (mousedown)="$event.preventDefault()" (click)="$event.stopPropagation()">
+      <button type="button" (click)="applyTextFormat('h1',$event)">H1</button>
+      <button type="button" (click)="applyTextFormat('h2',$event)">H2</button>
+      <button type="button" class="body-format" (click)="applyTextFormat('body',$event)">Aa</button>
+      <button type="button" class="code-format" (click)="insertCodeBlock($event)" [attr.title]="'code.block' | translate">{{ 'code.block' | translate }}</button>
       <span></span>
-      <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
-      <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
-      <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
+      <button type="button" class="bold" (click)="applyTextFormat('bold',$event)">B</button>
+      <button type="button" class="italic" (click)="applyTextFormat('italic',$event)">I</button>
+      <button type="button" class="underline" (click)="applyTextFormat('underline',$event)">U</button>
       <button type="button" class="highlight-format" [attr.aria-label]="'input.highlight_text' | translate" [attr.title]="'input.highlight_text' | translate"
-        [attr.aria-pressed]="selectionIsHighlighted()" (mousedown)="toggleTextHighlight($event)">
+        [attr.aria-pressed]="selectionIsHighlighted()" (click)="toggleTextHighlight($event)">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 16 9-12 6 5-9 12-6-5Z M3 21h7 M7 14l6 5"/></svg>
       </button>
       <button type="button" class="clear-format" [attr.aria-label]="'input.clear_formatting' | translate" [attr.title]="'input.clear_formatting' | translate"
-        (mousedown)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
+        (click)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
     </div>
   }
   <div #notePin data-pinned="false" [class.pinned]="notePin.dataset['pinned'] === 'true'" class="pin-icon H pop"
@@ -300,25 +301,26 @@
   @if (!isTrashed && !isDrawingNote) {
     <div class="icons-container">
       @if (showTextFormatting && canFormatText()) {
-        <div class="text-format-toolbar" (mousedown)="$event.preventDefault()" (click)="$event.stopPropagation()">
-          <button type="button" (mousedown)="applyTextFormat('h1',$event)">H1</button>
-          <button type="button" (mousedown)="applyTextFormat('h2',$event)">H2</button>
-          <button type="button" class="body-format" (mousedown)="applyTextFormat('body',$event)">Aa</button>
+        <div class="text-format-toolbar" (pointerdown)="$event.preventDefault()" (mousedown)="$event.preventDefault()" (click)="$event.stopPropagation()">
+          <button type="button" (click)="applyTextFormat('h1',$event)">H1</button>
+          <button type="button" (click)="applyTextFormat('h2',$event)">H2</button>
+          <button type="button" class="body-format" (click)="applyTextFormat('body',$event)">Aa</button>
+      <button type="button" class="code-format" (click)="insertCodeBlock($event)" [attr.title]="'code.block' | translate">{{ 'code.block' | translate }}</button>
           <span></span>
-          <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
-          <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
-          <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
+          <button type="button" class="bold" (click)="applyTextFormat('bold',$event)">B</button>
+          <button type="button" class="italic" (click)="applyTextFormat('italic',$event)">I</button>
+          <button type="button" class="underline" (click)="applyTextFormat('underline',$event)">U</button>
       <button type="button" class="highlight-format" [attr.aria-label]="'input.highlight_text' | translate" [attr.title]="'input.highlight_text' | translate"
-        [attr.aria-pressed]="selectionIsHighlighted()" (mousedown)="toggleTextHighlight($event)">
+        [attr.aria-pressed]="selectionIsHighlighted()" (click)="toggleTextHighlight($event)">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 16 9-12 6 5-9 12-6-5Z M3 21h7 M7 14l6 5"/></svg>
       </button>
           <button type="button" class="clear-format" [attr.aria-label]="'input.clear_formatting' | translate" [attr.title]="'input.clear_formatting' | translate"
-            (mousedown)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
+            (click)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
         </div>
       }
       <div class="icons">
         <button type="button" class="text-format-trigger H pop" [attr.data-pop]="'input.formatting_options' | translate"
-          [class.active]="showTextFormatting" [disabled]="!canFormatText()" (click)="toggleTextFormatting($event)">A</button>
+          [class.active]="showTextFormatting" [disabled]="!canFormatText()" (pointerdown)="$event.preventDefault()" (mousedown)="$event.preventDefault()" (click)="toggleTextFormatting($event)">A</button>
         <div class="alarm H pop" [attr.data-pop]="'accessibility.remind_me' | translate"
           [class.alarm-active]="!!getActiveReminder()"
           (click)="alarmIconTapped($event)">
@@ -358,20 +360,21 @@
     <!--? Mobile Bottom Bar -->
     <div class="mobile-bottom-bar">
       @if (showTextFormatting && canFormatText()) {
-        <div class="text-format-toolbar mobile-format-toolbar" (mousedown)="$event.preventDefault()" (click)="$event.stopPropagation()">
-          <button type="button" (mousedown)="applyTextFormat('h1',$event)">H1</button>
-          <button type="button" (mousedown)="applyTextFormat('h2',$event)">H2</button>
-          <button type="button" class="body-format" (mousedown)="applyTextFormat('body',$event)">Aa</button>
+        <div class="text-format-toolbar mobile-format-toolbar" (pointerdown)="$event.preventDefault()" (mousedown)="$event.preventDefault()" (click)="$event.stopPropagation()">
+          <button type="button" (click)="applyTextFormat('h1',$event)">H1</button>
+          <button type="button" (click)="applyTextFormat('h2',$event)">H2</button>
+          <button type="button" class="body-format" (click)="applyTextFormat('body',$event)">Aa</button>
+      <button type="button" class="code-format" (click)="insertCodeBlock($event)" [attr.title]="'code.block' | translate">{{ 'code.block' | translate }}</button>
           <span></span>
-          <button type="button" class="bold" (mousedown)="applyTextFormat('bold',$event)">B</button>
-          <button type="button" class="italic" (mousedown)="applyTextFormat('italic',$event)">I</button>
-          <button type="button" class="underline" (mousedown)="applyTextFormat('underline',$event)">U</button>
+          <button type="button" class="bold" (click)="applyTextFormat('bold',$event)">B</button>
+          <button type="button" class="italic" (click)="applyTextFormat('italic',$event)">I</button>
+          <button type="button" class="underline" (click)="applyTextFormat('underline',$event)">U</button>
       <button type="button" class="highlight-format" [attr.aria-label]="'input.highlight_text' | translate" [attr.title]="'input.highlight_text' | translate"
-        [attr.aria-pressed]="selectionIsHighlighted()" (mousedown)="toggleTextHighlight($event)">
+        [attr.aria-pressed]="selectionIsHighlighted()" (click)="toggleTextHighlight($event)">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 16 9-12 6 5-9 12-6-5Z M3 21h7 M7 14l6 5"/></svg>
       </button>
           <button type="button" class="clear-format" [attr.aria-label]="'input.clear_formatting' | translate" [attr.title]="'input.clear_formatting' | translate"
-            (mousedown)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
+            (click)="applyTextFormat('clear',$event)">{{ 'input.clear' | translate }}</button>
         </div>
       }
       <div class="left-icons">
@@ -385,7 +388,7 @@
           <div class="glyph attachment"></div>
         </div>
         <button type="button" class="mobile-icon format" [class.active]="showTextFormatting" [disabled]="!canFormatText()"
-          (click)="toggleTextFormatting($event)" [attr.title]="'input.formatting_options' | translate">A</button>
+          (pointerdown)="$event.preventDefault()" (mousedown)="$event.preventDefault()" (click)="toggleTextFormatting($event)" [attr.title]="'input.formatting_options' | translate">A</button>
         <div class="mobile-icon check checklist-action" role="button" tabindex="0"
           [attr.aria-label]="'input.insert_checklist' | translate"
           [attr.title]="'input.insert_checklist' | translate"
@@ -860,7 +863,7 @@
   @if (!isEditing && !isCbox.value) {
   <div [hidden]="noteBody.innerHTML.length" class="note-body ph">{{ 'input.take_a_note' | translate }}</div>
   }
-  <div #noteBody (input)="onNoteBodyInput(noteBody)" (paste)="pasteEvent($event)" (focus)="rememberTextHistoryTarget(noteBody)"
+  <div #noteBody appCodeBlocks="editor" (codeEditStart)="beginCodeEdit()" (codeEdited)="finishCodeEdit(noteBody)" (keydown)="codeShortcut($event)" (input)="onNoteBodyInput(noteBody)" (paste)="pasteEvent($event)" (focus)="rememberTextHistoryTarget(noteBody)"
     (click)="onNoteBodyClick($event)" (contextmenu)="downloadInlineImage($event)"
     class="note-body" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
   </div>

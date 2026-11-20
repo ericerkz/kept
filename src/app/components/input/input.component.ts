@@ -1,3 +1,5 @@
+import { cleanCodeBlocks, codeBlockHtml, codeText, pastedCodeCandidate } from '../../utils/code-blocks';
+import { CodeHighlightService } from '../../services/code-highlight.service';
 import { uiLocale, uiWeekdays, uiPlural, uiText, uiTimepickerLabels } from 'src/app/i18n/messages';
 import { MAX_FILE_BYTES, isNoteImageFile } from '../../utils/note-images';
 import { createNoteHtmlContainer, hasJoinedNoteUrls, sanitizeNoteHtml } from '../../utils/note-html';
@@ -59,7 +61,7 @@ export class InputComponent implements OnInit {
     return isNativePhonePlatform();
   }
 
-  constructor(private cd: ChangeDetectorRef, public Shared: SharedService, public auth: AuthService, private notesService: NotesService, private push: PushNotificationService, private reminderService: ReminderService, public keptPlugins: KeptPluginsService, private savedPlacesService: LocationSavedPlacesService, private zone: NgZone, private router: Router, public noteLock: NoteLockService, public preferences: UserPreferencesService, private hostElement: ElementRef<HTMLElement>) { }
+  constructor(private cd: ChangeDetectorRef, public Shared: SharedService, public auth: AuthService, private notesService: NotesService, private push: PushNotificationService, private reminderService: ReminderService, public keptPlugins: KeptPluginsService, private savedPlacesService: LocationSavedPlacesService, private zone: NgZone, private router: Router, public noteLock: NoteLockService, public preferences: UserPreferencesService, private hostElement: ElementRef<HTMLElement>, private codeHighlight: CodeHighlightService) { }
 
   @ViewChild("main") main!: ElementRef<HTMLDivElement>
   //? Placeholder  ----------------------------------------------------
@@ -120,8 +122,11 @@ export class InputComponent implements OnInit {
   showTextFormatting = false
   showSelectionFormatting = false
   selectionFormattingStyle: Record<string, string> = {}
+  private bodyEditVersion = 0
+  private codeEditBefore?: ChecklistModeSnapshot
   private textHistoryTarget?: HTMLElement
   private textSelectionFrame?: number
+  private textSelectionPointer?: number
   private readonly textSelectionChangeHandler = () => this.scheduleSelectionFormattingUpdate()
   private readonly textSelectionRepositionHandler = () => this.scheduleSelectionFormattingUpdate()
   private cboxHistory: CheckboxI[][] = []
@@ -435,6 +440,9 @@ export class InputComponent implements OnInit {
   }
 
   insertChecklist() {
+    if (document.activeElement?.matches('.kept-code-input')) return
+    const selected = window.getSelection()?.anchorNode
+    if ((selected?.nodeType === 1 ? selected as Element : selected?.parentElement)?.closest('pre, code')) return
     const focused = this.textHistoryTarget?.closest<HTMLElement>('[data-checklist-id]')
     if (focused?.isConnected && this.noteContainer.nativeElement.contains(focused) && !this.bodyContaining(this.lastBodyRange?.commonAncestorContainer)) {
       this.activeChecklistId = focused.dataset['checklistId'] || DEFAULT_CHECKLIST_ID
@@ -805,13 +813,14 @@ export class InputComponent implements OnInit {
 
   private currentCheckBoxesForSave(updateModel: boolean) {
     const next = this.normalizeCheckBoxes(this.checkBoxes)
+    const byId = new Map(next.map(cb => [cb.id, cb]))
     const allCboxElements = this.noteContainer.nativeElement.querySelectorAll('[data-cbox-id]')
     allCboxElements.forEach((el: Element) => {
       const cboxEl = el as HTMLDivElement
       const idAttr = cboxEl.getAttribute('data-cbox-id')
       if (!idAttr) return
       const id = Number(idAttr)
-      const cb = next.find(c => c.id === id)
+      const cb = byId.get(id)
       if (cb) cb.data = cboxEl.innerHTML
     })
     if (updateModel) this.checkBoxes = next
@@ -1038,16 +1047,19 @@ export class InputComponent implements OnInit {
 
   private adjustCboxIndentLevel(id: number, step: number, options: { commit?: boolean } = {}) {
     this.syncCboxDomIntoModel()
-    const cb = this.checkBoxes.find(item => item.id === id)
-    if (!cb) return false
-    return this.setCboxIndentLevel(id, this.checkboxIndentLevel(cb) + step, options)
+    const index = this.checkBoxes.findIndex(item => item.id === id)
+    if (index < 0) return false
+    return this.applyCboxIndentLevel(index, this.checkboxIndentLevel(this.checkBoxes[index]) + step, options)
   }
 
   private setCboxIndentLevel(id: number, indentLevel: number, options: { commit?: boolean } = {}) {
     this.syncCboxDomIntoModel()
     const index = this.checkBoxes.findIndex(cb => cb.id === id)
     if (index < 0) return false
+    return this.applyCboxIndentLevel(index, indentLevel, options)
+  }
 
+  private applyCboxIndentLevel(index: number, indentLevel: number, options: { commit?: boolean }) {
     const currentIndent = this.checkboxIndentLevel(this.checkBoxes[index])
     const nextIndent = Math.min(normalizeIndentLevel(indentLevel), maxIndentLevelAt(this.checkBoxes, index))
     if (currentIndent === nextIndent) return false
@@ -1318,19 +1330,55 @@ export class InputComponent implements OnInit {
       return
     }
 
-    // to remove text styling -> before : https://prnt.sc/a7M5g-kbofba, after : https://prnt.sc/D7KEV6rdlm_7
     event.preventDefault()
-    let text = event.clipboardData?.getData('text/plain');
-    let target = event.currentTarget as HTMLDivElement
-    this.insertPlainTextAtCursor(target, text || '')
+    const text = event.clipboardData?.getData('text/plain') || ''
+    const target = event.currentTarget as HTMLDivElement
+    const emptyNote = !this.isCbox.value && target === this.noteBody?.nativeElement
+      && !this.hasMeaningfulBody(target.innerHTML) && !this.images.length && !this.attachments.length && !this.pendingAttachmentFiles.length
+    // Paste immediately. Worker startup/detection must never delay entering text.
+    this.insertPlainTextAtCursor(target, text)
     if (text) this.dismissMobileNewNoteStarters()
     if (this.editorBodies().includes(target)) {
-      this.queueEditorLinkDecoration()
+      this.onNoteBodyInput(target)
+      const candidate = emptyNote ? pastedCodeCandidate(text) : null
+      if (candidate) void this.detectPastedCode(target, candidate)
+      else this.queueEditorLinkDecoration()
     } else if (this.noteTitle?.nativeElement === target) {
       this.onNoteTitleInput()
     }
-    // document.execCommand('insertText', false, text)
-    // ! TODO, when u paste, yji fel <br> => so ywali maybanch
+  }
+
+  private async detectPastedCode(target: HTMLDivElement, candidate: NonNullable<ReturnType<typeof pastedCodeCandidate>>) {
+    const generation = this.editorGeneration
+    const version = this.bodyEditVersion
+    const html = target.innerHTML
+    const selection = window.getSelection()
+    const anchor = selection?.anchorNode, anchorOffset = selection?.anchorOffset
+    const focus = selection?.focusNode, focusOffset = selection?.focusOffset
+    let converted = false
+    try {
+      const direct = candidate.explicit || candidate.definite
+      const result = direct ? undefined : await this.codeHighlight.highlight(candidate.text, 'auto')
+      if (!direct && !result?.isCode) return
+      // A slow result must not replace subsequent typing, another paste, a moved
+      // caret, a closed composer or a different note/workspace.
+      const current = window.getSelection()
+      if (this.destroyed || generation !== this.editorGeneration || version !== this.bodyEditVersion || !target.isConnected ||
+        this.noteMain.nativeElement.hidden || target.innerHTML !== html || document.activeElement !== target ||
+        current?.anchorNode !== anchor || current?.anchorOffset !== anchorOffset || current?.focusNode !== focus || current?.focusOffset !== focusOffset) return
+      const before = this.checklistModeSnapshot()
+      target.innerHTML = codeBlockHtml(candidate.text, candidate.language)
+      const pre = target.firstElementChild!
+      pre.setAttribute('data-code-focus', '')
+      const after = document.createElement('div'); after.append(document.createElement('br')); target.append(after)
+      this.recordChecklistModeChange(before)
+      this.onNoteBodyInput(target)
+      converted = true
+    } catch {
+      // Unsupported/unavailable workers leave the already-pasted text intact.
+    } finally {
+      if (!converted && !this.destroyed && generation === this.editorGeneration && target.isConnected) this.queueEditorLinkDecoration()
+    }
   }
 
   private insertPlainTextAtCursor(target: HTMLElement, text: string) {
@@ -2374,7 +2422,76 @@ export class InputComponent implements OnInit {
     }
   }
 
+  beginCodeEdit() { this.codeEditBefore = this.checklistModeSnapshot() }
+
+  finishCodeEdit(body: HTMLDivElement) {
+    if (this.codeEditBefore) {
+      this.recordChecklistModeChange(this.codeEditBefore)
+      this.codeEditBefore = undefined
+    }
+    this.onNoteBodyInput(body)
+  }
+
+  codeShortcut(event: KeyboardEvent) {
+    if (event.defaultPrevented || (event.target instanceof HTMLElement && event.target.closest('pre.kept-code')) || event.key !== 'Enter' || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
+    const selection = window.getSelection()
+    if (!selection?.rangeCount || !selection.isCollapsed) return
+    const range = selection.getRangeAt(0)
+    const element = range.startContainer.nodeType === 1 ? range.startContainer as HTMLElement : range.startContainer.parentElement
+    if (!element || element.closest('pre, code')) return
+    const body = this.bodyContaining(element)
+    if (!body) return
+    const line = element.closest('div, p') as HTMLElement
+    if (!line || !body.contains(line) || line.querySelector('img, pre, .editor-link-preview-slot')) return
+    // Convert only a complete empty-line fence; a literal run inside prose stays literal.
+    if ((line.textContent || '') !== '```') return
+    const prefix = document.createRange(); prefix.selectNodeContents(line); prefix.setEnd(range.startContainer, range.startOffset)
+    if (prefix.toString() !== '```') return
+    event.preventDefault()
+    this.insertCodeBlock(event, line === body ? undefined : line, line === body)
+  }
+
+  insertCodeBlock(event: Event, fenceLine?: HTMLElement, replaceBodyFence = false) {
+    if (document.activeElement?.matches('.kept-code-input')) return
+    event.preventDefault(); event.stopPropagation()
+    if (this.isDrawingNote) return
+    const selected = window.getSelection()
+    const source = selected?.anchorNode
+    if ((source?.nodeType === 1 ? source as Element : source?.parentElement)?.closest('pre, code')) return
+    const before = this.checklistModeSnapshot()
+    let body = this.activeBody()
+    if (!body && this.isCbox.value && this.checklistBlocks.length) {
+      const id = this.checklistBlocks[this.checklistBlocks.length - 1].id
+      this.addChecklistText(true, id)
+      body = this.bodyAfterChecklist(id)
+    }
+    if (!body) return
+    body.focus()
+    let range = selected?.rangeCount && body.contains(selected.getRangeAt(0).commonAncestorContainer) ? selected.getRangeAt(0) : this.lastBodyRange?.cloneRange()
+    if (!range || !body.contains(range.commonAncestorContainer)) { range = document.createRange(); range.selectNodeContents(body); range.collapse(false) }
+    if (range.cloneContents().querySelector('img, pre, .editor-link-preview-slot')) range.collapse(false)
+    const snippet = fenceLine || replaceBodyFence ? '' : codeText(range.cloneContents())
+    const temp = document.createElement('div'); temp.innerHTML = codeBlockHtml(snippet)
+    const pre = temp.firstElementChild as HTMLElement
+    const after = document.createElement('div'); after.append(document.createElement('br'))
+    if (fenceLine) { fenceLine.replaceWith(pre, after) }
+    else if (replaceBodyFence) body.replaceChildren(pre, after)
+    else {
+      // Split the containing text block, never nest PRE inside P/H1/list markup.
+      range.deleteContents()
+      const tail = document.createRange(); tail.selectNodeContents(body); tail.setStart(range.startContainer, range.startOffset)
+      const remaining = tail.extractContents()
+      body.append(pre, after, remaining)
+    }
+    this.showTextFormatting = false; this.showSelectionFormatting = false
+    this.dismissMobileNewNoteStarters()
+    this.recordChecklistModeChange(before)
+    this.onNoteBodyInput(body)
+    pre.setAttribute('data-code-focus', '')
+  }
+
   onNoteBodyInput(body: HTMLDivElement) {
+    this.bodyEditVersion++
     this.dismissMobileNewNoteStarters()
     const saveHtml = this.cleanEditorBodyForSave(body.innerHTML)
     this.updateInputLength({ body: this.editorBodies().reduce((length, editor) =>
@@ -2434,9 +2551,10 @@ export class InputComponent implements OnInit {
 
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
       const href = anchor.href || anchor.getAttribute('href') || ''
-      if (/^https?:\/\//i.test(href)) urls.add(href)
+      if (!anchor.closest('pre, code') && /^https?:\/\//i.test(href)) urls.add(href)
     })
 
+    div.querySelectorAll('pre, code').forEach(node => node.remove())
     const text = div.textContent || ''
     const matches = text.match(/https?:\/\/[^\s"'<>]+/g) || []
     matches.forEach(url => urls.add(url.replace(/[),.;:!?]+$/, '')))
@@ -2455,7 +2573,7 @@ export class InputComponent implements OnInit {
 
   private decorateEditorLinks(div: HTMLElement) {
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
-      if (anchor.closest('.editor-link-preview-slot')) return
+      if (anchor.closest('.editor-link-preview-slot, pre, code')) return
       const href = anchor.href || anchor.getAttribute('href') || ''
       if (!/^https?:\/\//i.test(href)) return
       if (hasJoinedNoteUrls(href)) return
@@ -2470,7 +2588,7 @@ export class InputComponent implements OnInit {
     const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT, {
       acceptNode: node => {
         const parent = node.parentElement
-        if (!parent || parent.closest('.editor-hidden-link, .editor-link-preview-slot')) return NodeFilter.FILTER_REJECT
+        if (!parent || parent.closest('.editor-hidden-link, .editor-link-preview-slot, pre, code')) return NodeFilter.FILTER_REJECT
         return /https?:\/\/[^\s"'<>]+/.test(node.textContent || '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
       }
     })
@@ -2572,6 +2690,7 @@ export class InputComponent implements OnInit {
   private cleanEditorBodyForSave(html: string) {
     const div = createNoteHtmlContainer()
     div.innerHTML = sanitizeNoteHtml(this.auth.canonicalImageHtml(html || ''))
+    cleanCodeBlocks(div)
     this.removePreviewMarkup(div)
     // Strip editor-only chrome (e.g. the inline image delete button) that lives
     // inside the editable body but has no business being persisted.
@@ -2785,6 +2904,30 @@ export class InputComponent implements OnInit {
     if (this.showTextFormatting) this.showSelectionFormatting = false
   }
 
+  @HostListener('document:pointerdown', ['$event'])
+  onTextSelectionPointerDown(event: PointerEvent) {
+    const target = event.target instanceof Element ? event.target : null
+    if (!target || !this.noteMain?.nativeElement.contains(target) ||
+      !target.closest('[contenteditable="true"]') || target.closest('pre, code')) return
+    this.textSelectionPointer = event.pointerId
+    // A floating bar must never intercept the pointer as the selection grows.
+    this.showSelectionFormatting = false
+  }
+
+  @HostListener('document:pointerup', ['$event'])
+  @HostListener('document:pointercancel', ['$event'])
+  onTextSelectionPointerUp(event: PointerEvent) {
+    if (this.textSelectionPointer !== event.pointerId) return
+    this.textSelectionPointer = undefined
+    this.scheduleSelectionFormattingUpdate()
+  }
+
+  @HostListener('window:blur')
+  onTextSelectionWindowBlur() {
+    this.textSelectionPointer = undefined
+    this.showSelectionFormatting = false
+  }
+
   private scheduleSelectionFormattingUpdate() {
     if (this.textSelectionFrame) return
     this.textSelectionFrame = requestAnimationFrame(() => {
@@ -2794,7 +2937,7 @@ export class InputComponent implements OnInit {
   }
 
   private updateSelectionFormatting() {
-    if (this.destroyed || this.showTextFormatting || this.isDrawingNote || !this.canFormatText() || this.shouldUseMobileFormattingBar()) {
+    if (this.destroyed || this.textSelectionPointer !== undefined || this.showTextFormatting || this.isDrawingNote || !this.canFormatText() || this.shouldUseMobileFormattingBar()) {
       this.showSelectionFormatting = false
       return
     }
@@ -2808,23 +2951,33 @@ export class InputComponent implements OnInit {
       this.showSelectionFormatting = false
       return
     }
-    const rect = this.firstVisibleRangeRect(range)
+    const rect = range.getBoundingClientRect()
     const noteRect = this.noteMain?.nativeElement.getBoundingClientRect()
-    if (!rect || !noteRect) {
+    if ((!rect.width && !rect.height) || !noteRect) {
       this.showSelectionFormatting = false
       return
     }
-    const toolbarHalfWidth = 155
-    const minLeft = toolbarHalfWidth + 8
-    const maxLeft = Math.max(minLeft, noteRect.width - toolbarHalfWidth - 8)
-    const left = Math.min(maxLeft, Math.max(minLeft, rect.left + rect.width / 2 - noteRect.left))
-    let top = rect.top - noteRect.top - 48
-    if (top < 8) top = rect.bottom - noteRect.top + 8
-    this.selectionFormattingStyle = {
-      left: `${left}px`,
-      top: `${Math.min(noteRect.height - 48, Math.max(8, top))}px`
-    }
     this.showSelectionFormatting = true
+    this.selectionFormattingStyle = {
+      maxWidth: `${Math.max(0, Math.min(noteRect.width, window.innerWidth) - 16)}px`,
+      visibility: 'hidden'
+    }
+    // Measure the actual translated controls, rather than assuming the old bar's width/height.
+    this.cd.detectChanges()
+    const toolbar = this.noteMain.nativeElement.querySelector<HTMLElement>('.selection-format-toolbar')
+    if (!toolbar) return
+    const { width, height } = toolbar.getBoundingClientRect()
+    const minLeft = Math.max(8, noteRect.left + 8)
+    const maxLeft = Math.max(minLeft, Math.min(window.innerWidth - 8, noteRect.right - 8) - width)
+    const left = Math.min(maxLeft, Math.max(minLeft, rect.left + (rect.width - width) / 2))
+    let top = rect.top - height - 8
+    if (top < 8) top = rect.bottom + 8
+    top = Math.max(8, Math.min(window.innerHeight - height - 8, top))
+    this.selectionFormattingStyle = {
+      maxWidth: this.selectionFormattingStyle['maxWidth'],
+      left: `${left - noteRect.left}px`,
+      top: `${top - noteRect.top}px`
+    }
   }
 
   private selectionBelongsToTextEditor(range: Range) {
@@ -2832,14 +2985,9 @@ export class InputComponent implements OnInit {
     const element = container.nodeType === Node.ELEMENT_NODE
       ? container as Element
       : container.parentElement
-    if (!element) return false
+    if (!element || element.closest('pre, code')) return false
     const title = this.noteTitle?.nativeElement
     return !!(title?.contains(element) || this.bodyContaining(element) || element.closest('.cbox-note[contenteditable="true"]'))
-  }
-
-  private firstVisibleRangeRect(range: Range) {
-    const rects = Array.from(range.getClientRects()).filter(rect => rect.width || rect.height)
-    return rects[0] || range.getBoundingClientRect()
   }
 
   private shouldUseMobileFormattingBar() {
@@ -2872,10 +3020,12 @@ export class InputComponent implements OnInit {
   @HostListener('keydown', ['$event'])
   checklistModeHistoryKeyDown(event: KeyboardEvent) {
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'z') return
-    if (!(event.target instanceof HTMLElement) || !event.target.isContentEditable) return
+    if (!(event.target instanceof HTMLElement) || !(event.target.isContentEditable || event.target.matches('.kept-code-input'))) return
+    const codeIndex = event.target.matches('.kept-code-input') ? Array.from(this.noteContainer.nativeElement.querySelectorAll('pre.kept-code')).indexOf(event.target.closest('pre')!) : -1
     if (!this.stepChecklistModeHistory(event.shiftKey ? 'redo' : 'undo')) return
     event.preventDefault()
     event.stopPropagation()
+    if (codeIndex >= 0) requestAnimationFrame(() => requestAnimationFrame(() => this.noteContainer.nativeElement.querySelectorAll<HTMLElement>('pre.kept-code code')[codeIndex]?.focus()))
   }
 
   private activeTextHistoryTarget() {
@@ -2899,11 +3049,13 @@ export class InputComponent implements OnInit {
   }
 
   private highlightSelection() {
+    if (document.activeElement?.matches('.kept-code-input')) return
     const selection = window.getSelection()
     if (!selection?.rangeCount || selection.isCollapsed) return
     const range = selection.getRangeAt(0)
     const editableFor = (node: Node) => (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)
       ?.closest<HTMLElement>('[contenteditable="true"]')
+    if ((range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer as Element : range.commonAncestorContainer.parentElement)?.closest('pre, code')) return
     const root = editableFor(range.startContainer)
     if (!root || root !== editableFor(range.endContainer) || !this.noteMain.nativeElement.contains(root)) return
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
@@ -2918,7 +3070,8 @@ export class InputComponent implements OnInit {
       nodes.push({ node: text, start, end, highlighted: !!text.parentElement?.closest('mark.hl') })
     }
     if (!nodes.some(item => item.end > item.start)) return
-    return { root, nodes }
+    const backward = selection.anchorNode === range.endContainer && selection.anchorOffset === range.endOffset
+    return { root, nodes, backward }
   }
 
   selectionIsHighlighted() {
@@ -2955,8 +3108,10 @@ export class InputComponent implements OnInit {
       item.node.replaceWith(fragment)
     }
     if (first && last) {
-      const range = document.createRange(); range.setStart(first, 0); range.setEnd(last, last.length)
-      selection.root.focus(); const active = window.getSelection(); active?.removeAllRanges(); active?.addRange(range)
+      selection.root.focus({ preventScroll: true })
+      const active = window.getSelection()
+      if (selection.backward) active?.setBaseAndExtent(last, last.length, first, 0)
+      else active?.setBaseAndExtent(first, 0, last, last.length)
     }
     this.syncCboxDomIntoModel()
     this.recordChecklistModeChange(before)
@@ -2967,6 +3122,9 @@ export class InputComponent implements OnInit {
   applyTextFormat(command: 'h1' | 'h2' | 'body' | 'bold' | 'italic' | 'underline' | 'clear', event: Event) {
     event.preventDefault()
     event.stopPropagation()
+    if (document.activeElement?.matches('.kept-code-input')) return
+    const selected = window.getSelection()?.anchorNode
+    if ((selected?.nodeType === 1 ? selected as Element : selected?.parentElement)?.closest('pre, code')) return
     if (command === 'h1') document.execCommand('formatBlock', false, 'H1')
     if (command === 'h2') document.execCommand('formatBlock', false, 'H2')
     if (command === 'body') document.execCommand('formatBlock', false, 'DIV')

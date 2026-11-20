@@ -113,7 +113,7 @@ export interface NoteModelI {
         getCollaborators(): Promise<ShareUserI[]>
         updateCollaborators(userIds: number[]): Promise<ShareUserI[]>
         moveBinder(id: number, target: {binderId?: number | null; binderName?: string; binder?: string; sharedBinder?: NoteI['sharedBinder']}): Promise<void>
-        reorder(ids: number[]): Promise<void>
+        reorder(ids: number[], movedId?: number): Promise<void>
         clone(): Promise<void>
         delete(): Promise<void>
         trash(): Promise<void>

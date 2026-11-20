@@ -27,6 +27,25 @@ function imageSources(value) {
   return sources;
 }
 
+// Code snippets are literal text, even when they contain URLs or HTML examples.
+function urlsOutsideCode(value) {
+  const urls = new Set();
+  let depth = 0;
+  const add = text => {
+    for (const match of String(text || '').matchAll(/https?:\/\/[^\s"'<>]+/gi)) urls.add(match[0].replace(/[),.;:!?]+$/, ''));
+  };
+  const parser = new Parser({
+    onopentag(name, attrs) {
+      if (name === 'pre' || name === 'code') depth++;
+      if (!depth) Object.values(attrs).forEach(add);
+    },
+    ontext(text) { if (!depth) add(text); },
+    onclosetag(name) { if (name === 'pre' || name === 'code') depth = Math.max(0, depth - 1); }
+  }, { decodeEntities: true });
+  parser.end(String(value || ''));
+  return [...urls].filter(Boolean);
+}
+
 function validateEmail(value) {
   if (!value) return true; // Optional for administrator-created accounts.
   const email = String(value).trim();
@@ -44,4 +63,4 @@ function stripTrailingSlashes(value) {
   return text.slice(0, end);
 }
 
-module.exports = { plainText, imageSources, validateEmail, stripTrailingSlashes };
+module.exports = { urlsOutsideCode, plainText, imageSources, validateEmail, stripTrailingSlashes };

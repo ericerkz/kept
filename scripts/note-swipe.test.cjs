@@ -161,3 +161,45 @@ test('image tiles and link preview surfaces allow hold pickup without becoming a
     assert.equal(h.calls.saves.length, 0);
   }
 });
+
+
+test('code scrolling before the hold threshold never starts archive, selection or pull-to-refresh', () => {
+  const h = harness();
+  const code = {};
+  const target = { closest(selector) { return selector.includes('pre.kept-code') ? code : null; } };
+  h.start(240, 200, { target });
+  h.tick(100); h.move(100, 200, { target }); h.tick(500); h.end(100, 200, { target });
+  assert.equal(h.calls.saves.length, 0); assert.equal(h.calls.drags, 0); assert.equal(h.calls.opens, 0);
+  assert.equal(h.listeners.size, 0);
+  assert.equal(h.component.canStartPullRefresh(h.event(h.touch(240), { target })), false);
+});
+
+
+test('code header/padding gestures never archive or open, while a quick tap opens normally', () => {
+  for (const moved of [true, false]) {
+    const h = harness();
+    const target = { closest: selector => selector.includes('pre.kept-code') ? {} : null };
+    h.start(120, 200, { target });
+    assert.equal(h.component.noteArchiveSwipe, undefined);
+    if (moved) { h.move(270, 200, { target }); h.end(270, 200, { target }); }
+    else h.end(120, 200, { target });
+    assert.equal(h.calls.saves.length, 0); assert.equal(h.calls.drags, 0);
+    assert.equal(h.calls.opens, moved ? 0 : 1);
+    assert.equal(h.component.suppressNextOpen, true);
+    h.tick(350); assert.equal(h.component.suppressNextOpen, false);
+  }
+});
+
+
+test('stationary code holds retain note selection and reordering without arming archive', () => {
+  const h = harness();
+  const target = { closest: selector => selector.includes('pre.kept-code') ? {} : null };
+  h.start(120, 200, { target });
+  h.tick(399); assert.equal(h.calls.drags, 0);
+  h.tick(1); assert.equal(h.calls.drags, 1);
+  assert.equal(h.component.noteArchiveSwipe, undefined);
+  assert.equal(h.component.codeTouchTracking, false);
+  h.end(120, 200, { target });
+  assert.equal(h.component.touchDragNote, null);
+  assert.equal(h.calls.opens, 0); assert.equal(h.calls.saves.length, 0);
+});

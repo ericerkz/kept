@@ -14,13 +14,14 @@ function createStore(database = new IDBFactory()) {
     filename=path.resolve(filename);
     if (cache.has(filename)) return cache.get(filename);
     const exports={};cache.set(filename,exports);
-    const compiled=ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true}}).outputText;
+    const compiled=ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,experimentalDecorators:true,esModuleInterop:true}}).outputText;
     vm.runInNewContext(compiled,{...globals,exports,require(name){
+    if (name.endsWith('/shared/note-order')) return require('../shared/note-order');
     if (name.endsWith('/i18n/messages')) return require('./i18n.cjs');
       if (name === '@angular/core') return {Injectable:()=>target=>target};
       if (name === '@capacitor/core') return {Capacitor:{isNativePlatform:()=>false}};
       if (name.endsWith('/environment')) return {environment:{apiUrl:'/api'}};
-      if (name.startsWith('.')) return load(path.resolve(path.dirname(filename),name+'.ts'));
+      if (name.startsWith('.')) return name.endsWith('.json') ? require(path.resolve(path.dirname(filename),name)) : load(path.resolve(path.dirname(filename),name+'.ts'));
       throw new Error(`Unexpected store dependency: ${name}`);
     }},{filename});
     return exports;

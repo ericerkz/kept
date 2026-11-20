@@ -10,14 +10,26 @@ function createWorkspaceSync(deps) {
 
   async function init() {
     const schema = await get("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sync_changes'");
-    if (!schema.sql.includes("'savedPlace'")) {
+    if (!schema.sql.includes("'notePosition'")) {
       await deps.withDatabaseTransaction(async () => {
-        const expanded = schema.sql.replace(/CREATE TABLE(?: IF NOT EXISTS)? sync_changes/i, 'CREATE TABLE sync_changes_upgrade')
-          .replace("('note','reminder','attachment')", "('note','reminder','attachment','label','binder','savedPlace','preferences')");
+        const sequence = await get("SELECT seq FROM sqlite_sequence WHERE name = 'sync_changes'");
+        // SQLite quotes the table name after ALTER TABLE ... RENAME. Existing
+        // v2 databases therefore differ from the unquoted fresh-install DDL.
+        const expanded = schema.sql.replace(/^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"sync_changes"|`sync_changes`|\[sync_changes\]|sync_changes)\s*/i, 'CREATE TABLE sync_changes_upgrade ')
+          .replace(/CHECK\s*\(\s*resourceType\s+IN\s*\([^)]*\)\s*\)/i, "CHECK(resourceType IN ('note','reminder','attachment','label','binder','savedPlace','preferences','notePosition'))");
+        if (!expanded.startsWith('CREATE TABLE sync_changes_upgrade ') || !expanded.includes("'notePosition'")) {
+          throw new Error('Unrecognized sync_changes schema; synchronization migration was not applied.');
+        }
         await run(expanded);
         await run('INSERT INTO sync_changes_upgrade SELECT * FROM sync_changes');
         await run('DROP TABLE sync_changes');
         await run('ALTER TABLE sync_changes_upgrade RENAME TO sync_changes');
+        // Clients retain these cursors. A table rebuild must not reuse old
+        // sequence numbers, even if the highest rows have been removed.
+        if (Number(sequence?.seq) > 0) {
+          await run("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'sync_changes'", [sequence.seq]);
+          await run("INSERT INTO sqlite_sequence(name,seq) SELECT 'sync_changes',? WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'sync_changes')", [sequence.seq]);
+        }
         await run('CREATE INDEX sync_changes_user_sequence_idx ON sync_changes(userId,sequence)');
       });
     }
@@ -224,6 +236,17 @@ function createWorkspaceSync(deps) {
       if (mutation.type !== 'note.reorder' && !Object.hasOwn(result,'canonical')) {
         result.canonical = await canonical(userId,mutation.type.split('.')[0],mutation.syncId,result);
         if (result._canonicalPayload) result.payload = result.canonical;
+      }
+      if (mutation.type === 'note.reorder') {
+        // A lost-response retry acknowledges the move without replaying it.
+        // Return current positions so it cannot roll back a newer device move
+        // after this device has already caught up to the latest feed cursor.
+        const syncIds = Array.isArray(mutation.payload?.syncIds) ? mutation.payload.syncIds.map(String) : [];
+        result.positions = await all(`SELECT notes.id,notes.syncId,pos.sortOrder FROM user_note_positions pos
+          JOIN notes ON notes.id = pos.noteId
+          LEFT JOIN note_collaborators access ON access.noteId = notes.id AND access.userId = ?
+          WHERE pos.userId = ? AND notes.syncId IN (SELECT value FROM json_each(?))
+            AND (notes.ownerUserId = ? OR access.userId IS NOT NULL)`, [userId,userId,JSON.stringify(syncIds),userId]);
       }
       delete result._canonicalPayload;
       return result;

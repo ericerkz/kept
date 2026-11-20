@@ -1,0 +1,2 @@
+export const MAX_HIGHLIGHT_CHARS = 30000;
+export const MAX_HIGHLIGHT_LINES = 1000;

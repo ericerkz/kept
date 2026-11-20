@@ -1,6 +1,7 @@
+const { notePositionsForOrder } = require('../shared/note-order');
 const { imagePreview } = require('./image-preview');
 const { secretValue } = require('./secret-files');
-const { plainText, imageSources, validateEmail, stripTrailingSlashes } = require('./text-utils');
+const { plainText, urlsOutsideCode, imageSources, validateEmail, stripTrailingSlashes } = require('./text-utils');
 const { normalizeLanguage } = require('../shared/language-preference');
 const { parseDateSearch } = require('../shared/note-search-date');
 const { createRequestLimits, createExclusiveTask } = require('./request-limits');
@@ -25,6 +26,7 @@ const { WebSocket, WebSocketServer } = require('ws');
 const { generateSecret, verifySync, generateURI } = require('otplib');
 const qrcode = require('qrcode');
 const { sanitizeNoteHtml, sanitizeNoteContent, safeUrl } = require('./note-html');
+const { withoutTakeoutSourceFields, cleanImportedMetadata } = require('./takeout-metadata');
 const { createWorkspaceSync } = require('./workspace-sync');
 const { createBinderSharing } = require('./binder-sharing');
 const { createWorkspaceImport } = require('./workspace-import');
@@ -1188,6 +1190,7 @@ async function init() {
   await validateOidcOnlyConfiguration({ get });
   await browserSessions.init();
   await workspaceSync.init();
+  await cleanImportedMetadata({ get, run, withDatabaseTransaction });
   if (STORAGE_QUOTA_BYTES) {
     await run('CREATE INDEX IF NOT EXISTS sync_changes_resource_idx ON sync_changes(userId,resourceType,resourceSyncId,sequence)');
     await run(`DELETE FROM sync_changes WHERE sequence NOT IN
@@ -1484,7 +1487,7 @@ const KNOWN_NOTE_FIELDS = new Set([
 ]);
 
 function noteExtraFields(payload) {
-  return Object.fromEntries(Object.entries(payload || {}).filter(([key]) => !KNOWN_NOTE_FIELDS.has(key)));
+  return Object.fromEntries(Object.entries(withoutTakeoutSourceFields(payload)).filter(([key]) => !KNOWN_NOTE_FIELDS.has(key)));
 }
 
 function canonicalizeNotePayload(payload) {
@@ -1718,6 +1721,26 @@ async function appendSyncChange(userIds, resourceType, resourceSyncId, operation
   }
 }
 
+// Positions are personal metadata, not content edits. Write the batch and its
+// small change records in the caller's transaction; never reconcile sharing or
+// serialize unchanged note bodies for a grid move.
+async function saveNotePositions(userId, orderedRows, sparse = false, movedSyncId) {
+  const base = Date.now();
+  const positions = sparse ? notePositionsForOrder(orderedRows, base, movedSyncId) : orderedRows.map((row, index) => ({ id: row.id, syncId: row.syncId, sortOrder: base + orderedRows.length - index }));
+  if (!positions.length) return positions;
+  const json = JSON.stringify(positions), stamp = serverLwwStamp();
+  await run(`INSERT OR REPLACE INTO user_note_positions(userId,noteId,sortOrder)
+    SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.sortOrder') FROM json_each(?)`, [userId,json]);
+  await run(`INSERT INTO sync_changes(userId,resourceType,resourceSyncId,operation,payload,lwwPhysicalMs,lwwLogical,lwwDeviceId,lwwOperationId,changedAt)
+    SELECT ?,'notePosition',json_extract(value,'$.syncId'),'upsert',value,?,?,?,?,? FROM json_each(?)`,
+    [userId,stamp.physicalMs,stamp.logical,stamp.deviceId,stamp.operationId,new Date().toISOString(),json]);
+  // Each record is a complete position. Keep the latest for each note; content
+  // snapshots remain independent, including for clients recovering old cursors.
+  await run(`DELETE FROM sync_changes WHERE userId = ? AND resourceType = 'notePosition'
+    AND sequence NOT IN (SELECT MAX(sequence) FROM sync_changes WHERE userId = ? AND resourceType = 'notePosition' GROUP BY resourceSyncId)`, [userId,userId]);
+  return positions;
+}
+
 async function noteSyncSnapshot(noteId, userId) {
   const row = await getAccessibleNote(noteId, userId);
   if (!row) return null;
@@ -1766,12 +1789,7 @@ function notePreviewText(row) {
 
 function noteLinkCount(row) {
   const urls = new Set();
-  const addUrls = (value) => {
-    for (const match of String(value || '').matchAll(/https?:\/\/[^\s"'<>]+/gi)) {
-      const url = match[0].replace(/[),.;:!?]+$/, '');
-      if (url) urls.add(url);
-    }
-  };
+  const addUrls = value => urlsOutsideCode(value).forEach(url => urls.add(url));
   addUrls(row.noteBody || '');
   const checkBoxes = parseJson(row.checkBoxes || '[]', []);
   if (Array.isArray(checkBoxes)) checkBoxes.forEach(item => addUrls(item?.data || ''));
@@ -1901,6 +1919,8 @@ function escapeHtml(value) {
 function cardNoteBody(row, previewText) {
   const body = row.noteBody || '';
   if (/<img\b/i.test(body)) return body;
+  // Copy on a code card must include the whole snippet, not the clipped preview.
+  if (/<pre\b[^>]*class=["'][^"']*\bkept-code\b/i.test(body)) return body;
   // Keep checklist markers and surrounding text together in card responses.
   if (row.isCbox && body.includes('kept-checklist-anchor')) return body;
   if (row.isCbox && !plainText(body).trim()) return '';
@@ -5581,7 +5601,24 @@ app.get('/api/sync/changes', requireAuth, asyncRoute(async (req, res) => {
   );
   const cursorRow = await get('SELECT COALESCE(MAX(sequence), 0) AS cursor FROM sync_changes WHERE userId = ?', [req.user.id]);
   const changes = [];
+  const positionRows = new Map(rows.filter(row => row.resourceType === 'notePosition').map(row => [row.sequence,parseJson(row.payload || '{}', {})]));
+  const accessiblePositions = positionRows.size ? new Set((await all(
+    `SELECT notes.id FROM notes LEFT JOIN note_collaborators access ON access.noteId = notes.id AND access.userId = ?
+     WHERE notes.id IN (SELECT value FROM json_each(?)) AND (notes.ownerUserId = ? OR access.userId IS NOT NULL)`,
+    [req.user.id,JSON.stringify([...positionRows.values()].map(position => position.id)),req.user.id]
+  )).map(row => row.id)) : new Set();
   for (const row of rows) {
+    if (row.resourceType === 'notePosition') {
+      const position = positionRows.get(row.sequence);
+      const accessible = accessiblePositions.has(position.id);
+      const compact = v2 && req.query.notePositions === '1';
+      const payload = accessible ? compact ? position : await noteSyncSnapshot(position.id,req.user.id) : null;
+      changes.push({ sequence: row.sequence, resourceType: compact ? 'notePosition' : 'note',
+        resourceSyncId: row.resourceSyncId, operation: accessible ? 'upsert' : 'delete', payload,
+        lww: compact ? {physicalMs:Number(row.lwwPhysicalMs || 0),logical:Number(row.lwwLogical || 0),deviceId:row.lwwDeviceId || '',operationId:row.lwwOperationId || ''} : rowLwwStamp(payload || {}),
+        changedAt: row.changedAt });
+      continue;
+    }
     if (!v2 && !['note','reminder','attachment'].includes(row.resourceType)) continue;
     const change = {
       sequence: row.sequence,
@@ -5659,30 +5696,28 @@ async function applySyncNoteMutation(userId, mutation) {
       payload: { syncId, completedChecklistCollapsed: Boolean(collapsed), updatedAt: now } };
   }
   if (type === 'note.reorder') {
-    const syncIds = Array.isArray(payload.syncIds) ? payload.syncIds.map(String).filter(Boolean) : [];
+    const syncIds = [...new Set(Array.isArray(payload.syncIds) ? payload.syncIds.map(String).filter(Boolean) : [])];
     if (!syncIds.length) return { ok: true, skipped: true, resourceType: 'note-order' };
-    const placeholders = syncIds.map(() => '?').join(',');
     const rows = await all(
-      `SELECT notes.id, notes.syncId
+      `SELECT notes.id, notes.syncId, COALESCE(pos.sortOrder,notes.sortOrder,notes.id) AS sortOrder,
+         EXISTS(SELECT 1 FROM user_pins WHERE userId = ? AND noteId = notes.id) AS pinned
        FROM notes
+       LEFT JOIN user_note_positions pos ON pos.noteId = notes.id AND pos.userId = ?
        LEFT JOIN note_collaborators access ON access.noteId = notes.id AND access.userId = ?
-       WHERE notes.syncId IN (${placeholders})
+       WHERE notes.syncId IN (SELECT value FROM json_each(?))
          AND (notes.ownerUserId = ? OR access.userId IS NOT NULL)`,
-      [userId, ...syncIds, userId]
+      [userId, userId, userId, JSON.stringify(syncIds), userId]
     );
-    const bySyncId = new Map(rows.map(row => [row.syncId, row.id]));
-    const base = Date.now();
-    for (let index = 0; index < syncIds.length; index += 1) {
-      const noteId = bySyncId.get(syncIds[index]);
-      if (!noteId) continue;
-      await run(
-        `INSERT OR REPLACE INTO user_note_positions (userId, noteId, sortOrder) VALUES (?, ?, ?)`,
-        [userId, noteId, base + syncIds.length - index]
-      );
-      await recordNoteSyncChange(noteId, 'upsert', [userId]);
-    }
+    const bySyncId = new Map(rows.map(row => [row.syncId, row]));
+    // New clients identify the one rank they changed locally. Respect a
+    // rebalance request too: acknowledging just one rank after the client
+    // renumbered all of them would leave its optimistic order inconsistent.
+    // Legacy queued operations still receive a complete set of positions.
+    const sparse = Array.isArray(payload.positions) && payload.positions.length <= 1;
+    const positions = await saveNotePositions(userId, syncIds.map(id => bySyncId.get(id)).filter(Boolean), sparse,
+      sparse ? payload.positions[0]?.syncId || payload.movedSyncId : undefined);
     broadcastRealtime([userId], { type: 'notes-changed', action: 'reordered' });
-    return { ok: true, resourceType: 'note-order' };
+    return { ok: true, resourceType: 'note-order', positions };
   }
   const syncId = String(mutation.syncId || payload.syncId || payload.clientId || `note-${crypto.randomUUID()}`);
   const incomingStamp = normalizeLwwStamp(mutation.lww || payload);
@@ -5800,7 +5835,7 @@ async function applySyncNoteMutation(userId, mutation) {
     noteData.lockHash = note.lockHash || '';
   }
   if (await binderSharing.preserveBinder(note.id)) noteData.binder = note.binder || '';
-  const storedExtraFields = parseJson(note.extraFields || '{}', {});
+  const storedExtraFields = withoutTakeoutSourceFields(parseJson(note.extraFields || '{}', {}));
   noteData.extraFields = isOwner
     ? { ...storedExtraFields, ...noteData.extraFields }
     : storedExtraFields;
@@ -6239,7 +6274,10 @@ app.post('/api/sync/mutations', requireAuth, asyncRoute(async (req, res) => {
       results[index] = { ok: false, status: error.status || 500, ...(error.code === 'STORAGE_QUOTA_EXCEEDED' ? {code:error.code} : {}), error: error.message || 'Sync mutation failed.', type: mutation.type };
     }
   }
-  const snapshot = await withDatabaseTransaction(async () => {
+  // Opt in explicitly: older v1 and v2 mobile bundles still expect a snapshot.
+  // New clients acknowledge these results, then page the existing changes feed
+  // from their last applied cursor (never skip intervening remote edits).
+  const snapshot = v2 && req.body?.responseMode === 'ack' ? undefined : await withDatabaseTransaction(async () => {
     const extra = v2 ? await workspaceSync.resources(req.user.id) : {};
     return { ...await syncSnapshotForUser(req.user.id), ...extra };
   });
@@ -6247,7 +6285,7 @@ app.post('/api/sync/mutations', requireAuth, asyncRoute(async (req, res) => {
     req.socket.destroy();
     return;
   }
-  res.json({ ...(v2 ? { protocolVersion: 2 } : {}), results, serverTime: Date.now(), snapshot });
+  res.json({ ...(v2 ? { protocolVersion: 2 } : {}), results, serverTime: Date.now(), ...(snapshot ? { snapshot } : {}) });
 }));
 
 
@@ -6887,28 +6925,14 @@ app.patch('/api/notes/reorder', requireAuth, databaseRoute(async (req, res) => {
   if (!ids.length) return res.status(400).json({ error: 'No note ids provided.' });
 
   const accessibleRows = await all(
-    `SELECT notes.id FROM notes
+    `SELECT notes.id,notes.syncId FROM notes
      LEFT JOIN note_collaborators access ON access.noteId = notes.id AND access.userId = ?
      WHERE (notes.ownerUserId = ? OR access.userId IS NOT NULL)
-     AND notes.id IN (${ids.map(() => '?').join(',')})`,
-    [req.user.id, req.user.id, ...ids]
+     AND notes.id IN (SELECT value FROM json_each(?))`,
+    [req.user.id, req.user.id, JSON.stringify(ids)]
   );
-  const accessibleIds = new Set(accessibleRows.map(row => row.id));
-  const orderedIds = ids.filter(id => accessibleIds.has(id));
-  if (!orderedIds.length) return res.status(204).end();
-
-  const base = Date.now();
-  for (let index = 0; index < orderedIds.length; index += 1) {
-    const sortOrder = base + (orderedIds.length - index);
-    try {
-      await run(
-        'INSERT OR REPLACE INTO user_note_positions (userId, noteId, sortOrder) VALUES (?, ?, ?)',
-        [req.user.id, orderedIds[index], sortOrder]
-      );
-    } catch (err) {
-      console.error(`Failed to update position for note ${orderedIds[index]}:`, err);
-    }
-  }
+  const accessible = new Map(accessibleRows.map(row => [row.id,row]));
+  await saveNotePositions(req.user.id, [...new Set(ids)].map(id => accessible.get(id)).filter(Boolean));
   broadcastRealtime([req.user.id], { type: 'notes-changed', action: 'reordered' });
   res.status(204).end();
 }));

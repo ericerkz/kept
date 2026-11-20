@@ -178,7 +178,7 @@
             </div>
           }
           <div class="note-preview-frame" (click)="openModal(noteEL,note)">
-            <div class="note-preview-window" [appNotePreview]="noteHasPhotoPreview(note) && !noteLock.lockPreviewHidden(note)" #preview="notePreview">
+            <div class="note-preview-window" appCodeBlocks="preview" [appNotePreview]="noteHasPhotoPreview(note) && !noteLock.lockPreviewHidden(note)" #preview="notePreview">
             <div class="note-preview-content">
             @if (noteLock.lockPreviewHidden(note)) {
               @if (noteHasTitle) {
@@ -213,7 +213,9 @@
             <div class="note-images"></div>
               <section class="body-segments" [class.min]="note.noteBody!.length > 68">
                 @for (segment of noteBodySegments(note); track trackBodySegment($index, segment)) {
-                  @if (segment.type === 'html') {
+                  @if (segment.type === 'code') {
+                    <div class="body-code" [innerHTML]="segment.value"></div>
+                  } @else if (segment.type === 'html') {
                     @if (!noteHasTitle && $first && segment.value) {
                       <div class="body" dir="auto" (contextmenu)="downloadInlineImage($event)"><div class="body-content" [innerHTML]="segment.value"></div></div>
                     } @else {

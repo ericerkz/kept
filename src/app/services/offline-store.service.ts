@@ -1,3 +1,4 @@
+import { notePositionsForOrder, positionBetweenNotes } from '../../../shared/note-order';
 import { uiText } from '../i18n/messages';
 import { applyBinderMembership, applyPersonalOrganization, projectSharedOrganization } from '../utils/shared-note-organization';
 import { Capacitor } from '@capacitor/core';
@@ -9,6 +10,12 @@ import type { LocationSavedPlace } from './location-saved-places.service';
 import { createUuid } from '../utils/uuid';
 import { createDemoNotes, demoWelcomeText } from '../utils/demo-notes';
 import { CatalogItem, MutationOutcome, NativeAction, ResourceChange, ResourceType, RESOURCE_STORES, Workspace } from '../interfaces/workspace';
+import takeoutSourceFields from '../../../shared/takeout-source-fields.json';
+
+const takeoutSourceFieldSet = new Set<string>(takeoutSourceFields);
+const cleanNoteMetadata = (note: Record<string, any>) => Object.fromEntries(
+  Object.entries(note).filter(([key]) => !takeoutSourceFieldSet.has(key))
+);
 
 export type SyncResourceType = ResourceType;
 export type SyncMutationType =
@@ -66,7 +73,7 @@ type SyncState = {
 @Injectable({ providedIn: 'root' })
 export class OfflineStoreService {
   private readonly databaseName = 'kept-offline-v1';
-  private readonly databaseVersion = 3;
+  private readonly databaseVersion = 4;
   private database?: Promise<IDBDatabase>;
   private lastStampPhysicalMs = 0;
   private lastStampLogical = 0;
@@ -148,41 +155,65 @@ export class OfflineStoreService {
     return this.listValues<ReminderI>('reminders', partition);
   }
 
+  async hasNotes(partition: string) {
+    const db = await this.open();
+    return (await this.request<IDBValidKey | undefined>(db.transaction('notes').objectStore('notes').index('partition').getKey(partition))) !== undefined;
+  }
+
   async getNote(partition: string, id: number) {
-    const notes = await this.listNotes(partition);
-    return notes.find(note => note.id === id);
+    const db = await this.open();
+    const rows = await this.request<StoredResource<NoteI>[]>(db.transaction('notes').objectStore('notes').index('partitionId').getAll([partition,id]));
+    return rows.reduce<NoteI | undefined>((best,row) => best ? this.preferNote(best,row.value) : row.value, undefined);
+  }
+
+  async getNotesBySyncIds(partition: string, syncIds: string[]) {
+    const db = await this.open(), store = db.transaction('notes').objectStore('notes');
+    const rows = await Promise.all([...new Set(syncIds)].map(syncId =>
+      this.request<StoredResource<NoteI> | undefined>(store.get(this.resourceKey(partition,syncId)))));
+    return rows.filter((row): row is StoredResource<NoteI> => !!row).map(row => row.value);
+  }
+
+  async getNoteBySyncId(partition: string, syncId: string): Promise<NoteI | undefined> {
+    return (await this.getNotesBySyncIds(partition,[syncId]))[0];
+  }
+
+  async putNotePositions(partition: string, positions: Array<{ id: number; sortOrder: number }>) {
+    return this.atomic(['notes'], async tx => {
+      const store = tx.objectStore('notes');
+      const rows = await Promise.all(positions.map(position => this.request<StoredResource<NoteI> | undefined>(store.index('partitionId').get([partition,position.id]))));
+      rows.forEach((row, index) => {
+        if (row && row.value.sortOrder !== positions[index].sortOrder) store.put({ ...row, value: { ...row.value, sortOrder: positions[index].sortOrder } });
+      });
+    });
+  }
+
+  async missingNotePositions(partition: string, positions: Array<{ syncId: string; id: number }>) {
+    const db = await this.open();
+    const tx = db.transaction('notes', 'readonly');
+    const rows = await Promise.all(positions.map(position => this.request<IDBValidKey | undefined>(
+      tx.objectStore('notes').getKey(this.resourceKey(partition, position.syncId)))));
+    return positions.filter((_, index) => !rows[index]);
   }
 
   async putNote(partition: string, note: NoteI) {
     const syncId = this.ensureNoteIdentity(note);
-    const existing = note.id != null
-      ? (await this.listRecords<NoteI>('notes', partition)).filter(record => record.value.id === note.id)
-      : [];
-    const preferred = existing.reduce<NoteI | undefined>((best, record) => {
-      if (!best) return record.value;
-      return this.preferNote(best, record.value);
-    }, undefined);
-    const value = preferred ? this.preferNote(preferred, note) : note;
-    const db = await this.open();
-    await this.transaction(db, ['notes'], 'readwrite', stores => {
-      existing
-        .filter(record => record.syncId !== syncId)
-        .forEach(record => stores['notes'].delete(record.key));
-      stores['notes'].put({ key: this.resourceKey(partition, syncId), partition, syncId, value });
+    await this.atomic(['notes'], async tx => {
+      const store = tx.objectStore('notes');
+      const existing = note.id != null ? await this.request<StoredResource<NoteI>[]>(store.index('partitionId').getAll([partition,note.id])) : [];
+      const preferred = existing.reduce<NoteI | undefined>((best,row) => best ? this.preferNote(best,row.value) : row.value, undefined);
+      const value = preferred ? this.preferNote(preferred,note) : note;
+      existing.filter(record => record.syncId !== syncId).forEach(record => store.delete(record.key));
+      store.put({ key:this.resourceKey(partition,syncId),partition,syncId,value });
     });
   }
 
   async overwriteNoteMetadata(partition: string, note: NoteI) {
     const syncId = this.ensureNoteIdentity(note);
-    const existing = note.id != null
-      ? (await this.listRecords<NoteI>('notes', partition)).filter(record => record.value.id === note.id)
-      : [];
-    const db = await this.open();
-    await this.transaction(db, ['notes'], 'readwrite', stores => {
-      existing
-        .filter(record => record.syncId !== syncId)
-        .forEach(record => stores['notes'].delete(record.key));
-      stores['notes'].put({ key: this.resourceKey(partition, syncId), partition, syncId, value: note });
+    await this.atomic(['notes'], async tx => {
+      const store = tx.objectStore('notes');
+      const existing = note.id != null ? await this.request<StoredResource<NoteI>[]>(store.index('partitionId').getAll([partition,note.id])) : [];
+      existing.filter(record => record.syncId !== syncId).forEach(record => store.delete(record.key));
+      store.put({ key:this.resourceKey(partition,syncId),partition,syncId,value:note });
     });
   }
 
@@ -261,6 +292,7 @@ export class OfflineStoreService {
     return (await this.listByPartition<OutboxEntry>('outbox', partition)).sort((left, right) =>
       left.createdAt - right.createdAt ||
       priority[left.type] - priority[right.type] ||
+      (left.type === 'note.reorder' && right.type === 'note.reorder' ? (left.lww.logical || 0) - (right.lww.logical || 0) : 0) ||
       left.operationId.localeCompare(right.operationId)
     );
   }
@@ -606,7 +638,7 @@ export class OfflineStoreService {
         const replay = await this.request<any>(tx.objectStore('receipts').get(`${partition}|${action.actionId}`));
         if (replay) return replay.result as T;
       }
-      const payload: Record<string, any> = { ...input, syncId };
+      const payload: Record<string, any> = { ...(type.startsWith('note.') ? cleanNoteMetadata(input) : input), syncId };
       const resource = type.split('.')[0] as ResourceType;
       if (resource === 'note') {
         for (const [source, target] of Object.entries((meta as any).mediaAliases || {}) as [string,string][]) {
@@ -637,11 +669,32 @@ export class OfflineStoreService {
         for (const key of Object.keys(payload)) if (!['syncId','labels','binder'].includes(key)) delete payload[key];
         tx.objectStore('notes').put({ ...previous, value: applyPersonalOrganization(previous.value, payload) });
       } else if (type === 'note.reorder') {
-        const rows = await this.request<StoredResource<any>[]>(tx.objectStore('notes').index('partition').getAll(partition));
-        const order = input['syncIds'] as string[];
-        for (const row of rows) {
-          const index = order.indexOf(row.syncId);
-          if (index >= 0) { row.value.sortOrder = stamp.physicalMs + order.length - index; tx.objectStore('notes').put(row); }
+        const order = [...new Set(input['syncIds'] as string[])];
+        const notes = tx.objectStore('notes');
+        const movedIndex = order.indexOf(input['movedSyncId']);
+        // The drag UI already knows the moved note. Read just it and its two
+        // neighbours, rather than deserializing hundreds of imported bodies.
+        let positions: Array<{id:number;syncId:string;sortOrder:number}> | undefined;
+        let rows: Array<StoredResource<any> | undefined> = [];
+        if (movedIndex >= 0) {
+          const neighbours = [order[movedIndex],order[movedIndex-1],order[movedIndex+1]];
+          rows = await Promise.all(neighbours.map(id => id ? this.request<StoredResource<any> | undefined>(notes.get(this.resourceKey(partition,id))) : undefined));
+          const [moved,above,below] = rows;
+          if (moved && neighbours.every((id,index) => !id || rows[index])) {
+            const sameGroup = (row: StoredResource<any> | undefined) => row && !!row.value.pinned === !!moved.value.pinned ? row.value : undefined;
+            const position = positionBetweenNotes(moved.value,sameGroup(above),sameGroup(below),stamp.physicalMs);
+            if (position) positions = [position];
+          }
+        }
+        if (!positions) {
+          rows = await Promise.all(order.map(id => this.request<StoredResource<any> | undefined>(notes.get(this.resourceKey(partition,id)))));
+          positions = notePositionsForOrder(rows.filter((row): row is StoredResource<any> => !!row).map(row => row.value), stamp.physicalMs);
+        }
+        payload['positions'] = positions;
+        const bySyncId = new Map(rows.filter((row): row is StoredResource<any> => !!row).map(row => [row.syncId,row]));
+        for (const position of positions) {
+          const row = bySyncId.get(position.syncId)!;
+          notes.put({...row,value:{...row.value,sortOrder:position.sortOrder}});
         }
       } else if (type !== 'image.upload') {
         const store = tx.objectStore(RESOURCE_STORES[resource]);
@@ -853,7 +906,7 @@ export class OfflineStoreService {
     input: { snapshot?: Partial<Record<ResourceType, Record<string, any>[]>>; changes?: ResourceChange[];
       results?: MutationOutcome[]; sent?: OutboxEntry[]; cursor?: number; serverTime?: number }
   ) {
-    await this.atomic([...Object.values(RESOURCE_STORES), 'baseline', 'outbox', 'syncState', 'workspaces', 'conflicts'], async tx => {
+    return this.atomic([...Object.values(RESOURCE_STORES), 'baseline', 'outbox', 'syncState', 'workspaces', 'conflicts'], async tx => {
       const partition = workspace.partition;
       const meta = await this.request<Workspace | undefined>(tx.objectStore('workspaces').get(workspace.id));
       if (!meta || meta.generation !== workspace.generation || meta.status !== 'active') throw new Error('Obsolete synchronization response.');
@@ -862,21 +915,50 @@ export class OfflineStoreService {
       const baseline = tx.objectStore('baseline');
       const affected = new Map<string, { type: ResourceType; syncId: string }>();
       const mark = (type: ResourceType, syncId: string) => affected.set(`${type}|${syncId}`, { type, syncId });
-      const putBase = (type: ResourceType, syncId: string, value: any) => {
-        baseline.put({ key: `${partition}|${type}|${syncId}`, partition, resourceType: type, syncId, value }); mark(type, syncId);
+      // Position baselines live separately from content, so pending text edits
+      // cannot restore an old position. They are not backup/migration resources.
+      const positionIds = new Set<string>();
+      const putPosition = async (syncId: string, value: any) => {
+        const key = `${partition}|notePosition|${syncId}`;
+        // The feed echoes our acknowledgement. Do not publish the same rank
+        // twice or rebuild native snapshots for an unchanged echo.
+        const previous = await this.request<any>(baseline.get(key));
+        if (value && previous?.value?.sortOrder === value.sortOrder && previous.value.id === value.id) {
+          const note = await this.request<StoredResource<NoteI> | undefined>(tx.objectStore('notes').get(this.resourceKey(partition,syncId)));
+          if (note?.value.sortOrder === value.sortOrder) return;
+        }
+        if (value && Number.isFinite(value.sortOrder)) baseline.put({ key, partition, resourceType: 'notePosition', syncId, value });
+        else baseline.delete(key);
+        positionIds.add(syncId);
+      };
+      const putBase = async (type: ResourceType, syncId: string, value: any) => {
+        if (type === 'note' && !input.snapshot?.note) {
+          const position = await this.request<any>(baseline.get(`${partition}|notePosition|${syncId}`));
+          if (position) await putPosition(syncId, value ? { ...position.value, sortOrder: value.sortOrder } : null);
+        }
+        baseline.put({ key: `${partition}|${type}|${syncId}`, partition, resourceType: type, syncId,
+          value: type === 'note' && value ? cleanNoteMetadata(value) : value }); mark(type, syncId);
       };
       if (input.snapshot && !obsolete) {
         const old = await this.request<any[]>(baseline.index('partition').getAll(partition));
         for (const row of old) {
+          if (row.resourceType === 'notePosition') {
+            if (input.snapshot.note !== undefined) await putPosition(row.syncId, null);
+            continue;
+          }
           if (input.snapshot[row.resourceType as ResourceType] !== undefined) { baseline.delete(row.key); mark(row.resourceType, row.syncId); }
         }
         for (const [type, values] of Object.entries(input.snapshot) as [ResourceType, any[]][]) {
           const visible = await this.request<StoredResource<any>[]>(tx.objectStore(RESOURCE_STORES[type]).index('partition').getAll(partition));
           for (const row of visible) mark(type, row.syncId);
-          for (const value of values) if (value.syncId) putBase(type, value.syncId, value);
+          for (const value of values) if (value.syncId) await putBase(type, value.syncId, value);
         }
       }
-      for (const change of (input.changes || []).filter(change => !obsolete && change.sequence > (priorState?.cursor || 0))) putBase(change.resourceType, change.resourceSyncId, change.operation === 'delete' ? null : change.payload);
+      for (const change of (input.changes || []).filter(change => !obsolete && change.sequence > (priorState?.cursor || 0))) {
+        const value = change.operation === 'delete' ? null : change.payload;
+        if (change.resourceType === 'notePosition') await putPosition(change.resourceSyncId, value);
+        else await putBase(change.resourceType, change.resourceSyncId, value);
+      }
       const sent = new Map((input.sent || []).map(entry => [entry.operationId, entry]));
       for (const outcome of input.results || []) {
         const operation = sent.get(outcome.operationId);
@@ -885,23 +967,56 @@ export class OfflineStoreService {
         const type = operation.type.split('.')[0] as ResourceType;
         if (operation.type !== 'note.reorder' && !obsolete) {
           const value = outcome.canonical !== undefined ? outcome.canonical : operation.type.endsWith('.delete') ? null : { ...(operation.payload as any), ...(outcome.id != null ? { id: outcome.id } : {}) };
-          putBase(type, operation.syncId, value);
+          await putBase(type, operation.syncId, value);
         }
+        if (operation.type === 'note.reorder' && !obsolete) for (const position of outcome.positions || []) await putPosition(position.syncId, position);
         if (outcome.skipped) tx.objectStore('conflicts').put({ key: `${partition}|${operation.operationId}`, partition, operation, canonical: outcome.canonical, reason: 'The server retained a newer version.' });
       }
       const pending = await this.request<OutboxEntry[]>(tx.objectStore('outbox').index('partition').getAll(partition));
-      pending.sort((a, b) => a.createdAt - b.createdAt || a.operationId.localeCompare(b.operationId));
-      for (const operation of pending) if (!['note.reorder', 'attachment.upload', 'image.upload'].includes(operation.type)) mark(operation.type.split('.')[0] as ResourceType, operation.syncId);
+      pending.sort((a, b) => a.createdAt - b.createdAt ||
+        (a.type === 'note.reorder' && b.type === 'note.reorder' ? (a.lww.logical || 0) - (b.lww.logical || 0) : 0) || a.operationId.localeCompare(b.operationId));
+      // A parent's temporary ID may just have become canonical. Reproject its
+      // queued children too, without touching unrelated pending resources.
+      for (const operation of pending) {
+        const type = operation.type.split('.')[0] as ResourceType;
+        const parent = (operation.payload as any)?.noteSyncId;
+        if (['reminder', 'attachment'].includes(type) && !operation.type.endsWith('.upload') && parent && affected.has(`note|${parent}`)) mark(type, operation.syncId);
+      }
+      const pendingByResource = new Map<string, OutboxEntry[]>();
+      for (const operation of pending) {
+        const key = `${operation.type.split('.')[0]}|${operation.syncId}`;
+        const entries = pendingByResource.get(key) || [];
+        entries.push(operation); pendingByResource.set(key, entries);
+      }
+      const noteStore = tx.objectStore('notes');
+      const noteIds = new Set<string>();
+      const markParentNote = async (value: any) => {
+        if (value?.noteSyncId) noteIds.add(value.noteSyncId);
+        else if (typeof value?.noteId === 'number') {
+          const note = await this.request<StoredResource<any> | undefined>(noteStore.index('partitionId').get([partition, value.noteId]));
+          if (note) noteIds.add(note.syncId);
+        }
+      };
       // Project notes first so related reminders/attachments can use canonical note IDs.
       for (const { type, syncId } of [...affected.values()].sort((a, b) => Number(b.type === 'note') - Number(a.type === 'note'))) {
         const record = await this.request<any>(baseline.get(`${partition}|${type}|${syncId}`));
         let value = record?.value || null;
-        for (const op of pending.filter(op => op.syncId === syncId && op.type.split('.')[0] === type && op.type !== 'attachment.upload')) {
+        for (const op of pendingByResource.get(`${type}|${syncId}`) || []) {
+          if (['note.reorder', 'attachment.upload', 'image.upload'].includes(op.type)) continue;
           value = op.type === 'note.binder' ? value && applyBinderMembership(value,op.payload as any) : op.type === 'note.organization'
             ? value && applyPersonalOrganization(value, op.payload as any)
             : op.type.endsWith('.delete') ? null : { ...value, ...(op.payload as any), ...(value?.id > 0 ? { id: value.id } : {}) };
         }
         const store = tx.objectStore(RESOURCE_STORES[type]);
+        if (type === 'note') {
+          noteIds.add(syncId);
+          if (value) value = cleanNoteMetadata(value);
+        }
+        if (type === 'attachment') {
+          const previous = await this.request<StoredResource<any> | undefined>(store.get(this.resourceKey(partition, syncId)));
+          await markParentNote(previous?.value);
+          await markParentNote(value);
+        }
         if (!value) { store.delete(this.resourceKey(partition, syncId)); continue; }
         if ((type === 'reminder' || type === 'attachment') && value.noteSyncId) {
           const note = await this.request<StoredResource<any> | undefined>(tx.objectStore('notes').get(this.resourceKey(partition, value.noteSyncId)));
@@ -910,29 +1025,68 @@ export class OfflineStoreService {
         }
         store.put({ key: this.resourceKey(partition, syncId), partition, syncId, value });
       }
-      const notes = await this.request<StoredResource<any>[]>(tx.objectStore('notes').index('partition').getAll(partition));
-      const attachmentRows = await this.request<StoredResource<any>[]>(tx.objectStore('attachments').index('partition').getAll(partition));
-      const labels = await this.request<StoredResource<any>[]>(tx.objectStore('labels').index('partition').getAll(partition));
-      const preferences = await this.request<StoredResource<any>[]>(tx.objectStore('preferences').index('partition').getAll(partition));
-      if (preferences[0]) meta.preferences = { ...meta.preferences, ...preferences[0].value };
-      for (const row of notes) {
-        row.value = projectSharedOrganization(row.value, meta.preferences);
-        row.value.attachments = attachmentRows.filter(item => item.value.noteId === row.value.id || item.value.noteSyncId === row.syncId).map(item => ({...item.value,noteId:row.value.id}));
-        row.value.labels = (row.value.labels || []).map((label:any) => {
-          const catalog = labels.find(item => item.syncId === label.syncId);
-          return catalog ? { ...label, ...catalog.value, added: label.added } : label;
-        });
-        tx.objectStore('notes').put(row);
+      // Only catalogue/preferences changes can affect notes outside this page.
+      // An empty poll must not read and rewrite the whole library.
+      const allNotesAffected = [...affected.values()].some(item => ['label', 'preferences'].includes(item.type));
+      if ([...affected.values()].some(item => item.type === 'preferences')) {
+        const preferences = await this.request<StoredResource<any>[]>(tx.objectStore('preferences').index('partition').getAll(partition));
+        if (preferences[0]) meta.preferences = { ...meta.preferences, ...preferences[0].value };
       }
+      const notes = allNotesAffected
+        ? await this.request<StoredResource<any>[]>(noteStore.index('partition').getAll(partition))
+        : (await Promise.all([...new Set([...noteIds,...positionIds])].map(syncId => this.request<StoredResource<any> | undefined>(noteStore.get(this.resourceKey(partition, syncId))))))
+          .filter((row): row is StoredResource<any> => !!row);
+      const positionsByNote = new Map(await Promise.all(notes.map(async row => [row.syncId,
+        await this.request<any>(baseline.get(`${partition}|notePosition|${row.syncId}`))] as const)));
+      const needsContentProjection = allNotesAffected || noteIds.size > 0;
+      const labels = needsContentProjection ? await this.request<StoredResource<any>[]>(tx.objectStore('labels').index('partition').getAll(partition)) : [];
+      const labelsById = new Map(labels.map(row => [row.syncId, row.value]));
+      const attachments = tx.objectStore('attachments');
+      const attachmentGroups = new Map<string, StoredResource<any>[]>();
+      if (needsContentProjection && notes.length > 50) {
+        const rows = await this.request<StoredResource<any>[]>(attachments.index('partition').getAll(partition));
+        for (const row of rows) for (const key of [`id:${row.value.noteId}`, `sync:${row.value.noteSyncId}`]) {
+          const group = attachmentGroups.get(key) || [];
+          group.push(row); attachmentGroups.set(key, group);
+        }
+      }
+      const pendingOrder = new Map<string, number>();
       for (const op of pending.filter(op => op.type === 'note.reorder')) {
         const order = (op.payload as any).syncIds as string[];
-        for (const row of notes) { const index = order.indexOf(row.syncId); if (index >= 0) { row.value.sortOrder = op.createdAt + order.length - index; tx.objectStore('notes').put(row); } }
+        const positions = (op.payload as any).positions as Array<{syncId:string;sortOrder:number}> | undefined;
+        if (positions) for (const position of positions) pendingOrder.set(position.syncId,position.sortOrder);
+        else order.forEach((id, index) => pendingOrder.set(id, op.createdAt + order.length - index));
+      }
+      for (const row of notes) {
+        const position = positionsByNote.get(row.syncId);
+        const sortOrder = pendingOrder.get(row.syncId) ?? position?.value?.sortOrder ?? row.value.sortOrder;
+        if (!allNotesAffected && !noteIds.has(row.syncId)) {
+          if (row.value.sortOrder !== sortOrder) noteStore.put({ ...row, value: { ...row.value, sortOrder } });
+          continue;
+        }
+        const related = new Map<string, StoredResource<any>>();
+        const byId = notes.length > 50 ? attachmentGroups.get(`id:${row.value.id}`) || [] : typeof row.value.id === 'number'
+          ? await this.request<StoredResource<any>[]>(attachments.index('partitionNoteId').getAll([partition, row.value.id])) : [];
+        const bySyncId = notes.length > 50 ? attachmentGroups.get(`sync:${row.syncId}`) || []
+          : await this.request<StoredResource<any>[]>(attachments.index('partitionNoteSyncId').getAll([partition, row.syncId]));
+        for (const item of [...byId, ...bySyncId]) related.set(item.key, item);
+        const value = projectSharedOrganization(row.value, meta.preferences);
+        const projected = { ...value,
+          attachments: [...related.values()].map(item => ({ ...item.value, noteId: value.id })),
+          labels: (value.labels || []).map((label: any) => {
+            const catalog = labelsById.get(label.syncId);
+            return catalog ? { ...label, ...catalog, added: label.added } : label;
+          }),
+          sortOrder
+        };
+        if (JSON.stringify(row.value) !== JSON.stringify(projected)) noteStore.put({ ...row, value: projected });
       }
       const previous = await this.request<SyncState | undefined>(tx.objectStore('syncState').get(partition));
       tx.objectStore('syncState').put({ key: partition, partition, cursor: Math.max(input.cursor || 0,previous?.cursor || 0),
         serverOffsetMs: input.serverTime ? input.serverTime - Date.now() : previous?.serverOffsetMs || 0 });
-      meta.revision++;
-      tx.objectStore('workspaces').put(meta);
+      const changed = affected.size > 0 || positionIds.size > 0;
+      if (changed) { meta.revision++; tx.objectStore('workspaces').put(meta); }
+      return changed;
     });
   }
 
@@ -1055,6 +1209,30 @@ export class OfflineStoreService {
           }
           if (!db.objectStoreNames.contains('workspaces')) db.createObjectStore('workspaces', { keyPath: 'id' });
           if (!db.objectStoreNames.contains('syncState')) db.createObjectStore('syncState', { keyPath: 'key' });
+          const tx = request.transaction!;
+          for (const [name, index, field] of [
+            ['notes', 'partitionId', 'id'],
+            ['attachments', 'partitionNoteId', 'noteId'],
+            ['attachments', 'partitionNoteSyncId', 'noteSyncId']
+          ]) {
+            const store = tx.objectStore(name);
+            if (!store.indexNames.contains(index)) store.createIndex(index, ['partition', `value.${field}`]);
+          }
+          for (const name of ['notes', 'baseline']) {
+            const cursorRequest = tx.objectStore(name).openCursor();
+            cursorRequest.onsuccess = () => {
+              const cursor = cursorRequest.result;
+              if (!cursor) return;
+              const row = cursor.value;
+              if ((name === 'notes' || row.resourceType === 'note') && row.value
+                && takeoutSourceFields.some(field => Object.hasOwn(row.value, field))) {
+                cursor.update({ ...row, value: cleanNoteMetadata(row.value) });
+              }
+              cursor.continue();
+            };
+          }
+          // Do not rewrite queued payloads: their exact contents are part of
+          // server replay fingerprints. They are cleaned when acknowledged.
         };
         request.onblocked = () => reject(new Error('Close other Kept windows to finish the storage upgrade.'));
         request.onsuccess = () => {

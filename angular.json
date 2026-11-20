@@ -55,9 +55,9 @@
             "allowedCommonJsDependencies": [
               "jszip",
               "leaflet"
-            ]
+            ],
+            "webWorkerTsConfig": "tsconfig.worker.json"
           },
-
           "configurations": {
             "production": {
               "budgets": [
@@ -71,7 +71,6 @@
                   "maximumWarning": "40kb",
                   "maximumError": "50kb"
                 }
-
               ],
               "fileReplacements": [
                 {

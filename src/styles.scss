@@ -474,6 +474,9 @@ app-input .text-format-toolbar {
   box-shadow: 0 1px 3px rgb(60 64 67 / 28%);
   color: #e8eaed;
   display: inline-flex;
+  flex-wrap: nowrap;
+  max-width: calc(100vw - 24px);
+  overflow-x: auto;
   gap: 4px;
   left: 24px;
   padding: 5px 8px;
@@ -485,7 +488,7 @@ app-input .selection-format-toolbar {
   bottom: auto;
   left: 0;
   position: absolute;
-  transform: translateX(-50%);
+  transform: none;
   z-index: 20;
 }
 
@@ -496,6 +499,8 @@ body.light-theme app-input .text-format-toolbar {
 }
 
 app-input .text-format-toolbar button {
+  flex-shrink: 0;
+  white-space: nowrap;
   background: transparent;
   border: 0;
   border-radius: 4px;
@@ -517,6 +522,7 @@ app-input .text-format-trigger.active {
 }
 
 app-input .text-format-toolbar span {
+  flex-shrink: 0;
   background: rgb(95 99 104 / 35%);
   height: 24px;
   margin: 0 4px;
@@ -3738,3 +3744,134 @@ body:not(.light-theme) app-input .text-format-toolbar .highlight-format[aria-pre
   background: #8a6400;
   color: #e8eaed;
 }
+
+// Code blocks use an opaque note-tinted surface. Only reviewed grammar classes
+// are coloured; these styles and controls never enter the saved note body.
+pre.kept-code {
+  --code-surface: #f3f2ee;
+  --code-plain: #202124;
+  display: block;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 10px 0;
+  padding: 0;
+  border: 1px solid rgb(128 128 128 / 22%);
+  border-radius: 8px;
+  background: var(--code-surface);
+  color: var(--code-plain);
+  text-align: left;
+  direction: ltr;
+  white-space: normal;
+  font-weight: 400;
+  line-height: 1.6;
+  letter-spacing: 0;
+  font-size: 13px;
+  font-family: Roboto, Arial, sans-serif;
+  > code, > .kept-code-editor > code {
+    box-sizing: border-box;
+    display: block;
+    max-width: 100%;
+    min-height: 2.6em;
+    padding: 10px 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: pre;
+    overflow-wrap: normal;
+    word-break: normal;
+    tab-size: 2;
+    direction: ltr;
+    text-align: left;
+    font: 14px/1.6 ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    color: var(--code-plain);
+    background: none;
+    overscroll-behavior-x: contain;
+    &:focus { outline: 2px solid #a8c7fa; outline-offset: -2px; }
+    mark { background: none !important; color: inherit !important; padding: 0 !important; margin: 0 !important; }
+  }
+  button { font: inherit; cursor: pointer; border: 0; color: inherit; background: transparent; }
+  button:focus-visible, input:focus-visible { outline: 2px solid #1a73e8; outline-offset: -2px; }
+  .kept-code-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    min-height: var(--code-header-min-height, 32px); padding: 0 var(--code-header-pin-space, 6px) 0 10px; border-bottom: 1px solid rgb(128 128 128 / 16%);
+    background: rgb(0 0 0 / 5%); border-radius: 7px 7px 0 0; user-select: none;
+  }
+  .kept-code-language { flex: 1; min-width: 0; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; padding: 6px 0; text-align: left; }
+  button.kept-code-language::after { content: ' ▾'; }
+  .kept-code-copy {
+    display: inline-flex; align-items: center; flex-shrink: 0; gap: 4px; min-width: 32px; min-height: 32px;
+    .material-symbols-outlined { font-size: 16px; }
+    &.copied { color: var(--code-string); }
+  }
+  .kept-code-convert { flex-shrink: 0; width: 32px; min-height: 32px; font-size: 24px; line-height: 1; border-radius: 4px; }
+  .kept-code-convert:hover { background: rgb(128 128 128 / 15%); }
+  .kept-code-editor { position: relative; min-width: 0; }
+  &.code-editing > .kept-code-editor > code {
+    position: absolute; inset: 0; height: 100%; overflow: hidden; pointer-events: none;
+  }
+  &.code-editing .kept-code-input { color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--code-plain); }
+  &.code-editing .kept-code-input::selection { background: rgb(100 160 230 / 35%); }
+  @media (forced-colors: active) {
+    &.code-editing > .kept-code-editor > code { visibility: hidden; }
+    &.code-editing .kept-code-input { color: CanvasText; -webkit-text-fill-color: CanvasText; caret-color: CanvasText; }
+  }
+  .kept-code-more { padding: 0 12px 8px; font-size: 12px; font-weight: 500; }
+  .kept-code-exit { display: block; padding: 6px 12px; min-height: 36px; border-top: 1px solid rgb(128 128 128 / 16%); width: 100%; text-align: right; }
+  .kept-code-menu {
+    position: absolute; top: 32px; left: 0; z-index: 10; width: min(260px, 100%); max-width: 100%;
+    box-sizing: border-box; border: 1px solid rgb(128 128 128 / 35%); border-radius: 8px;
+    background: var(--code-surface); box-shadow: 0 6px 18px rgb(0 0 0 / 20%); padding: 6px;
+    input { box-sizing: border-box; width: 100%; padding: 8px; min-height: 36px; background: transparent; color: inherit; border: 1px solid rgb(128 128 128 / 40%); border-radius: 4px; font: inherit; }
+    .kept-code-language-options { max-height: min(240px, 35dvh); overflow-y: auto; overscroll-behavior: contain; }
+    button { display: block; width: 100%; min-height: 36px; padding: 6px 10px; text-align: left; }
+    button[aria-pressed='true'] { font-weight: 700; background: rgb(128 128 128 / 15%); }
+  }
+  .hljs-keyword, .hljs-selector-tag, .hljs-literal { color: var(--code-keyword); }
+  .hljs-string, .hljs-regexp, .hljs-template-tag { color: var(--code-string); }
+  .hljs-number, .hljs-attr, .hljs-attribute { color: var(--code-number); }
+  .hljs-comment, .hljs-quote, .hljs-meta { color: var(--code-comment); font-style: italic; }
+  .hljs-title, .hljs-function, .hljs-built_in { color: var(--code-title); }
+  .hljs-type, .hljs-tag, .hljs-name, .hljs-selector-class { color: var(--code-type); }
+  &.code-dark .kept-code-header { background: rgb(255 255 255 / 8%); }
+}
+app-notes .body-code { min-width: 0; max-width: 100%; }
+app-notes .body-code pre.kept-code { margin: var(--code-preview-top-space, 8px) 0 8px; border-radius: 6px; font-size: 11.5px; > code { font-size: 12px; line-height: 18.6px; } }
+// The fullscreen/mobile editor uses comfortable type and touch targets.
+@media (max-width: 599px), (pointer: coarse) {
+  app-notes .body-code pre.kept-code > code {
+    scrollbar-width: auto;
+    scrollbar-color: var(--code-comment) var(--code-surface);
+    touch-action: pan-x pan-y pinch-zoom;
+    &::-webkit-scrollbar { height: 12px; }
+    &::-webkit-scrollbar-track { background: var(--code-surface); }
+    &::-webkit-scrollbar-thumb {
+      background: var(--code-comment); border: 3px solid var(--code-surface); border-radius: 8px;
+    }
+  }
+  app-input pre.kept-code {
+    > code, > .kept-code-editor > code { font-size: 16px; }
+    .kept-code-header, .kept-code-copy, .kept-code-convert, .kept-code-language, .kept-code-exit, .kept-code-menu button { min-height: 44px; }
+    .kept-code-menu { top: 44px; }
+    .kept-code-menu input { font-size: 16px; }
+  }
+}
+app-input .text-format-toolbar .code-format { font-size: 13px; width: auto; padding-inline: 8px; white-space: nowrap; }
+pre.kept-code[hidden] { display: none !important; }
+.kept-code-extra-blocks { font: 500 12px/1.5 Roboto, Arial, sans-serif; padding: 0 0 6px; }
+pre.kept-code code[hidden], pre.kept-code textarea[hidden] { display: none !important; }
+pre.kept-code .kept-code-input {
+  box-sizing: border-box; display: block; width: 100%; min-width: 0; max-width: 100%;
+  margin: 0; border: 0; border-radius: 0; padding: 10px 12px; resize: none;
+  color: var(--code-plain); background: transparent; direction: ltr; text-align: left;
+  font: 14px/1.6 ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  white-space: pre; overflow-wrap: normal; word-break: normal; tab-size: 2;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+  &:focus { outline: 2px solid #a8c7fa; outline-offset: -2px; }
+}
+@media (max-width: 599px), (pointer: coarse) {
+  app-input pre.kept-code .kept-code-input { font-size: 16px; }
+}
+
+app-input .kept-code-leading-line { min-height: 24px; cursor: text; }

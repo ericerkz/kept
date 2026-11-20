@@ -65,6 +65,8 @@ function harness(t, platform = 'web', initiallyOnline = true) {
     getSyncState: async () => ({ cursor: 1, serverOffsetMs: 0 }),
     setSyncState: async () => {},
     listNotes: async () => [{ id: 1, syncId: 'baseline', noteTitle: 'Existing note' }],
+    getNoteBySyncId: async (partition,id) => (await store.listNotes(partition)).find(note=>note.syncId === id),
+    hasNotes: async partition => (await store.listNotes(partition)).length > 0,
     replaceSnapshot: async () => {},
     listOutbox: async partition => queued.filter(entry => entry.partition === partition),
     nextStamp: () => ({ operationId: `op-${++sequence}`, physicalMs: clock.now, logical: 0, deviceId: 'test' }),
@@ -136,6 +138,48 @@ function harness(t, platform = 'web', initiallyOnline = true) {
     emit: event => window.dispatchEvent(new Event(event))
   };
 }
+
+test('ack-only sync retains the applied cursor and pulls every page; empty polls do not refresh the library', async t => {
+  const h=harness(t);await h.login();
+  let cursor=1,events=0;const applied=[];
+  h.service.cacheChanged$.subscribe(()=>events++);
+  const reconcile=h.store.reconcile;
+  h.store.getSyncState=async()=>({cursor,serverOffsetMs:0});
+  h.store.reconcile=async(workspace,input)=>{
+    if(input.results?.length) assert.equal(input.cursor,undefined,'acknowledgements must not skip unseen remote changes');
+    applied.push(...(input.changes||[]));
+    if(input.cursor!==undefined)cursor=input.cursor;
+    await reconcile(workspace,input);
+    return !!(input.snapshot||input.results?.length||input.changes?.length);
+  };
+  h.respond((method,_url,body)=>{
+    if(method==='POST'){
+      assert.equal(body.responseMode,'ack');
+      return rx.of({protocolVersion:2,results:body.mutations.map(entry=>({operationId:entry.operationId,ok:true,canonical:{id:1,syncId:entry.syncId,noteTitle:'Acknowledged'}}))});
+    }
+    const from=Number(body.params.cursor);
+    if(from===1)return rx.of({changes:[{sequence:2,resourceType:'note',resourceSyncId:'remote',operation:'upsert',payload:{noteTitle:'Other device'}}],cursor:2,hasMore:true});
+    if(from===2)return rx.of({changes:[{sequence:3,resourceType:'note',resourceSyncId:'baseline',operation:'upsert',payload:{noteTitle:'Acknowledged'}}],cursor:3,hasMore:false});
+    return rx.of({changes:[],cursor:3,hasMore:false});
+  });
+  await h.service.enqueue('note.upsert','baseline',{noteTitle:'Acknowledged'});await settle();
+  assert.equal(cursor,3);assert.equal(h.queued.length,0);
+  assert.deepEqual(applied.map(change=>change.sequence),[2,3]);
+  assert.equal(events,2,'one acknowledgement refresh and one refresh after all incoming pages');
+  events=0;await h.service.syncNow();assert.equal(events,0);
+});
+
+test('a newer client accepts a legacy server snapshot response to its ack request', async t=>{
+  const h=harness(t);await h.login();const reconciled=[];
+  const reconcile=h.store.reconcile;
+  h.store.reconcile=async(workspace,input)=>{reconciled.push(input);await reconcile(workspace,input);return true;};
+  h.respond((method,_url,body)=>rx.of(method==='POST'
+    ?{results:body.mutations.map(()=>({ok:true})),snapshot:{notes:[{id:1,syncId:'baseline',noteTitle:'Legacy canonical'}],reminders:[],attachments:[],cursor:10}}
+    :{changes:[],cursor:10,hasMore:false}));
+  await h.service.enqueue('note.upsert','baseline',{noteTitle:'Local'});await settle();
+  const acknowledgement=reconciled.find(input=>input.results?.length);
+  assert.equal(acknowledgement.cursor,10);assert.equal(acknowledgement.results[0].canonical.noteTitle,'Legacy canonical');assert.equal(h.queued.length,0);
+});
 
 test('older cached account preferences settle after normalization instead of continuously restarting iOS sync', async t => {
   const h = harness(t, 'ios');
@@ -697,4 +741,37 @@ test('last good sync time survives offline reopening and stays scoped to its acc
   h.auth.currentUser$.next({ id: 2 });
   await settle();
   assert.equal(h.service.lastSyncedAt$.value, null);
+});
+
+test('position deltas recover a missing note by bootstrapping before advancing the cursor',async t=>{
+  const h=harness(t);let cursor=1,known=false,bootstraps=0;
+  h.store.listResources=async()=>[];
+  h.store.getSyncState=async()=>({cursor,serverOffsetMs:0});
+  h.store.missingNotePositions=async(_partition,positions)=>known?[]:positions;
+  h.store.reconcile=async(_workspace,input)=>{if(input.snapshot){known=true;bootstraps++;}if(input.cursor)cursor=input.cursor;};
+  h.respond((_method,url,options)=>{
+    if(url.endsWith('/bootstrap')) return rx.of({protocolVersion:2,notes:[{id:7,syncId:'missing',noteBody:'Full content',sortOrder:70}],reminders:[],attachments:[],cursor:9,serverTime:h.clock.now});
+    assert.equal(options.params.notePositions,'1');
+    return rx.of(cursor===1?{protocolVersion:2,changes:[{sequence:2,resourceType:'notePosition',resourceSyncId:'missing',operation:'upsert',payload:{id:7,syncId:'missing',sortOrder:70}}],cursor:2,hasMore:false}:{protocolVersion:2,changes:[],cursor:9,hasMore:false});
+  });
+  await h.login();await settle();
+  assert.equal(bootstraps,1);assert.equal(known,true);assert.equal(cursor,9);
+  assert.deepEqual(h.requests.map(request=>request.url),['/api/sync/changes','/api/sync/bootstrap','/api/sync/changes']);
+  assert.equal(h.service.state$.value,'saved');
+});
+
+test('note-only acknowledgements and incoming positions identify affected notes; catalogue changes request a full refresh',async t=>{
+ const h=harness(t);await h.login();const events=[];
+ h.service.cacheChanged$.subscribe(event=>events.push(event));
+ h.store.missingNotePositions=async()=>[];
+ const reconcile=h.store.reconcile;h.store.reconcile=async(...args)=>{await reconcile(...args);return true;};
+ h.queued.push({key:'targeted-op',partition:'account:1',operationId:'targeted-op',type:'note.upsert',syncId:'edited',payload:{noteTitle:'Edit'},lww:{}});
+ h.respond((method,_url,body)=>rx.of(method==='POST'
+   ?{results:body.mutations.map(entry=>({ok:true,operationId:entry.operationId,canonical:{id:1,syncId:entry.syncId,noteTitle:'Edit'}}))}
+   :{changes:[{sequence:2,resourceType:'note',resourceSyncId:'remote',operation:'upsert',payload:{id:2,syncId:'remote'}},{sequence:3,resourceType:'notePosition',resourceSyncId:'positioned',operation:'upsert',payload:{id:3,syncId:'positioned',sortOrder:4}}],cursor:3,hasMore:false}));
+ await h.service.syncNow();
+ assert.deepEqual(events.map(event=>Array.from(event.noteSyncIds).sort()),[['edited'],['positioned','remote']]);
+ events.length=0;
+ h.respond(()=>rx.of({changes:[{sequence:4,resourceType:'label',resourceSyncId:'renamed',operation:'upsert',payload:{id:1,name:'Renamed'}}],cursor:4,hasMore:false}));
+ await h.service.syncNow();assert.deepEqual(events,[undefined]);
 });

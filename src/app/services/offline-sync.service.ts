@@ -10,6 +10,8 @@ import { AuthService } from './auth.service';
 import { OfflineStoreService, OutboxEntry } from './offline-store.service';
 import { Workspace, ResourceType, ResourceChange, MutationOutcome, NativeAction } from '../interfaces/workspace';
 
+export type NoteCacheChange = { noteSyncIds: string[]; positionsOnly?: boolean };
+
 export type OfflineSyncState = 'offline' | 'syncing' | 'saved' | 'error';
 
 type SyncAppPlugin = {
@@ -35,7 +37,7 @@ export class OfflineSyncService implements OnDestroy {
   readonly pendingCount$ = new BehaviorSubject(0);
   readonly storageBlocked$ = new BehaviorSubject(false);
   readonly storageFullMessage = "Your server's storage is full - please upgrade or delete some files/images.";
-  readonly cacheChanged$ = new Subject<void>();
+  readonly cacheChanged$ = new Subject<NoteCacheChange | void>();
   private readonly apiUrl = environment.apiUrl;
   private readonly syncRequestTimeoutMs = 12000;
   private degradedUntil = 0;
@@ -154,7 +156,7 @@ export class OfflineSyncService implements OnDestroy {
   async commit<T extends Record<string, any>>(type: OutboxEntry['type'], syncId: string, payload: T, options?: { blobs?: Array<{ key: string; value: Blob }>; attachments?: Record<string,any>[]; action?: NativeAction }): Promise<T> {
     try {
       const value = await this.store.commitMutation(await this.workspace(), type, syncId, payload, options);
-      this.cacheChanged$.next();
+      this.cacheChanged$.next(this.noteCacheChange([{type,syncId,payload:value}]));
       if (this.auth.isLocal) this.state$.next('saved');
       else {
         await this.readPending();
@@ -168,7 +170,7 @@ export class OfflineSyncService implements OnDestroy {
     try {
       const result = await this.store.trashNotes(await this.workspace(), syncIds, this.auth.currentUser?.id);
       // One publication and one sync kick for the entire durable batch.
-      this.cacheChanged$.next();
+      this.cacheChanged$.next({noteSyncIds:syncIds});
       if (this.auth.isLocal) this.state$.next('saved');
       else {
         await this.readPending();
@@ -277,10 +279,10 @@ export class OfflineSyncService implements OnDestroy {
       if (identity.epoch !== this.epoch || workspace.partition !== identity.partition) {const error = new Error('Workspace changed.');error.name='StaleSyncResponse';throw error;}
       this.activeContext = {...identity,workspace};
       const state = await this.store.getSyncState(this.currentPartition);
-      const cachedNotes = bootstrapIfEmpty ? await this.store.listNotes(this.currentPartition) : [];
+      const hasCachedNotes = bootstrapIfEmpty && await this.store.hasNotes(this.currentPartition);
       const pending = await this.readPending(identity.partition, identity.epoch);
       this.storageBlocked$.next(pending.some(entry => entry.blockedBy === 'storage'));
-      if (!pending.length && (state.cursor === 0 || (bootstrapIfEmpty && cachedNotes.length === 0))) {
+      if (!pending.length && (state.cursor === 0 || (bootstrapIfEmpty && !hasCachedNotes))) {
         await this.bootstrap();
       }
       await this.flushOutbox();
@@ -397,6 +399,20 @@ export class OfflineSyncService implements OnDestroy {
     if (await this.store.markUploadStorageBlocked(workspace, entry)) this.storageBlocked$.next(true);
   }
 
+  private noteCacheChange(entries: Array<{ type: string; syncId: string; payload: unknown }>, results?: MutationOutcome[]): NoteCacheChange | undefined {
+    const ids = new Set<string>();
+    const positionsOnly = entries.every(entry => entry.type === 'note.reorder');
+    for (const entry of entries) {
+      if (entry.type === 'note.reorder') {
+        const positions = results ? results[entries.indexOf(entry)]?.positions : (entry.payload as any)?.positions;
+        for (const id of positions ? positions.map((position: any) => position.syncId) : (entry.payload as any)?.syncIds || []) ids.add(id);
+      }
+      else if (['note.upsert','note.delete','note.organization','note.binder','note.view-state'].includes(entry.type)) ids.add(entry.syncId);
+      else return undefined; // Catalogue, media and related resources need a full refresh.
+    }
+    return {noteSyncIds:[...ids], ...(positionsOnly ? {positionsOnly:true} : {})};
+  }
+
   private async flushMutations(entries: OutboxEntry[]) {
     if (!this.currentPartition || !entries.length) return;
     const response = await this.withTimeout(firstValueFrom(this.http.post<{
@@ -405,6 +421,7 @@ export class OfflineSyncService implements OnDestroy {
       snapshot?: SyncSnapshot;
     }>(`${this.apiUrl}/sync/mutations`, {
       protocolVersion: 2,
+      responseMode: 'ack',
       mutations: entries.map(entry => ({
         operationId: entry.operationId,
         type: entry.type,
@@ -422,9 +439,9 @@ export class OfflineSyncService implements OnDestroy {
       return { ...result, operationId: result.operationId || entry?.operationId,
         ...(canonical ? { canonical } : {}) };
     });
-    await this.store.reconcile(workspace, { results, sent: entries, snapshot,
+    const changed = await this.store.reconcile(workspace, { results, sent: entries, snapshot,
       cursor: response.snapshot?.cursor, serverTime: response.serverTime });
-    this.cacheChanged$.next();
+    if (changed) this.cacheChanged$.next(response.snapshot ? undefined : this.noteCacheChange(entries,results));
     const pendingIds = new Set((await this.store.listOutbox(workspace.partition)).map(entry=>entry.operationId));
     const failed = results.find(result => !result.ok && pendingIds.has(result.operationId));
     if (failed) throw new Error(failed.error || 'A queued change could not be synchronized.');
@@ -446,7 +463,7 @@ export class OfflineSyncService implements OnDestroy {
         filename: string;
         syncId: string;
       };
-      const note = (await this.store.listNotes(this.currentPartition)).find(item => item.syncId === payload.noteSyncId);
+      const note = await this.store.getNoteBySyncId(this.currentPartition,payload.noteSyncId);
       if (!note?.id || note.id < 0) continue;
       const blob = await this.store.getBlob(workspace.partition, payload.blobKey || `attachment:${entry.syncId}`);
       if (!blob) {
@@ -478,6 +495,10 @@ export class OfflineSyncService implements OnDestroy {
     if (!this.currentPartition) return;
     let state = await this.store.getSyncState(this.currentPartition);
     let hasMore = true;
+    let changed = false;
+    let fullRefresh = false;
+    let positionsOnly = true;
+    const noteSyncIds = new Set<string>();
     while (hasMore) {
       const response = await this.withTimeout(firstValueFrom(this.http.get<{
         protocolVersion?: number; changes: SyncChange[];
@@ -486,10 +507,26 @@ export class OfflineSyncService implements OnDestroy {
         serverTime: number;
       }>(`${this.apiUrl}/sync/changes`, {
         headers: this.requestHeaders(),
-        params: { cursor: String(state.cursor), limit: '500', protocolVersion: '2' }
+        params: { cursor: String(state.cursor), limit: '500', protocolVersion: '2', notePositions: '1' }
       })), this.syncRequestTimeoutMs);
       const workspace = this.activeContext?.workspace || await this.workspace();
-      await this.store.reconcile(workspace, { changes: response.changes || [], cursor: response.cursor ?? state.cursor, serverTime: response.serverTime });
+      const fullNotes = new Set((response.changes || []).filter(change => change.resourceType === 'note' && change.operation !== 'delete').map(change => change.resourceSyncId));
+      const positions = (response.changes || []).filter(change => change.resourceType === 'notePosition' && change.operation !== 'delete' && !fullNotes.has(change.resourceSyncId))
+        .map(change => ({ syncId: change.resourceSyncId, id: Number(change.payload?.['id']) }));
+      if (positions.length && (await this.store.missingNotePositions(workspace.partition, positions)).length) {
+        // A restored/partial cache may know a position before it knows the note.
+        // Recover one consistent snapshot before advancing past those changes.
+        await this.bootstrap();
+        state = await this.store.getSyncState(this.currentPartition);
+        changed = true;
+        continue;
+      }
+      for (const change of response.changes || []) {
+        if (change.resourceType !== 'notePosition') positionsOnly = false;
+        if (change.resourceType === 'note' || change.resourceType === 'notePosition') noteSyncIds.add(change.resourceSyncId);
+        else fullRefresh = true;
+      }
+      changed = await this.store.reconcile(workspace, { changes: response.changes || [], cursor: response.cursor ?? state.cursor, serverTime: response.serverTime }) || changed;
       if (response.protocolVersion === 2 && this.protocolVersion !== 2) {
         await this.bootstrap();
       }
@@ -497,7 +534,7 @@ export class OfflineSyncService implements OnDestroy {
       hasMore = !!response.hasMore;
     }
     await this.applyCachedPreferences(await this.workspace());
-    this.cacheChanged$.next();
+    if (changed) this.cacheChanged$.next(fullRefresh ? undefined : {noteSyncIds:[...noteSyncIds],positionsOnly});
   }
 
   private async applyCachedPreferences(workspace: Workspace) {

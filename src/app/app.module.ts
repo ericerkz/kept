@@ -1,3 +1,4 @@
+import { CodeBlocksDirective } from './components/code-blocks/code-blocks.directive';
 import { NotePreviewDirective } from './components/notes/note-preview.directive';
 import { NotePreviewImagesComponent } from './components/notes/note-preview-images.component';
 import { APP_INITIALIZER, NgModule } from '@angular/core';
@@ -50,6 +51,7 @@ import { UiTextPipe, UiPluralPipe, UiDatePipe } from './i18n/ui-text.pipe';
         NavbarComponent,
         NotesComponent,
         NotePreviewDirective,
+        CodeBlocksDirective,
         NotePreviewImagesComponent,
         InputComponent,
         LocationMapPickerComponent,

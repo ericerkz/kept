@@ -344,6 +344,18 @@
       }
     }
 
+    // Use one header row for leading code and the card's usual top-right pin.
+    // Its centre matches the pin without moving the pin or narrowing the code.
+    &.note-main--untitled:not(.note-main--image-cover) .note-images:empty + .body-segments:has(> .body-code:first-child) {
+      padding-top: 0;
+
+      > .body-code:first-child {
+        --code-header-pin-space: 50px;
+        --code-header-min-height: 44px;
+        --code-preview-top-space: 0px;
+      }
+    }
+
     .shared-indicator {
 
       position: absolute;

@@ -299,6 +299,52 @@
     "checklist.delete_completed.other": [
       "src/app/components/input/input.component.ts"
     ],
+    "code.auto_detect": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.block": [
+      "src/app/components/code-blocks/code-blocks.directive.ts",
+      "src/app/components/input/input.component.html"
+    ],
+    "code.choose_language": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.continue_writing": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.convert_to_text": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.copy": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.copy_failed": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.detected": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.exit_hint": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.more_blocks.one": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.more_blocks.other": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.more_lines.one": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.more_lines.other": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.plain_text": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
+    "code.search_languages": [
+      "src/app/components/code-blocks/code-blocks.directive.ts"
+    ],
     "colors.blue": [
       "shared/note-palette.json"
     ],

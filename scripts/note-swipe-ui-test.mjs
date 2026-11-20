@@ -32,6 +32,11 @@ try {
     noteTitle:`Swipe check ${index}`,noteBody:'A note with enough text to make vertical scrolling meaningful. '.repeat(15),
     bgColor:'',bgImage:'',labels:[],images:[],checkBoxes:[]
   }));
+  const codeNote = await api('/notes', {
+    noteTitle: 'Scrollable code preview',
+    noteBody: '<pre class="kept-code kept-code-lang-javascript" data-code-language="javascript"><code>' +
+      Array.from({ length: 8 }, (_, index) => `const line${index} = "${'long_code_'.repeat(45)}";`).join('\n') + '</code></pre>'
+  });
   browser=await chromium.launch({headless:true});
   for(const width of [390,1000]) {
     const context=await browser.newContext({viewport:{width,height:800},hasTouch:true,isMobile:width<768,serviceWorkers:'block'});
@@ -88,6 +93,57 @@ try {
       assert.equal((await api(`/notes/${note.id}`)).archived,false,'mouse and trackpad input never archive');
     }
     assert.equal(await page.locator('.note-swiping').count(),0);
+    const codeCard = page.locator(`app-notes [data-note-id="${codeNote.id}"]`);
+    await codeCard.scrollIntoViewIfNeeded();
+    const codePane = codeCard.locator('.kept-code-scroll');
+    await codePane.waitFor();
+    assert.ok(await codePane.evaluate(element => element.scrollWidth > element.clientWidth + 100));
+    const scrollGesture = async (dx, hold = false) => {
+      const box = await codePane.boundingBox(); const x = dx < 0 ? box.x + box.width - 25 : box.x + 25, y = box.y + 35;
+      await start(x, y);
+      if (hold) await page.waitForTimeout(200);
+      for (let step = 1; step <= 8; step++) { await move(x + dx * step / 8, y); await page.waitForTimeout(20); }
+      await end(); await page.waitForTimeout(80);
+    };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await codePane.evaluate(element => element.scrollLeft = 0);
+      await scrollGesture(-100, attempt === 1);
+      assert.ok(await codePane.evaluate(element => element.scrollLeft > 30), 'dragging anywhere in code reliably scrolls it');
+      assert.equal(await codeCard.evaluate(element => element.classList.contains('note-swiping')), false);
+      assert.equal((await api(`/notes/${codeNote.id}`)).archived, false);
+      assert.equal(await page.locator('.touch-dragging-ghost').count(), 0);
+      assert.equal(await page.locator('app-notes > .modal-container').evaluate(element => element.style.display), '');
+    }
+    // Scroll boundaries must not hand the gesture over to archiving either.
+    await codePane.evaluate(element => element.scrollLeft = element.scrollWidth);
+    await scrollGesture(-100);
+    await codePane.evaluate(element => element.scrollLeft = 0);
+    await scrollGesture(100);
+    assert.equal((await api(`/notes/${codeNote.id}`)).archived, false);
+    const codeHeader = codeCard.locator('.kept-code-header');
+    for (const dx of [-100, 100]) {
+      const header = await codeHeader.boundingBox();
+      const x = dx > 0 ? header.x + 18 : header.x + header.width / 2, y = header.y + header.height / 2;
+      await start(x, y);
+      for (let step = 1; step <= 8; step++) { await move(x + dx * step / 8, y); await page.waitForTimeout(20); }
+      await end(); await page.waitForTimeout(400);
+      assert.equal((await api(`/notes/${codeNote.id}`)).archived, false, 'header drags cannot archive');
+      assert.equal(await page.locator('app-notes > .modal-container').evaluate(element => element.style.display), '', 'header drags cannot open the editor');
+      assert.equal(await page.locator('.touch-dragging-ghost').count(), 0);
+    }
+    // A stationary hold inside code still opens note multi-selection.
+    const holdBox = await codePane.boundingBox();
+    await start(holdBox.x + holdBox.width / 2, holdBox.y + 35);
+    await page.locator('.touch-dragging-ghost').waitFor(); await end();
+    await page.locator(`[data-note-id="${codeNote.id}"].selected`).waitFor();
+    assert.equal((await api(`/notes/${codeNote.id}`)).archived, false);
+    await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+    await page.waitForTimeout(400);
+    // A normal tap still opens the note, with the editor's scrolling intact.
+    await codePane.tap();
+    const editor = page.locator('app-input .note-main:visible').last();
+    await editor.locator('pre.kept-code code').waitFor();
+    assert.equal(await editor.locator('pre.kept-code code').evaluate(element => getComputedStyle(element).overflowX), 'auto');
     console.log(`Touch archive, Undo, long press and input separation passed at ${width}px.`);
     await context.close();
   }

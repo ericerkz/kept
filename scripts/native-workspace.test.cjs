@@ -19,11 +19,11 @@ function harness(platform = 'android', imageRuntime = {}) {
  }});
  const workspace={id:'device',partition:'local:device',generation:'first',status:'active',revision:10};
  const sync={partition:workspace.partition,generation:workspace.generation,cacheChanged$:new rx.Subject(),workspace:async()=>({...workspace})};
- const store={getWorkspace:async()=>({...workspace}),nativeProjection:async()=>({workspace:{...workspace},notes:[{id:1,syncId:'note'}]}),getBlob:async()=>undefined};
+ const store={getWorkspace:async()=>({...workspace}),getNoteBySyncId:async()=>undefined,nativeProjection:async()=>({workspace:{...workspace},notes:[{id:1,syncId:'note'}]}),getBlob:async()=>undefined};
  const native=new exports.NativeWorkspaceService({accessChanges$:new rx.Subject(),canonicalImageUrl:value=>value,authenticatedImageUrl:value=>value},sync,store,{run:fn=>fn()});
  native.plugin={activateWorkspace:async()=>{},publishSnapshot:async()=>{},syncReminders:async()=>({})};
  native.capabilities$.next({version:1,workspaceSnapshots:true});
- return {native,workspace,sync,store,settings};
+ return {native,workspace,sync,store,settings,window,document};
 }
 test('location permission skips are actionable and clear on successful resync; otherWorkspace stays benign',async()=>{
  const h=harness();h.native.error$.next('Existing storage failure');
@@ -225,4 +225,27 @@ test('locking a note or switching workspaces while a thumbnail is generated prev
    assert.equal('thumbnailDataUrl' in h.pages[0].notes[0],false);
   }
  }
+});
+
+test('unchanged native revisions and inactive generations skip reading the full library',async()=>{
+ const h=harness();let reads=0,pages=0;const projection=h.store.nativeProjection;
+ h.store.nativeProjection=async(...args)=>{reads++;return projection(...args);};
+ h.native.plugin.publishSnapshot=async()=>{pages++;};
+ await h.native.publish();await h.native.publish();
+ assert.equal(reads,1);assert.equal(pages,1);
+ h.workspace.revision++;
+ await h.native.publish();assert.equal(reads,2);assert.equal(pages,2);
+ h.sync.generation='different';await h.native.publish();assert.equal(reads,2);
+});
+
+test('native cache bursts publish once and explicit/lifecycle flushes bypass the collection window',async()=>{
+ const h=harness();let flushes=0;
+ h.native.flushOnce=async()=>{flushes++;};
+ h.sync.cacheChanged$.next();h.sync.cacheChanged$.next();h.sync.cacheChanged$.next();
+ assert.equal(flushes,0);await new Promise(resolve=>setTimeout(resolve,130));assert.equal(flushes,1);
+ h.sync.cacheChanged$.next();h.sync.cacheChanged$.next();
+ await h.native.flush();assert.equal(flushes,2);
+ await new Promise(resolve=>setTimeout(resolve,130));assert.equal(flushes,2,'cancelled timer must not publish twice');
+ h.sync.cacheChanged$.next();h.document.visibilityState='hidden';h.document.dispatchEvent(new Event('visibilitychange'));
+ await h.native.flushOperation;assert.equal(flushes,3,'backgrounding flushes pending work without waiting for the timer');
 });

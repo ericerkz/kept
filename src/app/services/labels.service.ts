@@ -17,7 +17,7 @@ export class LabelsService {
   labelsList$ = new BehaviorSubject<LabelI[]>([]);
 
   constructor(private http: HttpClient, private auth: AuthService, private store: OfflineStoreService, private sync: OfflineSyncService) {
-    this.sync.cacheChanged$.subscribe(() => { if (this.sync.writesLocally) this.load().catch(console.error); });
+    this.sync.cacheChanged$.subscribe(change => { if (change?.positionsOnly) return; if (this.sync.writesLocally) this.load().catch(console.error); });
     this.auth.accessChanges$.subscribe(() => { this.labelsList$.next([]); if (this.auth.isLocal) this.load().catch(console.error); });
   }
 

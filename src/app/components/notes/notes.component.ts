@@ -47,7 +47,7 @@ type KeptWidgetIntentsPlugin = {
   getPendingCreateType: () => Promise<{ type: WidgetCreateType | null; workspaceId?: string; generation?: string }>;
   acknowledgeCreateType: () => Promise<void>;
 };
-type NoteBodySegment = { type: 'html'; value: string } | { type: 'url'; value: string } | { type: 'checklist'; value: string } | OverviewImageGroup | { type: 'drawing'; value: string; image: NoteImageI }
+type NoteBodySegment = { type: 'code'; value: string } | { type: 'html'; value: string } | { type: 'url'; value: string } | { type: 'checklist'; value: string } | OverviewImageGroup | { type: 'drawing'; value: string; image: NoteImageI }
 type NoteBodyPreview = { segments: NoteBodySegment[]; urls: string[] }
 type NoteArchiveSwipe = {
   note: NoteI; card: HTMLElement; identifier: number; width: number;
@@ -399,6 +399,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
     if (richLinkPreviews) {
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
+      if (anchor.closest('pre, code')) return
       if (anchor.querySelector('img')) return
       const href = anchor.href || anchor.getAttribute('href') || ''
       const text = (anchor.textContent || '').trim()
@@ -411,7 +412,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     })
 
     const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT, {
-      acceptNode: node => /https?:\/\/[^\s"'<>]+/.test(node.textContent || '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+      acceptNode: node => node.parentElement?.closest('pre, code') ? NodeFilter.FILTER_REJECT : /https?:\/\/[^\s"'<>]+/.test(node.textContent || '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
     })
     const textNodes: Text[] = []
     while (walker.nextNode()) textNodes.push(walker.currentNode as Text)
@@ -486,7 +487,10 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     }
     const walk = (root: Node, ancestors: Element[] = []) => {
       for (const node of Array.from(root.childNodes)) {
-        if (node instanceof HTMLImageElement) {
+        if (node instanceof HTMLElement && node.matches('pre.kept-code')) {
+          flushBuffer()
+          segments.push({ type: 'code', value: node.outerHTML })
+        } else if (node instanceof HTMLImageElement) {
           addImage(node.getAttribute('src') || '', node.alt, imageIndex++)
         } else if (hasChecklist && isChecklistAnchor(node)) {
           flushBuffer()
@@ -499,7 +503,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
             segments.push({ type: 'url', value: url })
             renderedUrls.add(url)
           }
-        } else if (node.nodeType === 1 && (node as Element).querySelector('img, [data-preview-url], .kept-checklist-anchor')) {
+        } else if (node.nodeType === 1 && (node as Element).querySelector('img, [data-preview-url], .kept-checklist-anchor, pre.kept-code')) {
           walk(node, [...ancestors, node as Element])
         } else {
           append(node, ancestors)
@@ -533,6 +537,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     div.querySelectorAll('app-link-preview, .editor-link-previews, .editor-link-preview-slot, .lp-card').forEach(el => el.remove())
 
     div.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
+      if (anchor.closest('pre, code')) return
       const href = anchor.href || anchor.getAttribute('href') || ''
       const text = anchor.textContent || ''
       const url = /^https?:\/\//i.test(href) ? href : text.trim()
@@ -540,7 +545,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     })
 
     const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT, {
-      acceptNode: node => /https?:\/\/[^\s"'<>]+/.test(node.textContent || '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+      acceptNode: node => node.parentElement?.closest('pre, code') ? NodeFilter.FILTER_REJECT : /https?:\/\/[^\s"'<>]+/.test(node.textContent || '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
     })
     const textNodes: Text[] = []
     while (walker.nextNode()) textNodes.push(walker.currentNode as Text)
@@ -550,6 +555,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     })
 
     div.querySelectorAll('br').forEach(br => {
+      if (br.closest('pre, code')) return
       const previous = br.previousSibling
       const next = br.nextSibling
       if ((!previous || !previous.textContent?.trim()) && (!next || !next.textContent?.trim())) br.remove()
@@ -1318,6 +1324,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   private touchStartedAt = 0
   private touchMoved = false
+  private codeTouchTracking = false
   private noteArchiveSwipe?: NoteArchiveSwipe
   private pendingSwipeArchives = new Set<number>()
   private readonly noteTouchControl = 'button, a, input, textarea, select, [contenteditable="true"], [role="button"], [role="checkbox"], .reminder-chip, .reminder-picker, .check-icon, .cbox-icon, .cbox-cancel-icon, .pin-icon, .icons-container, .cancel-icon'
@@ -1347,7 +1354,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const control = target.closest(this.noteTouchControl)
     // Photo tiles and link preview surfaces are note content: a hold should
     // select/pick up the note. Actual controls (including link actions) keep
-    // their own gestures; a quick photo tap still opens the full image note.
+    // their own gestures. Code blocks reserve their entire surface below.
+    // A quick photo tap still opens the full image note.
     if (!touch || event.touches.length !== 1 || (control && !control.classList?.contains('preview-image-tile'))) return
     this.longPressStartX = touch?.clientX ?? 0
     this.longPressStartY = touch?.clientY ?? 0
@@ -1355,9 +1363,12 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.touchStartedAt = Date.now()
     this.touchMoved = false
     const noteEl = (event.currentTarget as HTMLDivElement) || ((event.target as HTMLElement).closest('.note-container') as HTMLDivElement)
+    // Code reserves horizontal movement for scrolling, but a stationary hold
+    // still uses the same selection/reordering path as the rest of the card.
+    this.codeTouchTracking = !!target.closest('.body-code, pre.kept-code')
     // Leave screen-edge navigation to the OS. Touch events are the sole entry
     // point: mouse drags and trackpad wheel events never start an archive.
-    if (!target.closest('app-link-preview, app-note-preview-images') && this.canSwipeArchive(note) && touch.clientX > 32 && touch.clientX < window.innerWidth - 32) {
+    if (!this.codeTouchTracking && !target.closest('app-link-preview, app-note-preview-images') && this.canSwipeArchive(note) && touch.clientX > 32 && touch.clientX < window.innerWidth - 32) {
       this.noteArchiveSwipe = { note, card: noteEl, identifier: touch.identifier,
         width: noteEl.getBoundingClientRect().width, startX: touch.clientX, startY: touch.clientY, offset: 0, horizontal: false }
       this.zone.runOutsideAngular(() => {
@@ -1371,6 +1382,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.longPressTimer = setTimeout(() => {
       this.cancelNoteArchiveSwipe()
       this.longPressFired = true
+      this.codeTouchTracking = false
       this.beginTouchDrag(note, noteEl)
     }, 400)
   }
@@ -1405,6 +1417,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.touchStartedAt = 0
     this.longPressFired = false
     this.touchMoved = false
+    this.codeTouchTracking = false
   }
 
   onTouchEnd(noteEl: HTMLDivElement, note: NoteI, event: TouchEvent) {
@@ -1413,6 +1426,18 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.longPressTimer = null
     }
 
+    if (this.codeTouchTracking) {
+      this.codeTouchTracking = false
+      if (this.touchMoved || Date.now() - this.touchStartedAt >= 350) {
+        // Header/padding drags may not produce a browser scroll cancellation.
+        // Suppress their synthetic click so a scroll attempt cannot open the editor.
+        if (event.cancelable) event.preventDefault()
+        this.touchStartedAt = 0
+        this.suppressNextOpen = true
+        setTimeout(() => { this.suppressNextOpen = false }, 350)
+        return
+      }
+    }
     const swipe = this.noteArchiveSwipe
     if (swipe?.horizontal) {
       if (event.cancelable) event.preventDefault()
@@ -1633,7 +1658,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (!target) return false
     // Drawer scrolling bubbles to these document-level touch listeners too.
     if (target.closest('app-sidenav, .main-sidebar, .sidebar-backdrop')) return false
-    return !target.closest('input, textarea, select, button, a, [contenteditable="true"], .reminder-date-dialog, .modal-container, .profile-menu, .filters-dropdown')
+    return !target.closest('input, textarea, select, button, a, [contenteditable="true"], .reminder-date-dialog, .modal-container, .profile-menu, .filters-dropdown, .body-code, pre.kept-code')
   }
 
   private isMobilePullRefreshView() {
@@ -2016,7 +2041,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   private persistNoteOrder(_notes: NoteI[]) {
     if (!this.noteOrderChanged) return
     this.noteOrderChanged = false
-    this.Shared.note.db.reorder(this.loadedNoteOrderIds())
+    this.Shared.note.db.reorder(this.loadedNoteOrderIds(),this.draggedNoteId)
   }
 
   private beginBinderDrop(note: NoteI) {

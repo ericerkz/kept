@@ -93,5 +93,9 @@
     "width": "^(?:auto|[0-9.]+(?:px|em|rem|%))$",
     "height": "^(?:auto|[0-9.]+(?:px|em|rem|%))$",
     "max-width": "^(?:none|[0-9.]+(?:px|em|rem|%))$"
-  }
+  },
+  "codeAttributes": [
+    "data-code-language",
+    "data-code-source"
+  ]
 }

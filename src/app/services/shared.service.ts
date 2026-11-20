@@ -413,7 +413,7 @@ export class SharedService {
       listShareUsers: () => this.Notes.listShareUsers(),
       getCollaborators: () => this.Notes.getCollaborators(this.note.id),
       updateCollaborators: (userIds: number[]) => this.Notes.updateCollaborators(this.note.id, userIds),
-      reorder: (ids: number[]) => this.Notes.reorder(ids),
+      reorder: (ids: number[], movedId?: number) => this.Notes.reorder(ids,movedId),
       clone: () => this.Notes.clone(this.note.id),
       moveBinder: (id: number,target: Parameters<NotesService['moveBinder']>[1]) => this.Notes.moveBinder(id,target),
       delete: () => this.Notes.delete(this.note.id),

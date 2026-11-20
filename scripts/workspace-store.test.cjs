@@ -4,6 +4,72 @@ const {createStore}=require('../test-support/workspace-store.cjs');
 const {IDBFactory}=require('fake-indexeddb');
 const local=()=>({id:'device',partition:'local:device',mode:'local',generation:'first',status:'active',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),preferences:{theme:'light',followSystemTheme:true,showPastReminders:false},nextId:1,revision:0});
 
+test('large-library incremental sync touches only affected notes; empty polls do not rewrite notes or native revisions', async t => {
+  const {IDBObjectStore,IDBIndex}=require('fake-indexeddb');
+  const store=createStore(),workspace=await store.ensureServerWorkspace('large-library');
+  t.after(async()=>{(await store.open()).close();});
+  const notes=Array.from({length:2138},(_,i)=>({id:i+1,syncId:`note-${i}`,noteTitle:`Note ${i}`,archived:i>100,labels:[],attachments:[]}));
+  await store.reconcile(workspace,{snapshot:{note:notes},cursor:10});
+  const revision=(await store.getWorkspace(workspace.id)).revision;
+  const put=IDBObjectStore.prototype.put,getAll=IDBIndex.prototype.getAll;
+  let writes=0,libraryReads=0;
+  IDBObjectStore.prototype.put=function(...args){if(this.name==='notes')writes++;return put.apply(this,args);};
+  IDBIndex.prototype.getAll=function(...args){if(this.objectStore.name==='notes')libraryReads++;return getAll.apply(this,args);};
+  t.after(()=>{IDBObjectStore.prototype.put=put;IDBIndex.prototype.getAll=getAll;});
+  assert.equal(await store.reconcile(workspace,{changes:[],cursor:10,serverTime:Date.now()}),false);
+  assert.equal(writes,0);assert.equal(libraryReads,0);
+  assert.equal((await store.getWorkspace(workspace.id)).revision,revision);
+  assert.equal(await store.reconcile(workspace,{changes:[{sequence:11,resourceType:'note',resourceSyncId:'note-0',operation:'upsert',payload:{...notes[0],noteTitle:'Edited'}}],cursor:11}),true);
+  assert.equal(writes,1);assert.equal(libraryReads,0);
+  writes=0;
+  await store.reconcile(workspace,{changes:[{sequence:12,resourceType:'reminder',resourceSyncId:'reminder',operation:'upsert',payload:{id:1,syncId:'reminder',noteId:1}}],cursor:12});
+  assert.equal(writes,0);assert.equal(libraryReads,0);
+});
+
+test('attachment deltas refresh both old and new parent notes, including deletion',async()=>{
+  const store=createStore(),workspace=await store.ensureServerWorkspace('attachment-deltas');
+  await store.reconcile(workspace,{snapshot:{note:[{id:1,syncId:'one',labels:[]},{id:2,syncId:'two',labels:[]}],attachment:[{id:3,syncId:'file',noteId:1,originalName:'old.txt'}]},cursor:1});
+  const change=(sequence,payload)=>({sequence,resourceType:'attachment',resourceSyncId:'file',operation:payload?'upsert':'delete',payload});
+  await store.reconcile(workspace,{changes:[change(2,{id:3,syncId:'file',noteId:2,originalName:'new.txt'})],cursor:2});
+  const notes=await store.listNotes(workspace.partition);
+  assert.equal(notes.find(note=>note.id===1).attachments.length,0);
+  assert.equal(notes.find(note=>note.id===2).attachments[0].originalName,'new.txt');
+  await store.reconcile(workspace,{changes:[change(3,null)],cursor:3});
+  assert.ok((await store.listNotes(workspace.partition)).every(note=>note.attachments.length===0));
+});
+
+test('v3 cache cleanup removes only redundant source fields and preserves queued replay bytes, baseline and media',async()=>{
+  const factory=new IDBFactory();
+  const db=await new Promise((resolve,reject)=>{
+    const request=factory.open('kept-offline-v1',3);
+    request.onupgradeneeded=()=>{
+      for(const name of ['notes','baseline','outbox','blobs','syncState']){
+        const store=request.result.createObjectStore(name,{keyPath:'key'});store.createIndex('partition','partition');
+      }
+    };request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+  });
+  const note={id:1,syncId:'imported',noteTitle:'Canonical title',noteBody:'Canonical body',checkBoxes:[{id:4,data:'Keep this',done:true}],pattern:'travel',customExtension:{kept:true},annotations:[{url:'https://example.test'}],title:'Raw title',textContent:'Raw text',listContent:[{text:'Duplicate'}],createdTimestampUsec:1,updatedAt:'2020-01-01T00:00:00Z'};
+  const operation={key:'server|op',partition:'server',operationId:'op',syncId:'imported',type:'note.upsert',payload:note,lww:{physicalMs:5,logical:1,deviceId:'device',operationId:'op'},createdAt:5};
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(['notes','baseline','outbox','blobs','syncState'],'readwrite');
+    tx.objectStore('notes').put({key:'server|imported',partition:'server',syncId:'imported',value:note});
+    tx.objectStore('baseline').put({key:'server|note|imported',partition:'server',resourceType:'note',syncId:'imported',value:note});
+    tx.objectStore('outbox').put(operation);
+    tx.objectStore('blobs').put({key:'server|media',partition:'server',value:new Blob(['photo'])});
+    tx.objectStore('syncState').put({key:'server',partition:'server',cursor:44,serverOffsetMs:0});
+    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);
+  });db.close();
+  const store=createStore(factory),[cleaned]=await store.listNotes('server');
+  assert.equal(cleaned.title,undefined);assert.equal(cleaned.listContent,undefined);assert.equal(cleaned.textContent,undefined);
+  assert.equal(cleaned.noteTitle,note.noteTitle);assert.deepEqual(cleaned.checkBoxes,note.checkBoxes);
+  assert.equal(cleaned.pattern,'travel');assert.deepEqual(cleaned.customExtension,note.customExtension);assert.deepEqual(cleaned.annotations,note.annotations);
+  assert.equal(JSON.stringify((await store.listOutbox('server'))[0]),JSON.stringify(operation));
+  const baseline=await store.request((await store.open()).transaction('baseline').objectStore('baseline').get('server|note|imported'));
+  assert.equal(baseline.value.noteBody,note.noteBody);assert.equal(baseline.value.listContent,undefined);
+  assert.equal((await store.getSyncState('server')).cursor,44);assert.equal(await(await store.getBlob('server','media')).text(),'photo');
+  (await store.open()).close();
+});
+
 test('storage-blocked uploads keep their replay identity and blobs across reopening and reconciliation', async()=>{
   const database=new IDBFactory(),store=createStore(database),workspace=await store.ensureServerWorkspace('quota-test');
   const url='/__kept_local_media/photo';
@@ -127,7 +193,7 @@ test('an additive schema upgrade preserves an existing outbox, cursor and blob',
  assert.equal((await store.listOutbox('server'))[0].operationId,'legacy');
  assert.equal((await store.getSyncState('server')).cursor,123);
  assert.equal(await(await store.getBlob('server','file')).text(),'original');
- assert.equal((await store.open()).version,3);
+ assert.equal((await store.open()).version,4);
 });
 
 test('fresh local libraries seed once, preserve sample files and can trash all demos together',async()=>{
@@ -214,4 +280,112 @@ test('shared binder moves stay field-only while offline and do not overwrite new
   await store.reconcile(workspace,{sent:[operation],results:[{ok:true,operationId:operation.operationId,canonical:null}],cursor:3});
   assert.equal((await store.listOutbox(workspace.partition)).length,0);
   assert.equal(await store.getNote(workspace.partition,25),undefined,'losing binder-only access removes the cached note');
+});
+
+test('position-only sync preserves pending text, pins and attachments without reading the whole library',async t=>{
+  const {IDBIndex}=require('fake-indexeddb');
+  const store=createStore(),workspace=await store.ensureServerWorkspace('position-only');
+  t.after(async()=>{(await store.open()).close();});
+  const notes=[{id:1,syncId:'one',noteTitle:'Keep title',noteBody:'Keep text',pinned:true,sortOrder:10,labels:[],attachments:[],updatedAt:'2020-01-01T00:00:00Z'},
+    {id:2,syncId:'two',noteTitle:'Second',sortOrder:9,labels:[],attachments:[]}];
+  await store.reconcile(workspace,{snapshot:{note:notes},cursor:1});
+  await store.commitMutation(workspace,'note.upsert','one',{...notes[0],noteBody:'Offline edit'});
+  const [edit]=await store.listOutbox(workspace.partition);
+  const getAll=IDBIndex.prototype.getAll;let noteReads=0,attachmentReads=0;
+  IDBIndex.prototype.getAll=function(...args){if(this.objectStore.name==='notes')noteReads++;if(this.objectStore.name==='attachments')attachmentReads++;return getAll.apply(this,args);};
+  t.after(()=>{IDBIndex.prototype.getAll=getAll;});
+  const position=(sequence,id,syncId,sortOrder)=>({sequence,resourceType:'notePosition',resourceSyncId:syncId,operation:'upsert',payload:{id,syncId,sortOrder}});
+  await store.reconcile(workspace,{changes:[position(2,1,'one',30)],cursor:2});
+  assert.equal(noteReads,0);assert.equal(attachmentReads,0);
+  let note=(await store.listNotes(workspace.partition)).find(note=>note.id===1);
+  assert.equal(note.noteBody,'Offline edit');assert.equal(note.sortOrder,30);assert.equal(note.pinned,true);
+  // A queued content edit carries its old sortOrder, but must not undo a move.
+  await store.reconcile(workspace,{results:[{ok:true,operationId:edit.operationId,canonical:{...notes[0],noteBody:'Offline edit',sortOrder:30}}],sent:[edit]});
+  note=(await store.listNotes(workspace.partition)).find(note=>note.id===1);
+  assert.equal(note.noteBody,'Offline edit');assert.equal(note.sortOrder,30);
+  // Another local move remains visible while older changes and acknowledgments arrive.
+  await store.commitMutation(workspace,'note.reorder','note-order',{syncIds:['two','one']});
+  const [move]=await store.listOutbox(workspace.partition);
+  await store.reconcile(workspace,{changes:[position(3,1,'one',40),position(4,2,'two',39)],cursor:4});
+  let current=await store.listNotes(workspace.partition);assert.ok(current.find(n=>n.id===2).sortOrder>current.find(n=>n.id===1).sortOrder);
+  await store.reconcile(workspace,{results:[{ok:true,operationId:move.operationId,positions:[{id:2,syncId:'two',sortOrder:51},{id:1,syncId:'one',sortOrder:50}]}],sent:[move]});
+  current=await store.listNotes(workspace.partition);assert.equal(current.find(n=>n.id===1).sortOrder,50);assert.equal(current.find(n=>n.id===2).sortOrder,51);
+  // A bootstrap supersedes cached position overlays, without rewriting content.
+  await store.reconcile(workspace,{snapshot:{note:[{...notes[0],sortOrder:90},notes[1]]},cursor:10});
+  assert.equal((await store.listNotes(workspace.partition)).find(n=>n.id===1).sortOrder,90);
+  // Obsolete pages cannot restore an earlier order.
+  await store.reconcile(workspace,{changes:[position(2,1,'one',1)],cursor:2});
+  assert.equal((await store.listNotes(workspace.partition)).find(n=>n.id===1).sortOrder,90);
+});
+
+test('position changes never fabricate missing notes; legacy position writes preserve full cached content',async()=>{
+  const store=createStore(),workspace=await store.ensureServerWorkspace('missing-positions');
+  try {
+    assert.equal((await store.missingNotePositions(workspace.partition,[{id:7,syncId:'missing'}])).length,1);
+    await store.reconcile(workspace,{changes:[{sequence:1,resourceType:'notePosition',resourceSyncId:'missing',operation:'upsert',payload:{id:7,syncId:'missing',sortOrder:77}}],cursor:1});
+    assert.equal((await store.listNotes(workspace.partition)).length,0);
+    await store.reconcile(workspace,{changes:[{sequence:2,resourceType:'note',resourceSyncId:'missing',operation:'upsert',payload:{id:7,syncId:'missing',noteBody:'Downloaded content',sortOrder:77}}],cursor:2});
+    assert.equal((await store.missingNotePositions(workspace.partition,[{id:7,syncId:'missing'}])).length,0);
+    await store.putNotePositions(workspace.partition,[{id:7,sortOrder:88},{id:100,sortOrder:99}]);
+    const notes=await store.listNotes(workspace.partition);assert.equal(notes.length,1);assert.equal(notes[0].sortOrder,88);assert.equal(notes[0].noteBody,'Downloaded content');
+  } finally {(await store.open()).close();}
+});
+
+test('rapid offline moves in the same millisecond retain logical order through pending overlays and upload',async()=>{
+  const store=createStore(),workspace=await store.ensureServerWorkspace('rapid-order');
+  try {
+    await store.reconcile(workspace,{snapshot:{note:[{id:1,syncId:'one',sortOrder:2},{id:2,syncId:'two',sortOrder:1}]},cursor:1});
+    let logical=0;
+    store.nextStamp=()=>({physicalMs:123456,logical:logical++,deviceId:'same-device',operationId:logical===1?'z-first':'a-second'});
+    await store.commitMutation(workspace,'note.reorder','note-order',{syncIds:['two','one']});
+    await store.commitMutation(workspace,'note.reorder','note-order',{syncIds:['one','two']});
+    assert.deepEqual(Array.from(await store.listOutbox(workspace.partition),entry=>entry.operationId),['z-first','a-second']);
+    await store.reconcile(workspace,{changes:[{sequence:2,resourceType:'notePosition',resourceSyncId:'two',operation:'upsert',payload:{id:2,syncId:'two',sortOrder:50}}],cursor:2});
+    const notes=await store.listNotes(workspace.partition);assert.ok(notes.find(n=>n.id===1).sortOrder>notes.find(n=>n.id===2).sortOrder);
+  }finally{(await store.open()).close();}
+});
+
+test('single-note reads and writes use identity indexes, preserve full cached content and stay partitioned',async t=>{
+  const {IDBIndex}=require('fake-indexeddb');
+  const store=createStore(),workspace=await store.ensureServerWorkspace('indexed-notes');
+  t.after(async()=>{(await store.open()).close();});
+  const notes=Array.from({length:1000},(_,i)=>({id:i+1,syncId:`indexed-${i}`,noteTitle:`Note ${i}`,noteBody:'Full body',sortOrder:i,updatedAt:'2020-01-01T00:00:00Z'}));
+  await store.reconcile(workspace,{snapshot:{note:notes},cursor:1});
+  const getAll=IDBIndex.prototype.getAll;let scans=0;
+  IDBIndex.prototype.getAll=function(...args){if(this.objectStore.name==='notes' && this.name==='partition')scans++;return getAll.apply(this,args);};
+  t.after(()=>IDBIndex.prototype.getAll=getAll);
+  assert.equal((await store.getNote(workspace.partition,500)).syncId,'indexed-499');
+  assert.equal(await store.getNote('different-account',500),undefined);
+  assert.equal((await store.getNoteBySyncId(workspace.partition,'indexed-499')).id,500);
+  assert.equal(await store.getNoteBySyncId(workspace.partition,'missing'),undefined);
+  await store.putNote(workspace.partition,{...notes[499],noteTitle:'New card title',noteBody:'',isCardPreview:true,updatedAt:'2021-01-01T00:00:00Z'});
+  const full=await store.getNote(workspace.partition,500);
+  assert.equal(full.noteBody,'Full body');assert.equal(full.isCardPreview,false);
+  await store.overwriteNoteMetadata(workspace.partition,{...full,pinned:true});
+  assert.equal((await store.getNote(workspace.partition,500)).pinned,true);
+  assert.equal(scans,0,'targeted reads/writes never scan the notes partition');
+  assert.equal((await store.getNote(workspace.partition,501)).noteTitle,'Note 500');
+});
+
+test('a known dragged note reads only its neighbours and writes one position in a thousand-note library',async t=>{
+  const {IDBObjectStore}=require('fake-indexeddb');
+  const store=createStore(),workspace=await store.ensureServerWorkspace('sparse-grid');
+  t.after(async()=>{(await store.open()).close();});
+  const notes=Array.from({length:1000},(_,i)=>({id:i+1,syncId:`drag-${i}`,sortOrder:3000-i,noteBody:`Unchanged image and text ${i}`,updatedAt:'2020-01-01T00:00:00Z'}));
+  await store.reconcile(workspace,{snapshot:{note:notes},cursor:1});
+  const get=IDBObjectStore.prototype.get,put=IDBObjectStore.prototype.put;let reads=0,writes=0;
+  IDBObjectStore.prototype.get=function(...args){if(this.name==='notes')reads++;return get.apply(this,args);};
+  IDBObjectStore.prototype.put=function(...args){if(this.name==='notes')writes++;return put.apply(this,args);};
+  t.after(()=>{IDBObjectStore.prototype.get=get;IDBObjectStore.prototype.put=put;});
+  const order=notes.map(note=>note.syncId);order.splice(10,0,order.splice(800,1)[0]);
+  const value=await store.commitMutation(workspace,'note.reorder','note-order',{syncIds:order,movedSyncId:'drag-800'});
+  assert.equal(reads,3);assert.equal(writes,1);assert.equal(value.positions.length,1);
+  assert.equal(value.positions[0].syncId,'drag-800');
+  const moved=await store.getNoteBySyncId(workspace.partition,'drag-800');
+  assert.equal(moved.noteBody,notes[800].noteBody);assert.equal(moved.updatedAt,notes[800].updatedAt);
+  const {notePositionsForOrder}=require('../shared/note-order');
+  const server=notePositionsForOrder(order.map(id=>notes.find(note=>note.syncId===id)),Date.now(),'drag-800');
+  assert.equal(moved.sortOrder,server[0].sortOrder);
+  const sorted=Array.from(await store.listNotes(workspace.partition)).sort((a,b)=>b.sortOrder-a.sortOrder);
+  assert.deepEqual(sorted.map(note=>note.syncId),order);
 });

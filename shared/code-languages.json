@@ -1,0 +1,23 @@
+[
+  { "id": "plaintext", "name": "Plain text" },
+  { "id": "python", "name": "Python" },
+  { "id": "javascript", "name": "JavaScript" },
+  { "id": "typescript", "name": "TypeScript" },
+  { "id": "java", "name": "Java" },
+  { "id": "csharp", "name": "C#" },
+  { "id": "cpp", "name": "C++" },
+  { "id": "go", "name": "Go" },
+  { "id": "powershell", "name": "PowerShell" },
+  { "id": "bash", "name": "Bash" },
+  { "id": "sql", "name": "SQL" },
+  { "id": "json", "name": "JSON" },
+  { "id": "xml", "name": "HTML / XML" },
+  { "id": "css", "name": "CSS" },
+  { "id": "php", "name": "PHP" },
+  { "id": "rust", "name": "Rust" },
+  { "id": "swift", "name": "Swift" },
+  { "id": "kotlin", "name": "Kotlin" },
+  { "id": "ruby", "name": "Ruby" },
+  { "id": "yaml", "name": "YAML" },
+  { "id": "markdown", "name": "Markdown" }
+]

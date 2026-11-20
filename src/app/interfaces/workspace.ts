@@ -62,12 +62,13 @@ export interface NativeCapabilities {
 }
 export interface ResourceChange {
   sequence: number;
-  resourceType: ResourceType;
+  resourceType: ResourceType | 'notePosition';
   resourceSyncId: string;
   operation: 'upsert' | 'delete';
   payload: Record<string, unknown> | null;
 }
 export interface MutationOutcome {
+  positions?: Array<{ id: number; syncId: string; sortOrder: number }>;
   operationId: string;
   ok: boolean;
   skipped?: boolean;

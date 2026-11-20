@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/worker",
+    "lib": [
+      "es2022",
+      "dom"
+    ],
+    "types": []
+  },
+  "include": [
+    "src/**/*.worker.ts"
+  ]
+}

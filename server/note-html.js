@@ -1,7 +1,9 @@
 const sanitizeHtml = require('sanitize-html');
 const policy = require('../shared/note-html-policy.json');
+const codeLanguages = new Set(['auto', ...require('../shared/code-languages.json').map(language => language.id)]);
 const patternIds = new Set(require('../shared/note-appearance.json').patterns.map(pattern => pattern.id));
 const { plainText } = require('./text-utils');
+const { withoutTakeoutSourceFields } = require('./takeout-metadata');
 
 function safeUrl(value, image = false) {
   const raw = String(value ?? '').trim();
@@ -18,11 +20,17 @@ function safeUrl(value, image = false) {
 const options = {
   nestingLimit: 100,
   allowedTags: policy.tags,
-  allowedAttributes: { '*': policy.attributes },
+  allowedAttributes: { '*': policy.attributes, pre: policy.codeAttributes },
   allowedSchemes: policy.linkSchemes,
   allowedSchemesByTag: { img: ['http', 'https', 'data', 'blob'] },
   allowedStyles: { '*': Object.fromEntries(Object.entries(policy.styles).map(([key, pattern]) => [key, [new RegExp(pattern, 'i')]])) },
   transformTags: {
+    pre: (_tag, attrs) => {
+      const clean = { ...attrs };
+      if (!codeLanguages.has(clean['data-code-language'])) delete clean['data-code-language'];
+      if (!['auto', 'user'].includes(clean['data-code-source'])) delete clean['data-code-source'];
+      return { tagName: 'pre', attribs: clean };
+    },
     a: (_tag, attrs) => ({ tagName: 'a', attribs: { ...attrs, href: safeUrl(attrs.href), rel: 'noopener noreferrer' } }),
     img: (_tag, attrs) => ({ tagName: 'img', attribs: { ...attrs, src: safeUrl(attrs.src, true) } })
   },
@@ -42,7 +50,7 @@ function sanitizeNoteHtml(value) {
 function sanitizeNoteContent(note) {
   note = note && typeof note === 'object' ? note : {};
   return {
-    ...note,
+    ...withoutTakeoutSourceFields(note),
     ...(Object.hasOwn(note, 'pattern') ? { pattern: patternIds.has(note.pattern)
       && ['', 'none', 'url()', 'url("")', "url('')"].includes(String(note.bgImage || '').trim()) ? note.pattern : null } : {}),
     noteTitle: sanitizeNoteHtml(note.noteTitle),

@@ -157,7 +157,8 @@ export class ReminderService {
   ) {
     this.nativeWorkspace.occurrences$.subscribe(reminder => this.firedReminder$.next({reminderId:reminder.id,noteId:reminder.noteId,title:reminder.title,body:reminder.body,source:'native'}));
     this.nativeWorkspace.capabilities$.subscribe(capabilities => { if (capabilities?.durableActions) void this.loadCachedReminders().catch(console.error); });
-    this.offlineSync.cacheChanged$.subscribe(() => {
+    this.offlineSync.cacheChanged$.subscribe(change => {
+      if (change?.positionsOnly) return;
       this.loadCachedReminders().catch(console.error);
     });
     this.auth.accessChanges$.subscribe(user => {

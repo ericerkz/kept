@@ -1,3 +1,5 @@
+import { codeBlocksToMarkdown } from '../../utils/code-blocks';
+import { createNoteHtmlContainer, sanitizeNoteHtml } from '../../utils/note-html';
 import { SharedService } from 'src/app/services/shared.service';
 import { uiText } from 'src/app/i18n/messages';
 import { checklistBodyParts, checklistId } from '../../utils/checklist-placement';
@@ -981,7 +983,10 @@ export class SettingsComponent implements OnInit, OnDestroy {
         md += '\n';
 
         for (const part of checklistBodyParts(n.noteBody || '', n.checkBoxes, !!n.isCbox)) {
-          if (part.type === 'text') { if (part.html) md += `${part.html}\n`; }
+          if (part.type === 'text') { if (part.html) {
+            const content = createNoteHtmlContainer(); content.innerHTML = sanitizeNoteHtml(part.html);
+            md += `${codeBlocksToMarkdown(content)}\n`;
+          } }
           else for (const cb of (n.checkBoxes || []).filter(row => checklistId(row) === part.id)) {
             md += `${'  '.repeat(Math.min(8, Math.max(0, Number(cb.indentLevel) || 0)))}- [${cb.done ? 'x' : ' '}] ${cb.data}\n`;
           }
