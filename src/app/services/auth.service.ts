@@ -20,6 +20,13 @@ type ThemeAppPlugin = {
   addListener(event: 'resume' | 'appStateChange', callback: (state?: { isActive?: boolean }) => void): Promise<PluginListenerHandle>
 }
 
+// Backup retention policy, mirrored from server/backup-retention.js.
+export type BackupRetentionPolicy =
+  | { mode: 'all'; includeManual: boolean }
+  | { mode: 'count'; keepLast: number; includeManual: boolean }
+  | { mode: 'age'; maxAgeDays: number; includeManual: boolean }
+  | { mode: 'smart'; daily: number; weekly: number; monthly: number; yearly: number; includeManual: boolean };
+
 export interface McpAccessSettings {
   enabled: boolean
   allowLockedNotes: boolean
@@ -302,6 +309,9 @@ export class AuthService implements OnDestroy {
     const offlineMap = (window as typeof window & { __keptOfflineMediaCanonical?: Map<string, string> }).__keptOfflineMediaCanonical;
     if (offlineMap?.has(raw)) return raw;
     const canonical = this.canonicalImageUrl(value);
+    // An encrypted note's image (kept://file/, see utils/note-crypto.ts): its
+    // decrypted copy, once EncryptedFilesService has prepared it.
+    if (canonical.startsWith('kept://file/')) return this.mediaUrls.get(canonical) || canonical;
     if (!canonical.startsWith('/api/uploads/images/')) return canonical;
     const imageUrl = this.apiUrl.startsWith('http') ? `${this.apiUrl}${canonical.slice('/api'.length)}` : canonical;
     return this.mediaUrls.get(imageUrl) || imageUrl;
@@ -317,6 +327,22 @@ export class AuthService implements OnDestroy {
       return `${base}?preview=${previewSize}`;
     }
     return this.authenticatedImageUrl(value);
+  }
+
+  // Shows decrypted bytes of an encrypted note's file (issue #27) in place of
+  // its kept://file/ reference, and maps the object URL back when saving.
+  // Decrypted copies live only in memory; they are never cached to storage.
+  registerDecryptedMedia(canonical: string, blob: Blob): string {
+    const existing = this.mediaUrls.get(canonical);
+    if (existing) return existing;
+    const objectUrl = URL.createObjectURL(blob);
+    this.mediaUrls.set(canonical, objectUrl);
+    this.mediaCanonical.set(objectUrl, canonical);
+    return objectUrl;
+  }
+
+  hasDecryptedMedia(canonical: string) {
+    return this.mediaUrls.has(canonical);
   }
 
   async prepareImageUrl(value: string, previewSize?: number): Promise<string> {
@@ -838,11 +864,20 @@ export class AuthService implements OnDestroy {
       schedule: string, 
       backupTime: string, 
       lastAutomatedAt: string | null, 
-      lastManualAt: string | null, 
-      files: any[], 
-      absolutePath: string 
+      lastManualAt: string | null,
+      files: any[],
+      absolutePath: string,
+      retention?: BackupRetentionPolicy
     }>(
       `${this.apiUrl}/admin/backup/status`,
+      { headers: this.authHeaders() }
+    ));
+  }
+
+  async saveBackupRetention(retention: BackupRetentionPolicy) {
+    return await firstValueFrom(this.http.post<{ success: boolean; retention: BackupRetentionPolicy; deleted: string[]; applied: boolean }>(
+      `${this.apiUrl}/admin/backup/retention`,
+      { retention },
       { headers: this.authHeaders() }
     ));
   }

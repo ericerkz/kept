@@ -171,7 +171,13 @@ function createWorkspaceImport(d) {
           const payload=record.value;
           const localId=payload.id;
           const oldSyncId=payload.syncId;
-          const syncId=identity(type,oldSyncId);
+          // Encrypted envelopes contain attachment identities that cannot be
+          // rewritten without the passcode. Preserve those globally unique IDs.
+          const encryptedAttachment = type === 'attachment' && /\.keptenc$/i.test(payload.originalName || '');
+          const syncId=encryptedAttachment ? oldSyncId : identity(type,oldSyncId);
+          if (encryptedAttachment && await get('SELECT id FROM note_attachments WHERE syncId = ?', [syncId])) {
+            throw fail('This encrypted attachment is already on the server. Remove the local note lock before importing another copy.',409);
+          }
           delete payload.id; delete payload.userId; delete payload.ownerUserId; delete payload.collaborators;
           payload.syncId=syncId;
           if (type === 'note') {

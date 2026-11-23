@@ -308,6 +308,67 @@
         }
 
       </section>
+
+      <section class="settings-section backup-section retention-section">
+        <div class="section-title">{{ 'user_management.backup_retention' | translate }}</div>
+        @if (retentionError) { <div class="error global-msg" style="margin-bottom: 16px;">{{(retentionError) | uiText}}</div> }
+        @if (retentionSuccess) { <div class="success global-msg" style="margin-bottom: 16px;">{{(retentionSuccess) | uiText}}</div> }
+        <p class="section-desc">{{ 'user_management.backup_retention_description' | translate }}</p>
+
+        <div class="backup-controls retention-controls">
+          <div class="backup-config">
+            <label>
+              <span>{{ 'user_management.keep' | translate }}</span>
+              <select [(ngModel)]="retention.mode" (ngModelChange)="retentionSuccess = ''">
+                <option value="all">{{ 'user_management.retention_keep_all' | translate }}</option>
+                <option value="count">{{ 'user_management.retention_keep_newest' | translate }}</option>
+                <option value="age">{{ 'user_management.retention_delete_older' | translate }}</option>
+                <option value="smart">{{ 'user_management.retention_smart' | translate }}</option>
+              </select>
+            </label>
+          </div>
+
+          @if (retention.mode === 'count') {
+            <div class="backup-config retention-number">
+              <label>
+                <span>{{ 'user_management.retention_number_of_backups' | translate }}</span>
+                <input type="number" min="1" max="1000" step="1" [(ngModel)]="retention.keepLast">
+              </label>
+            </div>
+          }
+          @if (retention.mode === 'age') {
+            <div class="backup-config retention-number">
+              <label>
+                <span>{{ 'user_management.retention_days' | translate }}</span>
+                <input type="number" min="1" max="3650" step="1" [(ngModel)]="retention.maxAgeDays">
+              </label>
+            </div>
+          }
+          @if (retention.mode === 'smart') {
+            <div class="retention-smart">
+              <label><span>{{ 'common.daily' | translate }}</span><input type="number" min="0" max="366" step="1" [(ngModel)]="retention.daily"></label>
+              <label><span>{{ 'common.weekly' | translate }}</span><input type="number" min="0" max="520" step="1" [(ngModel)]="retention.weekly"></label>
+              <label><span>{{ 'common.monthly' | translate }}</span><input type="number" min="0" max="240" step="1" [(ngModel)]="retention.monthly"></label>
+              <label><span>{{ 'user_management.yearly' | translate }}</span><input type="number" min="0" max="100" step="1" [(ngModel)]="retention.yearly"></label>
+            </div>
+          }
+
+          @if (retention.mode !== 'all') {
+            <label class="reg-toggle retention-include-manual">
+              <input type="checkbox" [(ngModel)]="retention.includeManual">
+              <div>
+                <strong>{{ 'user_management.retention_include_manual' | translate }}</strong>
+                <small>{{ 'user_management.retention_include_manual_hint' | translate }}</small>
+              </div>
+            </label>
+          }
+
+          <button type="button" class="btn-primary" (click)="saveBackupRetention()" [disabled]="isSavingRetention">
+            {{ 'common.save' | translate }}
+          </button>
+        </div>
+        <p class="last-backup-hint">{{ retentionSummary() }}</p>
+      </section>
     </div>
 
     } @else {

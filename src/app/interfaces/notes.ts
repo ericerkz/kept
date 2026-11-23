@@ -43,6 +43,8 @@ export interface NoteI {
     locked?: boolean
     lockSalt?: string
     lockHash?: string
+    // AES-GCM envelope for an encrypted locked note (see utils/note-crypto.ts).
+    encryptedContent?: string
     completedChecklistCollapsed?: boolean
     archived: boolean
     trashed: boolean
@@ -76,6 +78,9 @@ export interface NoteAttachmentI {
     fileSize: number
     mimeType: string
     uploadedAt: string
+    // A decrypted view of an encrypted note's file (issue #27); the stored
+    // attachment row is an `encrypted.keptenc` blob.
+    encrypted?: boolean
     lwwPhysicalMs?: number
     lwwLogical?: number
     lwwDeviceId?: string

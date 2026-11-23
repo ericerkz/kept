@@ -3,10 +3,11 @@ import { parseDateSearch } from '../../../shared/note-search-date';
 import { MAX_FILE_BYTES, prepareNoteImage } from '../utils/note-images';
 import { applyBinderMembership, applyPersonalOrganization, projectSharedOrganization } from '../utils/shared-note-organization';
 import { attachmentMimeType } from '../utils/attachments';
+import { NoteLockService } from './note-lock.service';
 import { Injectable } from '@angular/core';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { BehaviorSubject, firstValueFrom, Subscription } from 'rxjs';
+import { BehaviorSubject, combineLatest, filter, firstValueFrom, Subscription, timeout } from 'rxjs';
 
 export interface LinkPreviewData {
   title: string;
@@ -96,7 +97,8 @@ export class NotesService {
     private reminders: ReminderService,
     private offlineStore: OfflineStoreService,
     private offlineSync: OfflineSyncService,
-    private preferences: UserPreferencesService
+    private preferences: UserPreferencesService,
+    private noteLock: NoteLockService
   ) {
     this.offlineSync.cacheChanged$.subscribe(change => {
       this.publishCachedNotes(this.searchQuery, change || undefined).catch(console.error);
@@ -557,6 +559,9 @@ export class NotesService {
       const { sharedOrganization, labels, binder, ...content } = object;
       object = content as NoteI;
     }
+    // Encrypted notes (issue #27): plaintext content never leaves the editor.
+    // (noteLock is always injected; unit tests build the service by hand.)
+    if (this.noteLock) object = await this.noteLock.sealOutgoing(object, existingOrganization);
     if (this.offlineSync.writesLocally) {
       const existing = await this.offlineStore.getNote(this.offlineSync.partition, id);
       if (!existing?.syncId) throw new Error('This note is unavailable on this device.');
@@ -637,6 +642,7 @@ export class NotesService {
       if (!Object.keys(content).length) return;
       object = content;
     }
+    if (this.noteLock) object = await this.noteLock.sealOutgoing(object, existingOrganization);
     if (this.offlineSync.writesLocally) return this.update(object as NoteI, id);
     object = this.canonicalizeNoteMedia(object);
     if (id === -1) return;
@@ -900,6 +906,94 @@ export class NotesService {
     }
   }
 
+  async requireEncryptionSupport(note?: NoteI) {
+    if (this.auth.isLocal) return;
+    let supported = false;
+    try {
+      const info = await firstValueFrom(this.http.get<{ version: number; removal: string }>(`${this.apiUrl}/encryption-capabilities`,
+        { headers: this.auth.authHeaders() }));
+      supported = info.version === 1 && info.removal === 'atomic-multipart-v1';
+    } catch {}
+    if (!supported) throw new Error(uiText('note_lock.update_server_to_encrypt'));
+    await this.flushEncryptionWrites();
+    if (note?.syncId && this.offlineSync.partition) {
+      const fresh = await this.offlineStore.getNoteBySyncId(this.offlineSync.partition, note.syncId);
+      if (fresh) Object.assign(note, fresh);
+    }
+  }
+
+  private async flushEncryptionWrites() {
+    await this.offlineSync.syncNow({ recovery: true });
+    // syncNow coalesces with an already-running pass. Await its actual upload
+    // acknowledgements rather than mistaking that coalescing for a failure.
+    if (this.offlineSync.pendingCount$.value && this.offlineSync.state$.value === 'syncing') {
+      try {
+        await firstValueFrom(combineLatest([this.offlineSync.pendingCount$, this.offlineSync.state$]).pipe(
+          filter(([pending, state]) => pending === 0 || state === 'error' || state === 'offline'), timeout(30000)));
+      } catch { throw new Error(uiText('note_lock.connect_to_change_lock')); }
+    }
+    if (this.offlineSync.pendingCount$.value || this.offlineSync.isConnectionDegraded()) {
+      throw new Error(uiText('note_lock.connect_to_change_lock'));
+    }
+  }
+
+  async confirmEncryptedReplacement(note: NoteI, salt: string) {
+    if (this.auth.isLocal) return;
+    await this.flushEncryptionWrites();
+    const current = await firstValueFrom(this.http.get<NoteI>(`${this.apiUrl}/${note.id}`, { headers: this.auth.authHeaders() }));
+    if (!current.locked || current.lockHash !== 'e2e:v1' || current.lockSalt !== salt) {
+      throw new Error(uiText('note_lock.changed_during_restore'));
+    }
+  }
+
+  async retirePlaintextImageCache(note: NoteI, sources: string[]) {
+    const partition = this.offlineSync.partition;
+    if (!partition || !sources.length) return;
+    const others = (await this.offlineStore.listNotes(partition)).filter(item => item.syncId !== note.syncId);
+    for (const source of sources) {
+      // A separately retained, readable note can legitimately use the same
+      // image. Do not take its offline copy away when locking this note.
+      if (others.some(item => (item.noteBody || '').includes(source) || item.images?.some(image => image.dataUrl === source))) continue;
+      await this.offlineStore.retireCachedMedia(partition, source);
+    }
+  }
+
+  // Restore the readable note and its attachment bytes together. Connected
+  // libraries deliberately require a successful server round trip here: an
+  // ordinary queued note write cannot safely remove the key before uploads.
+  async removeEncryptedLock(note: NoteI, fields: UpdateKeyI, files: Array<{ sourceSyncId: string; file: File }>) {
+    if (this.auth.isLocal) {
+      const stored = await this.offlineStore.getNote(this.offlineSync.partition, note.id!);
+      if (!stored?.syncId || stored.encryptedContent !== note.encryptedContent) throw new Error(uiText('note_lock.changed_during_restore'));
+      const attachments = files.map(({ file }) => ({ syncId: `attachment-${createUuid()}`, originalName: file.name,
+        fileSize: file.size, mimeType: file.type, uploadedAt: new Date().toISOString() }));
+      const saved = await this.offlineSync.commit('note.upsert', stored.syncId, { ...stored, ...fields }, {
+        attachments, blobs: attachments.map((row, index) => ({ key: `attachment:${row.syncId}`, value: files[index].file }))
+      });
+      this.mergeNoteIntoList(saved);
+      return;
+    }
+    await this.flushEncryptionWrites();
+    // Image uploads may have acquired their server URLs during that sync.
+    const stored = this.offlineSync.partition ? await this.offlineStore.getNoteBySyncId(this.offlineSync.partition, note.syncId!) : note;
+    const aliases = await this.offlineStore.resolveNoteMediaAliases(this.offlineSync.partition, fields);
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(note.encryptedContent || ''));
+    const expectedEnvelopeHash = Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
+    const envelope = JSON.parse(note.encryptedContent!);
+    const form = new FormData();
+    form.append('note', JSON.stringify({ noteBody: aliases.noteBody || '', checkBoxes: aliases.checkBoxes || [], images: aliases.images || [],
+      expectedEnvelopeHash, restoredFileIds: envelope.files || [], attachments: files.map(file => ({ sourceSyncId: file.sourceSyncId })) }));
+    for (const { file } of files) form.append('files', file, file.name);
+    const saved = await firstValueFrom(this.http.post<NoteI>(`${this.apiUrl}/${stored?.id || note.id}/remove-encryption`, form,
+      { headers: this.auth.authHeaders() }));
+    if (this.offlineSync.partition) {
+      await this.offlineStore.putNote(this.offlineSync.partition, saved);
+      for (const row of saved.attachments || []) await this.offlineStore.putAttachment(this.offlineSync.partition, row);
+    }
+    this.mergeNoteIntoList(saved);
+    await this.offlineSync.syncNow();
+  }
+
   async deleteAttachment(noteId: number, attachmentId: number) {
     if (this.offlineSync.writesLocally) {
       const rows = await this.offlineStore.listResources<NoteAttachmentI>('attachment', this.offlineSync.partition);
@@ -928,14 +1022,35 @@ export class NotesService {
   }
 
   async downloadAttachment(attachment: NoteAttachmentI) {
-    const cached = await this.offlineStore.getBlob(this.offlineSync.partition, `attachment:${attachment.syncId}`);
-    const blob = cached || (this.auth.isLocal ? undefined : await firstValueFrom(this.http.get(`${environment.apiUrl}/attachments/${attachment.id}`, {
-      headers:this.auth.authHeaders(),responseType:'blob'
-    })));
-    if (blob && !cached && this.offlineSync.partition) await this.offlineStore.putBlob(this.offlineSync.partition, `attachment:${attachment.syncId}`,blob);
-    if (!blob) throw new Error('This attachment is not stored on this device.');
-    const filename = attachment.originalName || 'attachment';
-    if (await this.tryNativeDownload(blob, filename, attachment.mimeType)) return;
+    const blob = await this.fetchAttachmentBlob(attachment);
+    await this.saveBlob(blob, attachment.originalName || 'attachment', attachment.mimeType);
+  }
+
+  // The attachment's stored bytes: from this device if queued or cached,
+  // otherwise from the server (and then cached). For an encrypted note's
+  // file these are ciphertext, so caching them is safe.
+  async fetchAttachmentBlob(attachment: Pick<NoteAttachmentI, 'id' | 'syncId'>): Promise<Blob> {
+    const cached = attachment.syncId ? await this.offlineStore.getBlob(this.offlineSync.partition, `attachment:${attachment.syncId}`) : undefined;
+    if (cached) return cached;
+    if (this.auth.isLocal || !(attachment.id > 0)) throw new Error('This attachment is not stored on this device.');
+    const blob = await firstValueFrom(this.http.get(`${environment.apiUrl}/attachments/${attachment.id}`, {
+      headers: this.auth.authHeaders(), responseType: 'blob'
+    }));
+    if (this.offlineSync.partition && attachment.syncId) await this.offlineStore.putBlob(this.offlineSync.partition, `attachment:${attachment.syncId}`, blob);
+    return blob;
+  }
+
+  // An unencrypted note image's bytes, from this device's media cache or the server.
+  async fetchImageBlob(url: string): Promise<Blob> {
+    const canonical = this.auth.canonicalImageUrl(url);
+    if (canonical.startsWith('data:')) return (await fetch(canonical)).blob();
+    const cached = this.offlineSync.partition ? await this.offlineStore.getBlob(this.offlineSync.partition, `media:${canonical}`) : undefined;
+    if (cached) return cached;
+    return this.auth.fetchMediaBlob(canonical);
+  }
+
+  async saveBlob(blob: Blob, filename: string, mimeType?: string) {
+    if (await this.tryNativeDownload(blob, filename, mimeType)) return;
     this.browserDownloadBlob(blob, filename);
   }
 

@@ -9,7 +9,7 @@ import { ReminderI } from '../interfaces/reminder';
 import type { LocationSavedPlace } from './location-saved-places.service';
 import { createUuid } from '../utils/uuid';
 import { createDemoNotes, demoWelcomeText } from '../utils/demo-notes';
-import { CatalogItem, MutationOutcome, NativeAction, ResourceChange, ResourceType, RESOURCE_STORES, Workspace } from '../interfaces/workspace';
+import { CatalogItem, isPermanentRejection, MutationOutcome, NativeAction, ResourceChange, ResourceType, RESOURCE_STORES, Workspace } from '../interfaces/workspace';
 import takeoutSourceFields from '../../../shared/takeout-source-fields.json';
 
 const takeoutSourceFieldSet = new Set<string>(takeoutSourceFields);
@@ -72,6 +72,7 @@ type SyncState = {
 
 @Injectable({ providedIn: 'root' })
 export class OfflineStoreService {
+  private readonly retiredMedia = new Set<string>();
   private readonly databaseName = 'kept-offline-v1';
   private readonly databaseVersion = 4;
   private database?: Promise<IDBDatabase>;
@@ -344,11 +345,21 @@ export class OfflineStoreService {
 
   async cacheMedia(partition: string, canonicalUrl: string, requestUrl: string) {
     if (!canonicalUrl || canonicalUrl.startsWith('data:') || canonicalUrl.startsWith('blob:')) return;
+    const key = `${partition}|${canonicalUrl}`;
+    if (this.retiredMedia.has(key)) return;
     try {
       const response = await fetch(requestUrl, { credentials: Capacitor.isNativePlatform() ? 'same-origin' : 'include' });
       if (!response.ok) return;
-      await this.putBlob(partition, `media:${canonicalUrl}`, await response.blob());
+      const blob = await response.blob();
+      if (!this.retiredMedia.has(key)) await this.putBlob(partition, `media:${canonicalUrl}`, blob);
     } catch {}
+  }
+
+  async retireCachedMedia(partition: string, canonicalUrl: string) {
+    // Prevent an in-flight plaintext thumbnail request from putting it back
+    // after the encrypted replacement has been durably saved.
+    this.retiredMedia.add(`${partition}|${canonicalUrl}`);
+    await this.deleteBlob(partition, `media:${canonicalUrl}`);
   }
 
   async offlineMediaUrl(partition: string, canonicalUrl: string) {
@@ -369,6 +380,18 @@ export class OfflineStoreService {
   async deleteBlob(partition: string, blobKey: string) {
     const db = await this.open();
     await this.transaction(db, ['blobs'], 'readwrite', stores => { stores['blobs'].delete(`${partition}|${blobKey}`); });
+  }
+
+  async resolveNoteMediaAliases<T>(partition: string, value: T): Promise<T> {
+    if (!partition) return value;
+    const db = await this.open();
+    const workspaces = await this.request<Workspace[]>(db.transaction('workspaces').objectStore('workspaces').getAll());
+    const workspace = workspaces.find(workspace => workspace.partition === partition && workspace.status === 'active');
+    let json = JSON.stringify(value);
+    for (const [source, target] of Object.entries((workspace as any)?.mediaAliases || {}) as [string, string][]) {
+      json = json.split(source).join(target);
+    }
+    return JSON.parse(json);
   }
 
   async getSyncState(partition: string): Promise<SyncState> {
@@ -962,7 +985,17 @@ export class OfflineStoreService {
       const sent = new Map((input.sent || []).map(entry => [entry.operationId, entry]));
       for (const outcome of input.results || []) {
         const operation = sent.get(outcome.operationId);
-        if (!operation || !outcome.ok) continue;
+        if (!operation) continue;
+        if (!outcome.ok) {
+          if (!isPermanentRejection(outcome, operation.type)) continue;
+          // Drop the refused change and show the server's version again. The
+          // conflict record keeps what was refused and why.
+          tx.objectStore('outbox').delete(operation.key);
+          tx.objectStore('conflicts').put({ key: `${partition}|${operation.operationId}`, partition, operation,
+            reason: outcome.error || 'The server refused this change.', status: outcome.status });
+          if (operation.type !== 'note.reorder') mark(operation.type.split('.')[0] as ResourceType, operation.syncId);
+          continue;
+        }
         tx.objectStore('outbox').delete(operation.key);
         const type = operation.type.split('.')[0] as ResourceType;
         if (operation.type !== 'note.reorder' && !obsolete) {

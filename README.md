@@ -81,7 +81,7 @@ Keep notes on your device with no account or server. Use the native app offline,
 - Offline-first sync
 - Google Keep Takeout import
 - Full backup and restore
-- Automated scheduled database backups
+- Automated scheduled database backups, with configurable retention
 - OIDC / SSO
 - OAuth 2.1
 - Local and remote MCP access
@@ -385,6 +385,7 @@ Useful environment variables are documented in `docker-compose.yml`. The common 
 - `KEPT_CALDAV_ALLOWED_PRIVATE_ORIGINS`: optional comma-separated origins for trusted CalDAV services on private networks, for example `http://calendar:5232,https://calendar.home:8443`.
 - `KEPT_PUSH_ALLOWED_PRIVATE_ORIGINS`: optional comma-separated HTTPS origins for custom private web-push services. Standard browser push providers need no exception.
 - `KEPT_TAKEOUT_UPLOAD_MAX`: Google Takeout ZIP upload cap. Defaults to `5GB`; only affects Takeout imports.
+- `KEPT_REQUEST_TIMEOUT_MINUTES`: maximum time for a request body to arrive, including large uploads. Defaults to `60`; `0` removes the limit. Reverse proxies can impose their own shorter limits.
 - `PUID` / `PGID`: choose the app user/group when the container starts as root. An explicit Compose `user:` overrides these; see the optional non-root setup above.
 - `KEPT_ALLOW_RESTORE`: temporarily enables restore from backup during setup.
 - `VAPID_SUBJECT`: optional public URL/contact identity for web push. Kept auto-generates VAPID keys if you do not set them; only set this if push notifications need a more explicit public origin.

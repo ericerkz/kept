@@ -29,7 +29,7 @@
     "test:shared-organization": "node --test server/shared-note-organization.test.js scripts/shared-note-organization.test.cjs",
     "test:sync": "node server/sync-smoke.test.js",
     "test:managed-hosting": "node server/managed-hosting.test.js",
-    "test:backup": "node --test server/full-backup.test.js scripts/server-backup.test.cjs",
+    "test:backup": "node --test server/full-backup.test.js scripts/server-backup.test.cjs server/backup-retention.test.js server/backup-retention-route.test.js",
     "test:invite": "node server/invite.test.js",
     "test:integration-requests": "node --test server/integration-requests.test.js",
     "test:offline-sync-status": "node --test scripts/offline-sync-status.test.cjs scripts/sync-status.test.cjs",
@@ -59,7 +59,7 @@
     "analyze": "webpack-bundle-analyzer dist/keep/stats.json",
     "docker:deploy": "npx tsx ./deploy-docker-images.ts",
     "test:note-html": "node --test server/note-html.test.js",
-    "test:security": "node --test server/security-remediation.test.js server/public-file-download.test.js",
+    "test:security": "node --test server/security-remediation.test.js server/public-file-download.test.js server/request-body-limits.test.js src/app/utils/snackbar.test.ts",
     "test:note-html:ui": "node scripts/note-html-ui-test.mjs",
     "test:reopened-note-cursor": "node scripts/reopened-note-cursor-test.mjs",
     "test:browser-session": "node --test server/browser-session.test.js server/url-credentials.test.js",
@@ -88,7 +88,11 @@
     "test:binder-sharing": "node --test server/binder-sharing.test.js",
     "test:binder-sharing:ui": "node scripts/binder-sharing-ui-test.mjs",
     "test:code-blocks": "node --test server/code-blocks.test.js",
-    "test:code-blocks:ui": "node scripts/code-blocks-ui-test.mjs"
+    "test:code-blocks:ui": "node scripts/code-blocks-ui-test.mjs",
+    "test:sync-leave": "node --test server/sync-leave-shared-note.test.js scripts/sync-refused-mutation.test.cjs",
+    "test:upload-timeout": "node --test server/upload-request-timeout.test.js",
+    "test:review-fixes:ui": "node scripts/review-fixes-ui-test.mjs",
+    "test:encrypted-notes": "node --test server/encrypted-notes.test.js server/encrypted-note-removal.test.js src/app/utils/note-crypto.test.ts scripts/note-lock-encryption.test.cjs scripts/encrypted-note-local-restore.test.cjs"
   },
   "private": true,
   "engines": {

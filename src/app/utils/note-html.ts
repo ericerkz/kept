@@ -12,6 +12,9 @@ export function safeNoteUrl(value: unknown, image = false): string {
   if (!raw) return '';
   if (image && /^data:image\/(?:png|jpe?g|gif|webp|avif|bmp);base64,[a-z0-9+/=\s]+$/i.test(raw)) return raw;
   if (image && raw.startsWith('blob:')) return raw;
+  // An encrypted note's image (issue #27). Browsers can't load this scheme;
+  // the editor swaps in the decrypted copy before display.
+  if (image && /^kept:\/\/file\/[A-Za-z0-9._:-]{1,160}$/.test(raw)) return raw;
   try {
     const parsed = new URL(raw, 'https://kept.invalid/');
     return (image ? ['http', 'https'] : policy.linkSchemes).includes(parsed.protocol.slice(0, -1)) ? raw : '';

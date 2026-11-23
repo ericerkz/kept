@@ -99,6 +99,8 @@ Locked-note content is redacted by default, even when the agent can otherwise se
 
 The passcode is submitted directly to your Kept server. It is not returned to the MCP client or model. A successful approval unlocks only that note for that MCP token for five minutes.
 
+Encrypted note locks are opened in the app; the server cannot decrypt them for an agent. Requesting access to one returns `NOTE_ENCRYPTED` (HTTP 409); open it in Kept instead.
+
 ## Permanent deletion
 
 Agents can archive, trash, and restore owned notes by default after External Access is enabled. They cannot permanently delete a note unless **Permanent note deletion** is also enabled in External Access settings. That switch is off by default; while enabled, no additional confirmation is required when the tool is called.

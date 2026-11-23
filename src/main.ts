@@ -3,6 +3,9 @@ import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';
 
 import { AppModule } from './app/app.module';
 import { environment } from './environments/environment';
+import { installSnackbar } from './app/utils/snackbar';
+
+installSnackbar();
 
 if (environment.production) {
   enableProdMode();

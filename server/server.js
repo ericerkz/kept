@@ -41,6 +41,7 @@ const mailer = require('./mailer');
 const { createIntegrationRequests } = require('./integration-requests');
 const integrationRequests = createIntegrationRequests();
 const fullBackup = require('./full-backup');
+const backupRetention = require('./backup-retention');
 const { readTakeoutZip } = require('./takeout-zip');
 
 // Upload clients send flat metadata fields. Never interpret nested objects or
@@ -50,7 +51,20 @@ const MULTIPART_FIELD_LIMITS = { fieldNestingDepth: 0, fieldArrayIndexLimit: 0, 
 const app = express();
 app.set('trust proxy', 1);
 app.disable('etag');
-const server = http.createServer(app);
+// Node closes any request whose body hasn't fully arrived within
+// requestTimeout (default 5 minutes). This can interrupt large Google Takeout
+// and restore uploads on slow connections. It is one possible cause of the
+// interrupted upload reported in #185, not a confirmed diagnosis.
+// Allow an hour by default; KEPT_REQUEST_TIMEOUT_MINUTES=0 removes the limit.
+// Headers must still arrive within Node's 60-second headersTimeout.
+// The value must be passed to createServer: Node ignores later changes to
+// server.requestTimeout.
+const REQUEST_TIMEOUT_MINUTES = (() => {
+  const raw = String(process.env.KEPT_REQUEST_TIMEOUT_MINUTES ?? '').trim();
+  const minutes = raw === '' ? 60 : Number(raw);
+  return Number.isFinite(minutes) && minutes >= 0 ? minutes : 60;
+})();
+const server = http.createServer({ requestTimeout: Math.round(REQUEST_TIMEOUT_MINUTES * 60 * 1000) }, app);
 const port = Number(process.env.PORT || 3000);
 const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const uploadDir = process.env.UPLOAD_DIR || path.join(dataDir, 'uploads');
@@ -223,8 +237,14 @@ const SAFE_ATTACHMENT_TYPES = new Map([
   // Additional common formats
   ['application/vnd.oasis.opendocument.text', '.odt'],
   ['application/vnd.oasis.opendocument.spreadsheet', '.ods'],
-  ['application/vnd.oasis.opendocument.presentation', '.odp']
+  ['application/vnd.oasis.opendocument.presentation', '.odp'],
+  // Images and attachments of encrypted notes, sealed in the app (issue #27).
+  ['application/octet-stream', '.keptenc']
 ]);
+const ENCRYPTED_FILE_EXTENSION = '.keptenc';
+function isEncryptedFileName(name) {
+  return path.extname(String(name || '')).toLowerCase() === ENCRYPTED_FILE_EXTENSION;
+}
 
 const SAFE_ATTACHMENT_EXTENSIONS = new Set(Array.from(SAFE_ATTACHMENT_TYPES.values()));
 
@@ -337,8 +357,36 @@ async function performBackup(isManual = false) {
     const setting = isManual ? 'lastManualBackupAt' : 'lastAutomatedBackupAt';
     await setAppSetting(setting, now);
     await pruneQuotaBackups();
+    await applyBackupRetention();
     return filename;
   });
+}
+
+async function getBackupRetentionPolicy() {
+  return backupRetention.parseStoredRetentionPolicy(await getAppSetting('backupRetention', ''));
+}
+
+// Deletes backups the admin's retention policy (issue #171) no longer keeps.
+// Call inside backupTask so it never races a backup being written.
+async function applyBackupRetention() {
+  const policy = await getBackupRetentionPolicy();
+  if (policy.mode === 'all') return [];
+  const directory = path.join(dataDir, 'backups');
+  let names;
+  try { names = await fs.promises.readdir(directory); } catch { return []; }
+  const deleted = [];
+  for (const name of backupRetention.selectBackupsToDelete(names, policy)) {
+    const filePath = resolveBackupFilePath(name);
+    if (!filePath) continue;
+    try {
+      await fs.promises.unlink(filePath);
+      deleted.push(name);
+    } catch (error) {
+      if (error.code !== 'ENOENT') console.error(`[Backup] Could not delete ${name} under the retention policy:`, error.message);
+    }
+  }
+  if (deleted.length) console.log(`[Backup] Retention policy removed ${deleted.length} old backup${deleted.length === 1 ? '' : 's'}.`);
+  return deleted;
 }
 
 async function pruneQuotaBackups() {
@@ -816,6 +864,9 @@ async function init() {
   if (!noteColumns.some(column => column.name === 'lockHash')) {
     await run(`ALTER TABLE notes ADD COLUMN lockHash TEXT NOT NULL DEFAULT ''`);
   }
+  if (!noteColumns.some(column => column.name === 'encryptedContent')) {
+    await run(`ALTER TABLE notes ADD COLUMN encryptedContent TEXT NOT NULL DEFAULT ''`);
+  }
   await run('UPDATE notes SET sortOrder = id WHERE sortOrder = 0 OR sortOrder IS NULL');
   const notesWithoutSyncIds = await all(`SELECT id FROM notes WHERE syncId IS NULL OR syncId = ''`);
   for (const note of notesWithoutSyncIds) {
@@ -1099,6 +1150,8 @@ async function init() {
     )
   `);
   await run(`CREATE INDEX IF NOT EXISTS sync_changes_user_sequence_idx ON sync_changes(userId, sequence)`);
+  // Per-resource pruning (quota mode, encrypted-note history purge).
+  await run(`CREATE INDEX IF NOT EXISTS sync_changes_user_resource_idx ON sync_changes(userId, resourceType, resourceSyncId, sequence)`);
   await binderSharing.init();
   await sharedOrganization.init();
   await backfillImportedNoteLabels();
@@ -1483,8 +1536,173 @@ const KNOWN_NOTE_FIELDS = new Set([
   'completedChecklistCollapsed', 'archived', 'trashed', 'trashedAt', 'sortOrder', 'createdAt', 'updatedAt',
   'lwwPhysicalMs', 'lwwLogical', 'lwwDeviceId', 'lwwOperationId', 'collaborators', 'ownerDisplayName',
   'ownerUsername', 'ownerAvatarDataUrl', 'ownerAvatarPreset', 'lastEditorUserId', 'lastEditorDisplayName',
-  'isDemo', 'extraFields', 'sharedOrganization', 'sharedBinder', 'binderTargetId'
+  'isDemo', 'extraFields', 'sharedOrganization', 'sharedBinder', 'binderTargetId', 'encryptedContent'
 ]);
+
+// ─── Encrypted notes (issue #27) ─────────────────────────────────────────
+// A note locked with the E2E marker keeps its body and checklist only as an
+// AES-GCM envelope that the app seals with a key derived (PBKDF2) from the
+// note's passcode. The server never sees the passcode or the plaintext, and
+// refuses to store plaintext content for such a note. The title, colour,
+// labels and reminder schedules remain readable metadata. Images and attachment
+// bytes are sealed on the device and uploaded as opaque .keptenc files; their
+// names and media types live inside the envelope.
+const E2E_LOCK_MARKER = 'e2e:v1';
+const MAX_ENCRYPTED_CONTENT_CHARS = 48 * 1024 * 1024;
+const ENCRYPTED_NOTE_SAVE_ERROR = 'This note is encrypted. Unlock it in Kept to save changes to its content.';
+const ENCRYPTED_NOTE_STALE_ERROR = 'This note’s passcode was changed. Reopen the note to keep editing it.';
+
+function isEncryptedLock(note) {
+  return !!note?.locked && String(note.lockHash || '') === E2E_LOCK_MARKER;
+}
+
+function parseEncryptedEnvelope(value) {
+  if (typeof value !== 'string' || !value || value.length > MAX_ENCRYPTED_CONTENT_CHARS) return null;
+  let envelope;
+  try { envelope = JSON.parse(value); } catch { return null; }
+  const base64Url = /^[A-Za-z0-9_-]+$/;
+  if (!envelope || typeof envelope !== 'object' || envelope.v !== 1 || envelope.alg !== 'AES-GCM') return null;
+  const kdf = envelope.kdf || {};
+  if (kdf.name !== 'PBKDF2' || kdf.hash !== 'SHA-256' || !Number.isInteger(kdf.iterations)
+    || kdf.iterations < 100000 || kdf.iterations > 10000000) return null;
+  if (typeof kdf.salt !== 'string' || !base64Url.test(kdf.salt) || kdf.salt.length < 16 || kdf.salt.length > 128) return null;
+  // 12-byte IV as unpadded base64url.
+  if (typeof envelope.iv !== 'string' || !base64Url.test(envelope.iv) || envelope.iv.length !== 16) return null;
+  if (typeof envelope.ct !== 'string' || !base64Url.test(envelope.ct)) return null;
+  // The note's random data key, wrapped with the passcode-derived key.
+  const wrap = envelope.wrap || {};
+  if (typeof wrap.iv !== 'string' || !base64Url.test(wrap.iv) || wrap.iv.length !== 16) return null;
+  if (typeof wrap.ct !== 'string' || !base64Url.test(wrap.ct) || wrap.ct.length > 128) return null;
+  const images = envelope.images === undefined ? [] : envelope.images;
+  if (!Array.isArray(images) || images.length > 500 || images.some(name => !safeStoredImageFilename(name))) return null;
+  // Sync IDs of the encrypted attachments (images and files) the content uses.
+  const files = envelope.files === undefined ? [] : envelope.files;
+  if (!Array.isArray(files) || files.length > 1000 || files.some(id => typeof id !== 'string' || !/^[A-Za-z0-9._:-]{1,160}$/.test(id))) return null;
+  // Counts key rotations (passcode changes); absent in the first version.
+  const epoch = envelope.epoch === undefined ? 1 : envelope.epoch;
+  if (!Number.isInteger(epoch) || epoch < 1 || epoch > 1e9) return null;
+  return { ...envelope, images, files, epoch };
+}
+
+// Applies the encryption rules to canonicalized note data before it is
+// stored. `existing` is the stored row (updates) and `request` the fields the
+// client actually sent. Returns an error to send instead of saving, or null.
+async function applyNoteEncryption(noteData, { existing = null, request = {} } = {}) {
+  if (!isEncryptedLock(noteData)) {
+    // Older bundles only send the three lock fields. Accepting that request
+    // would discard the only copy of the body and its wrapped file key.
+    if (isEncryptedLock(existing)) {
+      return { status: 409, error: 'Remove this encrypted lock using an updated Kept app. Its content and files must be restored together.' };
+    }
+    noteData.encryptedContent = '';
+    return null;
+  }
+  const sentEnvelope = Object.prototype.hasOwnProperty.call(request, 'encryptedContent');
+  const sentBody = Object.prototype.hasOwnProperty.call(request, 'noteBody')
+    && (plainText(String(request.noteBody || '')).trim() || /<img\b/i.test(String(request.noteBody || '')));
+  const sentChecklist = Array.isArray(request.checkBoxes) && request.checkBoxes.length > 0;
+  // Plaintext edits without a fresh envelope would either be stored in the
+  // clear or silently lost; refuse them so the client can tell the user.
+  if (!sentEnvelope && (sentBody || sentChecklist)) return { status: 400, error: ENCRYPTED_NOTE_SAVE_ERROR };
+  // Images (including drawings) are part of the encrypted content.
+  if (Array.isArray(request.images) && request.images.length) return { status: 400, error: ENCRYPTED_NOTE_SAVE_ERROR };
+  const envelope = sentEnvelope ? String(request.encryptedContent || '') : String(existing?.encryptedContent || noteData.encryptedContent || '');
+  const parsed = parseEncryptedEnvelope(envelope);
+  if (!parsed) return { status: 400, error: ENCRYPTED_NOTE_SAVE_ERROR };
+  // The envelope must be sealed for the note's current lock. Only the owner
+  // changes lockSalt (non-owners keep the stored one), and a passcode change
+  // moves to a new key epoch. A device or collaborator still holding an
+  // older key can't save over the rotation and silently restore the old
+  // passcode. These never succeed on retry, hence 400.
+  if (parsed.kdf.salt !== noteData.lockSalt) return { status: 400, error: ENCRYPTED_NOTE_STALE_ERROR };
+  const stored = isEncryptedLock(existing) ? parseEncryptedEnvelope(existing.encryptedContent) : null;
+  if (stored && parsed.epoch < stored.epoch) return { status: 400, error: ENCRYPTED_NOTE_STALE_ERROR };
+  // A key/envelope transition must not make the old files disposable while
+  // the replacement uploads are still pending or blocked by quota.
+  if (existing?.id && sentEnvelope && parsed.files.length) {
+    const rows = await all(`SELECT syncId FROM note_attachments WHERE noteId = ? AND syncId IN (${parsed.files.map(() => '?').join(',')})`,
+      [existing.id, ...parsed.files]);
+    const available = new Set(rows.map(row => row.syncId));
+    if (parsed.files.some(id => !available.has(id))) return { status: 409, error: 'Encrypted files are still waiting to upload. The previous note and files have been kept.' };
+  }
+  noteData.encryptedContent = envelope;
+  noteData.noteBody = '';
+  noteData.checkBoxes = [];
+  noteData.images = [];
+  return null;
+}
+
+// What image linking should see for a note: for an encrypted note, the stored
+// image files its envelope says the encrypted body uses.
+function noteImageSource(noteData) {
+  if (!isEncryptedLock(noteData)) return noteData;
+  const envelope = parseEncryptedEnvelope(noteData.encryptedContent);
+  const body = (envelope?.images || []).map(name => `<img src="${PRIVATE_IMAGE_PREFIX}${name}">`).join('');
+  return { ...noteData, noteBody: body };
+}
+
+// Reminders used to copy the note's text into their own body. Once the note
+// is encrypted, clear those copies and their older sync snapshots.
+async function scrubLockedNoteReminders(noteId) {
+  const reminders = await all("SELECT id FROM reminders WHERE noteId = ? AND COALESCE(body, '') != ''", [noteId]);
+  for (const { id } of reminders) {
+    const stamp = serverLwwStamp();
+    await run(`UPDATE reminders SET body = NULL, updatedAt = ?, lwwPhysicalMs = ?, lwwLogical = ?, lwwDeviceId = ?, lwwOperationId = ?
+      WHERE id = ?`, [new Date().toISOString(), stamp.physicalMs, stamp.logical, stamp.deviceId, stamp.operationId, id]);
+    const reminder = await get('SELECT * FROM reminders WHERE id = ?', [id]);
+    await recordReminderSyncChange(reminder, 'upsert');
+    await purgePlaintextHistory(reminder.syncId, [reminder.userId], 'reminder');
+  }
+}
+
+async function storeEncryptedContent(noteId, noteData) {
+  await run('UPDATE notes SET encryptedContent = ? WHERE id = ?', [noteData.encryptedContent || '', noteId]);
+  const envelope = isEncryptedLock(noteData) ? parseEncryptedEnvelope(noteData.encryptedContent) : null;
+  await pruneEncryptedAttachments(noteId, envelope?.files || []);
+}
+
+// Encrypted attachments the note's content no longer uses (a replaced
+// drawing, a removed image, or all of them once the lock is removed). The
+// grace period keeps an upload whose envelope hasn't arrived yet: another
+// device or collaborator, or an offline queue that sends the note first.
+const ENCRYPTED_FILE_GRACE_MS = 60 * 60 * 1000;
+async function pruneEncryptedAttachments(noteId, referencedSyncIds) {
+  const referenced = new Set(referencedSyncIds);
+  const cutoff = new Date(Date.now() - ENCRYPTED_FILE_GRACE_MS).toISOString();
+  const rows = await all(`SELECT * FROM note_attachments WHERE noteId = ? AND lower(originalName) LIKE '%${ENCRYPTED_FILE_EXTENSION}'`, [noteId]);
+  const stale = rows.filter(row => !referenced.has(row.syncId) && String(row.uploadedAt || '') < cutoff);
+  if (!stale.length) return;
+  const recipients = await getNoteRecipientIds(noteId);
+  for (const row of stale) {
+    const stamp = serverLwwStamp();
+    await run(`UPDATE native_upload_receipts SET state = 'deleted', updatedAt = ?
+      WHERE resourceType = 'attachment' AND resourceSyncId = ? AND state = 'active'`, [new Date().toISOString(), row.syncId]);
+    await run('DELETE FROM note_attachments WHERE id = ?', [row.id]);
+    await recordAttachmentSyncChange({ ...row, lwwPhysicalMs: stamp.physicalMs, lwwLogical: stamp.logical,
+      lwwDeviceId: stamp.deviceId, lwwOperationId: stamp.operationId }, 'delete', recipients);
+    removeFileAfterCommit(attachmentPath(row.storedFilename));
+  }
+}
+
+// Once a note is encrypted, drop the older plaintext copies the server keeps
+// for sync: earlier change-feed snapshots (only the newest per user is needed,
+// as quota mode already does) and full payloads in operation receipts (they
+// are recomputed when missing). Backups made earlier keep what they contain.
+async function purgePlaintextHistory(syncId, userIds, resourceType = 'note') {
+  if (!syncId) return;
+  for (const userId of [...new Set((userIds || []).map(Number).filter(Boolean))]) {
+    await run(`DELETE FROM sync_changes WHERE userId = ? AND resourceType = ? AND resourceSyncId = ?
+      AND sequence < (SELECT MAX(sequence) FROM sync_changes WHERE userId = ? AND resourceType = ? AND resourceSyncId = ?)`,
+    [userId, resourceType, syncId, userId, resourceType, syncId]);
+    // _canonicalPayload tells a replay to rebuild `payload` from current state.
+    await run(`UPDATE workspace_operations SET result = CASE
+        WHEN json_type(result, '$.payload') IS NOT NULL
+          THEN json_set(json_remove(result, '$.canonical', '$.payload'), '$._canonicalPayload', json('true'))
+        ELSE json_remove(result, '$.canonical') END
+      WHERE userId = ? AND json_valid(result) AND json_extract(result, '$.syncId') = ?
+        AND (json_type(result, '$.canonical') IS NOT NULL OR json_type(result, '$.payload') IS NOT NULL)`, [userId, syncId]);
+  }
+}
 
 function noteExtraFields(payload) {
   return Object.fromEntries(Object.entries(withoutTakeoutSourceFields(payload)).filter(([key]) => !KNOWN_NOTE_FIELDS.has(key)));
@@ -1502,7 +1720,9 @@ function canonicalizeNotePayload(payload) {
     binder: String(payload.binder || '').trim().slice(0, 80),
     locked,
     lockSalt: locked ? String(payload.lockSalt || '').slice(0, 256) : '',
-    lockHash: locked ? String(payload.lockHash || '').slice(0, 512) : ''
+    lockHash: locked ? String(payload.lockHash || '').slice(0, 512) : '',
+    // Validated and finalized per write by applyNoteEncryption.
+    encryptedContent: typeof payload.encryptedContent === 'string' ? payload.encryptedContent : undefined
   };
 }
 
@@ -1625,6 +1845,7 @@ function dbNoteToApi(row) {
     locked: Boolean(row.locked),
     lockSalt: row.lockSalt || '',
     lockHash: row.lockHash || '',
+    encryptedContent: row.encryptedContent || '',
     completedChecklistCollapsed: Boolean(row.completedChecklistCollapsed),
     archived: Boolean(row.archived),
     trashed: Boolean(row.trashed),
@@ -1764,11 +1985,14 @@ async function recordNoteSyncChange(noteId, operation, recipientIds, deletedSnap
   const affected = operation === 'upsert' ? await binderSharing.reconcileNote(noteId) : [];
   const recipients = [...new Set([...(recipientIds || await getNoteRecipientIds(noteId)),...affected])];
   if (operation === 'upsert') {
+    let encrypted = false;
     for (const userId of recipients) {
       const payload = await noteSyncSnapshot(noteId, userId);
       if (!payload?.syncId) continue;
       await appendSyncChange([userId], 'note', payload.syncId, operation, payload, rowLwwStamp(payload));
+      if (isEncryptedLock(payload)) { encrypted = true; await purgePlaintextHistory(payload.syncId, [userId]); }
     }
+    if (encrypted) await scrubLockedNoteReminders(noteId);
     return;
   }
   const payload = deletedSnapshot || null;
@@ -2502,6 +2726,8 @@ async function smartCreateNote(userId, action, options = {}) {
 async function smartAppendToNote(userId, noteId, text) {
   const note = await getAccessibleNote(noteId, userId);
   if (!note) throw new Error(`Note ${noteId} is not accessible.`);
+  // Writing here would put plaintext into an encrypted note.
+  if (isEncryptedLock(note)) throw new Error(`Note ${noteId} is encrypted; unlock it in Kept to add to it.`);
   const separator = note.noteBody && String(note.noteBody).trim() ? '<br>' : '';
   const nextBody = sanitizeNoteHtml(`${note.noteBody || ''}${separator}${escapeHtml(text)}`);
   await run('UPDATE notes SET noteBody = ?, updatedAt = ?, lastEditorUserId = ? WHERE id = ?', [
@@ -2516,6 +2742,8 @@ async function smartAppendToNote(userId, noteId, text) {
 async function smartAddChecklistItems(userId, noteId, items) {
   const note = await getAccessibleNote(noteId, userId);
   if (!note) throw new Error(`Note ${noteId} is not accessible.`);
+  // Writing here would put plaintext into an encrypted note.
+  if (isEncryptedLock(note)) throw new Error(`Note ${noteId} is encrypted; unlock it in Kept to add to it.`);
   const current = parseJson(note.checkBoxes || '[]', []);
   const base = Math.max(Date.now(), ...current.map(row => Number(row.id) + 1).filter(Number.isSafeInteger));
   const listId = current.at(-1)?.listId;
@@ -3908,10 +4136,32 @@ app.use('/api', (_req, res, next) => {
   });
   next();
 });
-const parseJsonBody = express.json({ limit: '25mb' });
-// Remote MCP authenticates before parsing its body and applies its own limit.
-app.use((req, res, next) => /^\/mcp\/?$/i.test(req.path) ? next() : parseJsonBody(req, res, next));
+// JSON bodies are buffered and parsed before route handlers run, so the size
+// allowance depends on who is asking. Anyone may send a small body (login,
+// registration, setup, SSO exchange). Only a request whose session or token
+// actually resolves may send up to 25 MB (inline images, large sync batches);
+// otherwise one unauthenticated client could exhaust the heap with a few
+// concurrent 25 MB requests. Remote MCP authenticates before parsing its own
+// body and applies its own limit.
+const PUBLIC_JSON_LIMIT_BYTES = 64 * 1024;
+const publicJsonBody = express.json({ limit: PUBLIC_JSON_LIMIT_BYTES });
+const authenticatedJsonBody = express.json({ limit: '25mb' });
+async function requestCredentialResolves(req) {
+  const header = req.header('authorization') || '';
+  const token = header ? (header.startsWith('Bearer ') ? header.slice(7) : '') : req.session?.token || '';
+  if (!token) return false;
+  return !!(await resolveSessionFromToken(token) || await resolveMcpToken(token));
+}
+// The cookie session is loaded first so browser requests can qualify.
 app.use(browserSessions.middleware);
+app.use((req, res, next) => {
+  if (/^\/mcp\/?$/i.test(req.path)) return next();
+  const declared = Number(req.headers['content-length']);
+  const fitsPublicLimit = Number.isFinite(declared) && declared <= PUBLIC_JSON_LIMIT_BYTES && !req.headers['transfer-encoding'];
+  if (fitsPublicLimit || !req.is('application/json')) return publicJsonBody(req, res, next);
+  requestCredentialResolves(req)
+    .then(valid => (valid ? authenticatedJsonBody : publicJsonBody)(req, res, next), next);
+});
 app.get('/api/auth/browser/session', asyncRoute(browserSessions.status));
 app.post('/api/auth/browser/adopt', browserSessions.protect, requireAuth, asyncRoute(async (req, res) => {
   if (req.browserAuth || req.mcpToken) return res.status(400).json({ error: 'A local bearer session is required.' });
@@ -4678,7 +4928,20 @@ app.get('/api/admin/backup/status', requireAuth, requireAdmin, asyncRoute(async 
       })
       .sort((a, b) => b.createdAt - a.createdAt);
   }
-  res.json({ schedule, backupTime, lastAutomatedAt, lastManualAt, files, absolutePath });
+  const retention = await getBackupRetentionPolicy();
+  res.json({ schedule, backupTime, lastAutomatedAt, lastManualAt, files, absolutePath, retention });
+}));
+
+app.post('/api/admin/backup/retention', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+  if (MANAGED_EXTERNAL_BACKUPS) return res.status(409).json({ error: 'Backup retention is handled externally.' });
+  const retention = backupRetention.normalizeRetentionPolicy(req.body?.retention);
+  await setAppSetting('backupRetention', JSON.stringify(retention));
+  // Apply now so the admin sees the result; if a backup is running, the
+  // policy is applied when that backup finishes instead.
+  let deleted = [], applied = true;
+  try { deleted = await backupTask(applyBackupRetention); }
+  catch (error) { if (error.status !== 409) throw error; applied = false; }
+  res.json({ success: true, retention, deleted, applied });
 }));
 
 
@@ -4717,6 +4980,7 @@ app.post('/api/admin/backup/full', requireAuth, requireAdmin, backupLimiter, man
     });
     await setAppSetting('lastManualBackupAt', new Date().toISOString());
     await pruneQuotaBackups();
+    await applyBackupRetention();
     res.json({ success: true, ...result });
   });
 }));
@@ -5062,6 +5326,10 @@ app.post('/api/mcp/locked-notes/:noteId/unlock', requireAuth, asyncRoute(async (
   const note = await getAccessibleNote(noteId, req.user.id);
   if (!note) return res.status(404).json({ error: 'Note not found.' });
   if (!note.locked) return res.json({ unlocked: true, expiresAt: null });
+  // Only the Kept app holds the key; the server couldn't decrypt it for you.
+  if (isEncryptedLock(note)) {
+    return res.status(409).json({ code: 'NOTE_ENCRYPTED', error: 'This note is encrypted. Only the Kept app can open it, so external apps can’t unlock it.' });
+  }
   if (await mcpNoteIsUnlocked(req, noteId)) return res.json({ unlocked: true, expiresAt: null });
 
   const challenge = randomHex(32);
@@ -5360,6 +5628,20 @@ app.get('/api/uploads/images/:filename', requireAuth, asyncRoute(async (req, res
   res.sendFile(filePath);
 }));
 
+// Same disk storage/type checks as attachments, with room for a full note's
+// JSON field. This parser runs only after authentication and owner checks.
+const uploadEncryptionRemoval = multer({ storage: uploadAttachment.storage, fileFilter: uploadAttachment.fileFilter,
+  limits: { ...MULTIPART_FIELD_LIMITS, fields: 1, fieldSize: 25 * 1024 * 1024, files: 1000, fileSize: MAX_FILE_BYTES } });
+app.get('/api/notes/encryption-capabilities', requireAuth, (_req, res) => res.json({ version: 1, removal: 'atomic-multipart-v1' }));
+
+require('./encrypted-note-removal').registerEncryptedNoteRemoval(app, {
+  requireAuth, asyncRoute, uploadAttachment: uploadEncryptionRemoval, withDatabaseTransaction, getAccessibleNote,
+  isEncryptedLock, parseEncryptedEnvelope, canonicalizeNotePayload, run, get, all, crypto,
+  safeDownloadName, attachmentResponse, recordAttachmentSyncChange, removeFileAfterCommit,
+  attachmentPath, storageQuota, afterDatabaseRollback, serverLwwStamp, storeEncryptedContent,
+  syncNoteImagesForNote, broadcastNoteChange, dbNoteToApi
+});
+
 // ─── Attachment Endpoints ──────────────────────────────────────────────────
 
 app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single('file'), asyncRoute(async (req, res) => {
@@ -5385,6 +5667,10 @@ app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single(
     result = await withDatabaseTransaction(async () => {
       const note = await getAccessibleNote(noteId, req.user.id);
       if (!note) return { status: 404, error: 'Note not found.' };
+      // An encrypted note's files are sealed in the app; never store one in the clear.
+      if (isEncryptedLock(note) && !isEncryptedFileName(req.file.originalname)) {
+        return { status: 409, error: 'This note is encrypted. Add files to it in Kept so they are encrypted too.' };
+      }
       if (await get("SELECT syncId FROM workspace_tombstones WHERE userId = ? AND resourceType = 'attachment' AND syncId = ?", [req.user.id,syncId])) return {status:410,error:'This attachment was deleted.'};
       const receipt = await get(`SELECT * FROM native_upload_receipts
         WHERE userId = ? AND operationId = ? AND resourceType = 'attachment'`, [req.user.id, operationId]);
@@ -5432,7 +5718,8 @@ app.post('/api/notes/:noteId/attachments', requireAuth, uploadAttachment.single(
       const attachment = await get('SELECT * FROM note_attachments WHERE id = ?', [inserted.id]);
       const payload = attachmentResponse(attachment);
       await recordAttachmentSyncChange(attachment, 'upsert');
-      await broadcastNoteChange(noteId, 'updated');
+      // Uploading replacement bytes is not a newer edit to the note body.
+      await broadcastNoteChange(noteId, 'updated', undefined, { preserveStamp: isEncryptedFileName(req.file.originalname) || isEncryptedLock(note) });
       const receiptPayload = payload;
       await run(`INSERT INTO native_upload_receipts
         (userId, operationId, resourceType, resourceSyncId, noteId, contentHash, payload, state, createdAt, updatedAt)
@@ -5494,6 +5781,10 @@ app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, database
 
   if (!attachment) return res.status(404).json({ error: 'Attachment not found.' });
 
+  if (isEncryptedLock(note) && parseEncryptedEnvelope(note.encryptedContent)?.files.includes(attachment.syncId)) {
+    return res.status(409).json({ error: 'Save the encrypted note without this file before deleting its stored copy.' });
+  }
+
   // Only the note owner can delete attachments
   if (note.ownerUserId !== req.user.id) {
     return res.status(403).json({ error: 'Only the note owner can delete attachments.' });
@@ -5515,7 +5806,7 @@ app.delete('/api/notes/:noteId/attachments/:attachmentId', requireAuth, database
     [new Date().toISOString(), req.user.id, current.syncId || attachment.syncId]);
     await run('DELETE FROM note_attachments WHERE id = ?', [attachmentId]);
     await recordAttachmentSyncChange({ ...current, ...attachment }, 'delete', recipients);
-    await broadcastNoteChange(noteId, 'updated');
+    await broadcastNoteChange(noteId, 'updated', undefined, { preserveStamp: isEncryptedLock(note) || isEncryptedFileName(current.originalName) });
     return true;
   });
   if (!deleted) return res.status(404).json({ error: 'Attachment not found.' });
@@ -5724,6 +6015,21 @@ async function applySyncNoteMutation(userId, mutation) {
   const existing = mutation.protocolVersion === 2
     ? await get('SELECT * FROM notes WHERE syncId = ?', [syncId])
     : await get('SELECT * FROM notes WHERE syncId = ? OR id = ?', [syncId, Number(payload.id || mutation.id || 0)]);
+  if (type === 'note.delete' && existing) {
+    const note = await getAccessibleNote(existing.id, userId);
+    // Already gone for this user (deleted, or they left it): the delete is done.
+    if (!note) return { ok: true, skipped: true, resourceType: 'note', syncId };
+    if (note.ownerUserId !== userId) {
+      // Same meaning as REST DELETE for a collaborator: leave the note. This
+      // runs before the last-write-wins check because leaving changes only the
+      // caller's access, not the note, so an owner's later edit must not cancel it.
+      const left = await leaveSharedNote(note, userId);
+      // Retrying cannot succeed while the binder grants access, so report a
+      // permanent refusal and let the client drop the queued change.
+      if (!left.ok) return { ok: false, status: 403, error: left.error, syncId };
+      return { ok: true, resourceType: 'note', syncId, id: note.id, deleted: true, left: true };
+    }
+  }
   if (existing && !(await getAccessibleNote(existing.id, userId))) return { ok: false, status: 403, error: 'Note not accessible.', syncId };
   if (existing && compareLwwStamp(incomingStamp, rowLwwStamp(existing)) < 0) {
     return { ok: true, skipped: true, resourceType: 'note', syncId, id: existing.id };
@@ -5731,7 +6037,6 @@ async function applySyncNoteMutation(userId, mutation) {
   if (type === 'note.delete') {
     const note = existing ? await getAccessibleNote(existing.id, userId) : null;
     if (!note) return { ok: true, skipped: true, resourceType: 'note', syncId };
-    if (note.ownerUserId !== userId) return { ok: false, status: 403, error: 'Only the owner can delete a note.', syncId };
     const recipients = await getNoteRecipientIds(note.id);
     await recordDependentSyncDeletesForNote(note.id, recipients);
     await deleteAttachmentFilesForNote(note.id);
@@ -5760,6 +6065,8 @@ async function applySyncNoteMutation(userId, mutation) {
   }
   const now = new Date().toISOString();
   if (!existing) {
+    const encryptionError = await applyNoteEncryption(noteData, { request: payload });
+    if (encryptionError) return { ok: false, ...encryptionError, syncId };
     const result = await run(
       `INSERT INTO notes
        (ownerUserId, syncId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, lastEditorUserId, isDemo,
@@ -5797,8 +6104,9 @@ async function applySyncNoteMutation(userId, mutation) {
     );
     if (noteData.pinned) await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [userId, result.id]);
     if (noteData.isDemo && noteData.pinned) await positionStarterBelowManagedWelcome(result.id, userId);
+    await storeEncryptedContent(result.id, noteData);
     if (payload.binderTargetId !== undefined) await binderSharing.move(result.id,userId,payload.binderTargetId,incomingStamp);
-    await syncNoteImagesForNote(result.id, userId, noteData);
+    await syncNoteImagesForNote(result.id, userId, noteImageSource(noteData));
     await recordNoteSyncChange(result.id, 'upsert', [userId]);
     broadcastRealtime([userId], { type: 'notes-changed', action: 'created', noteId: result.id, syncId });
     return { ok: true, resourceType: 'note', syncId, id: result.id, payload: dbNoteToApi(await getAccessibleNote(result.id, userId)) };
@@ -5839,6 +6147,8 @@ async function applySyncNoteMutation(userId, mutation) {
   noteData.extraFields = isOwner
     ? { ...storedExtraFields, ...noteData.extraFields }
     : storedExtraFields;
+  const encryptionError = await applyNoteEncryption(noteData, { existing: note, request: payload });
+  if (encryptionError) return { ok: false, ...encryptionError, syncId };
   const trashedAt = nextTrashedAt(note, noteData);
   const updated = await run(
     `UPDATE notes SET
@@ -5874,9 +6184,10 @@ async function applySyncNoteMutation(userId, mutation) {
     ]
   );
   if (!updated.changes) return { ok: false, status: 409, error: 'The note changed before this update could be saved.', syncId };
+  await storeEncryptedContent(note.id, noteData);
   if (shouldPinForUser) await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [userId, note.id]);
   else await run('DELETE FROM user_pins WHERE userId = ? AND noteId = ?', [userId, note.id]);
-  await syncNoteImagesForNote(note.id, note.ownerUserId, noteData);
+  await syncNoteImagesForNote(note.id, note.ownerUserId, noteImageSource(noteData));
   await cleanupUnusedLabels(userId);
   await broadcastNoteChange(note.id, 'updated', undefined, { preserveStamp: true });
   return { ok: true, resourceType: 'note', syncId, id: note.id, payload: dbNoteToApi(await getAccessibleNote(note.id, userId)) };
@@ -6081,6 +6392,10 @@ async function applySyncAttachmentMutation(userId, mutation) {
     [syncId, userId]
   );
   if (!attachment) return { ok: true, skipped: true, resourceType: 'attachment', syncId };
+  const parent = await get('SELECT locked, lockHash, encryptedContent FROM notes WHERE id = ?', [attachment.noteId]);
+  if (isEncryptedLock(parent) && parseEncryptedEnvelope(parent.encryptedContent)?.files.includes(syncId)) {
+    return { ok: false, status: 409, error: 'Save the encrypted note without this file before deleting its stored copy.', syncId };
+  }
   const incomingStamp = normalizeLwwStamp(mutation.lww || payload);
   if (compareLwwStamp(incomingStamp, rowLwwStamp(attachment)) < 0) {
     return { ok: true, skipped: true, resourceType: 'attachment', syncId, id: attachment.id };
@@ -6099,7 +6414,7 @@ async function applySyncAttachmentMutation(userId, mutation) {
     lwwDeviceId: incomingStamp.deviceId,
     lwwOperationId: incomingStamp.operationId
   }, 'delete', recipients);
-  await broadcastNoteChange(attachment.noteId, 'updated');
+  await broadcastNoteChange(attachment.noteId, 'updated', undefined, { preserveStamp: isEncryptedLock(parent) || isEncryptedFileName(attachment.originalName) });
   return { ok: true, resourceType: 'attachment', syncId, id: attachment.id, deleted: true };
 }
 
@@ -6819,11 +7134,12 @@ app.get('/api/notes/:id', requireAuth, asyncRoute(async (req, res) => {
 
   // Fetch attachments for this note
   const attachments = await all(
-    `SELECT id, originalName, fileSize, mimeType, uploadedAt FROM note_attachments WHERE noteId = ? ORDER BY uploadedAt DESC`,
+    `SELECT id, syncId, originalName, fileSize, mimeType, uploadedAt FROM note_attachments WHERE noteId = ? ORDER BY uploadedAt DESC`,
     [note.id]
   );
   note.attachments = attachments.map(att => ({
     id: att.id,
+    syncId: att.syncId,
     originalName: att.originalName,
     fileSize: att.fileSize,
     mimeType: att.mimeType,
@@ -6939,6 +7255,8 @@ app.patch('/api/notes/reorder', requireAuth, databaseRoute(async (req, res) => {
 
 app.post('/api/notes', requireAuth, databaseRoute(async (req, res) => {
   const noteData = canonicalizeNotePayload({ ...req.body, bgColor: req.body.bgColor ?? req.user.defaultNoteColor ?? '' });
+  const encryptionError = await applyNoteEncryption(noteData, { request: req.body });
+  if (encryptionError) return res.status(encryptionError.status).json({ error: encryptionError.error });
   const now = new Date().toISOString();
   const trashedAt = noteData.trashed ? now : null;
   const syncId = String(noteData.syncId || noteData.clientId || `note-${crypto.randomUUID()}`);
@@ -6972,8 +7290,9 @@ app.post('/api/notes', requireAuth, databaseRoute(async (req, res) => {
       noteData.isDemo ? 1 : 0
     ]
   );
+  await storeEncryptedContent(result.id, noteData);
   if (req.body.binderTargetId !== undefined) await binderSharing.move(result.id,req.user.id,req.body.binderTargetId);
-  await syncNoteImagesForNote(result.id, req.user.id, noteData);
+  await syncNoteImagesForNote(result.id, req.user.id, noteImageSource(noteData));
   if (noteData.pinned) {
     await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [req.user.id, result.id]);
   }
@@ -7024,6 +7343,8 @@ app.put('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
     next.lockHash = note.lockHash || '';
   }
   if (await binderSharing.preserveBinder(note.id)) next.binder = note.binder || '';
+  const encryptionError = await applyNoteEncryption(next, { existing: note, request: req.body || {} });
+  if (encryptionError) return res.status(encryptionError.status).json({ error: encryptionError.error });
   const trashedAt = nextTrashedAt(note, next);
   await run(
     `UPDATE notes SET
@@ -7058,7 +7379,8 @@ app.put('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
   } else {
     await run('DELETE FROM user_pins WHERE userId = ? AND noteId = ?', [req.user.id, Number(req.params.id)]);
   }
-  await syncNoteImagesForNote(Number(req.params.id), note.ownerUserId, next);
+  await storeEncryptedContent(Number(req.params.id), next);
+  await syncNoteImagesForNote(Number(req.params.id), note.ownerUserId, noteImageSource(next));
   await broadcastNoteChange(Number(req.params.id), 'updated');
   await cleanupUnusedLabels(req.user.id);
   res.status(204).end();
@@ -7108,6 +7430,8 @@ app.patch('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
     next.lockHash = existing.lockHash || '';
   }
   if (await binderSharing.preserveBinder(existing.id)) next.binder = existing.binder || '';
+  const encryptionError = await applyNoteEncryption(next, { existing: existing, request: req.body || {} });
+  if (encryptionError) return res.status(encryptionError.status).json({ error: encryptionError.error });
   const trashedAt = nextTrashedAt(existing, next);
   await run(
     `UPDATE notes SET
@@ -7142,7 +7466,8 @@ app.patch('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
   } else {
     await run('DELETE FROM user_pins WHERE userId = ? AND noteId = ?', [req.user.id, Number(req.params.id)]);
   }
-  await syncNoteImagesForNote(Number(req.params.id), existing.ownerUserId, next);
+  await storeEncryptedContent(Number(req.params.id), next);
+  await syncNoteImagesForNote(Number(req.params.id), existing.ownerUserId, noteImageSource(next));
   await broadcastNoteChange(Number(req.params.id), 'updated');
   await cleanupUnusedLabels(req.user.id);
   res.status(204).end();
@@ -7154,6 +7479,11 @@ app.post('/api/notes/:id/clone', requireAuth, databaseRoute(async (req, res) => 
 
   const now = new Date().toISOString();
   const note = dbNoteToApi(row);
+  // Encrypted files belong to the original note and its envelope can't be
+  // rewritten here, so a copy would lose them.
+  if (isEncryptedLock(note) && parseEncryptedEnvelope(note.encryptedContent)?.files.length) {
+    return res.status(409).json({ error: 'Encrypted notes with images or attachments can’t be copied yet.' });
+  }
   const result = await run(
     `INSERT INTO notes
      (ownerUserId, noteTitle, noteBody, bgColor, bgImage, checkBoxes, images, isCbox, labels, binder, extraFields, locked, lockSalt, lockHash, archived, trashed, trashedAt, sortOrder, createdAt, updatedAt, isDemo)
@@ -7182,10 +7512,12 @@ app.post('/api/notes/:id/clone', requireAuth, databaseRoute(async (req, res) => 
       note.isDemo ? 1 : 0
     ]
   );
+  // A copy of an encrypted note stays encrypted with the same passcode.
+  if (isEncryptedLock(note)) await storeEncryptedContent(result.id, note);
   if (note.pinned) {
     await run('INSERT OR IGNORE INTO user_pins (userId, noteId) VALUES (?, ?)', [req.user.id, result.id]);
   }
-  await syncNoteImagesForNote(result.id, req.user.id, note);
+  await syncNoteImagesForNote(result.id, req.user.id, noteImageSource(note));
   await broadcastNoteChange(result.id, 'created', [req.user.id]);
   res.status(201).json({ id: result.id });
 }));
@@ -7210,6 +7542,10 @@ app.post('/api/notes/merge', requireAuth, databaseRoute(async (req, res) => {
   const byId = new Map(rows.map(r => [r.id, r]));
   const sources = orderedIds.map(id => byId.get(id));
   if (sources.some(s => !s)) return res.status(404).json({ error: 'One or more notes were not found.' });
+  // The server can't read encrypted content, so it can't merge it.
+  if (sources.some(isEncryptedLock)) {
+    return res.status(409).json({ error: 'Encrypted notes can’t be merged. Remove the lock from them first.' });
+  }
 
   // Build the merged note. Hybrid: keep text body AND the checklist as
   // first-class fields so the editor can render both stacked. Drawings get
@@ -7417,35 +7753,44 @@ app.delete('/api/notes/:id', requireAuth, databaseRoute(async (req, res) => {
     await run('DELETE FROM notes WHERE id = ?', [noteId]);
     await broadcastNoteChange(noteId, 'deleted', recipients, { deletedSnapshot });
   } else {
-    if (await get('SELECT noteId FROM binder_note_grants WHERE noteId = ? AND userId = ?', [noteId,req.user.id])) {
-      return res.status(409).json({ error:'This note belongs to a shared binder. Leave that binder to remove your access.' });
-    }
-    // If not owner, just remove self as collaborator (unshare).
-    // Grant a rejoin token so the snackbar undo flow can re-add them.
-    const revokedStamp = serverLwwStamp();
-    await run('DELETE FROM note_collaborators WHERE noteId = ? AND userId = ?', [noteId, req.user.id]);
-    await run(
-      'INSERT OR REPLACE INTO note_collaborator_rejoin_grants (noteId, userId, grantedAt) VALUES (?, ?, ?)',
-      [noteId, req.user.id, new Date().toISOString()]
-    );
-    await recordNoteSyncChange(noteId, 'delete', [req.user.id], {
-      syncId: note.syncId,
-      lwwPhysicalMs: revokedStamp.physicalMs,
-      lwwLogical: revokedStamp.logical,
-      lwwDeviceId: revokedStamp.deviceId,
-      lwwOperationId: revokedStamp.operationId
-    });
-    broadcastRealtime([req.user.id], {
-      type: 'notes-changed',
-      action: 'access-revoked',
-      noteId,
-      syncId: note.syncId
-    });
-    await broadcastNoteChange(noteId, 'updated');
+    const left = await leaveSharedNote(note, req.user.id);
+    if (!left.ok) return res.status(409).json({ error: left.error });
   }
   await cleanupUnusedLabels(req.user.id);
   res.status(204).end();
 }));
+
+// A collaborator "deleting" a note they don't own removes only their own
+// access (unshare). REST DELETE /api/notes/:id and the sync note.delete
+// mutation share this so both paths mean the same thing.
+async function leaveSharedNote(note, userId) {
+  if (await get('SELECT noteId FROM binder_note_grants WHERE noteId = ? AND userId = ?', [note.id, userId])) {
+    return { ok: false, inheritedFromBinder: true,
+      error: 'This note belongs to a shared binder. Leave that binder to remove your access.' };
+  }
+  // Grant a rejoin token so the snackbar undo flow can re-add them.
+  const revokedStamp = serverLwwStamp();
+  await run('DELETE FROM note_collaborators WHERE noteId = ? AND userId = ?', [note.id, userId]);
+  await run(
+    'INSERT OR REPLACE INTO note_collaborator_rejoin_grants (noteId, userId, grantedAt) VALUES (?, ?, ?)',
+    [note.id, userId, new Date().toISOString()]
+  );
+  await recordNoteSyncChange(note.id, 'delete', [userId], {
+    syncId: note.syncId,
+    lwwPhysicalMs: revokedStamp.physicalMs,
+    lwwLogical: revokedStamp.logical,
+    lwwDeviceId: revokedStamp.deviceId,
+    lwwOperationId: revokedStamp.operationId
+  });
+  broadcastRealtime([userId], {
+    type: 'notes-changed',
+    action: 'access-revoked',
+    noteId: note.id,
+    syncId: note.syncId
+  });
+  await broadcastNoteChange(note.id, 'updated');
+  return { ok: true };
+}
 
 // ─── Reminder routes ───────────────────────────────────────────────────────
 
@@ -7607,7 +7952,9 @@ function reminderResponse(reminder, notesById = new Map()) {
     noteId,
     dueAtUtc: reminder.dueAtUtc || null,
     title: inaccessibleNote ? null : useCurrentNoteContent ? (noteTitle || null) : (explicitTitle || noteTitle || null),
-    body: inaccessibleNote ? null : useCurrentNoteContent ? (noteBody || null) : (explicitBody || noteBody || null),
+    // A locked note's content must not reach the calendar feed, CalDAV, Google
+    // Calendar or push: not the note body, and not a body copied into the reminder.
+    body: inaccessibleNote || note?.locked ? null : useCurrentNoteContent ? (noteBody || null) : (explicitBody || noteBody || null),
     imageUrl: inaccessibleNote ? null : (reminder.imageUrl || null),
     locationName,
     latitude,
@@ -8819,9 +9166,24 @@ const uploadZip = multer({
 });
 
 function googleTakeoutUpload(req, res, next) {
+  const startedAt = Date.now();
+  const receivedAtStart = Number(req.socket?.bytesRead) || 0;
   uploadZip.single('takeout')(req, res, (error) => {
     if (!error) return next();
     if (req.file?.path) storageQuota.remove(req.file.path).catch(() => {});
+    if (error.message === 'Request aborted') {
+      // The connection closed mid-upload: the browser gave up, a proxy cut it
+      // off, or the request outlived KEPT_REQUEST_TIMEOUT_MINUTES. One line
+      // that says so is more useful than multer's stack trace.
+      const received = Math.max(0, (Number(req.socket?.bytesRead) || 0) - receivedAtStart);
+      const declared = Number(req.headers['content-length']) || 0;
+      const minutes = ((Date.now() - startedAt) / 60000).toFixed(1);
+      console.warn(`[Takeout import] Upload interrupted after ${minutes} min, ${formatBytes(received)}`
+        + `${declared ? ` of ${formatBytes(declared)}` : ''} received. The connection was closed before the ZIP finished uploading`
+        + ` (request time limit: ${REQUEST_TIMEOUT_MINUTES ? `${REQUEST_TIMEOUT_MINUTES} min, KEPT_REQUEST_TIMEOUT_MINUTES` : 'none'}).`);
+      if (!res.headersSent && !res.destroyed) res.status(408).json({ error: 'The Takeout upload was interrupted before it finished.' });
+      return;
+    }
     if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({
         error: `Google Takeout ZIP is too large for this Kept server. The current Takeout upload limit is ${formatBytes(TAKEOUT_UPLOAD_MAX_BYTES)}. If this failed below that size, your proxy/CDN may be rejecting the upload before Kept receives it. Try importing over a direct LAN/SSH connection or raise your proxy upload limit.`
@@ -9121,7 +9483,8 @@ app.post('/api/import/google-takeout', requireAuth, importLimiter, googleTakeout
 }));
 
 if (fs.existsSync(staticDir)) {
-  const appCsp = "script-src 'self' https://cdn.jsdelivr.net/npm/node-snackbar@latest/dist/snackbar.min.js; script-src-attr 'none'; object-src 'none'; base-uri 'self'";
+  // Every app script is bundled; no third-party script origin is trusted.
+  const appCsp = "script-src 'self'; script-src-attr 'none'; object-src 'none'; base-uri 'self'";
   app.use(express.static(staticDir, { setHeaders: (res, filename) => {
     if (filename.endsWith('.html')) res.setHeader('Content-Security-Policy', appCsp);
   } }));

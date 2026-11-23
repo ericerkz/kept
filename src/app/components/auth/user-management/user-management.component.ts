@@ -1,9 +1,16 @@
-import { uiText, uiTimepickerLabels } from 'src/app/i18n/messages';
+import { uiPlural, uiText, uiTimepickerLabels } from 'src/app/i18n/messages';
 import { Component, OnInit, NgZone } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { UserI, UserRole } from 'src/app/interfaces/users';
-import { AuthService } from 'src/app/services/auth.service';
+import { AuthService, type BackupRetentionPolicy } from 'src/app/services/auth.service';
+
+type BackupRetentionForm = {
+  mode: BackupRetentionPolicy['mode'];
+  includeManual: boolean;
+  keepLast: number; maxAgeDays: number;
+  daily: number; weekly: number; monthly: number; yearly: number;
+};
 import { ManagedHostingService, ManagedHostingInfo } from 'src/app/services/managed-hosting.service';
 import { environment } from 'src/environments/environment';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
@@ -65,6 +72,13 @@ export class UserManagementComponent implements OnInit {
   automatedBackupSuccess = '';
   manualBackupError = '';
   manualBackupSuccess = '';
+
+  // Backup retention (issue #171). Every mode's numbers are kept so switching
+  // modes back and forth doesn't lose what the admin typed.
+  retention: BackupRetentionForm = { mode: 'all', includeManual: false, keepLast: 14, maxAgeDays: 30, daily: 7, weekly: 4, monthly: 12, yearly: 0 };
+  retentionError = '';
+  retentionSuccess = '';
+  isSavingRetention = false;
 
   confirmDeleteUserId: number | null = null;
 
@@ -273,7 +287,48 @@ export class UserManagementComponent implements OnInit {
       this.lastAutomatedAt = status.lastAutomatedAt;
       this.lastManualAt = status.lastManualAt;
       this.backupFiles = status.files;
+      if (status.retention) this.retention = { ...this.retention, ...status.retention };
     } catch {}
+  }
+
+  private retentionPolicy(): BackupRetentionPolicy {
+    const r = this.retention;
+    const includeManual = !!r.includeManual;
+    if (r.mode === 'count') return { mode: 'count', keepLast: Number(r.keepLast), includeManual };
+    if (r.mode === 'age') return { mode: 'age', maxAgeDays: Number(r.maxAgeDays), includeManual };
+    if (r.mode === 'smart') return { mode: 'smart', daily: Number(r.daily) || 0, weekly: Number(r.weekly) || 0,
+      monthly: Number(r.monthly) || 0, yearly: Number(r.yearly) || 0, includeManual };
+    return { mode: 'all', includeManual: false };
+  }
+
+  retentionSummary() {
+    const r = this.retention;
+    const scope = r.includeManual ? uiText('user_management.retention_scope_all') : uiText('user_management.retention_scope_scheduled');
+    if (r.mode === 'count') return uiText('user_management.retention_summary_count', { count: r.keepLast, scope });
+    if (r.mode === 'age') return uiText('user_management.retention_summary_age', { days: r.maxAgeDays, scope });
+    if (r.mode === 'smart') return uiText('user_management.retention_summary_smart', {
+      daily: r.daily || 0, weekly: r.weekly || 0, monthly: r.monthly || 0, yearly: r.yearly || 0, scope });
+    return uiText('user_management.retention_summary_all');
+  }
+
+  async saveBackupRetention() {
+    this.retentionError = '';
+    this.retentionSuccess = '';
+    this.isSavingRetention = true;
+    try {
+      const result = await this.auth.saveBackupRetention(this.retentionPolicy());
+      this.retention = { ...this.retention, ...result.retention };
+      this.retentionSuccess = !result.applied
+        ? uiText('user_management.retention_saved_applies_after_backup')
+        : result.deleted.length
+          ? uiPlural('user_management.retention_saved_removed', result.deleted.length)
+          : uiText('user_management.retention_saved');
+      if (result.deleted.length) await this.loadBackupStatus();
+    } catch (error) {
+      this.retentionError = this.getErrorMessage(error, 'Could not save the retention policy.');
+    } finally {
+      this.isSavingRetention = false;
+    }
   }
 
 

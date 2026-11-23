@@ -463,6 +463,47 @@ h1 { margin-bottom: 0; }
   }
 }
 
+// ── Backup retention ──────────────────────────────────────────────────────
+.retention-controls {
+  margin-bottom: 8px;
+
+  .retention-number { flex: 0 1 200px; min-width: 160px; }
+
+  .retention-smart {
+    display: grid;
+    flex: 1 1 100%;
+    gap: 12px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+
+    @media (max-width: 560px) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    label { display: grid; gap: 6px; }
+    span { color: #e8eaed; font-size: 13px; font-weight: 500; }
+  }
+
+  input[type="number"] {
+    background: #202124;
+    border: 1px solid #5f6368;
+    border-radius: 6px;
+    box-sizing: border-box;
+    color: #e8eaed;
+    font-family: Roboto, Arial, sans-serif;
+    font-size: 14px;
+    min-width: 0;
+    padding: 8px 10px;
+    width: 100%;
+    &:focus { border-color: #fbbc04; outline: none; }
+  }
+
+  .retention-include-manual { flex: 1 1 100%; }
+}
+
+.retention-section > .last-backup-hint {
+  color: #9aa0a6;
+  font-size: 12px;
+  margin: 0;
+}
+
 .backup-list {
   border-top: 1px solid #3c4043;
   margin-top: 24px;
@@ -577,6 +618,18 @@ h1 { margin-bottom: 0; }
     background: #f8f9fa;
     border-color: #dadce0;
   }
+
+  .retention-controls {
+    .retention-smart span { color: #202124; }
+    input[type="number"] {
+      background: #fff;
+      border-color: #dadce0;
+      color: #202124;
+      &:focus { border-color: #1a73e8; }
+    }
+  }
+
+  .retention-section > .last-backup-hint { color: #5f6368; }
 
   .backup-config {
     label {

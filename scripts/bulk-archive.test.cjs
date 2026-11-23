@@ -38,6 +38,20 @@ for (const { name, archived, ids, want } of [
   });
 }
 
+test('skips shared notes the user does not own instead of pretending to archive them', async () => {
+  const shared = selection([false, false, false], [1, 2, 3]);
+  shared.note.all[1].ownerUserId = 99;
+  shared.note.all[2].ownerUserId = 7;
+  shared.auth = { currentUser: { id: 7 } };
+  const patched = [];
+  const update = shared.Notes.updateKey;
+  shared.Notes.updateKey = async (patch, id) => { patched.push(id); return update(patch, id); };
+  await shared.bulkArchiveSelected();
+  assert.deepEqual(patched, [1, 3]);
+  assert.deepEqual(shared.note.all.map(note => note.archived), [true, false, true]);
+  assert.equal(shared.selectedNoteIds.value.length, 0);
+});
+
 test('a failed bulk update retains the selection and reports the failure', async () => {
   const shared = selection([true, true]);
   shared.Notes.updateKey = async () => { throw new Error('Could not save'); };

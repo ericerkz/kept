@@ -695,6 +695,9 @@
     "input.clear_page": [
       "src/app/components/input/input.component.html"
     ],
+    "input.close_tip_save_and_start_new_note": [
+      "src/app/components/input/input.component.html"
+    ],
     "input.collaborator": [
       "src/app/components/input/input.component.html",
       "src/app/components/notes/notes.component.html"
@@ -1015,6 +1018,9 @@
       "src/app/components/notes/notes.component.html"
     ],
     "input.rules": [
+      "src/app/components/input/input.component.html"
+    ],
+    "input.save_and_start_new_note": [
       "src/app/components/input/input.component.html"
     ],
     "input.save_changes": [
@@ -1914,7 +1920,14 @@
     "note_images.this_photo_has_too_many_pixels_to_process_safely": [
       "src/app/utils/note-images.ts"
     ],
+    "note_lock.could_not_encrypt_this_note": [
+      "src/app/components/input/input.component.ts",
+      "src/app/components/notes/notes.component.ts"
+    ],
     "note_lock.create_a_passcode_for_this_note": [
+      "src/app/services/note-lock.service.ts"
+    ],
+    "note_lock.encrypted_content_unreadable": [
       "src/app/services/note-lock.service.ts"
     ],
     "note_lock.enter_this_note_s_passcode": [
@@ -1923,10 +1936,23 @@
     "note_lock.incorrect_passcode": [
       "src/app/services/note-lock.service.ts"
     ],
+    "note_lock.open_the_note_to_add_images": [
+      "src/app/components/notes/notes.component.ts"
+    ],
+    "note_lock.open_the_note_to_lock_it": [
+      "src/app/components/notes/notes.component.ts",
+      "src/app/services/note-lock.service.ts"
+    ],
+    "note_lock.passcode_changed_elsewhere": [
+      "src/app/components/input/input.component.ts"
+    ],
     "note_lock.re_enter_the_passcode": [
       "src/app/services/note-lock.service.ts"
     ],
     "note_lock.those_passcodes_did_not_match": [
+      "src/app/services/note-lock.service.ts"
+    ],
+    "note_lock.unlock_to_save": [
       "src/app/services/note-lock.service.ts"
     ],
     "notes.another_user": [
@@ -2035,6 +2061,10 @@
       "src/app/components/notes/notes.component.ts"
     ],
     "notes.only_changes_your_organization_of_shared_notes": [
+      "src/app/services/shared.service.ts"
+    ],
+    "notes.only_the_owner_can_archive_this_note": [
+      "src/app/components/notes/notes.component.ts",
       "src/app/services/shared.service.ts"
     ],
     "notes.only_the_owner_of_this_note_can_delete_it_forever": [
@@ -2200,6 +2230,12 @@
       "src/app/services/offline-sync.service.ts"
     ],
     "offline_sync.an_outgoing_image_is_missing_from_device_storage": [
+      "src/app/services/offline-sync.service.ts"
+    ],
+    "offline_sync.change_refused": [
+      "src/app/services/offline-sync.service.ts"
+    ],
+    "offline_sync.changes_refused": [
       "src/app/services/offline-sync.service.ts"
     ],
     "offline_sync.local_workspace_is_not_ready": [
@@ -3676,6 +3712,12 @@
     "user_management.automated_scheduled_backups": [
       "src/app/components/auth/user-management/user-management.component.html"
     ],
+    "user_management.backup_retention": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
+    "user_management.backup_retention_description": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
     "user_management.backup_schedule_updated_to_value0": [
       "src/app/components/auth/user-management/user-management.component.ts"
     ],
@@ -3763,6 +3805,9 @@
     "user_management.invite_by_email": [
       "src/app/components/auth/user-management/user-management.component.html"
     ],
+    "user_management.keep": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
     "user_management.kept_version": [
       "src/app/components/auth/user-management/user-management.component.html"
     ],
@@ -3826,6 +3871,60 @@
     "user_management.resetting": [
       "src/app/components/auth/user-management/user-management.component.html"
     ],
+    "user_management.retention_days": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
+    "user_management.retention_delete_older": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
+    "user_management.retention_include_manual": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
+    "user_management.retention_include_manual_hint": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
+    "user_management.retention_keep_all": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
+    "user_management.retention_keep_newest": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
+    "user_management.retention_number_of_backups": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
+    "user_management.retention_saved": [
+      "src/app/components/auth/user-management/user-management.component.ts"
+    ],
+    "user_management.retention_saved_applies_after_backup": [
+      "src/app/components/auth/user-management/user-management.component.ts"
+    ],
+    "user_management.retention_saved_removed.one": [
+      "src/app/components/auth/user-management/user-management.component.ts"
+    ],
+    "user_management.retention_saved_removed.other": [
+      "src/app/components/auth/user-management/user-management.component.ts"
+    ],
+    "user_management.retention_scope_all": [
+      "src/app/components/auth/user-management/user-management.component.ts"
+    ],
+    "user_management.retention_scope_scheduled": [
+      "src/app/components/auth/user-management/user-management.component.ts"
+    ],
+    "user_management.retention_smart": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
+    "user_management.retention_summary_age": [
+      "src/app/components/auth/user-management/user-management.component.ts"
+    ],
+    "user_management.retention_summary_all": [
+      "src/app/components/auth/user-management/user-management.component.ts"
+    ],
+    "user_management.retention_summary_count": [
+      "src/app/components/auth/user-management/user-management.component.ts"
+    ],
+    "user_management.retention_summary_smart": [
+      "src/app/components/auth/user-management/user-management.component.ts"
+    ],
     "user_management.role": [
       "src/app/components/auth/user-management/user-management.component.html"
     ],
@@ -3881,6 +3980,9 @@
       "src/app/components/auth/user-management/user-management.component.html"
     ],
     "user_management.view_on_github": [
+      "src/app/components/auth/user-management/user-management.component.html"
+    ],
+    "user_management.yearly": [
       "src/app/components/auth/user-management/user-management.component.html"
     ],
     "uuid.secure_random_number_generation_is_unavailable": [
@@ -4059,6 +4161,18 @@
     ],
     "workspace_migration.verifying_the_transfer": [
       "src/app/services/workspace-migration.service.ts"
+    ],
+    "note_lock.changed_during_restore": [
+      "src/app/services/notes.service.ts"
+    ],
+    "note_lock.update_server_to_encrypt": [
+      "src/app/services/notes.service.ts"
+    ],
+    "note_lock.connect_to_change_lock": [
+      "src/app/services/notes.service.ts"
+    ],
+    "note_lock.secure_context_required": [
+      "src/app/services/note-lock.service.ts"
     ]
   },
   "android": {

@@ -27,6 +27,7 @@ import { NgZone } from '@angular/core';
 import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 import { isNativePhonePlatform, shouldUseFullscreenNoteEditor } from 'src/app/utils/platform';
 import { NoteLockService } from 'src/app/services/note-lock.service';
+import { EncryptedFilesService, type LockChange } from 'src/app/services/encrypted-files.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
 import { MAX_INDENT_LEVEL, descendantIndexes, maxIndentLevelAt, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
@@ -61,7 +62,7 @@ export class InputComponent implements OnInit {
     return isNativePhonePlatform();
   }
 
-  constructor(private cd: ChangeDetectorRef, public Shared: SharedService, public auth: AuthService, private notesService: NotesService, private push: PushNotificationService, private reminderService: ReminderService, public keptPlugins: KeptPluginsService, private savedPlacesService: LocationSavedPlacesService, private zone: NgZone, private router: Router, public noteLock: NoteLockService, public preferences: UserPreferencesService, private hostElement: ElementRef<HTMLElement>, private codeHighlight: CodeHighlightService) { }
+  constructor(private cd: ChangeDetectorRef, public Shared: SharedService, public auth: AuthService, private notesService: NotesService, private push: PushNotificationService, private reminderService: ReminderService, public keptPlugins: KeptPluginsService, private savedPlacesService: LocationSavedPlacesService, private zone: NgZone, private router: Router, public noteLock: NoteLockService, public preferences: UserPreferencesService, private hostElement: ElementRef<HTMLElement>, private codeHighlight: CodeHighlightService, private encryptedFiles: EncryptedFilesService) { }
 
   @ViewChild("main") main!: ElementRef<HTMLDivElement>
   //? Placeholder  ----------------------------------------------------
@@ -285,6 +286,7 @@ export class InputComponent implements OnInit {
   closeMobileComposerSubscription?: Subscription;
   preferencesSubscription?: Subscription;
   private saveQueue: Promise<boolean | void> = Promise.resolve();
+  private lockChangePending = false;
   private editorGeneration = 0;
   private newNoteId?: number;
   private newNoteSyncId?: string;
@@ -701,6 +703,7 @@ export class InputComponent implements OnInit {
   }
 
   private async persistNote(closeAfterSave: boolean): Promise<boolean | void> {
+    if (this.lockChangePending) return false
     if (closeAfterSave) this.cboxInput?.nativeElement.blur()
     const labelsForSave = await this.labelsForSave()
     if (this.isDrawingNote) this.syncDrawingImage()
@@ -837,7 +840,8 @@ export class InputComponent implements OnInit {
   private flushPendingReminderSaves(noteId: number, noteObj: NoteI) {
     if (!noteId || noteId === -1) return
     const title = this.notePlainText(noteObj.noteTitle)
-    const body = this.notePlainText(noteObj.noteBody)
+    // A locked note's content stays out of reminders (calendar feeds, push).
+    const body = this.noteToEdit?.locked ? '' : this.notePlainText(noteObj.noteBody)
 
     // Reminder saves are fire-and-forget and only run after the note itself
     // has been persisted, so native clients see a real noteId in the request.
@@ -1517,7 +1521,11 @@ export class InputComponent implements OnInit {
   }
 
   fileToImage(file: File, placement: NoteImageI['placement']): Promise<NoteImageI> {
-    return this.Shared.note.db.uploadImage(file).then(uploaded => ({
+    // An encrypted note's images are encrypted before upload (issue #27).
+    const upload = this.noteLock.isEncrypted(this.noteToEdit)
+      ? this.encryptedFiles.uploadImage(this.noteToEdit, file)
+      : this.Shared.note.db.uploadImage(file)
+    return upload.then(uploaded => ({
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       dataUrl: this.auth.authenticatedImageUrl(uploaded.url),
       name: uploaded.name || file.name,
@@ -1563,8 +1571,11 @@ export class InputComponent implements OnInit {
 
     this.isUploadingAttachment = true
     try {
+      const encrypted = this.noteLock.isEncrypted(this.noteToEdit)
       for (const file of files) {
-        const attachment = await this.Shared.note.db.uploadAttachment(this.noteToEdit.id, file)
+        const attachment = encrypted
+          ? await this.encryptedFiles.uploadAttachment(this.noteToEdit, file)
+          : await this.Shared.note.db.uploadAttachment(this.noteToEdit.id, file)
         this.attachments = [attachment, ...this.attachments]
       }
       await this.notesService.load()
@@ -1604,8 +1615,9 @@ export class InputComponent implements OnInit {
     const noteId = this.currentNoteId()
     if (!noteId) return
     try {
-      await this.Shared.note.db.deleteAttachment(noteId, attachment.id)
-      this.attachments = this.attachments.filter(item => item.id !== attachment.id)
+      if (attachment.encrypted) await this.encryptedFiles.deleteAttachment(this.noteToEdit, attachment)
+      else await this.Shared.note.db.deleteAttachment(noteId, attachment.id)
+      this.attachments = this.attachments.filter(item => attachment.encrypted ? item.syncId !== attachment.syncId : item.id !== attachment.id)
       await this.notesService.load()
     } catch (error: any) {
       this.showAttachmentMessage(error?.error?.error || 'Could not delete attachment.')
@@ -1616,7 +1628,8 @@ export class InputComponent implements OnInit {
     event?.preventDefault()
     event?.stopPropagation()
     try {
-      await this.notesService.downloadAttachment(attachment)
+      if (attachment.encrypted) await this.encryptedFiles.download(this.noteToEdit, attachment)
+      else await this.notesService.downloadAttachment(attachment)
     } catch (error: any) {
       this.showAttachmentMessage(error?.error?.error || 'Could not download attachment.')
     }
@@ -3017,6 +3030,32 @@ export class InputComponent implements OnInit {
     this.scheduleTextHistoryRefresh()
   }
 
+  // Ctrl+Enter (⌘+Enter on Mac) saves the open note and starts another one,
+  // for rapid entry. Code blocks use the same keys to leave the block and mark
+  // the event handled, so a handled event is left alone. These must not be a
+  // plain 'keydown' listener: Angular keeps one host listener per event name,
+  // so a second one would replace checklistModeHistoryKeyDown.
+  @HostListener('keydown.control.enter', ['$event'])
+  @HostListener('keydown.meta.enter', ['$event'])
+  saveAndStartNextNoteKeyDown(keyEvent: Event) {
+    const event = keyEvent as KeyboardEvent
+    if (event.defaultPrevented || event.isComposing || event.key !== 'Enter') return
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return
+    if (this.noteMain?.nativeElement.hidden || this.isTrashed) return
+    event.preventDefault()
+    event.stopPropagation()
+    void this.saveAndStartNextNote()
+  }
+
+  async saveAndStartNextNote() {
+    if (this.isTrashed) return
+    const saved = await this.saveNote()
+    if (saved === false) return
+    // The "Take a note" composer listens for this; an editing modal has just
+    // closed itself after saving, and the composer opens the next note.
+    this.Shared.widgetCreateRequested.next({ requestId: createUuid(), type: 'plain' })
+  }
+
   @HostListener('keydown', ['$event'])
   checklistModeHistoryKeyDown(event: KeyboardEvent) {
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'z') return
@@ -4409,33 +4448,72 @@ export class InputComponent implements OnInit {
   async lockCurrentNote(tooltipEl?: HTMLDivElement) {
     tooltipEl && this.Shared.closeTooltip(tooltipEl)
     if (!this.isEditing || !this.noteToEdit?.id || this.isSharedNoteForCurrentUser()) return
-    const fields = await this.noteLock.createLockFields()
-    if (!fields) return
-    await this.notesService.updateKey(fields, this.noteToEdit.id)
-    Object.assign(this.noteToEdit, fields)
-    this.noteLock.markUnlocked(this.noteToEdit)
+    // Seal what's in the editor now, including unsaved edits.
+    const content = {
+      noteBody: this.isDrawingNote ? this.cleanEditorBodyForSave(this.noteToEdit.noteBody || '') : this.editorBodyHtml(),
+      checkBoxes: this.currentCheckBoxesForSave(false),
+      images: this.images.map(image => ({ ...image, dataUrl: this.auth.canonicalImageUrl(image.dataUrl) })),
+      files: {}
+    }
+    await this.applyLockChange(() => this.encryptedFiles.lock(this.noteToEdit, content))
+  }
+
+  // Lock changes can replace the note's image and attachment files
+  // (encrypted copies when locking, clear ones when unlocking). Point the
+  // open editor at the new files so its next save doesn't refer to old ones.
+  private async applyLockChange(run: () => Promise<LockChange | null>) {
+    if (this.lockChangePending) return
+    let change: LockChange | null
+    // Finish pending editor saves before taking a snapshot for the transition.
+    if (await this.saveNote(false) === false) return
+    const current = await this.notesService.get(this.noteToEdit.id!, { merge: false })
+    this.noteToEdit = { ...this.noteToEdit, encryptedContent: current.encryptedContent,
+      locked: current.locked, lockSalt: current.lockSalt, lockHash: current.lockHash }
+    this.lockChangePending = true
+    this.hostElement.nativeElement.inert = true
+    try {
+      change = await run()
+    } catch (error: any) {
+      this.showAttachmentMessage(error?.message || 'note_lock.could_not_encrypt_this_note')
+      return
+    } finally {
+      this.lockChangePending = false
+      this.hostElement.nativeElement.inert = false
+    }
+    if (!change) return
+    Object.assign(this.noteToEdit, change.fields)
+    const remap = (url: string) => {
+      const next = change!.mapping.get(this.auth.canonicalImageUrl(url))
+      return next ? this.auth.authenticatedImageUrl(next) : url
+    }
+    for (const body of this.editorBodies()) body.querySelectorAll<HTMLImageElement>('img[src]').forEach(img => {
+      const src = img.getAttribute('src') || ''
+      const next = remap(src)
+      if (next !== src) img.setAttribute('src', next)
+    })
+    this.images = this.images.map(image => ({ ...image, dataUrl: remap(image.dataUrl) }))
+    if (this.noteLock.isEncrypted(this.noteToEdit)) {
+      this.noteLock.markUnlocked(this.noteToEdit)
+      this.attachments = this.noteLock.attachmentViews(this.noteToEdit)
+    } else {
+      const fresh = await this.notesService.get(this.noteToEdit.id!, { merge: false }).catch(() => null)
+      this.attachments = fresh?.attachments || []
+    }
+    this.noteToEdit.attachments = this.attachments
     this.saveBaselineSnapshot = this.noteSaveSnapshot(this.noteToEdit)
+    this.cd.detectChanges()
   }
 
   async changeCurrentNoteLock(tooltipEl?: HTMLDivElement) {
     tooltipEl && this.Shared.closeTooltip(tooltipEl)
     if (!this.isEditing || !this.noteToEdit?.id || this.isSharedNoteForCurrentUser()) return
-    const fields = await this.noteLock.changeLockFields(this.noteToEdit)
-    if (!fields) return
-    await this.notesService.updateKey(fields, this.noteToEdit.id)
-    Object.assign(this.noteToEdit, fields)
-    this.noteLock.markUnlocked(this.noteToEdit)
-    this.saveBaselineSnapshot = this.noteSaveSnapshot(this.noteToEdit)
+    await this.applyLockChange(() => this.encryptedFiles.changePasscode(this.noteToEdit))
   }
 
   async removeCurrentNoteLock(tooltipEl?: HTMLDivElement) {
     tooltipEl && this.Shared.closeTooltip(tooltipEl)
     if (!this.isEditing || !this.noteToEdit?.id || this.isSharedNoteForCurrentUser()) return
-    const fields = await this.noteLock.removeLockFields(this.noteToEdit)
-    if (!fields) return
-    await this.notesService.updateKey(fields, this.noteToEdit.id)
-    Object.assign(this.noteToEdit, fields)
-    this.saveBaselineSnapshot = this.noteSaveSnapshot(this.noteToEdit)
+    await this.applyLockChange(() => this.encryptedFiles.removeLock(this.noteToEdit))
   }
 
   relockCurrentNote(tooltipEl?: HTMLDivElement) {
@@ -4634,7 +4712,10 @@ export class InputComponent implements OnInit {
         if (!notes) return;
         const updatedNote = notes.find(n => n.id === this.noteToEdit.id);
         if (updatedNote && updatedNote.lastEditorUserId !== this.auth.currentUser?.id) {
-          this.applyExternalUpdate(updatedNote);
+          // Never apply an encrypted note's empty stored body over the
+          // decrypted text being edited; decrypt the update first.
+          if (this.noteLock.isEncrypted(updatedNote) || this.noteLock.isEncrypted(this.noteToEdit)) void this.applyEncryptedExternalUpdate(updatedNote);
+          else this.applyExternalUpdate(updatedNote);
         }
       });
     }
@@ -4807,6 +4888,25 @@ export class InputComponent implements OnInit {
     this.unbindKeyboardOffset();
     this.unbindAndroidBackgroundLocationResume();
     this.unlockBodyScroll();
+  }
+
+  private passcodeChangeNotified = false
+
+  private async applyEncryptedExternalUpdate(note: NoteI) {
+    const plain = await this.noteLock.openExternal(note)
+    // Not decryptable here (a card preview without its envelope, or the note
+    // was locked again elsewhere): keep what the editor shows. If its
+    // passcode was changed, saves from here are refused, so say why now.
+    if (!plain || (this.noteLock.isEncrypted(note) && plain === note)) {
+      if (!this.passcodeChangeNotified && this.noteLock.keyChanged(note)) {
+        this.passcodeChangeNotified = true
+        this.showAttachmentMessage('note_lock.passcode_changed_elsewhere')
+      }
+      return
+    }
+    if (this.noteLock.isEncrypted(note)) await this.encryptedFiles.prepare(note)
+    if (this.destroyed || note.id !== this.noteToEdit?.id) return
+    this.applyExternalUpdate(plain)
   }
 
   applyExternalUpdate(note: NoteI) {
@@ -5287,7 +5387,8 @@ export class InputComponent implements OnInit {
           timezone: tz,
           repeatRule,
           title: this.notePlainText(this.noteToEdit.noteTitle),
-          body: this.notePlainText(this.noteToEdit.noteBody)
+          // A locked note's content stays out of reminders (calendar feeds, push).
+          body: this.noteToEdit.locked ? '' : this.notePlainText(this.noteToEdit.noteBody)
         }).then(result => {
           if (!result) this.showReminderSaveError()
           else this.reminderService.showArchivedReminderNotice(note)

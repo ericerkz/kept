@@ -339,8 +339,16 @@ export class SharedService {
   }
 
   async bulkArchiveSelected() {
-    await this.bulkUpdateSelected({ archived: !this.selectedNotesArchived, trashed: false })
+    const archived = !this.selectedNotesArchived
+    const userId = this.auth?.currentUser?.id
+    const selected = this.note.all.filter(note => note.id && this.selectedNoteIds.value.includes(note.id))
+    // Archive state is owner-only; the server ignores it for shared notes.
+    const owned = selected.filter(note => !note.ownerUserId || !userId || note.ownerUserId === userId)
+    for (const note of owned) await this.Notes.updateKey({ archived, trashed: false }, note.id!)
     this.clearNoteSelection()
+    if (owned.length < selected.length) {
+      (globalThis as any).Snackbar?.show({ pos: 'bottom-left', text: uiText('notes.only_the_owner_can_archive_this_note'), duration: 4000 })
+    }
   }
 
   canOrganizeNote(note: NoteI, kind: 'labels' | 'binders') {

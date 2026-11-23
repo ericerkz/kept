@@ -9,6 +9,7 @@ import { ReminderI } from '../interfaces/reminder';
 import { AuthService } from './auth.service';
 import { OfflineStoreService, OutboxEntry } from './offline-store.service';
 import { Workspace, ResourceType, ResourceChange, MutationOutcome, NativeAction } from '../interfaces/workspace';
+import { uiText } from '../i18n/messages';
 
 export type NoteCacheChange = { noteSyncIds: string[]; positionsOnly?: boolean };
 
@@ -374,7 +375,20 @@ export class OfflineSyncService implements OnDestroy {
       }
     }
     entries = await this.store.listOutbox(workspace.partition);
+    const encryptedRefs = (entry: OutboxEntry): string[] => {
+      if (entry.type !== 'note.upsert' || (entry.payload as any)?.lockHash !== 'e2e:v1') return [];
+      try { const files = JSON.parse((entry.payload as any).encryptedContent || '').files; return Array.isArray(files) ? files : []; }
+      catch { return []; }
+    };
+    const needed = new Set(entries.flatMap(encryptedRefs));
+    // Upload encrypted replacement files first. A quota/network failure must
+    // never publish a new envelope and delete the old recoverable copies.
+    const sealedUploads = entries.filter(entry => needed.has(entry.syncId) && ['attachment.upload', 'attachment.upsert'].includes(entry.type));
+    if (sealedUploads.length) await this.flushAttachmentUploads(sealedUploads);
+    entries = await this.store.listOutbox(workspace.partition);
     const uploads = entries.filter(entry => entry.type === 'attachment.upload' || entry.type === 'attachment.upsert');
+    const waitingFiles = new Set(uploads.map(entry => entry.syncId));
+    const waitingEncryptedNotes = new Set(entries.filter(entry => encryptedRefs(entry).some(id => waitingFiles.has(id))).map(entry => entry.syncId));
     // A note cannot publish device-only image URLs. Keep dependent changes
     // queued until their image uploads succeed, while unrelated edits proceed.
     const imageUrls = entries.filter(entry => entry.type === 'image.upload').map(entry => (entry.payload as { url: string }).url);
@@ -382,9 +396,12 @@ export class OfflineSyncService implements OnDestroy {
       imageUrls.some(url => JSON.stringify(entry.payload).includes(url))).map(entry => entry.syncId));
     const mutations = entries.filter(entry => !['image.upload','attachment.upload','attachment.upsert'].includes(entry.type) &&
       !(entry.type.startsWith('note.') && deferredNotes.has(entry.syncId)) &&
-      !deferredNotes.has((entry.payload as any)?.noteSyncId));
+      !deferredNotes.has((entry.payload as any)?.noteSyncId) &&
+      !waitingEncryptedNotes.has(entry.syncId) && !waitingEncryptedNotes.has((entry.payload as any)?.noteSyncId));
     for (let offset = 0; offset < mutations.length; offset += 500) await this.flushMutations(mutations.slice(offset,offset + 500));
-    if (uploads.length) await this.flushAttachmentUploads(uploads);
+    const attemptedSealed = new Set(sealedUploads.map(entry => entry.operationId));
+    const remainingUploads = uploads.filter(entry => !attemptedSealed.has(entry.operationId));
+    if (remainingUploads.length) await this.flushAttachmentUploads(remainingUploads);
     const remaining = await this.store.listOutbox(workspace.partition);
     this.requestHeaders();
     this.storageBlocked$.next(remaining.some(entry => entry.blockedBy === 'storage'));
@@ -443,8 +460,21 @@ export class OfflineSyncService implements OnDestroy {
       cursor: response.snapshot?.cursor, serverTime: response.serverTime });
     if (changed) this.cacheChanged$.next(response.snapshot ? undefined : this.noteCacheChange(entries,results));
     const pendingIds = new Set((await this.store.listOutbox(workspace.partition)).map(entry=>entry.operationId));
+    // reconcile drops only permanently refused changes (see
+    // isPermanentRejection), so a failure that left the queue was refused for
+    // good. Say so once rather than leaving the queue stuck on "Couldn't sync".
+    const refused = results.filter(result => !result.ok && !pendingIds.has(result.operationId));
+    if (refused.length) this.announceRefusedChanges(refused);
     const failed = results.find(result => !result.ok && pendingIds.has(result.operationId));
     if (failed) throw new Error(failed.error || 'A queued change could not be synchronized.');
+  }
+
+  private announceRefusedChanges(refused: MutationOutcome[]) {
+    const reason = refused[0].error || '';
+    const text = refused.length === 1
+      ? uiText('offline_sync.change_refused', { reason })
+      : uiText('offline_sync.changes_refused', { count: refused.length, reason });
+    try { (window as any).Snackbar?.show({ pos: 'bottom-left', text, duration: 8000 }); } catch {}
   }
 
   private snapshotResources(snapshot: SyncSnapshot): Partial<Record<ResourceType, any[]>> {

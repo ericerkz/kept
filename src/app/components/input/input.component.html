@@ -354,8 +354,16 @@
           <button type="button" class="dc-confirm" (click)="confirmPendingDate()">{{ 'reminder.pick_time_next' | translate }}</button>
         </div>
       }
-      <button type="button" class="close-btn" (click)="saveNote()">{{ 'common.close' | translate }}</button>
+      <button type="button" class="close-btn" (click)="saveNote()"
+        [attr.title]="'input.close_tip_save_and_start_new_note' | translate">{{ 'common.close' | translate }}</button>
     </div>
+
+    <!--? Mobile: save this note and start another (Ctrl/⌘+Enter on desktop) -->
+    <button type="button" class="mobile-next-note" [attr.aria-label]="'input.save_and_start_new_note' | translate"
+      [attr.title]="'input.save_and_start_new_note' | translate"
+      (pointerdown)="$event.preventDefault()" (click)="$event.stopPropagation(); saveAndStartNextNote()">
+      <span class="material-symbols-outlined" aria-hidden="true">note_add</span>
+    </button>
 
     <!--? Mobile Bottom Bar -->
     <div class="mobile-bottom-bar">
@@ -820,7 +828,7 @@
 <ng-template #attachmentsTemplate>
   @if (attachments.length || pendingAttachmentFiles.length || isUploadingAttachment) {
     <div class="attachments-list">
-      @for (attachment of attachments; track attachment.id) {
+      @for (attachment of attachments; track attachment.syncId || attachment.id) {
         <div class="attachment-card" role="button" tabindex="0"
           (click)="downloadAttachment(attachment, $event)"
           (keydown.enter)="downloadAttachment(attachment, $event)"

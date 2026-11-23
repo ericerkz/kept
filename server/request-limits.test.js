@@ -70,8 +70,14 @@ test('limited imports and credential changes do not block other users, autosaves
   const form = new FormData(); form.append('image', new Blob(['image'], { type: 'image/png' }), 'image.png');
   assert.equal((await fetch(fixture.origin + '/api/uploads/images', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form })).status, 201);
   await fixture.sql("INSERT OR REPLACE INTO app_settings(key,value) VALUES('selfRegistrationEnabled','true')");
-  const invalidEmail = await api('/auth/register', { method: 'POST', body: {
+  // Unauthenticated JSON is capped at 64 KB, so an oversized body is refused
+  // before it is parsed; a small invalid address still fails validation.
+  const oversizedEmail = await api('/auth/register', { method: 'POST', body: {
     username: 'invalid-email', password, email: 'a@' + '.'.repeat(100_000) + '@'
+  } });
+  assert.equal(oversizedEmail.status, 413);
+  const invalidEmail = await api('/auth/register', { method: 'POST', body: {
+    username: 'invalid-email', password, email: 'a@' + '.'.repeat(1_000) + '@'
   } });
   assert.equal(invalidEmail.status, 400);
   const invalidPlace = await api('/location-saved-places', { token, method: 'POST', body: {

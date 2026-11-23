@@ -41,6 +41,7 @@ async function startFixture({ env = {} } = {}) {
   try { await start(); } catch (error) { await stop(); await rm(directory, { recursive: true, force: true }); throw error; }
   return {
     origin, directory,
+    get output() { return output; },
     async restart() { await stop(); await start(); },
     async sql(statement, args = []) {
       const db = new sqlite3.Database(dbPath);

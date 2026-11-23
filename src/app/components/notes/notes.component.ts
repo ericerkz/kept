@@ -28,6 +28,7 @@ import { TimepickerUI, type ConfirmEventData } from 'timepicker-ui';
 import { NotesToolsPipe } from 'src/app/pipes/notes-tools.pipe';
 import { isExpandedNativeFoldable, isNativePhonePlatform, shouldUseFullscreenNoteEditor } from 'src/app/utils/platform';
 import { NoteLockService } from 'src/app/services/note-lock.service';
+import { EncryptedFilesService, type LockChange } from 'src/app/services/encrypted-files.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
 import { descendantIndexes, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
@@ -72,7 +73,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   get nativePhoneLayout() {
     return isNativePhonePlatform()
   }
-  constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, public notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe, public noteLock: NoteLockService, public preferences: UserPreferencesService, private offlineSync: OfflineSyncService, private nativeWorkspace: NativeWorkspaceService, private binderDrop: BinderDropService) { }
+  constructor(public Shared: SharedService, private router: Router, public auth: AuthService, public reminderService: ReminderService, private zone: NgZone, public notesService: NotesService, private cd: ChangeDetectorRef, private notesTools: NotesToolsPipe, public noteLock: NoteLockService, public preferences: UserPreferencesService, private offlineSync: OfflineSyncService, private nativeWorkspace: NativeWorkspaceService, private binderDrop: BinderDropService, private encryptedFiles: EncryptedFilesService) { }
 
   get notePreviewTextSizeClass() {
     return `preview-text-${this.preferences.value.notePreviewTextSize}`;
@@ -883,6 +884,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.suppressScrollPagination()
     this.captureModalScrollPosition()
     this.clickedNoteData = noteData.isCardPreview ? await this.notesService.get(noteData.id!, { merge: false }).catch(() => noteData) : noteData
+    if (this.noteLock.isLocked(this.clickedNoteData)) this.clickedNoteData = await this.openLockedNote(this.clickedNoteData)
     const modalContainer = this.modalContainer.nativeElement
     modalContainer.style.display = 'block';
     this.cd.detectChanges()
@@ -2125,6 +2127,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     event.stopPropagation()
     const files = Array.from(event.dataTransfer.files).filter(file => isNoteImageFile(file))
     if (!files.length) return
+    // A locked note's images are encrypted in the editor; don't upload them in the clear.
+    if (this.noteLock.isLocked(note)) return this.showMessage(uiText('note_lock.open_the_note_to_add_images'))
     const imageData = await Promise.all(files.map(file => this.fileToNoteImage(file, 'bottom')))
     if (note.isCardPreview && note.id) note = await this.notesService.get(note.id).catch(() => note)
     note.images = [...(note.images || []), ...imageData]
@@ -2193,28 +2197,33 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
       lock: async () => {
         if (!this.canManageActiveNoteLock()) return
         const note = this.activeNote!
-        const fields = await this.noteLock.createLockFields()
-        if (!fields) return
-        await this.notesService.updateKey(fields, note.id!)
-        Object.assign(note, fields)
+        const full = await this.fullNoteForLock(note)
+        if (!full) return this.showMessage(uiText('note_lock.open_the_note_to_lock_it'))
+        const change = await this.runLockChange(() => this.encryptedFiles.lock(full))
+        if (!change) return
+        Object.assign(note, change.fields)
         this.noteLock.markUnlocked(note)
       },
       changeLock: async () => {
         if (!this.canManageActiveNoteLock()) return
         const note = this.activeNote!
-        const fields = await this.noteLock.changeLockFields(note)
-        if (!fields) return
-        await this.notesService.updateKey(fields, note.id!)
-        Object.assign(note, fields)
+        const full = await this.fullNoteForLock(note)
+        if (!full) return this.showMessage(uiText('note_lock.open_the_note_to_lock_it'))
+        const change = await this.runLockChange(() => this.encryptedFiles.changePasscode(full))
+        if (!change) return
+        Object.assign(note, change.fields)
         this.noteLock.markUnlocked(note)
       },
       removeLock: async () => {
         if (!this.canManageActiveNoteLock()) return
         const note = this.activeNote!
-        const fields = await this.noteLock.removeLockFields(note)
-        if (!fields) return
-        await this.notesService.updateKey(fields, note.id!)
-        Object.assign(note, fields)
+        const full = await this.fullNoteForLock(note)
+        if (!full) return this.showMessage(uiText('note_lock.open_the_note_to_lock_it'))
+        const change = await this.runLockChange(() => this.encryptedFiles.removeLock(full))
+        if (!change) return
+        // The decrypted content belongs in the editor, not on the card object.
+        const { noteBody, checkBoxes, images, ...lockFields } = change.fields
+        Object.assign(note, lockFields)
       },
       relock: () => {
         if (!this.activeNote?.locked) return
@@ -2253,6 +2262,34 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const note = this.activeNote;
     return !!note?.ownerUserId && note.ownerUserId !== this.auth.currentUser?.id &&
       (kind === 'labels' ? this.auth.currentUser?.inheritSharedLabels !== false : this.auth.currentUser?.inheritSharedBinders !== false);
+  }
+
+  // Give the editor a decrypted copy; opening a legacy lock never upgrades
+  // its storage format. Only explicit lock/passcode changes enable encryption.
+  private async openLockedNote(note: NoteI): Promise<NoteI> {
+    const owned = this.auth.isLocal || !note.ownerUserId || note.ownerUserId === this.auth.currentUser?.id
+    if (this.noteLock.isEncrypted(note)) {
+      if (owned) await this.encryptedFiles.finishMigration(note).catch(error => console.warn('Could not finish encrypting this note’s files.', error))
+      await this.encryptedFiles.prepare(note)
+    }
+    return this.noteLock.withPlaintext(note)
+  }
+
+  private async runLockChange(change: () => Promise<LockChange | null>): Promise<LockChange | null> {
+    try {
+      return await change()
+    } catch (error) {
+      console.warn('Could not change this note’s lock.', error)
+      this.showMessage(error instanceof Error && error.message ? error.message : uiText('note_lock.could_not_encrypt_this_note'))
+      return null
+    }
+  }
+
+  // Lock changes seal the note's content, so they need the complete note
+  // rather than the card's truncated preview.
+  private async fullNoteForLock(note: NoteI): Promise<NoteI | null> {
+    if (!note.isCardPreview) return note
+    return await this.notesService.get(note.id!, { merge: false }).catch(() => null)
   }
 
   canManageActiveNoteLock() {
@@ -2437,6 +2474,13 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   // ? archive page
 
   async toggleArchive(noteId: number, archived: boolean) {
+    // The server keeps archive state owner-only and ignores it from
+    // collaborators, so say so instead of appearing to succeed.
+    const note = this.Shared.note.all.find(item => item.id === noteId)
+    if (note?.ownerUserId && this.auth.currentUser?.id && note.ownerUserId !== this.auth.currentUser.id) {
+      this.showMessage(uiText('notes.only_the_owner_can_archive_this_note'))
+      return false
+    }
     this.Shared.note.id = noteId
     archived = !archived
     try {
@@ -2844,7 +2888,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
         timezone: tz,
         repeatRule,
         title: this.notePlainText(note.noteTitle) || undefined,
-        body: this.notePlainText(note.noteBody) || undefined,
+        // A locked note's content stays out of reminders (calendar feeds, push).
+        body: note.locked ? undefined : this.notePlainText(note.noteBody) || undefined,
         imageUrl: this.firstNoteImageUrl(note) || undefined
       })
     }

@@ -859,7 +859,8 @@ export class SettingsComponent implements OnInit, OnDestroy {
     } catch (e: any) {
       if (e?.status === 413) {
         this.takeoutError = e?.error?.error || 'That Takeout ZIP is too large for this server or proxy. Try importing directly over LAN/SSH, or raise your proxy upload limit.';
-      } else if (e?.status === 0) {
+      } else if (e?.status === 0 || e?.status === 408) {
+        // 0: the connection dropped (proxy, network or server time limit); 408: Kept saw it end early.
         this.takeoutError = uiText('settings.import_upload_could_not_reach_kept_large_takeout_zips_may_be_bloc');
       } else {
         this.takeoutError = e?.error?.error || 'Import failed. If this is a large Takeout ZIP, try importing directly over LAN/SSH or raise your proxy upload limit.';

@@ -67,12 +67,22 @@ export interface ResourceChange {
   operation: 'upsert' | 'delete';
   payload: Record<string, unknown> | null;
 }
+// A rejected deletion contains no new note content to lose. Restore the
+// baseline and retain a conflict record instead of retrying it indefinitely.
+// Never discard queued edits merely because an older or temporarily
+// incompatible server returns 400/403/404.
+export function isPermanentRejection(outcome: Pick<MutationOutcome, 'ok' | 'status'>, operationType: string): boolean {
+  return operationType === 'note.delete' && !outcome.ok && [400, 403, 404].includes(Number(outcome.status));
+}
+
 export interface MutationOutcome {
   positions?: Array<{ id: number; syncId: string; sortOrder: number }>;
   operationId: string;
   ok: boolean;
   skipped?: boolean;
   error?: string;
+  // HTTP-style status the server attaches to a refused mutation.
+  status?: number;
   resourceType?: ResourceType;
   syncId?: string;
   id?: number;
