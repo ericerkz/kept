@@ -529,26 +529,6 @@ details p, details pre {
   }
 }
 
-/* Product captures: whole screenshots stay readable and open at full size. */
-.overview-preview { display: block; }
-.overview-preview img { display: block; width: 100%; height: auto; }
-.showcase-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
-.showcase-card { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; }
-.showcase-image { display: flex; align-items: center; justify-content: center; height: 340px; padding: 16px; background: var(--bg-color); }
-.showcase-image img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; }
-.showcase-card:first-child .showcase-image { height: auto; }
-.showcase-card:first-child .showcase-image img { width: 100%; max-height: none; }
-.showcase-card figcaption { padding: 20px; }
-.showcase-card h3 { margin: 0 0 8px; }
-.showcase-card p { margin: 0; }
-.showcase-extra { margin-top: 24px; }
-.showcase-extra summary { cursor: pointer; color: var(--primary); font-weight: 600; line-height: 1.6; }
-.showcase-extra p { margin-top: 16px; }
-.code-preview { display: block; width: 100%; max-width: 560px; height: auto; margin: 0 auto; border-radius: 8px; }
-@media (max-width: 1000px) {
-  .showcase-grid { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 480px) {
-  .showcase-image { height: 300px; padding: 12px; }
-  .showcase-card figcaption { padding: 16px; }
-}
+/* Promotional captures link to the full-resolution images. */
+.overview-preview, .promo-preview { display: block; }
+.overview-preview img, .promo-preview img { display: block; width: 100%; height: auto; }

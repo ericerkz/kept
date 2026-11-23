@@ -37,10 +37,6 @@
   <a href="translations/README.md">Help us translate Kept!</a>
 </p>
 
-## Kept on the web
-
-<img src="docs/assets/images/showcase-overview.png" alt="Kept's web interface showing the sidebar, search, and a grid of colourful notes, checklists, images and attachments">
-
 ## Use Kept your way
 
 ### Your own server
@@ -55,22 +51,23 @@ Add sync, backups, collaboration and web access without maintaining your own inf
 
 Keep notes on your device with no account or server. Use the native app offline, back up your notes, or move them to a server later.
 
-## Notes in action
+## Screenshots
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>More than just text</strong><br>
-      Keep photos, highlights and checklists together, right where they belong in your note.
-      <p><img src="docs/assets/images/showcase-mixed-note.png" width="360" alt="A Kept note combining rich text, inline photos, a highlight and a nested checklist"></p>
-    </td>
-    <td width="50%" valign="top">
-      <strong>Nested checklists</strong><br>
-      Group items, drag to reorder, and tuck completed items away.
-      <p><img src="docs/assets/images/showcase-checklist.png" width="360" alt="A grocery checklist in Kept's web editor, with nested items, completed items and a repeating background"></p>
-    </td>
-  </tr>
-</table>
+### Web app
+
+<a href="docs/assets/images/kept-web.png"><img src="docs/assets/images/kept-web.png" alt="Kept web app in light and dark theme" width="100%"></a>
+
+### Mobile
+
+<a href="docs/assets/images/kept-mobile.png"><img src="docs/assets/images/kept-mobile.png" alt="Kept on a phone, with the note editor, code blocks and nested checklists" width="100%"></a>
+
+### Features
+
+<a href="docs/assets/images/kept-features.png"><img src="docs/assets/images/kept-features.png" alt="Rich notes, drawings, code blocks, reminders, colours and patterns, sharing" width="100%"></a>
+
+### Self-hosting
+
+<a href="docs/assets/images/kept-self-hosting.png"><img src="docs/assets/images/kept-self-hosting.png" alt="Google Keep import, scheduled and full backups, registration settings, interface languages" width="100%"></a>
 
 ## More than basic notes
 
@@ -93,63 +90,6 @@ Keep notes on your device with no account or server. Use the native app offline,
 - OAuth 2.1
 - Local and remote MCP access
 - On-device Smart Capture on supported phones
-
-<details>
-<summary>See recurring reminders and rich link previews</summary>
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>Reminders that fit your routine</strong><br>
-      Set a time, choose a repeat schedule, and have the note float to the top when it fires.
-      <p><img src="docs/assets/images/showcase-reminder.png" width="360" alt="Kept's reminder calendar showing a weekly repeat schedule"></p>
-    </td>
-    <td width="50%" valign="top">
-      <strong>Links worth keeping</strong><br>
-      Paste URLs into a note to see rich previews alongside your text.
-      <p><img src="docs/assets/images/web-link-previews.png" width="360" alt="A Kept note showing embedded link previews for NASA and Colossal"></p>
-    </td>
-  </tr>
-</table>
-
-</details>
-
-<details>
-<summary>Customise Kept's appearance and editing behaviour</summary>
-
-Adjust the theme, note density, checklist behaviour, link previews, and how shared notes use labels and binders.
-
-<p align="center">
-  <img src="docs/assets/images/display-editing-settings.png" width="760" alt="Kept's Display and Editing settings, including theme, time format, shared-note organization, checklist behaviour, link previews and note density">
-</p>
-
-</details>
-
-<details>
-<summary>See drawings, repeating backgrounds and code blocks</summary>
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>A little room to draw</strong><br>
-      Sketch with pens, a highlighter and your choice of paper background.
-      <p><img src="docs/assets/images/showcase-drawing.png" width="360" loading="lazy" alt="A flower-pot drawing in Kept's drawing editor on dotted paper"></p>
-    </td>
-    <td width="50%" valign="top">
-      <strong>Make it yours</strong><br>
-      Pair your note colour with a repeating pattern, or choose an illustrated background.
-      <p><img src="docs/assets/images/showcase-patterns.png" width="360" loading="lazy" alt="Kept's background picker with a lemon pattern over a pale yellow note"></p>
-    </td>
-  </tr>
-</table>
-
-<strong>Keep a useful snippet handy</strong>
-
-Code blocks include syntax highlighting, a language selector and a Copy button.
-
-<p align="center"><img src="docs/assets/images/showcase-code.png" width="480" loading="lazy" alt="JavaScript syntax highlighting and a Copy button within a Kept note"></p>
-
-</details>
 
 ## Capture from anywhere
 
