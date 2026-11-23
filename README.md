@@ -65,10 +65,6 @@ Keep notes on your device with no account or server. Use the native app offline,
 
 <a href="docs/assets/images/kept-features.png"><img src="docs/assets/images/kept-features.png" alt="Rich notes, drawings, code blocks, reminders, colours and patterns, sharing" width="100%"></a>
 
-### Self-hosting
-
-<a href="docs/assets/images/kept-self-hosting.png"><img src="docs/assets/images/kept-self-hosting.png" alt="Google Keep import, scheduled and full backups, registration settings, interface languages" width="100%"></a>
-
 ## More than basic notes
 
 - Text and rich notes, including code blocks with syntax highlighting
