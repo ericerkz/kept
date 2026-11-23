@@ -39,7 +39,7 @@
 
 ## Kept on the web
 
-<img src="docs/assets/images/web-overview.png" alt="Kept's web interface showing the sidebar, search, and a grid of colourful notes, checklists, images and attachments">
+<img src="docs/assets/images/showcase-overview.png" alt="Kept's web interface showing the sidebar, search, and a grid of colourful notes, checklists, images and attachments">
 
 ## Use Kept your way
 
@@ -60,21 +60,21 @@ Keep notes on your device with no account or server. Use the native app offline,
 <table>
   <tr>
     <td width="50%" valign="top">
-      <strong>Drawings</strong><br>
-      Sketch directly in a note, with pens, a highlighter and a choice of paper backgrounds.
-      <p><img src="docs/assets/images/web-drawing.png" width="360" alt="Kept's web drawing editor showing a flower sketch on dotted paper"></p>
+      <strong>More than just text</strong><br>
+      Keep photos, highlights and checklists together, right where they belong in your note.
+      <p><img src="docs/assets/images/showcase-mixed-note.png" width="360" alt="A Kept note combining rich text, inline photos, a highlight and a nested checklist"></p>
     </td>
     <td width="50%" valign="top">
       <strong>Nested checklists</strong><br>
       Group items, drag to reorder, and tuck completed items away.
-      <p><img src="docs/assets/images/web-nested-checklist.png" width="360" alt="A packing checklist in Kept's web editor, with several levels of nesting and completed items"></p>
+      <p><img src="docs/assets/images/showcase-checklist.png" width="360" alt="A grocery checklist in Kept's web editor, with nested items, completed items and a repeating background"></p>
     </td>
   </tr>
 </table>
 
 ## More than basic notes
 
-- Text and rich notes
+- Text and rich notes, including code blocks with syntax highlighting
 - Rich hyperlinks - copy and paste just a URL and a pretty whole-card preview will get created
 - Nested checklists with drag-to-reorder
 - Images, drawings, links and file attachments
@@ -102,7 +102,7 @@ Keep notes on your device with no account or server. Use the native app offline,
     <td width="50%" valign="top">
       <strong>Reminders that fit your routine</strong><br>
       Set a time, choose a repeat schedule, and have the note float to the top when it fires.
-      <p><img src="docs/assets/images/web-reminder.png" width="360" alt="Kept's web reminder calendar with daily recurrence and the float-to-top option enabled"></p>
+      <p><img src="docs/assets/images/showcase-reminder.png" width="360" alt="Kept's reminder calendar showing a weekly repeat schedule"></p>
     </td>
     <td width="50%" valign="top">
       <strong>Links worth keeping</strong><br>
@@ -122,6 +122,32 @@ Adjust the theme, note density, checklist behaviour, link previews, and how shar
 <p align="center">
   <img src="docs/assets/images/display-editing-settings.png" width="760" alt="Kept's Display and Editing settings, including theme, time format, shared-note organization, checklist behaviour, link previews and note density">
 </p>
+
+</details>
+
+<details>
+<summary>See drawings, repeating backgrounds and code blocks</summary>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>A little room to draw</strong><br>
+      Sketch with pens, a highlighter and your choice of paper background.
+      <p><img src="docs/assets/images/showcase-drawing.png" width="360" loading="lazy" alt="A flower-pot drawing in Kept's drawing editor on dotted paper"></p>
+    </td>
+    <td width="50%" valign="top">
+      <strong>Make it yours</strong><br>
+      Pair your note colour with a repeating pattern, or choose an illustrated background.
+      <p><img src="docs/assets/images/showcase-patterns.png" width="360" loading="lazy" alt="Kept's background picker with a lemon pattern over a pale yellow note"></p>
+    </td>
+  </tr>
+</table>
+
+<strong>Keep a useful snippet handy</strong>
+
+Code blocks include syntax highlighting, a language selector and a Copy button.
+
+<p align="center"><img src="docs/assets/images/showcase-code.png" width="480" loading="lazy" alt="JavaScript syntax highlighting and a Copy button within a Kept note"></p>
 
 </details>
 

@@ -92,8 +92,36 @@
         <section id="welcome">
           <h2>👋 Welcome to Kept</h2>
           <p>Kept is designed for people who love fast, low-friction note capture. Whether you need a quick checklist, a drawing, or a simple text note, Kept makes it effortless to jot things down and organize them visually with colors and labels.</p>
-          <img src="assets/images/ui-showcase.png" alt="UI Showcase" class="img-fluid">
+          <a href="assets/images/showcase-overview.png" class="overview-preview" aria-label="View the full-size Kept web overview"><img src="assets/images/showcase-overview.png" width="1600" height="1000" alt="Kept on the web: colourful notes with drawings, photos, nested checklists, reminders and attachments" class="img-fluid" fetchpriority="high"></a>
           <p>If you're migrating from Google Keep, we've even included a simple import tool to bring all your existing notes over seamlessly.</p>
+        </section>
+
+        <section id="notes-in-action">
+          <h2>Small notes. Plenty of possibilities.</h2>
+          <p>A shopping list, a weekend plan, a sketch or something worth keeping. Make room for all of it.</p>
+          <div class="showcase-grid">
+            <figure class="showcase-card">
+              <a href="assets/images/showcase-mixed-note.png" class="showcase-image" aria-label="View full-size screenshot: Your ideas, all together"><img src="assets/images/showcase-mixed-note.png" width="640" height="970" loading="lazy" decoding="async" alt="A note with inline photos, highlighted text and nested checklist items"></a>
+              <figcaption><h3>Your ideas, all together</h3><p>Mix text, photos, highlights and checklists without splitting an idea across several notes.</p></figcaption>
+            </figure>
+            <figure class="showcase-card">
+              <a href="assets/images/showcase-drawing.png" class="showcase-image" aria-label="View full-size screenshot: Room for a little creativity"><img src="assets/images/showcase-drawing.png" width="640" height="566" loading="lazy" decoding="async" alt="A colourful flower-pot sketch on a dotted drawing canvas"></a>
+              <figcaption><h3>Room for a little creativity</h3><p>Sketch a plan, draw something lovely, or jot it down by hand.</p></figcaption>
+            </figure>
+            <figure class="showcase-card">
+              <a href="assets/images/showcase-patterns.png" class="showcase-image" aria-label="View full-size screenshot: Make each note your own"><img src="assets/images/showcase-patterns.png" width="1320" height="1270" loading="lazy" decoding="async" alt="The background picker showing patterns and illustrations on a lemon-themed note"></a>
+              <figcaption><h3>Make each note your own</h3><p>Choose a colour, add a subtle repeating pattern, or use an illustrated background.</p></figcaption>
+            </figure>
+            <figure class="showcase-card">
+              <a href="assets/images/showcase-shared-binder.png" class="showcase-image" aria-label="View full-size screenshot: Keep something together"><img src="assets/images/showcase-shared-binder.png" width="1000" height="1000" loading="lazy" decoding="async" alt="A shared binder dialog with selected collaborators"></a>
+              <figcaption><h3>Keep something together</h3><p>Share a binder for plans, projects or everyday life. Everyone in it can contribute.</p></figcaption>
+            </figure>
+          </div>
+          <details class="showcase-extra">
+            <summary>Keep code snippets alongside your notes, too</summary>
+            <p>Syntax highlighting, a language selector and quick copying, without leaving your note.</p>
+            <a href="assets/images/showcase-code.png"><img src="assets/images/showcase-code.png" width="640" height="646" loading="lazy" decoding="async" class="code-preview" alt="A JavaScript code block inside a Kept note, with syntax highlighting and a Copy button"></a>
+          </details>
         </section>
 
         <section id="features">
@@ -398,6 +426,7 @@ KEPT_OIDC_NAME=Google</code></pre>
             <li><strong>One-Click Restore:</strong> If you ever need to set up a new server or recover your data, you can upload your backup file during setup to restore everything instantly.</li>
           </ul>
           <p>Server data is stored in a single folder (<code>./data</code>), making it easy to copy, move, or back up to your own storage.</p>
+          <img src="assets/images/showcase-backups.png" width="1670" height="700" loading="lazy" decoding="async" class="img-fluid" alt="Kept server settings showing an automated daily backup schedule">
         </section>
 
         <section id="privacy">
