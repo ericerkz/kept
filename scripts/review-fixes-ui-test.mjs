@@ -1,7 +1,7 @@
 // node scripts/review-fixes-ui-test.mjs   (needs `npm run build` first)
-// Browser checks for the bundled snackbar (H1), Ctrl+Enter / phone
-// "save and start a new note" (#179) and the
-// backup retention settings (#171), encrypted note/file lifecycle (#27).
+// Browser checks for the bundled snackbar (H1), Ctrl+Enter "save and start a
+// new note" (#179, desktop only), the backup retention settings (#171) and the
+// encrypted note/file lifecycle (#27).
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { startFixture } from '../test-support/session-fixture.cjs';
@@ -172,6 +172,10 @@ try {
     const lockedEditor = page.locator('app-input .note-main:visible').last();
     await lockedEditor.locator('.attachment-name', { hasText: 'secret.txt' }).waitFor();
     await waitFor(() => lockedEditor.locator('img[src^="blob:"]').first().evaluate(img => img.complete && img.naturalWidth > 0).catch(() => false), 'reopened note shows the decrypted image');
+    // While it is unlocked, its overview card shows the decrypted image too.
+    const unlockedCard = page.locator(`app-notes .note-container[data-note-id="${withFiles.id}"]`);
+    await waitFor(() => unlockedCard.locator('.preview-image-tile img').first().evaluate(img => img.complete && img.naturalWidth > 0 && /^(blob|data):/.test(img.src)).catch(() => false), 'unlocked card shows the decrypted image');
+    assert.equal(await unlockedCard.locator('img[src^="kept:"]').count(), 0, 'the card never renders the encrypted reference');
     const [download] = await Promise.all([page.waitForEvent('download'), lockedEditor.locator('.attachment-card', { hasText: 'secret.txt' }).click()]);
     assert.equal(download.suggestedFilename(), 'secret.txt');
     const chunks = [];
@@ -248,26 +252,15 @@ try {
     const page = await context.newPage();
     page.setDefaultTimeout(10000);
     await signIn(page);
-    // The phone layout's floating "New note" button opens the full-screen composer.
+    // Ctrl/⌘+Enter stays desktop-only: the phone editor has no floating
+    // "save and start a new note" button over the note.
     await page.locator('.mobile-compose-fab').click();
     const editor = page.locator('app-input .note-main:visible').first();
     await editor.waitFor();
-    await editor.locator('.note-body[contenteditable]:not(.note-body-after)').fill('typed on the phone');
-    const button = page.getByRole('button', { name: 'Save and start a new note' }).first();
-    await button.waitFor();
-    const box = await button.boundingBox(), bottomBar = await page.locator('.mobile-bottom-bar:visible').first().boundingBox();
-    assert.ok(box.x + box.width <= 360 && box.x >= 0, 'button inside the screen width');
-    assert.ok(box.y + box.height <= bottomBar.y + 1, 'button sits above the bottom bar');
-    await page.screenshot({ path: process.env.SCREENSHOT || '/tmp/kept-phone-next-note.png' });
-    await button.click();
-    await waitFor(async () => {
-      const list = await api('/notes?limit=100');
-      return (list.notes || list).some(note => /typed on the phone/.test(note.noteBody || note.previewText || ''));
-    }, 'phone button saved the note');
-    const fresh = page.locator('app-input .note-main:visible').first();
-    await fresh.waitFor();
-    assert.equal((await fresh.locator('.note-body[contenteditable]:not(.note-body-after)').textContent()).trim(), '');
-    console.log('✔ phone button saves and opens a fresh note, above the bottom bar');
+    await editor.locator('.mobile-bottom-bar').waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Save and start a new note' }).count(), 0);
+    assert.equal(await page.locator('app-input .mobile-next-note').count(), 0);
+    console.log('✔ the phone editor has no floating new-note button');
     await context.close();
   }
 } finally {

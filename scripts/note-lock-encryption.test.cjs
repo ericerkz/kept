@@ -7,11 +7,11 @@ const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
 
-function loadLockService({ prompts = [], alerts = [] } = {}) {
+function loadLockService({ prompts = [], alerts = [], thumbnails = [] } = {}) {
   const storage = new Map();
   const sessionStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, String(value)), removeItem: key => storage.delete(key) };
   const window = { prompt: () => prompts.shift() ?? null, alert: message => alerts.push(message) };
-  const globals = { console, window, sessionStorage, crypto: globalThis.crypto, TextEncoder, TextDecoder, btoa, atob, Blob, File, Date, Promise, Map, Set, Error, Uint8Array, ArrayBuffer, JSON };
+  const globals = { console, window, sessionStorage, crypto: globalThis.crypto, TextEncoder, TextDecoder, btoa, atob, Blob, File, Date, Promise, Map, Set, Error, Uint8Array, ArrayBuffer, JSON, URL, setTimeout, clearTimeout };
   const cache = new Map();
   function load(filename) {
     if (cache.has(filename)) return cache.get(filename);
@@ -23,6 +23,8 @@ function loadLockService({ prompts = [], alerts = [] } = {}) {
       if (name.endsWith('/i18n/messages')) return { uiText: key => key };
       if (name.endsWith('/utils/note-html')) return { createNoteHtmlContainer: () => ({ innerHTML: '', querySelectorAll: () => [] }), sanitizeNoteHtml: html => html };
       if (name.endsWith('/utils/note-images')) return {};
+      if (name.endsWith('/environment')) return { environment: { apiUrl: '/api' } };
+      if (name.endsWith('/utils/link-preview-thumbnail')) return { previewThumbnailDataUrl: async source => { thumbnails.push(['thumbnail', source]); return 'data:image/webp;base64,VGh1bWI='; } };
       if (name.endsWith('/utils/note-crypto')) return load(path.resolve('src/app/utils/note-crypto.ts'));
       if (name.startsWith('./') && name.endsWith('.service')) return {};
       throw new Error(`Unexpected import ${name}`);
@@ -104,7 +106,7 @@ test('opening an encrypted note needs the right passcode and yields a decrypted 
   const copy = reader.service.withPlaintext(stored);
   assert.equal(copy.noteBody, plain.noteBody);
   assert.equal(stored.noteBody, '', 'the stored object is not modified');
-  assert.equal(reader.service.lockPreviewHidden(stored), true, 'cards never show encrypted content');
+  assert.equal(reader.service.lockPreviewHidden(stored), false, 'an unlocked note\'s card shows its decrypted content');
 
   assert.equal(await reader.service.removeLockFields(stored), null, 'an encrypted note needs its files decrypted first');
   const plainContent = { noteBody: plain.noteBody, checkBoxes: plain.checkBoxes, images: [] };
@@ -113,6 +115,125 @@ test('opening an encrypted note needs the right passcode and yields a decrypted 
   assert.equal(reader.service.isUnlocked(stored), true, 'preparing removal retains the key until persistence succeeds');
   reader.service.clearUnlocked(stored);
   assert.equal(reader.service.isUnlocked(stored), false);
+});
+
+test('an unlocked encrypted note\'s card shows decrypted copies until the unlock runs out', async () => {
+  const owner = loadLockService({ prompts: ['open sesame', 'open sesame'] });
+  const plain = note({ images: [{ id: 'i1', dataUrl: 'kept://file/f1', name: 'photo.jpg' }] });
+  const stored = { ...plain, ...(await owner.service.sealOutgoing(await owner.service.createLockFields(plain), plain)) };
+
+  const reader = loadLockService({ prompts: ['open sesame'] });
+  assert.equal(reader.service.lockPreviewHidden(stored), true);
+  assert.equal(reader.service.unlockExpiresAt(stored), 0);
+  assert.deepEqual(data(reader.service.cardContent(stored)), { noteBody: '', checkBoxes: [], images: [], attachments: [] }, 'a locked card has only the sealed fields');
+
+  assert.equal(await reader.service.ensureUnlocked(stored), true);
+  assert.equal(reader.service.lockPreviewHidden(stored), false);
+  const card = reader.service.cardContent(stored);
+  assert.deepEqual(data({ noteBody: card.noteBody, checkBoxes: card.checkBoxes, images: card.images }),
+    { noteBody: plain.noteBody, checkBoxes: plain.checkBoxes, images: plain.images });
+  assert.equal(reader.service.cardContent(stored), card, 'the card view is reused while the content is unchanged');
+  assert.equal(stored.noteBody, '', 'decrypted content is never assigned to the note');
+  card.checkBoxes[0].done = true;
+  assert.equal(reader.service.content(stored).checkBoxes[0].done, false, 'the card holds copies of the unlocked content');
+
+  const expiresAt = reader.service.unlockExpiresAt(stored);
+  assert.ok(expiresAt > Date.now() && expiresAt <= Date.now() + 5 * 60 * 1000, 'the unlock lasts five minutes');
+  const realNow = Date.now;
+  Date.now = () => expiresAt + 1;
+  try {
+    assert.equal(reader.service.lockPreviewHidden(stored), true, 'the card hides again when the unlock runs out');
+    assert.equal(reader.service.cardContent(stored).noteBody, '');
+    assert.equal(reader.service.unlockExpiresAt(stored), 0);
+  } finally { Date.now = realNow; }
+
+  reader.service.clearUnlocked(stored);
+  assert.equal(reader.service.lockPreviewHidden(stored), true, 'relocking hides the card at once');
+});
+
+test('locking keeps the link previews this device loaded and shows them again without the server', async () => {
+  const thumbnails = [];
+  const { service, files: Files, auth } = loadLockService({ prompts: ['open sesame', 'open sesame'], thumbnails });
+  const plain = note({ noteBody: '<p><a href="https://Example.com">site</a> https://notloaded.example/x and https://second.example/page.</p>' });
+  const loaded = {
+    'https://example.com/': { title: 'Example', description: 'An example', image: 'https://example.com/og.png', url: 'https://example.com/', domain: 'example.com' },
+    'https://second.example/page': { title: 'Second', description: null, image: null, url: 'https://second.example/page', domain: 'second.example' }
+  };
+  let sealed;
+  const notes = {
+    requireEncryptionSupport: async () => {},
+    peekLinkPreviewCache: url => loaded[url] || null,
+    updateKey: async fields => { sealed = { ...plain, ...(await service.sealOutgoing(fields, plain)) }; },
+    retirePlaintextImageCache: async () => {}
+  };
+  auth.prepareImageUrl = async url => { thumbnails.push(['proxy', url]); return 'blob:thumb'; };
+  await new Files(service, notes, auth).lock(plain);
+  assert.doesNotMatch(sealed.encryptedContent, /Example|Second|VGh1bWI|notloaded/, 'previews are encrypted with the note');
+  assert.deepEqual(thumbnails, [['proxy', '/api/proxy-image?url=' + encodeURIComponent('https://example.com/og.png')], ['thumbnail', 'blob:thumb']],
+    'the thumbnail is the image the card already showed, reduced to a data: URL');
+
+  // Another device: the kept previews show without asking the server.
+  const reader = loadLockService({ prompts: ['open sesame'] });
+  assert.equal(reader.service.storedLinkPreview(sealed, 'https://example.com/'), null, 'nothing shows before unlocking');
+  assert.equal(await reader.service.ensureUnlocked(sealed), true);
+  assert.deepEqual(data(reader.service.storedLinkPreview(sealed, 'https://example.com')),
+    { url: 'https://example.com/', title: 'Example', domain: 'example.com', description: 'An example', image: 'data:image/webp;base64,VGh1bWI=' });
+  assert.equal(reader.service.storedLinkPreview(sealed, 'https://second.example/page').title, 'Second');
+  assert.equal(reader.service.storedLinkPreview(sealed, 'https://notloaded.example/x'), null, 'a link without a loaded preview shows its domain');
+  assert.equal(reader.service.storedLinkPreview(plain, 'https://example.com/'), null, 'plain notes use ordinary previews');
+
+  // Saves keep the previews of links still in the note; a removed link's goes.
+  const checklistOnly = { ...sealed, ...(await reader.service.sealOutgoing({ checkBoxes: [] }, sealed)) };
+  const edited = { ...checklistOnly, ...(await reader.service.sealOutgoing({ noteBody: '<p>now only https://second.example/page</p>' }, checklistOnly)) };
+  const later = loadLockService({ prompts: ['open sesame', 'open sesame'] });
+  assert.equal(await later.service.ensureUnlocked(checklistOnly), true);
+  assert.equal(later.service.storedLinkPreview(checklistOnly, 'https://example.com/').title, 'Example', 'a checklist save keeps them');
+  later.service.clearUnlocked(checklistOnly);
+  assert.equal(await later.service.ensureUnlocked(edited), true);
+  assert.equal(later.service.storedLinkPreview(edited, 'https://example.com/'), null);
+  assert.equal(later.service.storedLinkPreview(edited, 'https://second.example/page').title, 'Second');
+});
+
+test('keeping previews takes one short budget: thumbnails are made together and late ones are left out', async () => {
+  const { service, files: Files, auth } = loadLockService({ prompts: ['open sesame', 'open sesame'] });
+  const links = ['https://one.example/', 'https://two.example/', 'https://stalls.example/', 'https://late.example/'];
+  const plain = note({ noteBody: '<p><a href="https://en.wikipedia.org/wiki/Kept_(app)">Kept</a> ' + links.join(' ') + '</p>' });
+  const preview = (url, image) => ({ title: url, description: null, image, url, domain: new URL(url).hostname });
+  const loaded = Object.fromEntries(links.map(url => [url, preview(url, url + 'og.png')]));
+  // A card fetched this one without the closing parenthesis.
+  loaded['https://en.wikipedia.org/wiki/Kept_(app'] = preview('https://en.wikipedia.org/wiki/Kept_(app', null);
+  const delays = { one: 300, two: 300, stalls: Infinity, late: 800 };
+  auth.prepareImageUrl = url => {
+    const ms = delays[Object.keys(delays).find(name => url.includes(name + '.example'))];
+    return ms === Infinity ? new Promise(() => {}) : new Promise(resolve => setTimeout(() => resolve('blob:' + url), ms));
+  };
+  let sealed;
+  const notes = {
+    requireEncryptionSupport: async () => {},
+    peekLinkPreviewCache: url => loaded[url] || null,
+    updateKey: async fields => { sealed = { ...plain, ...(await service.sealOutgoing(fields, plain)) }; },
+    retirePlaintextImageCache: async () => {}
+  };
+  const files = new Files(service, notes, auth);
+  files.linkPreviewBudgetMs = 500;
+  const started = Date.now();
+  await files.lock(plain);
+  const took = Date.now() - started;
+  assert.ok(took < 1200, `locking took ${took} ms`);
+  const image = url => service.storedLinkPreview(sealed, url)?.image;
+  assert.match(image('https://one.example/'), /^data:image\//);
+  assert.match(image('https://two.example/'), /^data:image\//, 'made together: one after the other would not fit the budget');
+  assert.equal(image('https://stalls.example/'), null, 'a stalled image fetch does not hold up locking');
+  assert.equal(image('https://late.example/'), null);
+  await new Promise(resolve => setTimeout(resolve, 500));
+  assert.equal(image('https://late.example/'), null, 'a thumbnail finishing later does not change the sealed content');
+  assert.equal(service.storedLinkPreview(sealed, 'https://stalls.example/').title, 'https://stalls.example/', 'its text is still kept');
+
+  // Kept under the complete address, and found by the form a card asks for.
+  const reader = loadLockService({ prompts: ['open sesame'] });
+  assert.equal(await reader.service.ensureUnlocked(sealed), true);
+  assert.equal(reader.service.storedLinkPreview(sealed, 'https://en.wikipedia.org/wiki/Kept_(app)').url, 'https://en.wikipedia.org/wiki/Kept_(app)');
+  assert.equal(reader.service.storedLinkPreview(sealed, 'https://en.wikipedia.org/wiki/Kept_(app').url, 'https://en.wikipedia.org/wiki/Kept_(app)');
 });
 
 test('a card preview is never sealed in place of the full note', async () => {
@@ -126,7 +247,11 @@ test('opening a legacy lock does not silently upgrade its format', async () => {
   const bits = await globalThis.crypto.subtle.deriveBits({ name: 'PBKDF2', salt: new TextEncoder().encode(salt), iterations: 150000, hash: 'SHA-256' },
     await globalThis.crypto.subtle.importKey('raw', new TextEncoder().encode('1234'), 'PBKDF2', false, ['deriveBits']), 256);
   const legacy = note({ locked: true, lockSalt: salt, lockHash: `pbkdf2:${Buffer.from(bits).toString('base64url')}` });
+  assert.equal(service.lockPreviewHidden(legacy), true);
   assert.equal(await service.ensureUnlocked({ ...legacy, isCardPreview: true, noteBody: '' }), true);
+  assert.equal(service.lockPreviewHidden(legacy), false, 'a legacy lock\'s card shows its readable content while unlocked');
+  assert.ok(service.unlockExpiresAt(legacy) > Date.now());
+  assert.equal(service.cardContent(legacy).noteBody, legacy.noteBody);
   assert.equal(service.dataKey(legacy), null);
   assert.equal(legacy.lockHash.startsWith('pbkdf2:'), true);
 
@@ -226,4 +351,23 @@ test('a failed passcode save restores the in-memory key instead of stranding the
   const edit = await service.sealOutgoing({ noteBody: '<p>Still editable</p>' }, stored);
   assert.equal((await openWith(crypto, 'old', edit.encryptedContent)).noteBody, '<p>Still editable</p>');
   await assert.rejects(crypto.unlockNoteKeys('new', edit.encryptedContent));
+});
+
+test('image preparation reports incomplete work and retries only files still missing', async () => {
+  const { crypto, files: Files } = loadLockService();
+  const key = await globalThis.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  const sealed = await crypto.sealFile(key, new Blob(['image bytes'], { type: 'image/png' }));
+  const content = { noteBody: '<img src="kept://file/one"><img src="kept://file/two">', checkBoxes: [], images: [],
+    files: { one: { kind: 'image', type: 'image/png' }, two: { kind: 'image', type: 'image/png' } } };
+  const registered = new Set(), fetched = [];
+  let offline = true;
+  const service = new Files({ rememberRows() {}, content: () => content, dataKey: () => key }, {
+    async fetchAttachmentBlob(row) { fetched.push(row.syncId); if (offline && row.syncId === 'two') throw new Error('offline fixture'); return sealed; }
+  }, { hasDecryptedMedia: url => registered.has(url), registerDecryptedMedia: url => registered.add(url) });
+  service.row = (_note, id) => ({ syncId: id });
+  assert.equal(await service.prepare(note()), false, 'one failure is exposed to the retry coordinator');
+  assert.deepEqual(fetched, ['one', 'two']);
+  offline = false;
+  assert.equal(await service.prepare(note()), true);
+  assert.deepEqual(fetched, ['one', 'two', 'two'], 'already decrypted images are reused');
 });

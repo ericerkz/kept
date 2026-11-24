@@ -4,9 +4,11 @@ import { NoteAttachmentI, NoteI, UpdateKeyI } from '../interfaces/notes';
 import { createNoteHtmlContainer, sanitizeNoteHtml } from '../utils/note-html';
 import { prepareNoteImage } from '../utils/note-images';
 import {
-  ENCRYPTED_FILE_NAME, ENCRYPTED_FILE_PREFIX, EncryptedFileMeta, NoteSecretContent, encryptedFileId, encryptedFileRefs,
-  encryptedFileUrl, openFile, sealFile
+  ENCRYPTED_FILE_NAME, ENCRYPTED_FILE_PREFIX, EncryptedFileMeta, MAX_STORED_LINK_PREVIEWS, NoteSecretContent, StoredLinkPreview,
+  canonicalLinkUrl, encryptedFileId, encryptedFileRefs, encryptedFileUrl, noteLinkUrls, openFile, sealFile, withoutTrailingPunctuation
 } from '../utils/note-crypto';
+import { previewThumbnailDataUrl } from '../utils/link-preview-thumbnail';
+import { environment } from 'src/environments/environment';
 import { AuthService } from './auth.service';
 import { NoteLockService } from './note-lock.service';
 import { NotesService } from './notes.service';
@@ -32,7 +34,8 @@ export class EncryptedFilesService {
   async prepare(note: NoteI) {
     this.noteLock.rememberRows(note);
     const content = this.noteLock.content(note), key = this.noteLock.dataKey(note);
-    if (!content || !key) return;
+    if (!content || !key) return false;
+    let complete = true;
     const ids = encryptedFileRefs(content).filter(id => content.files?.[id]?.kind !== 'attachment');
     await Promise.all(ids.map(async id => {
       const url = encryptedFileUrl(id);
@@ -41,9 +44,11 @@ export class EncryptedFilesService {
         const sealed = await this.notes.fetchAttachmentBlob(this.row(note, id));
         this.auth.registerDecryptedMedia(url, await openFile(key, sealed, content.files?.[id]?.type || ''));
       } catch (error) {
+        complete = false;
         console.warn('Could not decrypt an image of this note.', error);
       }
     }));
+    return complete;
   }
 
   // Encrypts and uploads an image added to an encrypted note. Returns its
@@ -103,7 +108,8 @@ export class EncryptedFilesService {
     if (!fields) return null;
     try {
       const migrated = await this.encryptFiles(note, this.noteLock.content(note)!);
-      this.noteLock.setContent(note, migrated.content);
+      const linkPreviews = await this.loadedLinkPreviews(migrated.content.noteBody);
+      this.noteLock.setContent(note, Object.keys(linkPreviews).length ? { ...migrated.content, linkPreviews } : migrated.content);
       await this.notes.updateKey(fields, note.id!);
       await this.notes.retirePlaintextImageCache(note, [...migrated.mapping.keys()]);
       await this.retireRows(note, migrated.replaced, fields.lockSalt!);
@@ -112,6 +118,61 @@ export class EncryptedFilesService {
       this.noteLock.clearUnlocked(note);
       throw error;
     }
+  }
+
+  // Keeping previews is optional, so it gets one short time budget for the
+  // whole step and never noticeably holds up locking.
+  private readonly linkPreviewBudgetMs = 1500;
+
+  // Previews this device loaded for the note's links while it was readable.
+  // They're kept, encrypted, with the note and shown again without asking the
+  // server; links added after locking show only their domain. Never fails
+  // the lock: a preview that can't be kept falls back to the domain, and a
+  // thumbnail not ready within the budget is left out.
+  private async loadedLinkPreviews(noteBody: string): Promise<Record<string, StoredLinkPreview>> {
+    const previews: Record<string, StoredLinkPreview> = {};
+    const thumbnails: Promise<void>[] = [];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      for (const url of noteLinkUrls(noteBody)) {
+        if (Object.keys(previews).length >= MAX_STORED_LINK_PREVIEWS) break;
+        const key = canonicalLinkUrl(url);
+        const loaded = this.loadedLinkPreview(url);
+        if (!loaded || previews[key]) continue;
+        const preview: StoredLinkPreview = { url: key, title: loaded.title || '', domain: loaded.domain || '',
+          description: loaded.description || null, image: null };
+        previews[key] = preview;
+        // All thumbnails at once: fetching and scaling count against the budget.
+        if (loaded.image) thumbnails.push(this.previewThumbnail(loaded.image).then(image => { preview.image = image; }, () => {}));
+      }
+      await Promise.race([Promise.all(thumbnails), new Promise(resolve => { timer = setTimeout(resolve, this.linkPreviewBudgetMs); })]);
+    } catch (error) {
+      console.warn('Could not keep this note’s link previews.', error);
+    } finally {
+      clearTimeout(timer);
+    }
+    // Copies: a thumbnail finishing after the budget must not change content
+    // that has already been sealed.
+    return Object.fromEntries(Object.entries(previews).map(([key, preview]) => [key, { ...preview }]));
+  }
+
+  // The preview loaded here for a link, under the address an editor (the
+  // complete href) or a card (without trailing punctuation) fetched it by.
+  private loadedLinkPreview(url: string) {
+    const forms = [url, canonicalLinkUrl(url), withoutTrailingPunctuation(url), canonicalLinkUrl(withoutTrailingPunctuation(url))];
+    for (const form of new Set(forms)) {
+      const loaded = this.notes.peekLinkPreviewCache(form);
+      if (loaded) return loaded;
+    }
+    return null;
+  }
+
+  // The preview image as the card showed it (through the server's image
+  // proxy, which already fetched it), reduced to a small data: URL.
+  private async previewThumbnail(image: string): Promise<string | null> {
+    const source = image.startsWith('data:') ? image
+      : await this.auth.prepareImageUrl(`${environment.apiUrl}/proxy-image?url=${encodeURIComponent(image)}`);
+    return previewThumbnailDataUrl(source);
   }
 
   // Finishes an interrupted lock: any unencrypted attachment still on an

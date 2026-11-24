@@ -1,8 +1,9 @@
 // End-to-end encryption for locked notes (issue #27).
 //
 // Each encrypted note has its own random AES-256-GCM data key. It encrypts
-// the note's content (body, checklist, images list, file names) and each of
-// its image and attachment files. The data key is stored wrapped with a key
+// the note's content (body, checklist, images list, file names, and link
+// previews from before it was locked) and each of its image and attachment
+// files. The data key is stored wrapped with a key
 // derived from the note's passcode (PBKDF2-SHA-256). Changing the passcode
 // creates a new data key and re-encrypts everything, so someone who knew the
 // old passcode can't read later changes; the key's `epoch` counts these
@@ -43,6 +44,102 @@ export interface NoteSecretContent {
   images?: unknown[];
   // Decrypted details of the note's encrypted files, by attachment sync ID.
   files?: Record<string, EncryptedFileMeta>;
+  // Link previews loaded while the note was still readable, by canonical URL
+  // (canonicalLinkUrl). Shown again without asking the server, which fetches
+  // previews and so must not learn links added to an encrypted note.
+  linkPreviews?: Record<string, StoredLinkPreview>;
+}
+
+export interface StoredLinkPreview {
+  url: string;
+  title: string;
+  domain: string;
+  description: string | null;
+  // A small copy of the preview image as a data: URL, never a remote address.
+  image: string | null;
+}
+
+export const MAX_STORED_LINK_PREVIEWS = 8;
+export const MAX_STORED_PREVIEW_IMAGE_CHARS = 40_000;
+const STORED_PREVIEW_IMAGE = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/;
+
+// The form a link is stored and looked up by: editors and cards may hold the
+// browser's normalized href or the URL text as typed.
+export function canonicalLinkUrl(url: string): string {
+  try { return new URL(url).href; } catch { return url; }
+}
+
+// The address without trailing punctuation, as cards and editors key a link
+// typed in the text (and cards also an href).
+export function withoutTrailingPunctuation(url: string): string {
+  return url.replace(/[),.;:!?]+$/, '');
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value.replace(/&(#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos);/gi, (entity, code: string) => {
+    const lower = code.toLowerCase();
+    if (!lower.startsWith('#')) return ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" } as Record<string, string>)[lower] ?? entity;
+    const point = lower.startsWith('#x') ? parseInt(lower.slice(2), 16) : Number(lower.slice(1));
+    return Number.isInteger(point) && point >= 0 && point <= 0x10ffff ? String.fromCodePoint(point) : entity;
+  });
+}
+
+// A link typed in the text ends before punctuation that follows it ("see
+// https://example.com/a."), but keeps a closing parenthesis it opened itself
+// (https://en.wikipedia.org/wiki/Kept_(app)).
+function typedLinkEnd(url: string): string {
+  let end = url.length;
+  while (end > 0) {
+    const char = url[end - 1];
+    if (char === ')') {
+      const head = url.slice(0, end);
+      if ((head.match(/\(/g) || []).length >= (head.match(/\)/g) || []).length) break;
+    } else if (!/[,.;:!?]/.test(char)) break;
+    end--;
+  }
+  return url.slice(0, end);
+}
+
+// The complete addresses of a note's links: every http(s) href exactly as
+// written, and links typed in the text.
+export function noteLinkUrls(html: string): string[] {
+  const source = String(html || '');
+  const urls = new Set<string>();
+  for (const match of source.matchAll(/<a\b[^>]*?\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)) {
+    const href = decodeHtmlEntities((match[1] ?? match[2] ?? match[3] ?? '').trim());
+    if (/^https?:\/\//i.test(href)) urls.add(href);
+  }
+  const text = decodeHtmlEntities(source.replace(/<[^>]*>/g, ' '));
+  for (const match of text.matchAll(/https?:\/\/[^\s"'<>]+/g)) {
+    const url = typedLinkEnd(match[0]);
+    if (url) urls.add(url);
+  }
+  return [...urls];
+}
+
+// Well-formed stored previews; when `noteBody` is given, only those of links
+// the note still has (a removed link's preview is dropped when sealing).
+export function storedLinkPreviews(value: unknown, noteBody?: string): Record<string, StoredLinkPreview> {
+  const kept: Record<string, StoredLinkPreview> = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return kept;
+  const text = (field: unknown, max: number) => typeof field === 'string' ? field.slice(0, max) : '';
+  const links = noteBody === undefined ? null : new Set(noteLinkUrls(noteBody).map(canonicalLinkUrl));
+  for (const [url, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (Object.keys(kept).length >= MAX_STORED_LINK_PREVIEWS) break;
+    if (!/^https?:\/\//i.test(url) || url.length > 2048 || !raw || typeof raw !== 'object') continue;
+    if (links && !links.has(canonicalLinkUrl(url))) continue;
+    const preview = raw as Partial<StoredLinkPreview>;
+    const image = typeof preview.image === 'string' && preview.image.length <= MAX_STORED_PREVIEW_IMAGE_CHARS
+      && STORED_PREVIEW_IMAGE.test(preview.image) ? preview.image : null;
+    kept[url] = {
+      url,
+      title: text(preview.title, 300),
+      domain: text(preview.domain, 253),
+      description: text(preview.description, 500) || null,
+      image
+    };
+  }
+  return kept;
 }
 
 export interface NoteKdf {
@@ -187,12 +284,15 @@ export async function sealNoteContent(keys: NoteKeys, content: NoteSecretContent
   const used = new Set(refs);
   // Drop details of files nothing uses any more (a replaced image).
   const files = Object.fromEntries(Object.entries(content.files || {}).filter(([id]) => used.has(id)));
+  const noteBody = String(content.noteBody ?? '');
+  const linkPreviews = storedLinkPreviews(content.linkPreviews, noteBody);
   const iv = randomBytes(12);
   const plaintext = new TextEncoder().encode(JSON.stringify({
-    noteBody: String(content.noteBody ?? ''),
+    noteBody,
     checkBoxes: Array.isArray(content.checkBoxes) ? content.checkBoxes : [],
     images: Array.isArray(content.images) ? content.images : [],
-    files
+    files,
+    ...(Object.keys(linkPreviews).length ? { linkPreviews } : {})
   }));
   const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: CONTENT_AAD }, keys.dataKey, plaintext));
   const envelope: NoteEnvelope = {
@@ -216,11 +316,13 @@ export async function openNoteContent(keys: Pick<NoteKeys, 'dataKey'>, value: st
   const plaintext = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: fromBase64Url(envelope.iv), additionalData: CONTENT_AAD }, keys.dataKey, fromBase64Url(envelope.ct));
   const content = JSON.parse(new TextDecoder().decode(plaintext));
+  const linkPreviews = storedLinkPreviews(content?.linkPreviews);
   return {
     noteBody: String(content?.noteBody ?? ''),
     checkBoxes: Array.isArray(content?.checkBoxes) ? content.checkBoxes : [],
     images: Array.isArray(content?.images) ? content.images : [],
-    files: content?.files && typeof content.files === 'object' ? content.files : {}
+    files: content?.files && typeof content.files === 'object' ? content.files : {},
+    ...(Object.keys(linkPreviews).length ? { linkPreviews } : {})
   };
 }
 

@@ -3,6 +3,10 @@ import { AuthService } from '../../services/auth.service';
 import { OverviewImage } from '../../utils/overview-images';
 import { uiPlural } from '../../i18n/messages';
 
+// An encrypted note's image whose decrypted copy isn't ready: its address is
+// still the kept://file/ reference, which no image element can load.
+const isPendingEncrypted = (src: string) => String(src || '').trim().startsWith('kept://');
+
 @Component({
   selector: 'app-note-preview-images', standalone: false,
   template: `
@@ -41,7 +45,7 @@ export class NotePreviewImagesComponent implements AfterViewInit, OnChanges, OnD
   private failures = new Set<number>();
   private localPreviews = new Map<string, Map<number, Promise<string | undefined>>>();
   private objectUrls = new Set<string>();
-  private renderedImages: { index: number; src: string }[] = [];
+  private renderedImages: { index: number; src: string; pending: boolean }[] = [];
 
   constructor(private host: ElementRef<HTMLElement>, private auth: AuthService, private zone: NgZone, private cd: ChangeDetectorRef) {}
   ngAfterViewInit() { this.viewReady = true; this.observe(); }
@@ -49,9 +53,11 @@ export class NotePreviewImagesComponent implements AfterViewInit, OnChanges, OnD
     // Sync refreshes note/segment objects even when their photos are unchanged.
     // Compare the displayed image identities rather than the input array: keep
     // decoded images, local preview URLs and pending loads through those updates.
-    const nextImages = this.images.slice(0, 4).map(image => ({ index: image.index, src: this.auth.canonicalImageUrl(image.src) }));
+    // An encrypted note's image counts as changed once its decrypted copy
+    // arrives (same canonical kept://file/ address, now displayable).
+    const nextImages = this.images.slice(0, 4).map(image => ({ index: image.index, src: this.auth.canonicalImageUrl(image.src), pending: isPendingEncrypted(image.src) }));
     if (nextImages.length === this.renderedImages.length && nextImages.every((image, i) =>
-      image.index === this.renderedImages[i].index && image.src === this.renderedImages[i].src)) return;
+      image.index === this.renderedImages[i].index && image.src === this.renderedImages[i].src && image.pending === this.renderedImages[i].pending)) return;
     this.renderedImages = nextImages;
     this.generation++;
     this.clearLocalPreviews();
@@ -72,7 +78,7 @@ export class NotePreviewImagesComponent implements AfterViewInit, OnChanges, OnD
     this.aspect = Math.max(1, image.naturalWidth / Math.max(1, image.naturalHeight));
   }
   failed(image: OverviewImage) {
-    if (this.destroyed) return;
+    if (this.destroyed || isPendingEncrypted(image.src)) return;
     if (this.failures.has(image.index)) return;
     this.failures.add(image.index);
     const generation = this.generation;
@@ -103,7 +109,8 @@ export class NotePreviewImagesComponent implements AfterViewInit, OnChanges, OnD
   private load(tile: HTMLElement) {
     const index = Number(tile.dataset['previewIndices']!.split(',')[0]);
     const image = this.images.find(image => image.index === index);
-    if (!image || !tile.clientWidth) return;
+    // Not decrypted yet: the tile stays empty until its card redraws.
+    if (!image || !tile.clientWidth || isPendingEncrypted(image.src)) return;
     const width = tile.clientWidth * Math.min(devicePixelRatio || 1, 2);
     const size = [160, 320, 480, 640, 960].find(size => size >= width) || 960;
     if ((this.requested.get(index) || 0) >= size) return;

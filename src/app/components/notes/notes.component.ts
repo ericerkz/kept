@@ -315,7 +315,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   overviewChecklistItems(note: NoteI, listId?: string) {
-    const checkBoxes = (note.checkBoxes || []).filter(row => !listId || checklistId(row) === listId)
+    const checkBoxes = this.cardCheckBoxes(note).filter(row => !listId || checklistId(row) === listId)
     const rows = this.preferences.value.moveCompletedChecklistItemsToBottom
       ? checkBoxes.filter(item => !item.done)
       : checkBoxes
@@ -323,7 +323,115 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   overviewCompletedChecklistCount(note: NoteI, listId?: string) {
-    return (note.checkBoxes || []).filter(item => item.done && (!listId || checklistId(item) === listId)).length
+    return this.cardCheckBoxes(note).filter(item => item.done && (!listId || checklistId(item) === listId)).length
+  }
+
+  // An unlocked encrypted note's card lists its decrypted checklist.
+  private cardCheckBoxes(note: NoteI): CheckboxI[] {
+    return this.noteLock.isEncrypted(note) ? this.noteLock.cardContent(note).checkBoxes : (note.checkBoxes || [])
+  }
+
+  cardAttachments(note: NoteI): NoteAttachmentI[] {
+    return this.noteLock.isEncrypted(note) ? this.noteLock.cardContent(note).attachments : (note.attachments || [])
+  }
+
+  cardBodyLength(note: NoteI) {
+    return this.noteMeta(note).rawBody.length
+  }
+
+  // Whether a locked note's card hides its content. It shows while the note
+  // is unlocked here, and a timer redraws the card when that runs out.
+  lockedCardHidden(note: NoteI) {
+    const hidden = this.noteLock.lockPreviewHidden(note)
+    if (!hidden && note.locked) this.watchUnlockExpiry(this.noteLock.unlockExpiresAt(note))
+    if (!hidden && this.noteLock.isEncrypted(note)) this.prepareCardImages(note)
+    return hidden
+  }
+
+  // Changes when decrypted images of encrypted notes become available, so
+  // their cards redraw with them (noteMeta's cache key).
+  private encryptedImagesVersion = 0
+  private cardImageRequests = new WeakMap<object, { pending: boolean; complete: boolean; recovery: number }>()
+  private cardImageRecovery = 0
+  private cardImageRecoveryAt = 0
+  private cardImageRecoveryTimer?: ReturnType<typeof setTimeout>
+
+  // Retry failures only after connectivity/foreground recovery. Coalesce the
+  // native resume and visibility events, and never overlap an active request.
+  private cardImageRecoveryHandler = () => this.recoverCardImages()
+
+  private recoverCardImages() {
+    if (this.destroyed || document.visibilityState === 'hidden' || this.cardImageRecoveryTimer) return
+    const delay = Math.max(0, this.cardImageRecoveryAt + 5000 - Date.now())
+    this.cardImageRecoveryTimer = setTimeout(() => {
+      this.cardImageRecoveryTimer = undefined
+      if (this.destroyed || document.visibilityState === 'hidden') return
+      this.cardImageRecoveryAt = Date.now()
+      this.cardImageRecovery++
+      this.cd.markForCheck()
+    }, delay)
+  }
+
+  // Successful preparation is cached per unlocked content. Failed preparation
+  // stays quiet through redraws, but gets another attempt after recovery.
+  private prepareCardImages(note: NoteI) {
+    const content = this.noteLock.content(note)
+    if (!content) return
+    const previous = this.cardImageRequests.get(content)
+    if (previous && (previous.pending || previous.complete || previous.recovery === this.cardImageRecovery)) return
+    const request = { pending: true, complete: false, recovery: this.cardImageRecovery }
+    this.cardImageRequests.set(content, request)
+    void (async () => {
+      try {
+        const stored = note.isCardPreview && note.id ? await this.notesService.get(note.id) : note
+        // A fetch may finish after relock, a new unlock, or navigation away.
+        if (!stored || this.destroyed || this.noteLock.lockPreviewHidden(note) || this.noteLock.content(note) !== content) return
+        request.complete = await this.encryptedFiles.prepare(stored)
+      } catch (error) {
+        console.warn('Could not show this note’s images.', error)
+      } finally {
+        request.pending = false
+        // An overlapping recovery event doesn't restart a failed request.
+        request.recovery = this.cardImageRecovery
+        if (!this.destroyed) {
+          this.encryptedImagesVersion++
+          this.cd.markForCheck()
+        }
+      }
+    })()
+  }
+
+  private unlockExpiryTimer?: ReturnType<typeof setTimeout>
+  private unlockExpiryAt = 0
+
+  private watchUnlockExpiry(expiresAt: number) {
+    if (!expiresAt || this.destroyed || (this.unlockExpiryTimer && this.unlockExpiryAt <= expiresAt)) return
+    if (this.unlockExpiryTimer) clearTimeout(this.unlockExpiryTimer)
+    this.unlockExpiryAt = expiresAt
+    // Runs in Angular's zone, so change detection redraws the cards; cards
+    // still unlocked then schedule the next expiry.
+    this.unlockExpiryTimer = setTimeout(() => {
+      this.unlockExpiryTimer = undefined
+      this.unlockExpiryAt = 0
+      this.cd.markForCheck()
+    }, Math.max(0, expiresAt - Date.now()) + 50)
+  }
+
+  // A checklist change from an encrypted note's card: catches up with the
+  // stored version first, then saves an edited copy, sealed like the editor's
+  // saves. The card's own rows are copies and are never edited.
+  private async changeEncryptedOverviewChecklist(note: NoteI, change: (checkBoxes: CheckboxI[]) => void) {
+    if (!note.id || this.noteLock.lockPreviewHidden(note)) return
+    try {
+      const stored = note.isCardPreview ? await this.notesService.get(note.id) : note
+      if (!stored || !await this.noteLock.openExternal(stored)) return
+      const checkBoxes = ((this.noteLock.content(stored)?.checkBoxes || []) as CheckboxI[]).map(item => ({ ...item }))
+      change(checkBoxes)
+      await this.notesService.updateKey({ checkBoxes }, note.id)
+    } catch (error) {
+      this.showMessage(error instanceof Error && error.message ? error.message : uiText('note_lock.unlock_to_save'))
+    }
+    this.scheduleBuildMasonry(true)
   }
 
   checkboxIndentLevel(cb?: CheckboxI) {
@@ -351,27 +459,31 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private noteMeta(note: NoteI) {
-    const rawBody = note.noteBody || ''
+    // An unlocked encrypted note's card shows its decrypted content.
+    const content = this.noteLock.isEncrypted(note) ? this.noteLock.cardContent(note) : note
+    const rawBody = content.noteBody || ''
+    const checkBoxes = content.checkBoxes || []
+    const images = content.images || []
     const title = note.noteTitle || ''
     const themeKey = document.body.classList.contains('light-theme') ? 'l' : 'd'
     const richLinkPreviews = this.preferences.value.richLinkPreviews && note.linkPreviews !== false
-    const bgKey = `${note.bgColor || ''}|${note.bgImage || ''}|${note.pattern || ''}|${note.isCbox ? 1 : 0}|${themeKey}|links:${richLinkPreviews ? 1 : 0}|lists:${Array.from(new Set((note.checkBoxes || []).map(checklistId))).join(',')}`
+    const bgKey = `${note.bgColor || ''}|${note.bgImage || ''}|${note.pattern || ''}|${note.isCbox ? 1 : 0}|${themeKey}|links:${richLinkPreviews ? 1 : 0}|lists:${Array.from(new Set(checkBoxes.map(checklistId))).join(',')}|media:${this.noteLock.isEncrypted(note) ? this.encryptedImagesVersion : 0}`
     const cached = this.noteMetaCache.get(note)
     if (cached && cached.rawBody === rawBody && cached.title === title && cached.bgKey === bgKey
-      && cached.imageState.length === (note.images || []).length && cached.imageState.every((image, index) => {
-        const current = note.images![index]
+      && cached.imageState.length === images.length && cached.imageState.every((image, index) => {
+        const current = images[index]
         return image.id === current.id && image.dataUrl === current.dataUrl && image.name === current.name && image.placement === current.placement
       })) return cached
 
     const body = this.auth.authenticatedImageHtml(rawBody)
-    const orderedBody = checklistBodyParts(body, note.checkBoxes, !!note.isCbox)
+    const orderedBody = checklistBodyParts(body, checkBoxes, !!note.isCbox)
       .map(part => part.type === 'text' ? part.html : checklistAnchorHtml(part.id)).join('')
-    const bodyPreview = this.buildBodySegments(orderedBody, richLinkPreviews, note.isCbox, note.images)
+    const bodyPreview = this.buildBodySegments(orderedBody, richLinkPreviews, note.isCbox, images)
     const photoCount = bodyPreview.segments.reduce((count, segment) => count + (segment.type === 'images' ? segment.images.length : 0), 0)
     let bodySegments = bodyPreview.segments
     let leadImage: OverviewImage | undefined
     const firstSegment = bodySegments[0]
-    if (firstSegment?.type === 'images' && !(note.images || []).some(image => image.id === 'drawing' && image.placement === 'top')) {
+    if (firstSegment?.type === 'images' && !images.some(image => image.id === 'drawing' && image.placement === 'top')) {
       leadImage = firstSegment.images[0]
       bodySegments = [...bodySegments]
       if (firstSegment.images.length === 1) bodySegments.shift()
@@ -383,12 +495,12 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     const hiddenLinkCount = Math.max(0, totalLinkCount - visibleUrls.length)
     const plainBody = body.replace(/<[^>]+>/g, ' ')
     const bodyWithoutUrls = plainBody.replace(/https?:\/\/\S+/g, url => hasJoinedNoteUrls(url) ? url : '').replace(/&nbsp;/g, ' ').trim()
-    const linkOnly = !photoCount && !note.images?.length && !note.isCbox && urls.length > 0 && !title.trim() && !bodyWithoutUrls
+    const linkOnly = !photoCount && !images.length && !note.isCbox && urls.length > 0 && !title.trim() && !bodyWithoutUrls
     const isLightMode = document.body.classList.contains('light-theme');
     const textColor = noteAppearance(note.bgColor, isLightMode, this.hasRealBgImage(note.bgImage)).text;
 
     const displayBody = richLinkPreviews && urls.length ? this.hideLinksInHtml(body) : body
-    const next = { rawBody, title, bgKey, urls, linkOnly, textColor, displayBody, bodySegments, hiddenLinkCount, visibleUrls, leadImage, leadImages: leadImage ? [leadImage] : [], photoCount, imageState: (note.images || []).map(image => ({ ...image })) }
+    const next = { rawBody, title, bgKey, urls, linkOnly, textColor, displayBody, bodySegments, hiddenLinkCount, visibleUrls, leadImage, leadImages: leadImage ? [leadImage] : [], photoCount, imageState: images.map(image => ({ ...image })) }
     this.noteMetaCache.set(note, next)
     return next
   }
@@ -1270,6 +1382,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     event.stopPropagation()
     event.preventDefault()
     if (this.ignoreSyntheticOverviewCheckboxMouse(event)) return
+    if (this.noteLock.isEncrypted(note)) return this.changeEncryptedOverviewChecklist(note, checkBoxes => this.toggleChecklistItemWithChildren(checkBoxes, cb.id))
     if (note.isCardPreview && note.id) note = await this.notesService.get(note.id).catch(() => note)
     this.toggleChecklistItemWithChildren(note.checkBoxes || [], cb.id)
     await this.notesService.updateKey({ checkBoxes: note.checkBoxes }, note.id!)
@@ -1280,6 +1393,10 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     event.stopPropagation()
     event.preventDefault()
     if (this.ignoreSyntheticOverviewCheckboxMouse(event)) return
+    if (this.noteLock.isEncrypted(note)) return this.changeEncryptedOverviewChecklist(note, checkBoxes => {
+      const index = checkBoxes.findIndex(x => x.id === cb.id)
+      if (index >= 0) checkBoxes.splice(index, 1)
+    })
     if (note.isCardPreview && note.id) note = await this.notesService.get(note.id).catch(() => note)
     const index = note.checkBoxes?.findIndex(x => x.id === cb.id)
     if (index !== undefined && index >= 0) note.checkBoxes?.splice(index, 1)
@@ -3216,6 +3333,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   ngOnInit(): void {
+    window.addEventListener('online', this.cardImageRecoveryHandler)
+    document.addEventListener('visibilitychange', this.cardImageRecoveryHandler)
     this.syncCurrentPage(this.router.url)
     window.addEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
     this.registerPullToRefresh()
@@ -3306,7 +3425,7 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
         if (event?.isActive) this.zone.run(() => this.schedulePendingWidgetNoteCheck())
       })
       this.widgetAppResumeHandle = await CapacitorApp.addListener('resume', () => {
-        this.zone.run(() => this.schedulePendingWidgetNoteCheck())
+        this.zone.run(() => { this.recoverCardImages(); this.schedulePendingWidgetNoteCheck() })
       })
       this.schedulePendingWidgetNoteCheck()
     } catch (error) {
@@ -3432,6 +3551,10 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   ngOnDestroy(): void {
     this.destroyed = true
+    window.removeEventListener('online', this.cardImageRecoveryHandler)
+    document.removeEventListener('visibilitychange', this.cardImageRecoveryHandler)
+    if (this.cardImageRecoveryTimer) clearTimeout(this.cardImageRecoveryTimer)
+    if (this.unlockExpiryTimer) clearTimeout(this.unlockExpiryTimer)
     this.onTouchCancel()
     this.binderDrop.end()
     window.removeEventListener('kept-smart-capture-notes-added', this.smartCaptureNotesAddedHandler)
@@ -3457,10 +3580,15 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.notesService.deleteImage(note, image)
   }
 
-  async downloadAttachment(attachment: NoteAttachmentI, event: Event) {
+  async downloadAttachment(attachment: NoteAttachmentI, event: Event, note?: NoteI) {
     event.preventDefault()
     event.stopPropagation()
     try {
+      // An encrypted note's file is stored encrypted: decrypt it on the way out.
+      if (attachment.encrypted && note && this.noteLock.isEncrypted(note)) {
+        this.noteLock.rememberRows(note)
+        return await this.encryptedFiles.download(note, attachment)
+      }
       await this.notesService.downloadAttachment(attachment)
     } catch (error: any) {
       this.showMessage(error?.error?.error || 'Could not download attachment.')

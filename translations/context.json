@@ -313,7 +313,8 @@
       "src/app/components/code-blocks/code-blocks.directive.ts"
     ],
     "code.convert_to_text": [
-      "src/app/components/code-blocks/code-blocks.directive.ts"
+      "src/app/components/code-blocks/code-blocks.directive.ts",
+      "src/app/components/input/input.component.html"
     ],
     "code.copy": [
       "src/app/components/code-blocks/code-blocks.directive.ts"
@@ -683,6 +684,12 @@
       "src/app/components/input/input.component.html",
       "src/app/components/notes/notes.component.html"
     ],
+    "input.checklist_actions": [
+      "src/app/components/input/input.component.html"
+    ],
+    "input.checklist_removed": [
+      "src/app/components/input/input.component.ts"
+    ],
     "input.choose_on_map": [
       "src/app/components/input/input.component.html"
     ],
@@ -705,9 +712,6 @@
     "input.collaborators": [
       "src/app/components/input/input.component.html",
       "src/app/components/notes/notes.component.html"
-    ],
-    "input.completed_item_actions": [
-      "src/app/components/input/input.component.html"
     ],
     "input.confirm_reminder_date": [
       "src/app/components/input/input.component.html",
@@ -842,7 +846,7 @@
       "src/app/components/input/input.component.html"
     ],
     "input.insert_checklist": [
-      "src/app/components/input/input.component.html"
+      "src/app/components/input/input.component.ts"
     ],
     "input.jumps_this_note_above_the_rest": [
       "src/app/components/input/input.component.html",
@@ -998,6 +1002,15 @@
     "input.reminder_date": [
       "src/app/components/input/input.component.html"
     ],
+    "input.remove_checklist": [
+      "src/app/components/input/input.component.ts"
+    ],
+    "input.remove_checklist_count.one": [
+      "src/app/components/input/input.component.ts"
+    ],
+    "input.remove_checklist_count.other": [
+      "src/app/components/input/input.component.ts"
+    ],
     "input.remove_link_preview": [
       "src/app/components/input/input.component.ts"
     ],
@@ -1018,9 +1031,6 @@
       "src/app/components/notes/notes.component.html"
     ],
     "input.rules": [
-      "src/app/components/input/input.component.html"
-    ],
-    "input.save_and_start_new_note": [
       "src/app/components/input/input.component.html"
     ],
     "input.save_changes": [
@@ -1105,9 +1115,6 @@
       "src/app/components/input/input.component.html"
     ],
     "input.trigger_radius": [
-      "src/app/components/input/input.component.html"
-    ],
-    "input.uncheck_all": [
       "src/app/components/input/input.component.html"
     ],
     "input.uncheck_all_items": [

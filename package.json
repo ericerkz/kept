@@ -1,6 +1,6 @@
 {
   "name": "keep",
-  "version": "1.9.7",
+  "version": "1.9.8",
   "license": "AGPL-3.0-only",
   "scripts": {
     "ng": "ng",
@@ -35,6 +35,7 @@
     "test:offline-sync-status": "node --test scripts/offline-sync-status.test.cjs scripts/sync-status.test.cjs",
     "test:uuid": "node --test src/app/utils/uuid.test.ts",
     "test:checklist-sort": "node --test src/app/utils/checklist-sort.test.ts scripts/checklist-sort-editor.test.cjs",
+    "test:checklist-remove": "node --test scripts/checklist-remove.test.cjs",
     "test:uuid:http": "node scripts/uuid-http-test.mjs",
     "test:native": "node server/native-client.test.js",
     "test:android-back": "node --test scripts/android-back-navigation.test.cjs",
@@ -92,7 +93,7 @@
     "test:sync-leave": "node --test server/sync-leave-shared-note.test.js scripts/sync-refused-mutation.test.cjs",
     "test:upload-timeout": "node --test server/upload-request-timeout.test.js",
     "test:review-fixes:ui": "node scripts/review-fixes-ui-test.mjs",
-    "test:encrypted-notes": "node --test server/encrypted-notes.test.js server/encrypted-note-removal.test.js src/app/utils/note-crypto.test.ts scripts/note-lock-encryption.test.cjs scripts/encrypted-note-local-restore.test.cjs"
+    "test:encrypted-notes": "node --test server/encrypted-notes.test.js server/encrypted-note-removal.test.js src/app/utils/note-crypto.test.ts scripts/note-lock-encryption.test.cjs scripts/encrypted-note-local-restore.test.cjs scripts/encrypted-note-card.test.cjs"
   },
   "private": true,
   "engines": {

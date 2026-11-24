@@ -3,10 +3,10 @@ import { OfflineSyncService } from './offline-sync.service';
 import { Injectable } from '@angular/core';
 import { WorkspaceService } from './workspace.service';
 import { AuthService } from './auth.service';
-import { NoteAttachmentI, NoteI, UpdateKeyI } from '../interfaces/notes';
+import { CheckboxI, NoteAttachmentI, NoteI, NoteImageI, UpdateKeyI } from '../interfaces/notes';
 import {
-  E2E_LOCK_MARKER, EncryptedFileMeta, NOTE_KDF_ITERATIONS, NoteKeys, NoteSecretContent, createNoteKeys, openNoteContent,
-  parseNoteEnvelope, sealNoteContent, unlockNoteKeys
+  E2E_LOCK_MARKER, EncryptedFileMeta, NOTE_KDF_ITERATIONS, NoteKeys, NoteSecretContent, StoredLinkPreview, canonicalLinkUrl, createNoteKeys,
+  openNoteContent, parseNoteEnvelope, sealNoteContent, unlockNoteKeys, withoutTrailingPunctuation
 } from '../utils/note-crypto';
 
 // An unlocked encrypted note: its keys and decrypted content, in memory only.
@@ -23,6 +23,14 @@ interface UnlockedNote {
   expiresAt: number;
 }
 
+// The content a note's overview card shows (NoteLockService.cardContent).
+export interface NoteCardContent {
+  noteBody: string;
+  checkBoxes: CheckboxI[];
+  images: NoteImageI[];
+  attachments: NoteAttachmentI[];
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -31,6 +39,8 @@ export class NoteLockService {
   private readonly unlockPrefix = 'kept_unlocked_note:';
   private readonly unlockMs = 5 * 60 * 1000;
   private readonly unlocked = new Map<string, UnlockedNote>();
+  // Card views of unlocked encrypted notes, rebuilt when their content changes.
+  private readonly cardViews = new WeakMap<NoteI, { content: NoteSecretContent; rows?: NoteAttachmentI[]; view: NoteCardContent }>();
 
   isLocked(note?: NoteI | null) {
     return !!(note?.locked && note.lockSalt && note.lockHash);
@@ -54,9 +64,55 @@ export class NoteLockService {
     return false;
   }
 
-  // Encrypted notes never show their content on the card, only in the editor.
+  // A locked note's card shows its content only while the note is unlocked
+  // here. An encrypted note's card is drawn from its decrypted content
+  // (cardContent), which exists only in memory.
   lockPreviewHidden(note?: NoteI | null) {
-    return this.isLocked(note) && (this.isEncrypted(note) || !this.isUnlocked(note));
+    if (!this.isLocked(note)) return false;
+    if (this.isEncrypted(note)) return !this.session(note!, { fresh: true })?.content;
+    return !this.isUnlocked(note);
+  }
+
+  // When this device's unlock of the note runs out; 0 if it isn't unlocked.
+  unlockExpiresAt(note?: NoteI | null): number {
+    if (!this.isLocked(note) || !this.isUnlocked(note)) return 0;
+    if (this.isEncrypted(note)) return this.session(note!, { fresh: true })?.expiresAt || 0;
+    try { return Number(sessionStorage.getItem(this.unlockPrefix + this.noteKey(note!)) || 0); } catch { return 0; }
+  }
+
+  // What the note's overview card shows: an encrypted note's decrypted
+  // content while it is unlocked here (as of unlocking or the last save on
+  // this device), otherwise the note's own fields. The decrypted copy is
+  // never assigned to the note, so it can't be saved or cached by mistake.
+  cardContent(note: NoteI): NoteCardContent {
+    const content = this.isEncrypted(note) ? this.session(note, { fresh: true })?.content : undefined;
+    if (!content) return { noteBody: note.noteBody || '', checkBoxes: note.checkBoxes || [], images: note.images || [], attachments: note.attachments || [] };
+    const cached = this.cardViews.get(note);
+    if (cached?.content === content && cached.rows === note.attachments) return cached.view;
+    // Copies: the editor may change the unlocked content in place before
+    // saving, and the card shows what is saved.
+    const view: NoteCardContent = {
+      noteBody: content.noteBody || '',
+      checkBoxes: ((content.checkBoxes || []) as CheckboxI[]).map(item => ({ ...item })),
+      images: ((content.images || []) as NoteImageI[]).map(image => ({ ...image })),
+      attachments: this.attachmentViews(note)
+    };
+    this.cardViews.set(note, { content, rows: note.attachments, view });
+    return view;
+  }
+
+  // The preview an encrypted note kept for this link from before it was
+  // locked; null if it has none (its card then shows the link's domain).
+  storedLinkPreview(note: NoteI | null | undefined, url: string): StoredLinkPreview | null {
+    if (!note || !this.isEncrypted(note)) return null;
+    const previews = this.session(note)?.content?.linkPreviews;
+    if (!previews) return null;
+    const key = canonicalLinkUrl(url);
+    if (previews[key]) return previews[key];
+    // Previews are kept under a link's complete address, but cards ask for
+    // a link without its trailing punctuation (a final ")" included).
+    const trimmed = withoutTrailingPunctuation(key);
+    return Object.values(previews).find(preview => withoutTrailingPunctuation(preview.url) === trimmed) || null;
   }
 
   async ensureUnlocked(note: NoteI) {
@@ -293,7 +349,9 @@ export class NoteLockService {
       images: payload.images !== undefined
         ? ((payload.images || []) as Array<{ dataUrl: string }>).map(image => ({ ...image, dataUrl: this.auth.canonicalImageUrl(image.dataUrl) }))
         : (known!.images || []),
-      files: known?.files || {}
+      files: known?.files || {},
+      // Kept for the links still in the body (see sealNoteContent).
+      ...(known?.linkPreviews ? { linkPreviews: known.linkPreviews } : {})
     };
     const encryptedContent = await sealNoteContent(session.keys, content);
     // Never replace readable content with an envelope we can't open again.

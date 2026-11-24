@@ -332,11 +332,12 @@
         </div>
         <div class="image H pop" [attr.data-pop]="'input.add_image' | translate" (mousedown)="rememberBodySelection()" (click)="openImagePicker($event)"></div>
         <div class="attachment H pop" [attr.data-pop]="'common.attachments' | translate" (click)="openAttachmentPicker($event)"></div>
-        <div class="checklist-action H pop" role="button" tabindex="0"
-          [attr.aria-label]="'input.insert_checklist' | translate"
-          [attr.data-pop]="'input.insert_checklist' | translate"
-          (mousedown)="$event.preventDefault(); rememberBodySelection()" (click)="insertChecklist()"
-          (keydown.enter)="$event.preventDefault(); insertChecklist()" (keydown.space)="$event.preventDefault(); insertChecklist()"></div>
+        @let inChecklist = !!cursorChecklistId();
+        @let checklistLabel = checklistToggleLabel();
+        <div class="checklist-action H pop" role="button" tabindex="0" [class.active]="inChecklist"
+          [attr.aria-label]="checklistLabel" [attr.data-pop]="checklistLabel"
+          (mousedown)="$event.preventDefault(); rememberBodySelection()" (click)="toggleChecklist()"
+          (keydown.enter)="$event.preventDefault(); toggleChecklist()" (keydown.space)="$event.preventDefault(); toggleChecklist()"></div>
         <div [ngClass]="isArchived ? 'unarchive' : 'archive'" class="H pop"
           (click)="isArchived = !isArchived;saveNote()"
           [attr.data-pop]="isArchived ? ('accessibility.unarchive' | translate) : ('common.archive' | translate)"></div>
@@ -357,13 +358,6 @@
       <button type="button" class="close-btn" (click)="saveNote()"
         [attr.title]="'input.close_tip_save_and_start_new_note' | translate">{{ 'common.close' | translate }}</button>
     </div>
-
-    <!--? Mobile: save this note and start another (Ctrl/⌘+Enter on desktop) -->
-    <button type="button" class="mobile-next-note" [attr.aria-label]="'input.save_and_start_new_note' | translate"
-      [attr.title]="'input.save_and_start_new_note' | translate"
-      (pointerdown)="$event.preventDefault()" (click)="$event.stopPropagation(); saveAndStartNextNote()">
-      <span class="material-symbols-outlined" aria-hidden="true">note_add</span>
-    </button>
 
     <!--? Mobile Bottom Bar -->
     <div class="mobile-bottom-bar">
@@ -397,11 +391,12 @@
         </div>
         <button type="button" class="mobile-icon format" [class.active]="showTextFormatting" [disabled]="!canFormatText()"
           (pointerdown)="$event.preventDefault()" (mousedown)="$event.preventDefault()" (click)="toggleTextFormatting($event)" [attr.title]="'input.formatting_options' | translate">A</button>
-        <div class="mobile-icon check checklist-action" role="button" tabindex="0"
-          [attr.aria-label]="'input.insert_checklist' | translate"
-          [attr.title]="'input.insert_checklist' | translate"
-          (mousedown)="$event.preventDefault(); rememberBodySelection()" (click)="insertChecklist()"
-          (keydown.enter)="$event.preventDefault(); insertChecklist()" (keydown.space)="$event.preventDefault(); insertChecklist()">
+        @let inChecklistMobile = !!cursorChecklistId();
+        @let checklistLabelMobile = checklistToggleLabel();
+        <div class="mobile-icon check checklist-action" role="button" tabindex="0" [class.active]="inChecklistMobile"
+          [attr.aria-label]="checklistLabelMobile" [attr.title]="checklistLabelMobile"
+          (mousedown)="$event.preventDefault(); rememberBodySelection()" (click)="toggleChecklist()"
+          (keydown.enter)="$event.preventDefault(); toggleChecklist()" (keydown.space)="$event.preventDefault(); toggleChecklist()">
           <div class="glyph check"></div>
         </div>
         <div #colorMenuTtBtnMobile class="mobile-icon color" (click)="openTooltip(colorMenuTtBtnMobile,colorMenuTt)" [attr.title]="'backgrounds.options' | translate">
@@ -907,6 +902,36 @@
       <div #cboxPh [attr.data-checklist-draft]="listId" (keydown)="cboxPhKeyDown($event)" (beforeinput)="cboxPhBeforeInput($event)" (input)="cboxPhInput()" (focus)="activateChecklist(listId); rememberTextHistoryTarget(cboxPh)" class="cbox-note" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
       </div>
     </div>
+    <button #checklistMenuBtn type="button" class="checklist-menu-button"
+      [attr.aria-label]="'input.checklist_actions' | translate" [attr.title]="'input.checklist_actions' | translate"
+      (mousedown)="$event.preventDefault()" (click)="$event.stopPropagation(); openTooltip(checklistMenuBtn, checklistMenuTt)">
+      <span class="material-symbols-outlined" aria-hidden="true">more_horiz</span>
+    </button>
+  </div>
+  <!-- List actions. Removing the list is here and on the toolbar's checklist button. -->
+  <div #checklistMenuTt data-tooltip="true" data-is-tooltip-open="false" class="moreMenu checklist-menu" role="menu"
+    (keydown)="checklistMenuKey($event, checklistMenuTt, checklistMenuBtn)">
+    @let sortable = canSortChecklist(listId);
+    @let checked = hasCheckedChecklistItems(listId);
+    <div role="menuitem" [attr.tabindex]="sortable ? 0 : -1" [class.disabled]="!sortable" [attr.aria-disabled]="!sortable"
+      (click)="sortable && sortCboxItems(checklistMenuTt, listId)">
+      <span class="material-symbols-outlined" aria-hidden="true">sort_by_alpha</span><span>{{ 'input.sort_a_to_z' | translate }}</span>
+    </div>
+    <div role="menuitem" [attr.tabindex]="checked ? 0 : -1" [class.disabled]="!checked" [attr.aria-disabled]="!checked"
+      (click)="checked && uncheckAllCboxItems(checklistMenuTt, listId)">
+      <span class="material-symbols-outlined" aria-hidden="true">check_box_outline_blank</span><span>{{ 'input.uncheck_all_items' | translate }}</span>
+    </div>
+    <div role="menuitem" [attr.tabindex]="checked ? 0 : -1" [class.disabled]="!checked" [attr.aria-disabled]="!checked"
+      (click)="checked && deleteAllCompletedCboxItems(checklistMenuTt, listId)">
+      <span class="material-symbols-outlined" aria-hidden="true">delete_sweep</span><span>{{ 'input.delete_completed_items' | translate }}</span>
+    </div>
+    <div role="menuitem" tabindex="0" (click)="convertChecklistToText(listId, checklistMenuTt)">
+      <span class="material-symbols-outlined" aria-hidden="true">notes</span><span>{{ 'code.convert_to_text' | translate }}</span>
+    </div>
+    <hr class="checklist-menu-divider" role="separator">
+    <div role="menuitem" tabindex="0" (click)="Shared.closeTooltip(checklistMenuTt); removeChecklistWithUndo(listId)">
+      <span class="material-symbols-outlined" aria-hidden="true">playlist_remove</span><span>{{ removeChecklistLabel(listId) }}</span>
+    </div>
   </div>
   <!--? isDone: true -->
   @if (preferences.value.moveCompletedChecklistItemsToBottom && completedChecklistCount(listId)) {
@@ -916,11 +941,6 @@
       <div>
         <span>{{ 'checklist.completed' | uiPlural:completedChecklistCount(listId) }}</span>
       </div>
-      <button #completedItemsMenuBtn type="button" class="completed-items-menu-button"
-        [attr.aria-label]="'input.completed_item_actions' | translate" [attr.title]="'input.completed_item_actions' | translate"
-        (click)="$event.stopPropagation(); openTooltip(completedItemsMenuBtn, completedItemsMenuTt)">
-        <span class="material-symbols-outlined">more_vert</span>
-      </button>
     </div>
   }
   @if (preferences.value.moveCompletedChecklistItemsToBottom && !isChecklistCollapsed(listId)) {
@@ -979,11 +999,6 @@
     }
   </ng-template>
 
-  <div #completedItemsMenuTt data-tooltip="true" data-is-tooltip-open="false"
-    class="moreMenu selectionMoreMenu completed-items-menu">
-    <div (click)="uncheckAllCboxItems(completedItemsMenuTt, listId)">{{ 'input.uncheck_all' | translate }}</div>
-    <div class="destructive" (click)="deleteAllCompletedCboxItems(completedItemsMenuTt, listId)">{{ 'input.delete_completed_items' | translate }}</div>
-  </div>
 </ng-template>
 
 <!--? --------tooltips-------- -->
@@ -1005,12 +1020,6 @@
   <div [hidden]="moreMenuEls.copy.disabled" (click)="moreMenu(moreMenuTt).clone()">
     {{ 'notes.make_a_copy' | translate }}
   </div>
-  @if (canSortCboxItems()) {
-    <div (click)="sortCboxItems(moreMenuTt)">{{ 'input.sort_a_to_z' | translate }}</div>
-  }
-  @if (hasCheckedCboxItems()) {
-    <div (click)="uncheckAllCboxItems(moreMenuTt)">{{ 'input.uncheck_all_items' | translate }}</div>
-  }
   @if (isEditing && !isSharedNoteForCurrentUser() && !noteToEdit.locked) {
     <div (click)="lockCurrentNote(moreMenuTt)">{{ 'input.lock_note' | translate }}</div>
   }

@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  createNoteKeys, encryptedFileRefs, openFile, openNoteContent, parseNoteEnvelope, referencedImageFiles,
-  sealFile, sealNoteContent, unlockNoteKeys
+  MAX_STORED_LINK_PREVIEWS, canonicalLinkUrl, createNoteKeys, encryptedFileRefs, noteLinkUrls, openFile, openNoteContent, parseNoteEnvelope,
+  referencedImageFiles, sealFile, sealNoteContent, unlockNoteKeys
 } from './note-crypto.ts';
 
 // Fewer iterations keep the suite fast; the envelope records the count used.
@@ -88,6 +88,48 @@ test('only stored image names are listed as unencrypted images', () => {
   const body = '<img src="/api/uploads/images/1700000000000-0123456789abcdef01234567.png">'
     + '<img src="/api/uploads/images/../../etc/passwd"><img src="https://elsewhere.example/cat.png">';
   assert.deepEqual(referencedImageFiles(body), ['1700000000000-0123456789abcdef01234567.png']);
+});
+
+test('link previews from before locking are sealed with the content, only for links the note still has', async () => {
+  const thumb = 'data:image/webp;base64,UklGRg==';
+  const body = '<p><a href="https://example.com/plan?a=1&amp;b=2">plan</a> and https://kept.example</p>';
+  const linkPreviews = {
+    [canonicalLinkUrl('https://example.com/plan?a=1&b=2')]: { url: 'https://example.com/plan?a=1&b=2', title: 'Secret plan', domain: 'example.com', description: 'Q3', image: thumb },
+    [canonicalLinkUrl('https://kept.example')]: { url: 'https://kept.example/', title: 'Kept', domain: 'kept.example', description: null, image: 'https://tracker.example/og.png' },
+    'https://removed.example/': { url: 'https://removed.example/', title: 'Removed', domain: 'removed.example', description: null, image: null },
+    'javascript:alert(1)': { url: 'javascript:alert(1)', title: 'x', domain: 'x', description: null, image: null }
+  };
+  const keys = await createNoteKeys('correct horse', iterations);
+  const sealed = await sealNoteContent(keys, { noteBody: body, checkBoxes: [], linkPreviews });
+  assert.doesNotMatch(sealed, /Secret plan|kept\.example|UklGRg/, 'previews are encrypted with the note');
+  const opened = await openNoteContent(keys, sealed);
+  assert.deepEqual(Object.keys(opened.linkPreviews!).sort(), ['https://example.com/plan?a=1&b=2', 'https://kept.example/']);
+  assert.equal(opened.linkPreviews!['https://example.com/plan?a=1&b=2'].image, thumb);
+  assert.equal(opened.linkPreviews!['https://kept.example/'].image, null, 'a remote image address is never kept');
+
+  const plain = await openNoteContent(keys, await sealNoteContent(keys, { noteBody: '<p>no links</p>', checkBoxes: [], linkPreviews }));
+  assert.equal(plain.linkPreviews, undefined, 'removing the links drops their previews');
+  const many = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`https://site${index}.example/`,
+    { url: `https://site${index}.example/`, title: String(index), domain: 'site.example', description: null, image: null }]));
+  const capped = await openNoteContent(keys, await sealNoteContent(keys,
+    { noteBody: Object.keys(many).join(' '), checkBoxes: [], linkPreviews: many }));
+  assert.equal(Object.keys(capped.linkPreviews!).length, MAX_STORED_LINK_PREVIEWS);
+});
+
+test('link addresses: hrefs are kept whole, links typed in the text end before punctuation', async () => {
+  const html = '<p><a href="https://en.wikipedia.org/wiki/Kept_(app)">wiki</a> <a href=\'https://example.com/q?a=1&amp;b=2\'>q</a>'
+    + ' (see https://typed.example/a) and https://typed.example/Kept_(app). Also https://x.example/end.'
+    + ' <a href="mailto:me@example.com">mail</a> <a href="https://odd.example/&#99999999;">odd</a></p>';
+  assert.deepEqual(noteLinkUrls(html), [
+    'https://en.wikipedia.org/wiki/Kept_(app)', 'https://example.com/q?a=1&b=2', 'https://odd.example/&#99999999;',
+    'https://typed.example/a', 'https://typed.example/Kept_(app)', 'https://x.example/end'
+  ]);
+  // A preview kept under a complete address survives sealing.
+  const key = canonicalLinkUrl('https://en.wikipedia.org/wiki/Kept_(app)');
+  const keys = await createNoteKeys('correct horse', iterations);
+  const opened = await openNoteContent(keys, await sealNoteContent(keys, { noteBody: html, checkBoxes: [],
+    linkPreviews: { [key]: { url: key, title: 'Kept', domain: 'en.wikipedia.org', description: null, image: null } } }));
+  assert.deepEqual(Object.keys(opened.linkPreviews!), [key]);
 });
 
 test('rejects envelopes that are not ours', () => {

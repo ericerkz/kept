@@ -277,7 +277,7 @@
 
 }
 
-.mobile-top-bar, .mobile-bottom-bar, .mobile-next-note {
+.mobile-top-bar, .mobile-bottom-bar {
   display: none;
 }
 
@@ -347,36 +347,6 @@
     }
   }
 
-  // Floats just above the bottom bar, at its right edge, and rides above the
-  // soft keyboard with it. Sticky keeps it in the editor's own scroll area.
-  .mobile-next-note {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: sticky;
-    bottom: calc(var(--keyboard-offset, 0px) + 56px);
-    z-index: 11;
-    width: 48px;
-    height: 48px;
-    margin: -56px 12px 8px auto;
-    padding: 0;
-    border: 0;
-    border-radius: 16px;
-    background: color-mix(in srgb, currentColor 14%, transparent);
-    color: inherit;
-    cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-    transition: bottom 0.18s ease-out;
-
-    .material-symbols-outlined {
-      font-size: 24px;
-    }
-
-    &:active {
-      background: color-mix(in srgb, currentColor 24%, transparent);
-    }
-  }
-
   .mobile-bottom-bar {
     display: flex;
     align-items: center;
@@ -415,6 +385,14 @@
       &.format.active {
         background: color-mix(in srgb, currentColor 12%, transparent);
         border-radius: 50%;
+        opacity: 1;
+      }
+
+      // The cursor is in a list: the button now removes it (#173).
+      &.checklist-action.active {
+        background: #feefc3;
+        border-radius: 50%;
+        color: #202124;
         opacity: 1;
       }
 
@@ -1009,44 +987,104 @@
   }
 }
 
-.completed-items-menu-button {
+// A list's ··· menu (#173), on its "List item" row. Shown while the list is
+// hovered or the cursor is in it, and while its menu is open.
+.checklist-menu-button {
   align-items: center;
   background: transparent;
   border: 0;
+  border-radius: 50%;
   color: inherit;
   cursor: pointer;
   display: flex;
-  flex: 0 0 36px;
-  height: 36px;
+  flex: 0 0 32px;
+  height: 32px;
   justify-content: center;
+  // Centred under the rows' × buttons: this row has 16px of right padding
+  // that they don't. The layout stays left to right in every language.
   margin-left: auto;
-  opacity: 0.7;
+  margin-right: -15px;
+  opacity: 0;
+  overflow: hidden;
   padding: 0;
-  width: 36px;
+  transition: opacity 0.16s ease, background-color 0.16s ease;
+  width: 32px;
+
+  .material-symbols-outlined {
+    font-size: 20px;
+  }
 
   &:hover,
   &:focus-visible {
     background: rgb(128 128 128 / 14%);
-    border-radius: 50%;
     opacity: 1;
     outline: none;
   }
+}
 
-  .material-symbols-outlined {
-    font-size: 22px;
+.checklist-block:is(:hover, :focus-within) .checklist-menu-button:not(:hover, :focus-visible),
+.checklist-block:has(.checklist-menu[data-is-tooltip-open="true"]) .checklist-menu-button {
+  opacity: 0.7;
+}
+
+// Touch screens have no hover: only the list the cursor is in shows it.
+// Hidden, not just transparent, so it can't be tapped by accident.
+@media (hover: none) {
+  .checklist-block:not(:focus-within, :has(.checklist-menu[data-is-tooltip-open="true"])) .checklist-menu-button {
+    visibility: hidden;
   }
 }
 
-.completed-items-menu {
-  min-width: 190px;
+.checklist-menu {
+  min-width: 210px;
 
-  .destructive {
-    color: #f28b82;
+  div[role="menuitem"] {
+    align-items: center;
+    display: flex;
+    gap: 14px;
+    padding-right: 18px;
+
+    .material-symbols-outlined {
+      font-size: 20px;
+      opacity: 0.8;
+    }
+
+    &.disabled {
+      cursor: default;
+      opacity: 0.38;
+      pointer-events: none;
+    }
+
+    // Keyboard focus looks like hover.
+    &:focus-visible {
+      background-color: rgba(255, 255, 255, 0.16);
+      outline: none;
+    }
+  }
+
+  .checklist-menu-divider {
+    border: 0;
+    border-top: 1px solid currentColor;
+    margin: 6px 0;
+    opacity: 0.14;
   }
 }
 
-:host-context(.light-theme) .completed-items-menu .destructive {
-  color: #b3261e;
+:host-context(.light-theme) .checklist-menu div[role="menuitem"]:focus-visible {
+  background-color: rgba(60, 64, 67, 0.08);
+}
+
+// The toolbar's checklist button while the cursor is in a list: it then
+// removes that list.
+.icons .checklist-action.active {
+  background: #feefc3;
+  border-radius: 50%;
+  opacity: 1;
+}
+
+.icons-container .icons > .checklist-action.active::after {
+  background-color: #202124 !important;
+  opacity: 1;
 }
 
 .drawing-canvas-wrap {

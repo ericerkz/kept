@@ -43,6 +43,7 @@ const integrationRequests = createIntegrationRequests();
 const fullBackup = require('./full-backup');
 const backupRetention = require('./backup-retention');
 const { readTakeoutZip } = require('./takeout-zip');
+const { createRequestDeadlines } = require('./request-deadlines');
 
 // Upload clients send flat metadata fields. Never interpret nested objects or
 // attacker-chosen array indexes while parsing multipart field names.
@@ -51,20 +52,15 @@ const MULTIPART_FIELD_LIMITS = { fieldNestingDepth: 0, fieldArrayIndexLimit: 0, 
 const app = express();
 app.set('trust proxy', 1);
 app.disable('etag');
-// Node closes any request whose body hasn't fully arrived within
-// requestTimeout (default 5 minutes). This can interrupt large Google Takeout
-// and restore uploads on slow connections. It is one possible cause of the
-// interrupted upload reported in #185, not a confirmed diagnosis.
-// Allow an hour by default; KEPT_REQUEST_TIMEOUT_MINUTES=0 removes the limit.
-// Headers must still arrive within Node's 60-second headersTimeout.
-// The value must be passed to createServer: Node ignores later changes to
-// server.requestTimeout.
-const REQUEST_TIMEOUT_MINUTES = (() => {
-  const raw = String(process.env.KEPT_REQUEST_TIMEOUT_MINUTES ?? '').trim();
-  const minutes = raw === '' ? 60 : Number(raw);
-  return Number.isFinite(minutes) && minutes >= 0 ? minutes : 60;
-})();
-const server = http.createServer({ requestTimeout: Math.round(REQUEST_TIMEOUT_MINUTES * 60 * 1000) }, app);
+// Request bodies: 5 minutes for every request, up to an hour for the Takeout
+// import, initial restore and encryption removal while data keeps arriving
+// (request-deadlines.js, #185). These replace
+// Node's single requestTimeout, so it's off; headersTimeout must then be set
+// explicitly, or Node turns it off too.
+const requestDeadlines = createRequestDeadlines();
+app.use(requestDeadlines.requestBodyDeadline);
+const { allowLargeUpload } = requestDeadlines;
+const server = http.createServer({ requestTimeout: 0, headersTimeout: 60_000 }, app);
 const port = Number(process.env.PORT || 3000);
 const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const uploadDir = process.env.UPLOAD_DIR || path.join(dataDir, 'uploads');
@@ -4221,6 +4217,7 @@ app.post('/api/setup/restore', setupLimiter, asyncRoute(async (req, res, next) =
   if (restoreInProgress) return res.status(409).json({ error: 'Another restore is already in progress.' });
   fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
   restoreInProgress = true;
+  allowLargeUpload(req, res);
   restoreUpload(req, res, error => {
     if (error) {
       restoreInProgress = false;
@@ -5635,7 +5632,7 @@ const uploadEncryptionRemoval = multer({ storage: uploadAttachment.storage, file
 app.get('/api/notes/encryption-capabilities', requireAuth, (_req, res) => res.json({ version: 1, removal: 'atomic-multipart-v1' }));
 
 require('./encrypted-note-removal').registerEncryptedNoteRemoval(app, {
-  requireAuth, asyncRoute, uploadAttachment: uploadEncryptionRemoval, withDatabaseTransaction, getAccessibleNote,
+  requireAuth, asyncRoute, uploadAttachment: uploadEncryptionRemoval, allowLargeUpload, withDatabaseTransaction, getAccessibleNote,
   isEncryptedLock, parseEncryptedEnvelope, canonicalizeNotePayload, run, get, all, crypto,
   safeDownloadName, attachmentResponse, recordAttachmentSyncChange, removeFileAfterCommit,
   attachmentPath, storageQuota, afterDatabaseRollback, serverLwwStamp, storeEncryptedContent,
@@ -9172,15 +9169,18 @@ function googleTakeoutUpload(req, res, next) {
     if (!error) return next();
     if (req.file?.path) storageQuota.remove(req.file.path).catch(() => {});
     if (error.message === 'Request aborted') {
-      // The connection closed mid-upload: the browser gave up, a proxy cut it
-      // off, or the request outlived KEPT_REQUEST_TIMEOUT_MINUTES. One line
-      // that says so is more useful than multer's stack trace.
+      // The connection closed mid-upload: the browser gave up, a proxy or the
+      // network cut it off, or it hit an upload limit (request-deadlines.js).
+      // One line that says so is more useful than multer's stack trace.
       const received = Math.max(0, (Number(req.socket?.bytesRead) || 0) - receivedAtStart);
       const declared = Number(req.headers['content-length']) || 0;
       const minutes = ((Date.now() - startedAt) / 60000).toFixed(1);
+      const { uploadMs, stallMs } = requestDeadlines.limits;
+      const why = req.bodyDeadline === 'stalled' ? `Nothing arrived for ${stallMs / 60000} min, so Kept closed the connection.`
+        : req.bodyDeadline === 'upload' ? `It reached Kept's ${uploadMs / 60000}-minute upload limit.`
+        : 'The connection was closed before the ZIP finished uploading (by the browser, a proxy or the network).';
       console.warn(`[Takeout import] Upload interrupted after ${minutes} min, ${formatBytes(received)}`
-        + `${declared ? ` of ${formatBytes(declared)}` : ''} received. The connection was closed before the ZIP finished uploading`
-        + ` (request time limit: ${REQUEST_TIMEOUT_MINUTES ? `${REQUEST_TIMEOUT_MINUTES} min, KEPT_REQUEST_TIMEOUT_MINUTES` : 'none'}).`);
+        + `${declared ? ` of ${formatBytes(declared)}` : ''} received. ${why}`);
       if (!res.headersSent && !res.destroyed) res.status(408).json({ error: 'The Takeout upload was interrupted before it finished.' });
       return;
     }
@@ -9288,7 +9288,7 @@ function importedKeepChecklistItems(listContent, fallbackLevel = 0, state = { ne
 }
 
 let takeoutImportInProgress = false;
-app.post('/api/import/google-takeout', requireAuth, importLimiter, googleTakeoutUpload, asyncRoute(async (req, res) => {
+app.post('/api/import/google-takeout', requireAuth, importLimiter, allowLargeUpload, googleTakeoutUpload, asyncRoute(async (req, res) => {
   const tempPath = req.file?.path;
   const importedFiles = [];
   let committed = false;

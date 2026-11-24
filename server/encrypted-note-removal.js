@@ -2,7 +2,7 @@
 // one database transaction. Until it commits, the old envelope and files remain
 // authoritative. Multipart files are private/unlinked until that same commit.
 function registerEncryptedNoteRemoval(app, deps) {
-  const { requireAuth, asyncRoute, uploadAttachment, withDatabaseTransaction, getAccessibleNote,
+  const { requireAuth, asyncRoute, uploadAttachment, allowLargeUpload = () => {}, withDatabaseTransaction, getAccessibleNote,
     isEncryptedLock, parseEncryptedEnvelope, canonicalizeNotePayload, run, get, all, crypto,
     safeDownloadName, attachmentResponse, recordAttachmentSyncChange, removeFileAfterCommit,
     attachmentPath, storageQuota, afterDatabaseRollback, serverLwwStamp, storeEncryptedContent,
@@ -16,6 +16,9 @@ function registerEncryptedNoteRemoval(app, deps) {
     if (!note || note.ownerUserId !== req.user.id || req.mcpToken) return res.status(403).json({ error: 'Only the note owner can remove encryption in Kept.' });
     next();
   }), (req, res, next) => {
+    // The owner checks passed. Every restored file arrives in this one
+    // request, so it may take as long as a large import.
+    allowLargeUpload(req, res);
     uploadAttachment.array('files', 1000)(req, res, error => {
       if (!error) return next();
       cleanUploads(req).then(() => next(error), next);

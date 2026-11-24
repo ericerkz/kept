@@ -159,8 +159,9 @@
         }
           @let noteIsLinkOnly = isLinkOnlyNote(note);
           @let noteHasTitle = hasVisibleNoteTitle(note);
+          @let lockedHidden = lockedCardHidden(note);
           <div class="note-main" [class.note-main--link-only]="noteIsLinkOnly"
-          [class.note-main--image-cover]="noteCoverImages(note).length && !noteLock.lockPreviewHidden(note)"
+          [class.note-main--image-cover]="noteCoverImages(note).length && !lockedHidden"
           [class.note-main--untitled]="!noteHasTitle && !noteIsLinkOnly" [class.has-note-pattern]="!!note.pattern && !hasRealBgImage(note.bgImage)"
           [ngStyle]="{'background-color':note.bgColor,'border-color':note.bgColor,'background-image' : noteBackground(note), '--hl': noteHighlight(note), 'color': noteTextColor(note)}">
           @if (note.ownerUserId && auth.currentUser?.id && note.ownerUserId !== auth.currentUser?.id) {
@@ -178,9 +179,9 @@
             </div>
           }
           <div class="note-preview-frame" (click)="openModal(noteEL,note)">
-            <div class="note-preview-window" appCodeBlocks="preview" [appNotePreview]="noteHasPhotoPreview(note) && !noteLock.lockPreviewHidden(note)" #preview="notePreview">
+            <div class="note-preview-window" appCodeBlocks="preview" [appNotePreview]="noteHasPhotoPreview(note) && !lockedHidden" #preview="notePreview">
             <div class="note-preview-content">
-            @if (noteLock.lockPreviewHidden(note)) {
+            @if (lockedHidden) {
               @if (noteHasTitle) {
               <div class="title" dir="auto">
                 <span [innerHTML]="note.noteTitle"></span>
@@ -194,7 +195,7 @@
                 @let extraLinks = hiddenLinkCount(note);
                 <div class="link-preview-stack link-preview-stack--only">
                   @for (url of visibleLinkUrls(note); track url) {
-                    <app-link-preview [url]="url" [cardMode]="true"></app-link-preview>
+                    <app-link-preview [url]="url" [cardMode]="true" [offline]="noteLock.isEncrypted(note)" [stored]="noteLock.storedLinkPreview(note, url)"></app-link-preview>
                   }
                 </div>
                 @if (extraLinks) {
@@ -211,7 +212,7 @@
             </div>
             }
             <div class="note-images"></div>
-              <section class="body-segments" [class.min]="note.noteBody!.length > 68">
+              <section class="body-segments" [class.min]="cardBodyLength(note) > 68">
                 @for (segment of noteBodySegments(note); track trackBodySegment($index, segment)) {
                   @if (segment.type === 'code') {
                     <div class="body-code" [innerHTML]="segment.value"></div>
@@ -223,7 +224,7 @@
                     }
                   } @else if (segment.type === 'url') {
                     <div class="link-previews">
-                      <app-link-preview [url]="segment.value"></app-link-preview>
+                      <app-link-preview [url]="segment.value" [offline]="noteLock.isEncrypted(note)" [stored]="noteLock.storedLinkPreview(note, segment.value)"></app-link-preview>
                     </div>
                   } @else if (segment.type === 'images') {
                     <app-note-preview-images [images]="segment.images" (imageRequested)="openPreviewImage(note, $event)"></app-note-preview-images>
@@ -245,7 +246,7 @@
             } <!-- end @else (not link-only) -->
             </div>
             </div>
-            @if (preview.hiddenCount && !noteLock.lockPreviewHidden(note)) {
+            @if (preview.hiddenCount && !lockedHidden) {
               <button type="button" class="preview-overflow-pill"
                 [attr.aria-label]="'counts.more_images' | uiPlural:preview.hiddenCount"
                 (touchstart)="$event.stopPropagation()" (mousedown)="$event.stopPropagation()" (click)="openPreviewImage(note, preview.firstHiddenIndex, $event)">
@@ -267,19 +268,19 @@
             }
           }
         </div>
-        @if ((note.attachments || []).length && !noteLock.lockPreviewHidden(note)) {
+        @if (!lockedHidden && cardAttachments(note).length) {
           <div class="attachments-list min">
-            @for (attachment of note.attachments || []; track attachment.id) {
+            @for (attachment of cardAttachments(note); track attachment.syncId || attachment.id) {
               <div class="attachment-card min" role="button" tabindex="0"
                 (mousedown)="$event.stopPropagation()"
-                (click)="downloadAttachment(attachment, $event)"
-                (keydown.enter)="downloadAttachment(attachment, $event)"
-                (keydown.space)="downloadAttachment(attachment, $event)">
+                (click)="downloadAttachment(attachment, $event, note)"
+                (keydown.enter)="downloadAttachment(attachment, $event, note)"
+                (keydown.space)="downloadAttachment(attachment, $event, note)">
                 <span class="material-symbols-outlined attachment-type">{{attachmentIcon(attachment)}}</span>
                 <span class="attachment-name">{{attachment.originalName}}</span>
                 <span class="attachment-size">{{formatFileSize(attachment.fileSize)}}</span>
                 <button type="button" class="attachment-download H" [attr.aria-label]="'input.download_attachment' | translate" [attr.title]="'input.download_attachment' | translate"
-                  (click)="downloadAttachment(attachment, $event)">
+                  (click)="downloadAttachment(attachment, $event, note)">
                   <span class="material-symbols-outlined">download</span>
                 </button>
               </div>

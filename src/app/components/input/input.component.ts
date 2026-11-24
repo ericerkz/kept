@@ -472,6 +472,184 @@ export class InputComponent implements OnInit {
     }
   }
 
+  // The checklist the cursor is in, if any. The toolbar's checklist button is
+  // then highlighted and removes that list instead of adding one (#173).
+  cursorChecklistId(): string | null {
+    const target = this.textHistoryTarget
+    if (!this.isCbox.value || !target?.isConnected || !this.noteContainer?.nativeElement.contains(target)) return null
+    return target.closest<HTMLElement>('[data-checklist-id]')?.dataset['checklistId'] || null
+  }
+
+  // How many items removing a list takes with it: its rows with text, plus
+  // an item typed in its "List item" row but not yet added.
+  checklistItemCount(listId: string | null): number {
+    if (!listId) return 0
+    const hasText = (html?: string | null) => !!String(html || '').replace(/<[^>]*>/g, '').replace(/&nbsp;| /g, ' ').trim()
+    const draft = this.checklistDrafts().find(el => el.dataset['checklistDraft'] === listId)
+    return this.checkBoxes.filter(cb => checklistId(cb) === listId && hasText(cb.data)).length + (hasText(draft?.innerHTML) ? 1 : 0)
+  }
+
+  // "Remove checklist (3 items)", so the impact is clear before removing.
+  removeChecklistLabel(listId: string | null) {
+    const count = this.checklistItemCount(listId)
+    return count ? uiPlural('input.remove_checklist_count', count) : uiText('input.remove_checklist')
+  }
+
+  // Keyboard use of a list's ··· menu: Enter or Space activates the focused
+  // item like a click, Escape closes the menu. Focus returns to the ···
+  // button when the action leaves nothing focused.
+  checklistMenuKey(event: KeyboardEvent, menu: HTMLDivElement, button: HTMLElement) {
+    const item = (event.target as HTMLElement | null)?.closest<HTMLElement>('[role="menuitem"]')
+    if (event.key === 'Escape') this.Shared.closeTooltip(menu)
+    else if ((event.key === 'Enter' || event.key === ' ') && item) item.click()
+    else return
+    event.preventDefault()
+    event.stopPropagation()
+    const focused = document.activeElement
+    if (button.isConnected && (!focused || focused === document.body || !focused.isConnected || menu.contains(focused))) button.focus()
+  }
+
+  checklistToggleLabel() {
+    const id = this.cursorChecklistId()
+    return id ? this.removeChecklistLabel(id) : uiText('input.insert_checklist')
+  }
+
+  toggleChecklist() {
+    const id = this.cursorChecklistId()
+    if (id) this.removeChecklistWithUndo(id)
+    else this.insertChecklist()
+  }
+
+  // Removes the list the cursor is in; a snackbar offers Undo (the toolbar's
+  // Undo works too). The cursor moves to the text where the list was.
+  removeChecklistWithUndo(id: string) {
+    const index = this.removeChecklist(id)
+    if (index < 0) return
+    const listBefore = this.checklistBlocks[index - 1]?.id
+    const body = listBefore ? this.bodyAfterChecklist(listBefore) : this.noteBody?.nativeElement
+    // An empty text section is hidden: use the nearest list's new-item row.
+    const draft = this.checklistDrafts().find(el => el.dataset['checklistDraft'] === (listBefore || this.checklistBlocks[0]?.id))
+    const target = body?.getClientRects().length ? body : draft
+    if (target) {
+      target.focus()
+      const caret = document.createRange(); caret.selectNodeContents(target); caret.collapse(false)
+      const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(caret)
+    }
+    try {
+      Snackbar.show({ pos: 'bottom-left', text: uiText('input.checklist_removed'), actionText: uiText('common.undo'), duration: 5000,
+        onActionClick: () => { this.stepChecklistModeHistory('undo') } })
+    } catch {}
+  }
+
+  // Backspace or Delete in a list with nothing in it removes the list, like
+  // deleting an empty line: from its new-item row when it has no items, or
+  // from its only item when that is empty (and nothing is typed below it).
+  // The caret goes to where the list was. Undo brings it back.
+  private removeEmptyChecklistFrom(field: HTMLDivElement): boolean {
+    const draftId = field.dataset['checklistDraft']
+    const listId = draftId ?? checklistId(this.checkBoxes.find(row => row.id === Number(field.dataset['cboxId'])))
+    if (!listId || this.hasMeaningfulBody(field.innerHTML)) return false
+    const rows = this.checkBoxes.filter(row => checklistId(row) === listId)
+    if (draftId === undefined) {
+      if (rows.length !== 1 || rows[0].id !== Number(field.dataset['cboxId'])) return false
+      const draft = this.checklistDrafts().find(el => el.dataset['checklistDraft'] === listId)
+      if (this.hasMeaningfulBody(draft?.innerHTML)) return false
+    } else if (rows.length) return false
+
+    const parts = this.editorBodyParts()
+    const index = parts.findIndex(part => part.type === 'checklist' && part.id === listId)
+    const above = parts[index - 1]
+    // Joining keeps the text above as the start of the merged text.
+    const aboveNodes = above?.type === 'text' && this.hasMeaningfulBody(above.html) ? this.htmlNodeCount(above.html) : 0
+    const position = this.removeChecklist(listId)
+    if (position < 0) return false
+    this.cd.detectChanges()
+
+    const listBefore = this.checklistBlocks[position - 1]?.id
+    const body = listBefore ? this.bodyAfterChecklist(listBefore) : this.noteBody?.nativeElement
+    // An empty text section is hidden: use the nearest list's new-item row.
+    const draft = this.checklistDrafts().find(el => el.dataset['checklistDraft'] === (listBefore || this.checklistBlocks[0]?.id))
+    const target = body?.getClientRects().length ? body : draft
+    if (!target) return true
+    target.focus()
+    const caret = document.createRange()
+    // The end of the text that was above the list, or the end of the field.
+    const last = target === body && aboveNodes <= target.childNodes.length ? target.childNodes[aboveNodes - 1] : undefined
+    if (last?.nodeType === 1 && !/^(BR|IMG|HR)$/.test(last.nodeName)) caret.selectNodeContents(last)
+    else if (last?.nodeType === 3) caret.setStart(last, last.textContent?.length || 0)
+    else if (last) caret.setStartAfter(last)
+    else caret.selectNodeContents(target)
+    caret.collapse(!last && target === body && aboveNodes === 0)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(caret)
+    return true
+  }
+
+  private htmlNodeCount(html: string) {
+    const div = createNoteHtmlContainer()
+    div.innerHTML = sanitizeNoteHtml(html)
+    return div.childNodes.length
+  }
+
+  // Removes a whole checklist (#173): its rows go, the text above and below it
+  // joins up, and the note becomes a plain note when no checklist is left.
+  // Recorded for Undo. Returns the list's position among the checklists, or -1.
+  removeChecklist(id: string): number {
+    return this.replaceChecklist(id, () => '')
+  }
+
+  // Turns a list into lines of text where it was, one per item in the order
+  // shown (checked state and nesting aren't kept). Undo brings it back.
+  convertChecklistToText(id: string, tooltipEl?: HTMLDivElement) {
+    if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
+    this.replaceChecklist(id, before => {
+      const rows = before.checkBoxes.filter(row => checklistId(row) === id)
+      const shown = this.preferences.value.moveCompletedChecklistItemsToBottom
+        ? [...rows.filter(row => !row.done), ...rows.filter(row => row.done)] : rows
+      return [...shown.map(row => String(row.data || '')), before.drafts?.[id] || '']
+        .filter(html => this.notePlainText(html)).map(html => `<div>${html}</div>`).join('')
+    })
+  }
+
+  private replaceChecklist(id: string, text: (before: ChecklistModeSnapshot) => string): number {
+    const before = this.checklistModeSnapshot()
+    const parts = this.editorBodyParts()
+    const index = parts.findIndex(part => part.type === 'checklist' && part.id === id)
+    if (index < 1) return -1
+    const above = parts[index - 1], below = parts[index + 1]
+    parts.splice(index - 1, below ? 3 : 2, { type: 'text', html: this.joinBodyHtml(
+      this.joinBodyHtml(above.type === 'text' ? above.html : '', text(before)), below?.type === 'text' ? below.html : '') })
+    const remaining = parts.filter(part => part.type === 'checklist')
+    const { [id]: _removed, ...drafts } = before.drafts || {}
+    this.applyChecklistModeSnapshot({ ...before, bodyHtml: serializeChecklistBody(parts),
+      checkBoxes: before.checkBoxes.filter(row => checklistId(row) !== id), drafts,
+      isCbox: remaining.length > 0,
+      isHybridNote: remaining.length > 0 && this.hasMeaningfulBody(parts[0].type === 'text' ? parts[0].html : '') })
+    if (this.activeChecklistId === id) this.activeChecklistId = remaining[0]?.type === 'checklist' ? remaining[0].id : DEFAULT_CHECKLIST_ID
+    this.recordChecklistModeChange(before)
+    return (index - 1) / 2
+  }
+
+  // What a list's ··· menu can do with it right now.
+  canSortChecklist(listId: string) {
+    return this.checkBoxes.filter(cb => checklistId(cb) === listId).length > 1
+  }
+
+  hasCheckedChecklistItems(listId: string) {
+    return this.checkBoxes.some(cb => cb.done && checklistId(cb) === listId)
+  }
+
+  // The text that was above and below a removed checklist, as one body: on
+  // separate lines, without adding a blank line between blocks.
+  private joinBodyHtml(above: string, below: string) {
+    if (!this.hasMeaningfulBody(below)) return above
+    if (!this.hasMeaningfulBody(above)) return below
+    const endsBlock = /(<\/(div|p|pre|ul|ol|li|h[1-6]|blockquote|table)>|<hr[^>]*>|<br\s*\/?>)\s*$/i.test(above)
+    const startsBlock = /^\s*<(div|p|pre|ul|ol|h[1-6]|blockquote|table|hr)\b/i.test(below)
+    return endsBlock || startsBlock ? above + below : `${above}<br>${below}`
+  }
+
   private recordChecklistModeChange(before: ChecklistModeSnapshot) {
     this.checklistModeUndo.push({ before, after: this.checklistModeSnapshot() })
     if (this.checklistModeUndo.length > 30) this.checklistModeUndo.shift()
@@ -1182,10 +1360,6 @@ export class InputComponent implements OnInit {
     this.queueAutosave()
   }
 
-  hasCheckedCboxItems() {
-    return this.isCbox.value && this.checkBoxes.some(cb => cb.done)
-  }
-
   uncheckAllCboxItems(tooltipEl?: HTMLDivElement, listId?: string) {
     this.syncCboxDomIntoModel()
     if (!this.checkBoxes.some(cb => cb.done)) {
@@ -1200,25 +1374,18 @@ export class InputComponent implements OnInit {
     if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
   }
 
-  canSortCboxItems() {
-    if (!this.isCbox.value) return false
-    const lists = new Set<string>()
-    for (const cb of this.checkBoxes) {
-      const id = checklistId(cb)
-      if (lists.has(id)) return true
-      lists.add(id)
-    }
-    return false
-  }
-
-  sortCboxItems(tooltipEl?: HTMLDivElement) {
+  // Sorts one list (from its ··· menu), or every list when none is given.
+  sortCboxItems(tooltipEl?: HTMLDivElement, listId?: string) {
     this.syncCboxDomIntoModel()
     if (tooltipEl) this.Shared.closeTooltip(tooltipEl)
-    const sorted = sortChecklistItems(this.checkBoxes, {
+    const inList = (cb: CheckboxI) => !listId || checklistId(cb) === listId
+    const sortedList = sortChecklistItems(this.checkBoxes.filter(inList), {
       text: cb => this.notePlainText(String(cb.data || '')),
       separateCompleted: this.preferences.value.moveCompletedChecklistItemsToBottom,
       locale: uiLocale()
     })
+    let next = 0
+    const sorted = this.checkBoxes.map(cb => inList(cb) ? sortedList[next++] : cb)
     if (sorted.every((cb, index) => cb === this.checkBoxes[index])) return
 
     // Snapshot the current rows first so Undo restores any text typed since the last change.
@@ -1846,6 +2013,10 @@ export class InputComponent implements OnInit {
       this.enterFromChecklistPlaceholder()
       return
     }
+    if (($event.key === 'Backspace' || $event.key === 'Delete') && !$event.shiftKey) {
+      if (this.removeEmptyChecklistFrom($event.currentTarget as HTMLDivElement)) $event.preventDefault()
+      return
+    }
     const isLetter = /^[a-zA-Z0-9!@#$%^&*()_+\-=\[\]{};':"²^\\|,.<>\/?éèçµ]$/i.test($event.key)
     // ex : if he clicked the f1 btn for example, nothing would happen, otherwise : 
     if (!isLetter) return
@@ -1857,6 +2028,11 @@ export class InputComponent implements OnInit {
   }
 
   cboxPhBeforeInput(event: InputEvent) {
+    // Mobile keyboards may send beforeinput without a usable keydown.
+    if (!event.isComposing && ['deleteContentBackward', 'deleteContentForward'].includes(event.inputType)) {
+      if (this.removeEmptyChecklistFrom(event.currentTarget as HTMLDivElement)) event.preventDefault()
+      return
+    }
     if (event.isComposing || !['insertParagraph', 'insertLineBreak'].includes(event.inputType)) return
     event.preventDefault()
     this.enterFromChecklistPlaceholder()
@@ -2259,6 +2435,11 @@ export class InputComponent implements OnInit {
       if (this.moveCboxCaretVertically(target, $event.key === 'ArrowDown' ? 1 : -1)) $event.preventDefault()
       return
     }
+    if (($event.key === 'Backspace' || $event.key === 'Delete') && !($event.shiftKey || $event.ctrlKey || $event.metaKey || $event.altKey)
+      && this.removeEmptyChecklistFrom(target)) {
+      $event.preventDefault()
+      return
+    }
     if ($event.key === 'Backspace') {
       if (this.joinCboxAtStart(id, target)) $event.preventDefault()
     }
@@ -2267,6 +2448,11 @@ export class InputComponent implements OnInit {
   cboxBeforeInput(event: InputEvent, id: number) {
     // Mobile keyboards may send beforeinput without a usable keydown.
     if (event.isComposing) return
+    if (['deleteContentBackward', 'deleteContentForward'].includes(event.inputType)
+      && this.removeEmptyChecklistFrom(event.currentTarget as HTMLDivElement)) {
+      event.preventDefault()
+      return
+    }
     if (event.inputType === 'deleteContentBackward') {
       if (this.joinCboxAtStart(id, event.currentTarget as HTMLDivElement)) event.preventDefault()
       return
@@ -2783,7 +2969,7 @@ export class InputComponent implements OnInit {
         if (!url) return
         slot.dataset['hydrated'] = 'true'
         slot.replaceChildren(this.editorPreviewShell(url))
-        this.notesService.getLinkPreview(url)
+        this.editorLinkPreview(url)
           .then(preview => {
             if (!this.isLiveEditorPreviewSlot(slot, generation)) return
             slot.replaceChildren(this.editorPreviewCard(url, preview))
@@ -2794,6 +2980,14 @@ export class InputComponent implements OnInit {
           })
       })
     }
+  }
+
+  // An encrypted note's links are never sent to the server for a preview (it
+  // fetches the page, so it would learn them). Their cards show the preview
+  // kept from before the note was locked, or just the link's domain.
+  private editorLinkPreview(url: string): Promise<LinkPreviewData | undefined> {
+    if (this.noteLock.isEncrypted(this.noteToEdit)) return Promise.resolve(this.noteLock.storedLinkPreview(this.noteToEdit, url) || undefined)
+    return this.notesService.getLinkPreview(url)
   }
 
   private isLiveEditorPreviewSlot(slot: HTMLElement, generation: number) {

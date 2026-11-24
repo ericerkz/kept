@@ -385,7 +385,6 @@ Useful environment variables are documented in `docker-compose.yml`. The common 
 - `KEPT_CALDAV_ALLOWED_PRIVATE_ORIGINS`: optional comma-separated origins for trusted CalDAV services on private networks, for example `http://calendar:5232,https://calendar.home:8443`.
 - `KEPT_PUSH_ALLOWED_PRIVATE_ORIGINS`: optional comma-separated HTTPS origins for custom private web-push services. Standard browser push providers need no exception.
 - `KEPT_TAKEOUT_UPLOAD_MAX`: Google Takeout ZIP upload cap. Defaults to `5GB`; only affects Takeout imports.
-- `KEPT_REQUEST_TIMEOUT_MINUTES`: maximum time for a request body to arrive, including large uploads. Defaults to `60`; `0` removes the limit. Reverse proxies can impose their own shorter limits.
 - `PUID` / `PGID`: choose the app user/group when the container starts as root. An explicit Compose `user:` overrides these; see the optional non-root setup above.
 - `KEPT_ALLOW_RESTORE`: temporarily enables restore from backup during setup.
 - `VAPID_SUBJECT`: optional public URL/contact identity for web push. Kept auto-generates VAPID keys if you do not set them; only set this if push notifications need a more explicit public origin.
@@ -434,6 +433,55 @@ This works with any SMTP relay — a personal email account's SMTP, or any trans
 Kept includes an optional OAuth 2.1 authorization server for third-party apps and integrations. OAuth clients can request read-only or read/write access to the supported Kept API without receiving a user's password or long-lived local MCP token. See [the OAuth integration guide](docs/oauth.md).
 
 Remote MCP is one consumer of that OAuth layer. Local MCP clients can use stdio with a dedicated token; remote clients such as ChatGPT can connect to the Streamable HTTP endpoint at `/mcp`. OAuth app access and local MCP access are independent, off-by-default settings, so either can be enabled or revoked without affecting the other. Locked notes and permanent deletion have separate shared opt-in controls. See [the MCP setup and security guide](docs/mcp.md).
+
+## Keyboard shortcuts
+
+<details>
+<summary>Show web keyboard shortcuts</summary>
+
+Use **Ctrl** on Windows/Linux or **⌘** on Mac where both are listed. Shortcuts act on the focused field; selecting or deleting notes does not override normal text editing.
+
+### Notes overview
+
+| Shortcut | Action |
+| --- | --- |
+| Ctrl/⌘ + A | Select all notes in the current view or search, when not editing text or inside a dialog. |
+| Delete / Backspace | Move selected notes to Trash on desktop. Does not permanently delete notes already in Trash. |
+| Escape | Clear the selection on desktop, or save and close an open note when no popup is open. |
+| Escape while dragging | Cancel dragging a note into a binder or reordering labels/binders. |
+
+### Note editing
+
+| Shortcut | Action |
+| --- | --- |
+| Ctrl/⌘ + Enter | From note text, save the note and start another. Inside a code block, leave the block instead. |
+| Ctrl/⌘ + Z | Undo. |
+| Ctrl/⌘ + Shift + Z | Redo. |
+| Ctrl/⌘ + B / I / U | Apply bold, italic or underline in rich text; these do not format code blocks. |
+| Three backticks (` ``` `) on their own line, then Enter | Insert a code block. |
+
+### Checklists
+
+| Shortcut | Action |
+| --- | --- |
+| Enter | Split the current item at the cursor and create the next row. |
+| Enter in an empty “List item” field | Continue with regular text below the list. |
+| Tab / Shift + Tab | Indent / outdent an item. When completed-item suggestions are visible, Tab first moves to the suggestions. |
+| ↑ / ↓ | Move between checklist rows when the cursor reaches the top or bottom of a row. |
+| Backspace at the start of an item | Join it with the preceding item, preserving the text. |
+| Backspace / Delete in an empty checklist | Remove the list when it has no items, or only one empty item with no unfinished text below it. Undo restores it. |
+| Enter / Space in a checklist menu | Activate the focused action. |
+| Escape in a checklist menu | Close the menu and return focus to its button. |
+
+### Code blocks
+
+| Shortcut | Action |
+| --- | --- |
+| Tab / Shift + Tab | Insert two spaces / remove indentation. |
+| Ctrl/⌘ + Enter or Escape | Leave the code block and continue writing below it. |
+| Backspace in an empty code block | Replace it with an ordinary text line. |
+
+</details>
 
 ## Development
 

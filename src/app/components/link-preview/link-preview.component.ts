@@ -2,6 +2,7 @@ import { AfterViewInit, Component, ElementRef, Input, OnDestroy } from '@angular
 import { NotesService, LinkPreviewData } from 'src/app/services/notes.service';
 import { AuthService } from 'src/app/services/auth.service';
 import { environment } from 'src/environments/environment';
+import type { StoredLinkPreview } from 'src/app/utils/note-crypto';
 
 @Component({
   selector: 'app-link-preview',
@@ -23,6 +24,26 @@ export class LinkPreviewComponent implements AfterViewInit, OnDestroy {
   @Input() full = false;
   @Input() cardMode = false;
   @Input() clickToOpen = false;
+
+  // An encrypted note's links: shown with their domain only, never sent to
+  // the server for a preview (it fetches the page, so it would learn them).
+  private _offline = false;
+  @Input() set offline(value: boolean) {
+    if (this._offline === !!value) return;
+    this._offline = !!value;
+    this.resetPreview();
+    this.maybeFetchPreview();
+  }
+  get offline() { return this._offline; }
+
+  // An offline card's preview kept from before the note was encrypted. Its
+  // image is a data: URL, so showing it requests nothing.
+  private _stored: StoredLinkPreview | null = null;
+  @Input() set stored(value: StoredLinkPreview | null | undefined) {
+    if (this._stored === (value || null)) return;
+    this._stored = value || null;
+    if (this._offline) this.maybeFetchPreview();
+  }
 
   preview: LinkPreviewData | null = null;
   loading = true;
@@ -78,13 +99,22 @@ export class LinkPreviewComponent implements AfterViewInit, OnDestroy {
   }
 
   private maybeFetchPreview() {
+    // Offline cards never ask the server: a kept preview, or the domain.
+    if (this._offline) {
+      const stored = this._stored;
+      const image = stored?.image?.startsWith('data:image/') ? stored.image : null;
+      this.preview = stored ? { title: stored.title, description: stored.description, image, url: stored.url, domain: stored.domain } : null;
+      this.thumbnailUrl = image || '';
+      this.loading = false;
+      return;
+    }
     if (!this.viewReady || !this.nearViewport || this.fetchStarted) return;
     this.fetchPreview();
   }
 
   async fetchPreview() {
     const url = this._url;
-    if (!url) return;
+    if (!url || this._offline) return;
 
     this.fetchStarted = true;
     this.loading = true;
@@ -92,7 +122,7 @@ export class LinkPreviewComponent implements AfterViewInit, OnDestroy {
     this.imageError = false;
     try {
       const preview = await this.notesService.getLinkPreview(url);
-      if (this.destroyed || this._url !== url) return; // Stale request
+      if (this.destroyed || this._url !== url || this._offline) return; // Stale request
       let thumbnailUrl = '';
       if (preview.image) {
         const target = preview.image.startsWith('data:') ? preview.image
@@ -100,7 +130,7 @@ export class LinkPreviewComponent implements AfterViewInit, OnDestroy {
         try { thumbnailUrl = await this.auth.prepareImageUrl(target); }
         catch { this.imageError = true; }
       }
-      if (this.destroyed || this._url !== url) return;
+      if (this.destroyed || this._url !== url || this._offline) return;
       this.thumbnailUrl = thumbnailUrl;
       this.preview = preview;
     } catch (err) {

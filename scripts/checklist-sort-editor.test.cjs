@@ -59,11 +59,22 @@ test('sort preserves unsaved rich text, manual order undo/redo and text between 
   assert.equal(saved[1].data, '<b>Z parent typed just now</b>');
 });
 
-test('the action appears only when at least one checklist has multiple rows', () => {
+test('a list menu sorts only its own list', () => {
+  const { editor } = fixture([
+    { id: 0, listId: 'first', data: 'Zebra', indentLevel: 0 }, { id: 1, listId: 'first', data: 'Apple', indentLevel: 0 },
+    { id: 2, listId: 'second', data: 'Yak', indentLevel: 0 }, { id: 3, listId: 'second', data: 'Bee', indentLevel: 0 }
+  ], false);
+  editor.sortCboxItems(undefined, 'first');
+  assert.deepEqual(Array.from(editor.checkBoxes, row => row.data), ['Apple', 'Zebra', 'Yak', 'Bee'], 'the other list keeps its order');
+  assert.equal(editor.saves, 1);
+});
+
+test('a list offers sorting only when it has multiple rows', () => {
   const { editor } = fixture([{ id: 0, listId: 'first', data: 'One' }, { id: 1, listId: 'second', data: 'Two' }]);
-  assert.equal(editor.canSortCboxItems(), false);
-  editor.checkBoxes.push({ id: 2, listId: 'first', data: 'Another' }); assert.equal(editor.canSortCboxItems(), true);
-  editor.isCbox.value = false; assert.equal(editor.canSortCboxItems(), false);
+  assert.equal(editor.canSortChecklist('first'), false);
+  editor.checkBoxes.push({ id: 2, listId: 'first', data: 'Another' });
+  assert.equal(editor.canSortChecklist('first'), true);
+  assert.equal(editor.canSortChecklist('second'), false, 'each list on its own');
 });
 
 test('already-sorted rows do not add history or autosave and dragging still sets a manual order', () => {

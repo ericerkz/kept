@@ -113,10 +113,6 @@ services:
       # Large uploads may still be limited by Cloudflare/Nginx/etc.; import
       # directly over LAN/SSH or raise proxy body-size/timeouts if needed.
       # - KEPT_TAKEOUT_UPLOAD_MAX=5GB
-      # How long an upload (Takeout import, restore) may take to arrive, in
-      # minutes. Default 60; 0 removes the limit. Raise it for very large
-      # ZIPs over slow links.
-      # - KEPT_REQUEST_TIMEOUT_MINUTES=60
 
       # ── Invite users by email (optional) ────────────────────────────────
       # Admins can always create accounts directly. Setting this lets an
