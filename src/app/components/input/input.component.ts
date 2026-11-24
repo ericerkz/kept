@@ -30,7 +30,7 @@ import { NoteLockService } from 'src/app/services/note-lock.service';
 import { EncryptedFilesService, type LockChange } from 'src/app/services/encrypted-files.service';
 import { UserPreferencesService } from 'src/app/services/user-preferences.service';
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
-import { MAX_INDENT_LEVEL, descendantIndexes, maxIndentLevelAt, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
+import { MAX_INDENT_LEVEL, descendantIndexes, maxIndentLevelAt, normalizeIndentLevel, normalizeIndentLevels, type IndentOptions } from 'src/app/utils/checkbox-indent';
 import { sortChecklistItems } from 'src/app/utils/checklist-sort';
 import { environment } from 'src/environments/environment';
 import { createUuid } from 'src/app/utils/uuid';
@@ -1243,12 +1243,12 @@ export class InputComponent implements OnInit {
 
   private applyCboxIndentLevel(index: number, indentLevel: number, options: { commit?: boolean }) {
     const currentIndent = this.checkboxIndentLevel(this.checkBoxes[index])
-    const nextIndent = Math.min(normalizeIndentLevel(indentLevel), maxIndentLevelAt(this.checkBoxes, index))
+    const nextIndent = Math.min(normalizeIndentLevel(indentLevel), maxIndentLevelAt(this.checkBoxes, index, this.indentOptions()))
     if (currentIndent === nextIndent) return false
 
     // Nested rows keep their relative depth when their parent moves.
     const delta = nextIndent - currentIndent
-    for (const childIndex of descendantIndexes(this.checkBoxes, index)) {
+    for (const childIndex of descendantIndexes(this.checkBoxes, index, this.indentOptions())) {
       this.checkBoxes[childIndex] = {
         ...this.checkBoxes[childIndex],
         indentLevel: normalizeIndentLevel(this.checkboxIndentLevel(this.checkBoxes[childIndex]) + delta)
@@ -1267,7 +1267,13 @@ export class InputComponent implements OnInit {
   }
 
   private childIndexesForParent(index: number) {
-    return descendantIndexes(this.checkBoxes, index)
+    return descendantIndexes(this.checkBoxes, index, this.indentOptions())
+  }
+
+  // Nesting follows the rows as shown: with checked items moved to the
+  // Completed section, rows of the other section are skipped.
+  private indentOptions(): IndentOptions {
+    return { separateDone: !!this.preferences?.value?.moveCompletedChecklistItemsToBottom }
   }
 
   private toggleCboxDoneWithChildren(id: number) {
@@ -1275,9 +1281,11 @@ export class InputComponent implements OnInit {
     const index = this.checkBoxes.findIndex(x => x.id === id)
     if (index < 0) return false
 
+    // Find the children before the row changes section.
+    const children = this.childIndexesForParent(index)
     const done = !this.checkBoxes[index].done
     this.checkBoxes[index].done = done
-    for (const childIndex of this.childIndexesForParent(index)) {
+    for (const childIndex of children) {
       this.checkBoxes[childIndex].done = done
     }
     this.checkBoxes = [...this.checkBoxes]
@@ -1390,7 +1398,7 @@ export class InputComponent implements OnInit {
 
     // Snapshot the current rows first so Undo restores any text typed since the last change.
     this.pushCboxHistorySnapshot()
-    this.checkBoxes = normalizeIndentLevels(sorted)
+    this.checkBoxes = normalizeIndentLevels(sorted, this.indentOptions())
     this.noteToEdit.checkBoxes = this.checkBoxes
     this.pushCboxHistorySnapshot()
     this.cd.detectChanges()
@@ -2385,7 +2393,7 @@ export class InputComponent implements OnInit {
     const insertAt = Math.max(0, Math.min(draftIndex - removedBeforeDraft, remaining.length))
     remaining.splice(insertAt, 0, ...restored)
 
-    this.checkBoxes = normalizeIndentLevels(remaining)
+    this.checkBoxes = normalizeIndentLevels(remaining, this.indentOptions())
     this.noteToEdit.checkBoxes = this.checkBoxes
     this.cboxSuggestionEligibleIds.delete(draftId)
     this.cboxSuggestionDraftValues.delete(draftId)
@@ -4143,7 +4151,7 @@ export class InputComponent implements OnInit {
     const previousRects = this.getCboxRowRects(isDone)
     const [moved] = this.checkBoxes.splice(fromIdx, 1)
     this.checkBoxes.splice(adjustedInsertIdx, 0, moved)
-    this.checkBoxes = normalizeIndentLevels(this.checkBoxes)
+    this.checkBoxes = normalizeIndentLevels(this.checkBoxes, this.indentOptions())
     this.checkBoxes = [...this.checkBoxes]
     this.animateCboxRows(previousRects, this.draggedCboxId)
     this.cboxDragOrderChanged = true

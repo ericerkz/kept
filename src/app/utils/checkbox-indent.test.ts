@@ -76,3 +76,54 @@ test('separate checklists never share indentation or child completion boundaries
   assert.deepEqual(normalizeIndentLevels(items).map(item => item.indentLevel), [0, 1, 0, 1]);
   assert.deepEqual(items.map(item => item.indentLevel), [0, 1, 1, 2]);
 });
+
+test('separateDone: nesting follows the rows shown in each section', () => {
+  // Stored order after checking "Eggs": Milk, Eggs (checked, shown in Completed), Bread.
+  const items = [
+    { data: 'Milk', done: false, indentLevel: 0 },
+    { data: 'Eggs', done: true, indentLevel: 0 },
+    { data: 'Bread', done: false, indentLevel: 1 }
+  ];
+  const separate = { separateDone: true };
+  // Bread is shown directly under Milk, so it is Milk's child...
+  assert.deepEqual(descendantIndexes(items, 0, separate), [2]);
+  assert.equal(maxIndentLevelAt(items, 2, separate), 1);
+  // ...and not the child of the checked row stored in between.
+  assert.deepEqual(descendantIndexes(items, 1, separate), []);
+  // Without the option the stored order decides (unchanged behaviour).
+  assert.deepEqual(descendantIndexes(items, 0), []);
+  assert.deepEqual(descendantIndexes(items, 1), [2]);
+});
+
+test('separateDone: the first row of a section stays at root and lists stay separate', () => {
+  const items = [
+    { listId: 'a', done: true, indentLevel: 0 },
+    { listId: 'a', done: false, indentLevel: 1 },
+    { listId: 'b', done: false, indentLevel: 1 }
+  ];
+  const separate = { separateDone: true };
+  assert.equal(maxIndentLevelAt(items, 1, separate), 0, 'first open row has no open row above it');
+  assert.equal(maxIndentLevelAt(items, 2, separate), 0, 'never nests under another list');
+  // Stored nesting under the checked row above is kept; display clamps each section.
+  assert.deepEqual(normalizeIndentLevels(items, separate).map(item => item.indentLevel), [0, 1, 0]);
+});
+
+test('separateDone: normalizing keeps a valid child whose stored neighbour is a shallower checked row', () => {
+  const items = [
+    { done: false, indentLevel: 0 },
+    { done: false, indentLevel: 1 },
+    { done: true, indentLevel: 0 },
+    { done: false, indentLevel: 2 }
+  ];
+  assert.deepEqual(normalizeIndentLevels(items, { separateDone: true }).map(item => item.indentLevel), [0, 1, 0, 2]);
+  assert.deepEqual(normalizeIndentLevels(items).map(item => item.indentLevel), [0, 1, 0, 1], 'stored order clamps it');
+});
+
+test('separateDone: a checked child keeps its level under its open parent', () => {
+  const items = [
+    { done: false, indentLevel: 0 },
+    { done: true, indentLevel: 1 },
+    { done: false, indentLevel: 0 }
+  ];
+  assert.deepEqual(normalizeIndentLevels(items, { separateDone: true }).map(item => item.indentLevel), [0, 1, 0]);
+});

@@ -44,6 +44,7 @@
     "test:reminders": "node --test server/reminder-recurrence.test.js",
     "test:reminder-sync": "node --test server/reminder-sync-lifecycle.test.js",
     "test:binders": "node --test scripts/binder-order.test.cjs",
+    "test:checklist-indent-sections": "node --test src/app/utils/checkbox-indent.test.ts scripts/checklist-indent-sections.test.cjs",
     "test:binders:ui": "node scripts/binder-drop-test.mjs",
     "test:catalog-order": "node --test scripts/binder-order.test.cjs",
     "test:catalog-order:ui": "node scripts/catalog-order-test.mjs",

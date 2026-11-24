@@ -445,9 +445,14 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
   private toggleChecklistItemWithChildren(checkBoxes: CheckboxI[] = [], id: number) {
     const index = checkBoxes.findIndex(item => item.id === id)
     if (index < 0) return
+    // Children as shown on the card: with checked items moved to the bottom,
+    // the checked rows stored in between are not part of this row's subtree.
+    // Find them before the row changes section.
+    const separateDone = !!this.preferences?.value?.moveCompletedChecklistItemsToBottom
+    const children = descendantIndexes(checkBoxes, index, { separateDone })
     const done = !checkBoxes[index].done
     checkBoxes[index].done = done
-    for (const childIndex of descendantIndexes(checkBoxes, index)) {
+    for (const childIndex of children) {
       checkBoxes[childIndex].done = done
     }
   }
