@@ -890,7 +890,7 @@ export class InputComponent implements OnInit {
       this.activeChecklistId = draft.dataset['checklistDraft']!
       this.addCheckBoxFromPlaceholder()
     }
-    const checkBoxesForSave = this.currentCheckBoxesForSave(closeAfterSave)
+    let checkBoxesForSave: CheckboxI[] = this.currentCheckBoxesForSave(closeAfterSave)
     if (!closeAfterSave && this.isCbox.value) for (const draft of this.checklistDrafts()) {
       if (this.hasMeaningfulBody(draft.innerHTML)) checkBoxesForSave.push({
         id: Math.max(-1, ...checkBoxesForSave.map(cb => cb.id)) + 1, listId: draft.dataset['checklistDraft'],
@@ -899,9 +899,14 @@ export class InputComponent implements OnInit {
     }
     const sharedTarget = !this.isEditing ? (this.sharedBinderChoiceMade ? this.selectedSharedBinder : this.sharedBinderFromRoute()) : undefined;
     // The drawing template has no body editor, but the note can still have text.
-    const bodyHtml = this.isDrawingNote
+    let bodyHtml = this.isDrawingNote
       ? this.cleanEditorBodyForSave(this.noteToEdit.noteBody || '')
       : this.editorBodyHtml()
+    let isCbox = this.isCbox.value
+    if (closeAfterSave && isCbox && !this.isDrawingNote) {
+      ({ bodyHtml, rows: checkBoxesForSave, isCbox } = this.withoutEmptyChecklistRows(this.editorBodyParts(), checkBoxesForSave))
+      this.checkBoxes = checkBoxesForSave
+    }
     const noteObj: NoteI = {
       noteTitle: this.noteTitle.nativeElement.innerHTML,
       noteBody: bodyHtml,
@@ -911,7 +916,7 @@ export class InputComponent implements OnInit {
       pattern: this.pattern,
       checkBoxes: checkBoxesForSave,
       images: this.images.map(image => ({ ...image, dataUrl: this.auth.canonicalImageUrl(image.dataUrl) })),
-      isCbox: this.isCbox.value,
+      isCbox,
       labels: labelsForSave,
       binder: sharedTarget?.name || this.binderName,
       ...(!this.currentNoteId() && sharedTarget ? {binderTargetId:sharedTarget.id,sharedBinder:sharedTarget} : {}),
@@ -990,6 +995,25 @@ export class InputComponent implements OnInit {
         } else this.closeNote()
       }
     }
+  }
+
+  // When a note is closed, a list with nothing typed in any of its rows (an
+  // "Insert checklist" never used) is not saved: it showed as a bare checkbox
+  // on the card and kept the note a checklist note. The list is removed, the
+  // text around it joined, and the note is plain when no list remains. Empty
+  // rows in a list that has items are kept.
+  private withoutEmptyChecklistRows(bodyParts: ChecklistBodyPart[], rows: CheckboxI[]) {
+    const listsWithRows = new Set(rows.filter(row => this.hasMeaningfulBody(row.data)).map(row => checklistId(row)))
+    const kept = rows.filter(row => listsWithRows.has(checklistId(row)))
+    const parts: ChecklistBodyPart[] = []
+    for (const part of bodyParts) {
+      if (part.type === 'checklist' && !listsWithRows.has(part.id)) continue
+      const previous = parts[parts.length - 1]
+      if (part.type === 'text' && previous?.type === 'text') previous.html = this.joinBodyHtml(previous.html, part.html)
+      else parts.push({ ...part })
+    }
+    const isCbox = parts.some(part => part.type === 'checklist')
+    return { bodyHtml: isCbox ? serializeChecklistBody(parts) : parts.map(part => part.type === 'text' ? part.html : '').join(''), rows: kept, isCbox }
   }
 
   private currentCheckBoxesForSave(updateModel: boolean) {

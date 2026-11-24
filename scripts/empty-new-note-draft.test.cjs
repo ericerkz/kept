@@ -17,10 +17,10 @@ vm.runInNewContext(require('typescript').transpileModule(readFileSync('src/app/u
 let uuid = 0;
 const context = vm.createContext({
   Capacitor: { getPlatform: () => 'web' }, createUuid: () => `fixture-${++uuid}`,
-  console: { error() {} }, serializeChecklistBody: placement.serializeChecklistBody
+  console: { error() {} }, serializeChecklistBody: placement.serializeChecklistBody, checklistId: placement.checklistId
 });
 vm.runInContext(stripTypeScriptTypes(`class Editor {
-  ${['saveNote', 'persistNote', 'currentNoteId', 'clearComposerDraft', 'editorBodyParts', 'editorBodyHtml'].map(method).join('\n')}
+  ${['saveNote', 'persistNote', 'currentNoteId', 'clearComposerDraft', 'editorBodyParts', 'editorBodyHtml', 'withoutEmptyChecklistRows', 'joinBodyHtml'].map(method).join('\n')}
   ${source.slice(source.indexOf('  get canSaveNote()'), source.indexOf('\n  }', source.indexOf('  get canSaveNote()')) + 4)}
 }
 globalThis.Editor = Editor;`), context);
@@ -244,4 +244,64 @@ test('saving a drawing retains its stored body without a text editor', async () 
   instance.noteToEdit = { noteBody: '<b>Drawing description</b>' };
   await instance.saveNote(false);
   assert.equal(rows.get(12).noteBody, '<b>Drawing description</b>');
+});
+
+test('closing keeps empty rows in a list that has items', async () => {
+  const { instance, rows } = editor();
+  instance.isCbox.value = true;
+  instance.checklistBlocks = [{ id: 'a' }];
+  instance.noteBody.nativeElement.innerHTML = 'Intro';
+  instance.currentCheckBoxesForSave = () => [
+    { id: 0, listId: 'a', data: 'Milk', done: false, indentLevel: 0 },
+    { id: 1, listId: 'a', data: '<br>', done: false, indentLevel: 0 },
+    { id: 2, listId: 'a', data: '', done: true, indentLevel: 0 }
+  ];
+  await instance.saveNote(true);
+  const note = rows.get(12);
+  assert.deepEqual(note.checkBoxes.map(row => row.data), ['Milk', '<br>', '']);
+  assert.equal(note.isCbox, true);
+  assert.match(note.noteBody, /kept-list-a/);
+});
+
+test('closing removes only the list with nothing typed in it', async () => {
+  const { instance, rows } = editor();
+  instance.isCbox.value = true;
+  instance.checklistBlocks = [{ id: 'a' }, { id: 'b' }];
+  instance.noteBody.nativeElement.innerHTML = 'Intro';
+  instance.trailingBodies = { a: { innerHTML: '<div>Between</div>' }, b: { innerHTML: '<div>After</div>' } };
+  instance.joinBodyHtml = (above, below) => above + below;
+  instance.currentCheckBoxesForSave = () => [
+    { id: 0, listId: 'a', data: 'Milk', done: false, indentLevel: 0 },
+    { id: 1, listId: 'b', data: '', done: false, indentLevel: 0 }
+  ];
+  await instance.saveNote(true);
+  const note = rows.get(12);
+  assert.deepEqual(note.checkBoxes.map(row => row.listId), ['a']);
+  assert.equal(note.isCbox, true);
+  assert.match(note.noteBody, /kept-list-a/);
+  assert.doesNotMatch(note.noteBody, /kept-list-b/);
+  assert.match(note.noteBody, /Between<\/div><div>After/);
+});
+
+test('closing with only an empty checklist removes the list and keeps the text', async () => {
+  const { instance, rows } = editor();
+  instance.isCbox.value = true;
+  instance.checklistBlocks = [{ id: 'a' }];
+  instance.noteBody.nativeElement.innerHTML = 'asd';
+  instance.currentCheckBoxesForSave = () => [{ id: 0, listId: 'a', data: '', done: false, indentLevel: 0 }];
+  await instance.saveNote(true);
+  const note = rows.get(12);
+  assert.deepEqual(note.checkBoxes, []);
+  assert.equal(note.isCbox, false);
+  assert.equal(note.noteBody, 'asd');
+});
+
+test('autosave while editing keeps an empty row being typed into', async () => {
+  const { instance, rows } = editor();
+  instance.isCbox.value = true;
+  instance.checklistBlocks = [{ id: 'a' }];
+  instance.noteBody.nativeElement.innerHTML = 'asd';
+  instance.currentCheckBoxesForSave = () => [{ id: 0, listId: 'a', data: '', done: false, indentLevel: 0 }];
+  await instance.saveNote(false);
+  assert.equal(rows.get(12).checkBoxes.length, 1);
 });
