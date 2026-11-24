@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline Notes App for Android and iOS, No Account | Kept</title>
+  <meta name="description" content="A Keep-style notes app for Android and iOS that works fully offline with no account or server, with checklists, photos, reminders and widgets.">
+  <link rel="canonical" href="https://www.keepitkept.xyz/offline-notes-app/">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Kept">
+  <meta property="og:title" content="An offline notes app for Android and iOS">
+  <meta property="og:description" content="Use Kept entirely on your phone, with no account, then add sync later if you want it.">
+  <meta property="og:url" content="https://www.keepitkept.xyz/offline-notes-app/">
+  <meta property="og:image" content="https://www.keepitkept.xyz/assets/images/guides/kept-mobile.webp">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/assets/images/keep2x.png">
+  <link rel="stylesheet" href="/guides.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="/"><img src="/assets/images/keep2x.png" alt="" width="27" height="32">Kept</a>
+      <nav class="site-nav" aria-label="Guides">
+        <a href="/google-keep-alternative/">Keep alternative</a>
+        <a href="/self-hosted-google-keep/">Self-hosting</a>
+        <a href="/migrate-from-google-keep/">Migrate from Keep</a>
+        <a href="/offline-notes-app/" aria-current="page">Offline notes</a>
+      </nav>
+      <a class="header-github" href="https://github.com/ericerkz/kept" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.44 9.8 8.21 11.39.6.1.82-.26.82-.57v-2.24c-3.02.56-3.8-.74-4.04-1.41-.13-.35-.72-1.41-1.23-1.7-.42-.22-1.02-.78-.01-.79.94-.02 1.62.87 1.84 1.23 1.08 1.81 2.81 1.3 3.5.99.1-.78.42-1.31.76-1.61-2.67-.3-5.46-1.33-5.46-5.92 0-1.31.47-2.39 1.23-3.23-.12-.3-.54-1.53.12-3.18 0 0 1-.32 3.3 1.23a11.3 11.3 0 0 1 6 0c2.3-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.77.84 1.23 1.9 1.23 3.23 0 4.6-2.8 5.62-5.48 5.92.44.38.81 1.1.81 2.22v3.3c0 .32.23.69.83.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg><span>GitHub</span></a>
+    </div>
+  </header>
+
+  <main id="main" class="page">
+    <p class="breadcrumb"><a href="/">Kept</a> › Offline notes app</p>
+    <h1>An offline notes app for Android and iOS</h1>
+    <p class="lead">Kept's mobile apps work with no internet connection, no account and no server. Your notes live on your phone. If you later want sync, a web app or sharing, you can move them to a server without starting over.</p>
+    <p class="updated">Applies to Kept 1.9.8 · Last checked November 2026</p>
+
+    <div class="actions">
+      <a class="btn btn-primary" href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" rel="noopener">Get it on Google Play</a>
+      <a class="btn btn-secondary" href="https://apps.apple.com/ca/app/kept-notes/id6768974473" rel="noopener">Download on the App Store</a>
+    </div>
+
+    <figure>
+      <img src="/assets/images/guides/kept-mobile.webp" width="1400" height="1008" alt="Kept on a phone: a grid of colourful notes, with a plant-care checklist, recipe, code note and drawing around it">
+      <figcaption>Everything here works without a connection: checklists, colours and patterns, code blocks and drawings.</figcaption>
+    </figure>
+
+    <nav class="toc" aria-label="On this page">
+      <p>On this page</p>
+      <ol>
+        <li><a href="#two-ways">Two ways to be offline</a></li>
+        <li><a href="#start">Start with no account</a></li>
+        <li><a href="#features">What works on the device</a></li>
+        <li><a href="#backups">Back up a device-only library</a></li>
+        <li><a href="#sync-later">Add sync later</a></li>
+        <li><a href="#limits">What needs a server</a></li>
+        <li><a href="#faq">Common questions</a></li>
+      </ol>
+    </nav>
+
+    <h2 id="two-ways">Two ways to be offline</h2>
+    <p>"Offline" means two different things for a notes app, and Kept does both:</p>
+    <div class="cards">
+      <div class="card"><h3>Device-only</h3><p>No account, no server, no network. Notes are stored only on this phone or tablet. Nothing is uploaded anywhere.</p></div>
+      <div class="card"><h3>Offline-first sync</h3><p>Connected to Kept Cloud or your own server, the app still keeps a full copy on the device. You can read and edit with no signal, and changes sync when you're back online.</p></div>
+    </div>
+
+    <h2 id="start">Start with no account</h2>
+    <ol class="steps">
+      <li><strong>Install Kept Notes</strong>
+        <p>From <a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" rel="noopener">Google Play</a> or the <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" rel="noopener">App Store</a>. Both are an optional one-time purchase that helps support ongoing development, with no subscription and no ads. Kept is open source (AGPL-3.0).</p></li>
+      <li><strong>Choose "Use on this device"</strong>
+        <p>It's on the welcome screen. You won't be asked to sign up or sign in.</p></li>
+      <li><strong>Start writing</strong>
+        <p>That's it. You can switch to a server later from Settings.</p></li>
+    </ol>
+
+    <h2 id="features">What works on the device</h2>
+    <p>Device-only mode isn't a cut-down version. It keeps notes, checklists, images, drawings, attachments, labels and reminders on the device, and the phone integrations work too:</p>
+    <div class="cards">
+      <div class="card"><h3>Notes and checklists</h3><p>Rich text, code blocks, nested checklists with drag to reorder, colours, background patterns, pins, labels and binders.</p></div>
+      <div class="card"><h3>Photos, drawings and files</h3><p>Add photos, sketch on a canvas, or attach files to a note.</p></div>
+      <div class="card"><h3>Reminders</h3><p>One-off and repeating reminders, plus location reminders that trigger when you arrive at or leave a place. On iOS they appear in Apple Reminders.</p></div>
+      <div class="card"><h3>Widgets</h3><p>Home screen widgets on Android and iOS for browsing notes and quick capture. On iOS you can tick checklist items from the widget.</p></div>
+      <div class="card"><h3>Share into Kept</h3><p>Share text, links, photos and files from other apps and Kept saves them as a note.</p></div>
+      <div class="card"><h3>Smart Capture</h3><p>On supported phones, describe a note or reminder in your own words and Kept creates it using an on-device model.</p></div>
+    </div>
+    <figure class="pair">
+      <img src="/assets/images/guides/05-checklists.webp" width="600" height="1304" loading="lazy" decoding="async" alt="Kept on iPhone: reordering checklist items, with completed items tucked away">
+      <img src="/assets/images/guides/03-reminders.webp" width="600" height="1304" loading="lazy" decoding="async" alt="Kept on iPhone: setting a reminder for a time, or for arriving at or leaving a place">
+      <figcaption>Checklists and reminders on iPhone.</figcaption>
+    </figure>
+    <figure>
+      <img src="/assets/images/android-widget.webp" width="1140" height="1076" loading="lazy" decoding="async" alt="Kept's Android home screen widget showing a list of notes">
+      <figcaption>The Android home screen widget.</figcaption>
+    </figure>
+
+    <h2 id="backups">Back up a device-only library</h2>
+    <p>When notes only exist on your phone, losing the phone or deleting the app can mean losing them. Kept makes backups explicit:</p>
+    <ul>
+      <li><strong>Settings → Notes on this device → Save a complete backup</strong> saves one file with your notes, images, attachments, reminders and preferences. Save it somewhere outside the app, such as your computer or a cloud drive you trust.</li>
+      <li><strong>Restore a backup</strong>, in the same place, brings that library back on an iPhone, iPad or Android device.</li>
+      <li>Optional backup reminders prompt you now and then. Backups are only saved when you choose to create them.</li>
+    </ul>
+
+    <h2 id="sync-later">Add sync later</h2>
+    <p>If you start on one device and later want your notes on a second phone, a tablet or the web, go to <strong>Settings → Notes on this device → Move my notes to a server</strong>. Choose <a href="https://cloud.keepitkept.xyz/" rel="noopener">Kept Cloud</a> or <a href="/self-hosted-google-keep/">your own server</a>. Your whole library moves across, including images and attachments.</p>
+    <p>From then on the app works offline-first: it keeps a local copy, saves edits while you have no connection, and syncs them when the server is reachable. The web app also keeps a local copy and holds changes if your connection drops, but for dependable offline use on the go, use the native apps.</p>
+
+    <h2 id="limits">What needs a server</h2>
+    <p>These features need a Kept server, because they involve another device, another person or another service:</p>
+    <ul>
+      <li>sync between devices, and the web app;</li>
+      <li>sharing notes and binders, and live collaboration;</li>
+      <li>importing a Google Keep Takeout export (see <a href="/migrate-from-google-keep/">migrating from Keep</a>);</li>
+      <li>calendar sync (Google Calendar or CalDAV), OAuth and MCP integrations.</li>
+    </ul>
+    <div class="callout">
+      <p><strong>Coming from Google Keep?</strong> Keep needs a Google account and stores everything on Google's servers. Kept's device-only mode is the opposite: nothing leaves your phone unless you decide to connect a server. See <a href="/google-keep-alternative/">Kept as a Google Keep alternative</a>.</p>
+    </div>
+
+    <h2 id="faq">Common questions</h2>
+    <details class="faq"><summary>Does Kept work in airplane mode?</summary><div><p>Yes. In device-only mode it never needs a connection. In connected mode you can keep reading and editing, and changes sync when you're back online.</p></div></details>
+    <details class="faq"><summary>Do I need to create an account?</summary><div><p>Not for device-only mode. An account is only needed on a server, which you'd run yourself or get through Kept Cloud.</p></div></details>
+    <details class="faq"><summary>Can I move a device-only library from iPhone to Android?</summary><div><p>Yes. Save a complete backup on one device and restore it on the other with <strong>Restore a backup</strong>.</p></div></details>
+    <details class="faq"><summary>Where exactly are my notes stored?</summary><div><p>In device-only mode, in the app's storage on your phone. In connected mode, on the server you chose, with a copy on each device for offline use. See the <a href="/#privacy">privacy policy</a> for details.</p></div></details>
+
+    <h2>Keep reading</h2>
+    <ul class="related">
+      <li><a href="/google-keep-alternative/">A Google Keep alternative<span>Familiar notes, more control</span></a></li>
+      <li><a href="/self-hosted-google-keep/">Run your own server<span>When you want sync and sharing</span></a></li>
+      <li><a href="/migrate-from-google-keep/">Move your Google Keep notes<span>Export with Takeout, import in one step</span></a></li>
+    </ul>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer__inner">
+      <nav aria-label="Footer">
+        <a href="/">Kept home</a>
+        <a href="/google-keep-alternative/">Google Keep alternative</a>
+        <a href="/self-hosted-google-keep/">Self-hosting</a>
+        <a href="/migrate-from-google-keep/">Migrate from Keep</a>
+        <a href="/offline-notes-app/">Offline notes app</a>
+        <a href="https://github.com/ericerkz/kept" rel="noopener">GitHub</a>
+        <a href="/#privacy">Privacy</a>
+      </nav>
+      <span>Kept is open source under the AGPL-3.0. Google Keep is a trademark of Google LLC; Kept isn't affiliated with Google.</span>
+    </div>
+  </footer>
+  <script>document.querySelector(".site-nav [aria-current]")?.scrollIntoView({ block: "nearest", inline: "center" });</script>
+</body>
+</html>

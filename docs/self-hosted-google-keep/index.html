@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Self-Hosted Google Keep: Install Kept with Docker</title>
+  <meta name="description" content="Run a Google Keep-style notes app on your own server. Install Kept with Docker, add HTTPS, connect the iOS and Android apps and set up backups.">
+  <link rel="canonical" href="https://www.keepitkept.xyz/self-hosted-google-keep/">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Kept">
+  <meta property="og:title" content="Self-hosted Google Keep: install Kept with Docker">
+  <meta property="og:description" content="A step-by-step guide to running your own Keep-style notes server, with mobile apps, HTTPS and backups.">
+  <meta property="og:url" content="https://www.keepitkept.xyz/self-hosted-google-keep/">
+  <meta property="og:image" content="https://www.keepitkept.xyz/assets/images/guides/kept-web.webp">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/assets/images/keep2x.png">
+  <link rel="stylesheet" href="/guides.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    "name": "Self-host Kept, a Google Keep-style notes app, with Docker",
+    "description": "Install the Kept server with Docker Compose, create the admin account, put it behind HTTPS and connect the mobile apps.",
+    "tool": [{ "@type": "HowToTool", "name": "Docker with Compose" }],
+    "step": [
+      { "@type": "HowToStep", "name": "Create a folder and a compose file", "url": "https://www.keepitkept.xyz/self-hosted-google-keep/#install" },
+      { "@type": "HowToStep", "name": "Start the container", "url": "https://www.keepitkept.xyz/self-hosted-google-keep/#install" },
+      { "@type": "HowToStep", "name": "Create the admin account", "url": "https://www.keepitkept.xyz/self-hosted-google-keep/#first-run" },
+      { "@type": "HowToStep", "name": "Add HTTPS with a reverse proxy", "url": "https://www.keepitkept.xyz/self-hosted-google-keep/#https" },
+      { "@type": "HowToStep", "name": "Connect the iOS and Android apps", "url": "https://www.keepitkept.xyz/self-hosted-google-keep/#mobile" }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="/"><img src="/assets/images/keep2x.png" alt="" width="27" height="32">Kept</a>
+      <nav class="site-nav" aria-label="Guides">
+        <a href="/google-keep-alternative/">Keep alternative</a>
+        <a href="/self-hosted-google-keep/" aria-current="page">Self-hosting</a>
+        <a href="/migrate-from-google-keep/">Migrate from Keep</a>
+        <a href="/offline-notes-app/">Offline notes</a>
+      </nav>
+      <a class="header-github" href="https://github.com/ericerkz/kept" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.44 9.8 8.21 11.39.6.1.82-.26.82-.57v-2.24c-3.02.56-3.8-.74-4.04-1.41-.13-.35-.72-1.41-1.23-1.7-.42-.22-1.02-.78-.01-.79.94-.02 1.62.87 1.84 1.23 1.08 1.81 2.81 1.3 3.5.99.1-.78.42-1.31.76-1.61-2.67-.3-5.46-1.33-5.46-5.92 0-1.31.47-2.39 1.23-3.23-.12-.3-.54-1.53.12-3.18 0 0 1-.32 3.3 1.23a11.3 11.3 0 0 1 6 0c2.3-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.77.84 1.23 1.9 1.23 3.23 0 4.6-2.8 5.62-5.48 5.92.44.38.81 1.1.81 2.22v3.3c0 .32.23.69.83.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg><span>GitHub</span></a>
+    </div>
+  </header>
+
+  <main id="main" class="page">
+    <p class="breadcrumb"><a href="/">Kept</a> › Self-hosting guide</p>
+    <h1>Self-hosted Google Keep: run Kept on your own server</h1>
+    <p class="lead">Kept is an open-source notes app with the colourful, quick-capture feel of Google Keep, and a server you can run yourself. This guide takes you from an empty folder to a working server with HTTPS, mobile sync and backups.</p>
+    <p class="updated">Applies to Kept 1.9.8 · Last checked November 2026</p>
+
+    <figure>
+      <img src="/assets/images/guides/kept-web.webp" width="1400" height="896" alt="The Kept web app in light and dark themes, showing a grid of coloured notes, photos and checklists">
+      <figcaption>The Kept web app, served by your own server.</figcaption>
+    </figure>
+
+    <nav class="toc" aria-label="On this page">
+      <p>On this page</p>
+      <ol>
+        <li><a href="#why">What a self-hosted server gives you</a></li>
+        <li><a href="#requirements">What you need</a></li>
+        <li><a href="#install">Install with Docker Compose</a></li>
+        <li><a href="#first-run">First run: the admin account</a></li>
+        <li><a href="#https">Put it behind HTTPS</a></li>
+        <li><a href="#mobile">Connect the iOS and Android apps</a></li>
+        <li><a href="#users">Add family or teammates</a></li>
+        <li><a href="#backups">Backups and restore</a></li>
+        <li><a href="#updating">Updating</a></li>
+        <li><a href="#faq">Common questions</a></li>
+      </ol>
+    </nav>
+
+    <h2 id="why">What a self-hosted server gives you</h2>
+    <p>You don't need a server to use Kept: the native apps can keep notes only on your phone (see <a href="/offline-notes-app/">offline notes</a>). A server adds everything that involves more than one device or person:</p>
+    <div class="cards">
+      <div class="card"><h3>Sync everywhere</h3><p>Your iPhone, Android phone, tablet and any browser see the same notes. Apps keep working offline and catch up when they reconnect.</p></div>
+      <div class="card"><h3>A web app</h3><p>Use Kept from any computer, or install it as a home-screen app (PWA) with push reminders.</p></div>
+      <div class="card"><h3>Sharing</h3><p>Share notes and binders with other people on your server and edit together in real time.</p></div>
+      <div class="card"><h3>Your data, your disk</h3><p>Everything lives in one <code>./data</code> folder: an SQLite database plus your images and attachments.</p></div>
+    </div>
+    <p>Kept is licensed under the AGPL-3.0 and free to self-host, with no per-user limits. If you'd rather not maintain a server, <a href="https://cloud.keepitkept.xyz/" rel="noopener">Kept Cloud</a> runs the same server software for you.</p>
+
+    <h2 id="requirements">What you need</h2>
+    <ul>
+      <li><strong>A machine that runs Docker with Compose.</strong> A home server, NAS, mini PC or small VPS all work. The published image is built for <code>linux/amd64</code> and <code>linux/arm64</code>, so 64-bit Raspberry Pi and ARM servers are covered.</li>
+      <li><strong>A domain name with HTTPS</strong>, if you want to reach Kept from outside your home network or use web push notifications. On a LAN or VPN (Tailscale, WireGuard) you can start without one.</li>
+      <li><strong>Unraid users</strong> can skip Compose and install <a href="https://ca.unraid.net/apps/kept-158xyap1pzllg5?q=kept&amp;view=sidebar" rel="noopener">Kept from Community Applications</a>.</li>
+    </ul>
+
+    <h2 id="install">Install with Docker Compose</h2>
+    <ol class="steps">
+      <li><strong>Create a folder and a <code>docker-compose.yml</code></strong>
+        <p>This is the smallest working setup. The repository's own <a href="https://github.com/ericerkz/kept/blob/master/docker-compose.yml" rel="noopener">docker-compose.yml</a> has every optional setting commented out, if you'd rather start from that.</p>
+<pre><code>services:
+  kept:
+    image: ghcr.io/ericerkz/kept:latest
+    container_name: kept-app
+    ports:
+      - "6767:6767"
+    environment:
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped</code></pre>
+        <p><code>PUID</code> and <code>PGID</code> make the files in <code>./data</code> owned by your user on the host (run <code>id</code> to check your numbers), so you can back them up without <code>sudo</code>.</p>
+      </li>
+      <li><strong>Start it</strong>
+<pre><code>docker compose up -d</code></pre>
+        <p>Prefer cloning the repository? <code>git clone https://github.com/ericerkz/kept.git &amp;&amp; cd kept &amp;&amp; docker compose up -d</code> does the same thing with the full example file.</p>
+      </li>
+      <li><strong>Open it</strong>
+        <p>Go to <code>http://localhost:6767</code>, or <code>http://&lt;server-ip&gt;:6767</code> from another computer on your network.</p>
+      </li>
+    </ol>
+
+    <h2 id="first-run">First run: the admin account</h2>
+    <p>The first visit opens a setup screen. Create the admin account there; it's the account that manages users, backups and server settings. The setup screen also has two shortcuts:</p>
+    <ul>
+      <li><strong>Import from Google Keep</strong>: tick it to go straight to the importer after setup. See <a href="/migrate-from-google-keep/">migrating from Google Keep</a>.</li>
+      <li><strong>Restore from backup</strong>: upload a full server backup instead of creating a new account. It only works when the server is started with <code>KEPT_ALLOW_RESTORE=1</code>. Use it when moving an existing Kept server to new hardware.</li>
+    </ul>
+
+    <h2 id="https">Put it behind HTTPS</h2>
+    <p>For access from outside your network, point a domain at your server and proxy it to port 6767 with Nginx, Apache, Caddy, Traefik or a tunnel. Two things matter:</p>
+    <ul>
+      <li><strong>Proxy WebSockets on <code>/api/realtime</code>.</strong> Live collaboration and online status use it. Everything else still works without it, but shared notes only update when you refresh.</li>
+      <li><strong>Allow large uploads</strong> if you plan to import a big Google Takeout ZIP or restore a backup through the proxy. Kept accepts Takeout files up to 5 GB by default, but a proxy or CDN may reject them sooner.</li>
+    </ul>
+    <p>A minimal Caddy setup, which fetches certificates automatically:</p>
+<pre><code>kept.example.com {
+    reverse_proxy 127.0.0.1:6767
+}</code></pre>
+    <p>Caddy passes WebSockets through on its own. For complete Nginx and Apache examples, see the <a href="/#reverse-proxy">reverse proxy section</a> on the main page.</p>
+    <div class="callout">
+      <p><strong>Behind Cloudflare Access, Pangolin or another login gateway?</strong> The browser goes through the gateway's login as normal. The iOS and Android apps can send custom headers (such as a Cloudflare Access service token) to get through, and the iOS app also supports client certificates. Live updates over WebSockets can't carry those headers, so behind header-only gateways shared notes update when you switch back to the app.</p>
+    </div>
+
+    <h2 id="mobile">Connect the iOS and Android apps</h2>
+    <ol class="steps">
+      <li><strong>Install the app</strong>
+        <p>Get Kept Notes from the <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" rel="noopener">App Store</a> or <a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" rel="noopener">Google Play</a>.</p></li>
+      <li><strong>Choose your own server</strong>
+        <p>On the welcome screen, choose <strong>Your own server</strong> and enter its address, for example <code>https://kept.example.com</code>. The app remembers it and reconnects automatically.</p></li>
+      <li><strong>Sign in</strong>
+        <p>Use the account you created on the server. Notes sync both ways, and you can keep editing without a connection.</p></li>
+    </ol>
+    <p>Already using the app in device-only mode? <strong>Settings → Notes on this device → Move my notes to a server</strong> transfers your whole library, including images and attachments.</p>
+    <figure>
+      <img src="/assets/images/guides/kept-mobile.webp" width="1400" height="1008" loading="lazy" decoding="async" alt="Kept on a phone, with checklist, recipe, code and drawing notes around it">
+      <figcaption>The native apps sync with your server and keep working offline.</figcaption>
+    </figure>
+
+    <h2 id="users">Add family or teammates</h2>
+    <p>Everyone on your server gets their own private notes. As admin, open <strong>Users/Admin settings</strong> to:</p>
+    <ul>
+      <li>let people register themselves, optionally requiring your approval first;</li>
+      <li>invite people by email, if you configure SMTP;</li>
+      <li>let people sign in with an OpenID Connect provider such as Authentik, Pocket ID or Google (see the <a href="https://github.com/ericerkz/kept/blob/master/docs/oidc.md" rel="noopener">OIDC guide</a>).</li>
+    </ul>
+    <p>Once people share a server, they can share individual notes or whole binders with each other.</p>
+
+    <h2 id="backups">Backups and restore</h2>
+    <figure>
+      <img src="/assets/images/guides/kept-self-hosting.webp" width="1400" height="914" loading="lazy" decoding="async" alt="Kept's admin settings: Google Keep import, exports, automated scheduled backups and the full server backup button">
+      <figcaption>Import, exports, scheduled backups and full server backups live in Settings.</figcaption>
+    </figure>
+    <p>Kept has two kinds of server backup, and they protect different things:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Backup</th><th scope="col">What's in it</th><th scope="col">When to use it</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Scheduled backups</th><td>The database only (notes, accounts, settings). Daily, weekly or monthly, with retention rules.</td><td>Frequent safety net against mistakes.</td></tr>
+          <tr><th scope="row">Full server backup</th><td>One ZIP with the database, all images and attachments, and the web push keys.</td><td>Moving servers, or recovering from a lost disk.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>To restore, start a fresh server with <code>KEPT_ALLOW_RESTORE=1</code>, upload the ZIP on the setup screen before creating any account, then remove the setting and restart. Encrypted (locked) notes restore too, and still open with their passcode. Copying the whole <code>./data</code> folder while the container is stopped also works.</p>
+    <div class="callout warn">
+      <p>A full backup contains every user's notes. Store it somewhere private.</p>
+    </div>
+
+    <h2 id="updating">Updating</h2>
+<pre><code>docker compose pull
+docker compose up -d</code></pre>
+    <p>Your <code>./data</code> folder isn't touched by updates. Release notes are on <a href="https://github.com/ericerkz/kept/releases" rel="noopener">GitHub</a>. Update the mobile apps too, especially before using new features such as encrypted notes.</p>
+
+    <h2 id="faq">Common questions</h2>
+    <details class="faq"><summary>Does Kept need Postgres or Redis?</summary><div><p>No. Kept stores everything in SQLite inside <code>./data</code>, so the container is the only thing to run.</p></div></details>
+    <details class="faq"><summary>Can I use it only on my home network?</summary><div><p>Yes. Kept works over plain HTTP on a LAN or VPN. You'll need HTTPS for web push notifications in the browser and for installing the PWA on iOS.</p></div></details>
+    <details class="faq"><summary>Is my data end-to-end encrypted on the server?</summary><div><p>Not by default: the server can read normal notes, which is what lets search, sharing and the web app work. For sensitive notes, lock them with a passcode. Their text, checklists, images and attachments are then encrypted on your device with AES-256-GCM before they're saved, and the server only stores ciphertext. Titles and basic metadata stay visible.</p></div></details>
+    <details class="faq"><summary>Can I connect AI assistants or other tools?</summary><div><p>Optionally. Kept has an OAuth 2.1 server and an MCP server, both off until each user turns them on. See the <a href="https://github.com/ericerkz/kept/blob/master/docs/mcp.md" rel="noopener">MCP guide</a>.</p></div></details>
+
+    <h2>Keep reading</h2>
+    <ul class="related">
+      <li><a href="/migrate-from-google-keep/">Move your Google Keep notes<span>Export with Takeout, import in one step</span></a></li>
+      <li><a href="/google-keep-alternative/">Kept as a Keep alternative<span>What&#39;s familiar, what&#39;s different</span></a></li>
+      <li><a href="/offline-notes-app/">Offline notes on your phone<span>No server or account needed</span></a></li>
+    </ul>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer__inner">
+      <nav aria-label="Footer">
+        <a href="/">Kept home</a>
+        <a href="/google-keep-alternative/">Google Keep alternative</a>
+        <a href="/self-hosted-google-keep/">Self-hosting</a>
+        <a href="/migrate-from-google-keep/">Migrate from Keep</a>
+        <a href="/offline-notes-app/">Offline notes app</a>
+        <a href="https://github.com/ericerkz/kept" rel="noopener">GitHub</a>
+        <a href="/#privacy">Privacy</a>
+      </nav>
+      <span>Kept is open source under the AGPL-3.0. Google Keep is a trademark of Google LLC; Kept isn't affiliated with Google.</span>
+    </div>
+  </footer>
+  <script>document.querySelector(".site-nav [aria-current]")?.scrollIntoView({ block: "nearest", inline: "center" });</script>
+</body>
+</html>

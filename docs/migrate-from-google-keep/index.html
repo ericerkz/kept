@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How to Export Google Keep Notes and Move Them to Kept</title>
+  <meta name="description" content="Export Google Keep with Google Takeout and import it into Kept in one step, with checklists, labels, colours, pins and images. Includes what transfers.">
+  <link rel="canonical" href="https://www.keepitkept.xyz/migrate-from-google-keep/">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Kept">
+  <meta property="og:title" content="Export and migrate your Google Keep notes">
+  <meta property="og:description" content="Export Keep with Google Takeout, then import everything into Kept in one step.">
+  <meta property="og:url" content="https://www.keepitkept.xyz/migrate-from-google-keep/">
+  <meta property="og:image" content="https://www.keepitkept.xyz/assets/images/guides/keep-imported-notes.webp">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/assets/images/keep2x.png">
+  <link rel="stylesheet" href="/guides.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    "name": "Export Google Keep notes and import them into Kept",
+    "description": "Use Google Takeout to export Google Keep, then import the ZIP in Kept's settings.",
+    "step": [
+      { "@type": "HowToStep", "name": "Open Google Takeout and select only Keep", "url": "https://www.keepitkept.xyz/migrate-from-google-keep/#export" },
+      { "@type": "HowToStep", "name": "Create the export and download the ZIP", "url": "https://www.keepitkept.xyz/migrate-from-google-keep/#export" },
+      { "@type": "HowToStep", "name": "Open Settings, Data & Migration in Kept", "url": "https://www.keepitkept.xyz/migrate-from-google-keep/#import" },
+      { "@type": "HowToStep", "name": "Choose the Takeout ZIP and check the result", "url": "https://www.keepitkept.xyz/migrate-from-google-keep/#import" }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="/"><img src="/assets/images/keep2x.png" alt="" width="27" height="32">Kept</a>
+      <nav class="site-nav" aria-label="Guides">
+        <a href="/google-keep-alternative/">Keep alternative</a>
+        <a href="/self-hosted-google-keep/">Self-hosting</a>
+        <a href="/migrate-from-google-keep/" aria-current="page">Migrate from Keep</a>
+        <a href="/offline-notes-app/">Offline notes</a>
+      </nav>
+      <a class="header-github" href="https://github.com/ericerkz/kept" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.44 9.8 8.21 11.39.6.1.82-.26.82-.57v-2.24c-3.02.56-3.8-.74-4.04-1.41-.13-.35-.72-1.41-1.23-1.7-.42-.22-1.02-.78-.01-.79.94-.02 1.62.87 1.84 1.23 1.08 1.81 2.81 1.3 3.5.99.1-.78.42-1.31.76-1.61-2.67-.3-5.46-1.33-5.46-5.92 0-1.31.47-2.39 1.23-3.23-.12-.3-.54-1.53.12-3.18 0 0 1-.32 3.3 1.23a11.3 11.3 0 0 1 6 0c2.3-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.77.84 1.23 1.9 1.23 3.23 0 4.6-2.8 5.62-5.48 5.92.44.38.81 1.1.81 2.22v3.3c0 .32.23.69.83.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg><span>GitHub</span></a>
+    </div>
+  </header>
+
+  <main id="main" class="page">
+    <p class="breadcrumb"><a href="/">Kept</a> › Migrate from Google Keep</p>
+    <h1>Export your Google Keep notes and move them to Kept</h1>
+    <p class="lead">Google Takeout gives you a ZIP of everything in Keep. Kept reads that ZIP directly, so your checklists, labels, colours, pins, images and dates come across in one step, without copying notes by hand.</p>
+    <p class="updated">Applies to Kept 1.9.8 · Last checked November 2026</p>
+
+    <div class="callout keep">
+      <p><strong>Short version:</strong> on <a href="https://takeout.google.com" rel="noopener">takeout.google.com</a>, deselect everything except <strong>Keep</strong> and create an export. Then in Kept, open <strong>Settings → Data &amp; Migration → Import from Google Keep</strong> and choose the ZIP. Your Google Keep notes are copied, not moved, so nothing changes in Keep.</p>
+    </div>
+
+    <nav class="toc" aria-label="On this page">
+      <p>On this page</p>
+      <ol>
+        <li><a href="#before">Before you start</a></li>
+        <li><a href="#export">Step 1: export Keep with Google Takeout</a></li>
+        <li><a href="#import">Step 2: import the ZIP into Kept</a></li>
+        <li><a href="#what-transfers">What transfers, and what doesn't</a></li>
+        <li><a href="#after">After the import</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+        <li><a href="#leaving">Leaving Kept later</a></li>
+      </ol>
+    </nav>
+
+    <h2 id="before">Before you start</h2>
+    <p>The importer runs on a Kept server, so you need one of these:</p>
+    <div class="cards">
+      <div class="card"><h3>Your own server</h3><p>Install Kept with Docker in a few minutes. See the <a href="/self-hosted-google-keep/">self-hosting guide</a>.</p></div>
+      <div class="card"><h3>Kept Cloud</h3><p>A private Kept server that's hosted and backed up for you. <a href="https://cloud.keepitkept.xyz/" rel="noopener">Start a free trial</a>.</p></div>
+    </div>
+    <p>The import tool isn't available in the mobile apps' device-only mode. If you only want notes on your phone, import into a server first, then sign in to it from the app. The app keeps a full copy for offline use.</p>
+    <p>Setting up a new server? On the setup screen, tick <strong>Import from Google Keep</strong> and Kept takes you straight to the importer after you create your account.</p>
+
+    <h2 id="export">Step 1: export Keep with Google Takeout</h2>
+    <ol class="steps">
+      <li><strong>Open Google Takeout</strong>
+        <p>Go to <a href="https://takeout.google.com" rel="noopener">takeout.google.com</a> and sign in with the Google account that has your notes.</p></li>
+      <li><strong>Select only Keep</strong>
+        <p>Click <strong>Deselect all</strong>, scroll down the list and tick <strong>Keep</strong>. Exporting other services makes the file much larger and slower to import.</p></li>
+      <li><strong>Create the export</strong>
+        <p>Click <strong>Next step</strong>. Leave the file type as <strong>.zip</strong>, choose to receive a download link by email, and click <strong>Create export</strong>.</p></li>
+      <li><strong>Download the ZIP</strong>
+        <p>Google emails you a link when the export is ready, usually within minutes, but it can take longer for big libraries. The link expires after about a week. Download the ZIP and keep it as it is; there's no need to unzip it.</p></li>
+    </ol>
+    <p>Inside the ZIP, each note is in <code>Takeout/Keep/</code> as a <code>.json</code> file (which Kept reads) and an <code>.html</code> file (for reading in a browser), alongside any images. Google lists what the export includes in <a href="https://support.google.com/keep/answer/10017039" rel="noopener">Export your data from Google Keep</a>.</p>
+
+    <h2 id="import">Step 2: import the ZIP into Kept</h2>
+    <ol class="steps">
+      <li><strong>Open the importer</strong>
+        <p>In the Kept web app, open <strong>Settings</strong> and scroll to <strong>Data &amp; Migration</strong>. The same steps are repeated under <strong>How to get your Google Takeout export</strong>.</p></li>
+      <li><strong>Choose the ZIP</strong>
+        <p>Click <strong>Choose Takeout ZIP</strong> and pick the file you downloaded. Large exports take a while to upload; keep the tab open until the result appears.</p></li>
+      <li><strong>Check the summary</strong>
+        <p>Kept reports how many notes it imported and pinned, and how many it skipped, such as notes that were in Keep's trash.</p></li>
+    </ol>
+    <figure>
+      <img src="/assets/images/guides/keep-import-settings.webp" width="1400" height="1236" loading="lazy" decoding="async" alt="Kept's Data & Migration settings with the Import from Google Keep section, its step-by-step Takeout instructions and the Choose Takeout ZIP button">
+      <figcaption>Settings → Data &amp; Migration, with the Takeout instructions expanded.</figcaption>
+    </figure>
+    <figure>
+      <img src="/assets/images/guides/keep-import-result.webp" width="1400" height="464" loading="lazy" decoding="async" alt="The import result: Imported 10 of 11 notes, 3 pinned, 1 trashed note skipped">
+      <figcaption>The summary after importing a sample export. The skipped note was in Keep's trash.</figcaption>
+    </figure>
+    <figure>
+      <img src="/assets/images/guides/keep-imported-notes.webp" width="1600" height="1075" loading="lazy" decoding="async" alt="Imported notes in Kept: pinned Groceries, Book club picks and Weekend plans checklists with their colours and labels, plus photo and text notes below, and the imported labels in the sidebar">
+      <figcaption>The same sample notes in Kept: pins, colours, labels, checklists with ticked items, and photos.</figcaption>
+    </figure>
+
+    <h2 id="what-transfers">What transfers, and what doesn't</h2>
+    <p>This is what Kept's importer does with each part of a Google Keep note, based on the importer's code in Kept 1.9.8:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">From Google Keep</th><th scope="col">In Kept</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Titles and text</th><td><span class="y">Imported</span>, with line breaks.</td></tr>
+          <tr><th scope="row">Checklists</th><td><span class="y">Imported</span>, with ticked items and indented sub-items.</td></tr>
+          <tr><th scope="row">Labels</th><td><span class="y">Imported</span>. Labels are created as needed and matched to existing ones by name.</td></tr>
+          <tr><th scope="row">Colours</th><td><span class="y">Imported</span>, mapped to Kept's matching colours.</td></tr>
+          <tr><th scope="row">Pinned and archived notes</th><td><span class="y">Imported</span> as pinned or archived.</td></tr>
+          <tr><th scope="row">Images and drawings</th><td><span class="y">Imported</span> when Takeout includes them as PNG, JPEG, GIF or WebP files.</td></tr>
+          <tr><th scope="row">Links saved on a note</th><td><span class="y">Imported</span> as links at the end of the note.</td></tr>
+          <tr><th scope="row">Created and edited dates</th><td><span class="y">Kept</span>, so notes stay in their original order.</td></tr>
+          <tr><th scope="row">Text formatting (bold, headings)</th><td><span class="p">Plain text.</span> The importer reads Keep's plain-text version of each note.</td></tr>
+          <tr><th scope="row">Notes in Keep's trash</th><td><span class="n">Skipped.</span></td></tr>
+          <tr><th scope="row">Audio recordings and other files</th><td><span class="n">Not imported.</span> Only images are brought across.</td></tr>
+          <tr><th scope="row">Reminders</th><td><span class="n">Not in the export.</span> Google Takeout doesn't list reminders for Keep, which now stores them in Google Tasks. Set them again in Kept, which supports time and repeating reminders, plus location reminders in the native apps.</td></tr>
+          <tr><th scope="row">Collaborators</th><td><span class="n">Not imported.</span> They're Google accounts, so share the note again with people on your Kept server.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Running the import twice is safe: notes that were already imported (same creation date, title and text) are skipped, so you can import a newer Takeout export to pick up recent notes.</p>
+
+    <h2 id="after">After the import</h2>
+    <ul>
+      <li><strong>Get the apps.</strong> Install Kept Notes from the <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" rel="noopener">App Store</a> or <a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" rel="noopener">Google Play</a> and sign in to the same server. Your imported notes sync down and work offline.</li>
+      <li><strong>Re-create reminders</strong> on the notes that need them.</li>
+      <li><strong>Lock sensitive notes.</strong> Locking a note with a passcode encrypts its contents on your device before it's saved.</li>
+      <li><strong>Tidy up with binders.</strong> Binders are optional separate pages for a project or area of life, which keeps your main notes view short.</li>
+      <li><strong>Keep Google Keep until you're happy.</strong> The import doesn't change anything in Google Keep. Delete your Keep notes only when you're sure everything you need is in Kept.</li>
+    </ul>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <details class="faq"><summary>"No Google Keep notes found in this ZIP"</summary><div><p>Kept looks for <code>Takeout/Keep/*.json</code> inside the ZIP. Upload the original Takeout ZIP rather than a re-zipped folder, and check that Keep was ticked in Takeout. If Takeout split a big export into several ZIPs, import each one.</p></div></details>
+    <details class="faq"><summary>The upload fails or stops part way</summary><div><p>Large Takeout files are often blocked by a reverse proxy or CDN (Cloudflare, Nginx) before they reach Kept. Raise your proxy's upload limit, or import over a direct LAN or VPN connection to the server. Kept accepts Takeout ZIPs up to 5 GB by default; self-hosters can raise that with <code>KEPT_TAKEOUT_UPLOAD_MAX</code>.</p></div></details>
+    <details class="faq"><summary>Some notes say "could not be imported"</summary><div><p>Those notes' JSON files couldn't be read. Everything else is still imported. Opening the matching <code>.html</code> file from the ZIP shows you the note so you can copy it across by hand.</p></div></details>
+    <details class="faq"><summary>Can I import into the phone app without a server?</summary><div><p>Not at the moment. Import into a server (your own or Kept Cloud), then sign in to it from the app.</p></div></details>
+
+    <h2 id="leaving">Leaving Kept later</h2>
+    <p>You shouldn't get locked in again. From <strong>Settings → Data &amp; Migration</strong> you can export your notes as JSON, CSV or Markdown at any time. Those exports cover notes, checklists and labels, not images. To move a whole server, including images and attachments, use the full server backup described in the <a href="/self-hosted-google-keep/#backups">self-hosting guide</a>.</p>
+
+    <h2>Keep reading</h2>
+    <ul class="related">
+      <li><a href="/google-keep-alternative/">Why people switch from Keep<span>What's familiar and what's different</span></a></li>
+      <li><a href="/self-hosted-google-keep/">Set up your own server<span>Docker, HTTPS and backups</span></a></li>
+      <li><a href="/offline-notes-app/">Offline notes on your phone<span>No account needed</span></a></li>
+    </ul>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer__inner">
+      <nav aria-label="Footer">
+        <a href="/">Kept home</a>
+        <a href="/google-keep-alternative/">Google Keep alternative</a>
+        <a href="/self-hosted-google-keep/">Self-hosting</a>
+        <a href="/migrate-from-google-keep/">Migrate from Keep</a>
+        <a href="/offline-notes-app/">Offline notes app</a>
+        <a href="https://github.com/ericerkz/kept" rel="noopener">GitHub</a>
+        <a href="/#privacy">Privacy</a>
+      </nav>
+      <span>Kept is open source under the AGPL-3.0. Google Keep is a trademark of Google LLC; Kept isn't affiliated with Google.</span>
+    </div>
+  </footer>
+  <script>document.querySelector(".site-nav [aria-current]")?.scrollIntoView({ block: "nearest", inline: "center" });</script>
+</body>
+</html>

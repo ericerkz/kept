@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Keep Alternative: Open Source and Self-Hostable | Kept</title>
+  <meta name="description" content="An open-source Google Keep alternative with the same colourful notes, plus offline use with no account, self-hosting, encrypted notes and Keep import.">
+  <link rel="canonical" href="https://www.keepitkept.xyz/google-keep-alternative/">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Kept">
+  <meta property="og:title" content="A Google Keep alternative you control">
+  <meta property="og:description" content="Keep's speed and simplicity, with your notes on your phone or your own server.">
+  <meta property="og:url" content="https://www.keepitkept.xyz/google-keep-alternative/">
+  <meta property="og:image" content="https://www.keepitkept.xyz/assets/images/guides/kept-features.webp">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/assets/images/keep2x.png">
+  <link rel="stylesheet" href="/guides.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Kept",
+    "applicationCategory": "ProductivityApplication",
+    "operatingSystem": "Android, iOS, Web, Linux (Docker)",
+    "description": "An open-source, self-hostable notes app in the style of Google Keep, with offline mobile apps.",
+    "url": "https://www.keepitkept.xyz/",
+    "license": "https://www.gnu.org/licenses/agpl-3.0.html"
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="/"><img src="/assets/images/keep2x.png" alt="" width="27" height="32">Kept</a>
+      <nav class="site-nav" aria-label="Guides">
+        <a href="/google-keep-alternative/" aria-current="page">Keep alternative</a>
+        <a href="/self-hosted-google-keep/">Self-hosting</a>
+        <a href="/migrate-from-google-keep/">Migrate from Keep</a>
+        <a href="/offline-notes-app/">Offline notes</a>
+      </nav>
+      <a class="header-github" href="https://github.com/ericerkz/kept" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.44 9.8 8.21 11.39.6.1.82-.26.82-.57v-2.24c-3.02.56-3.8-.74-4.04-1.41-.13-.35-.72-1.41-1.23-1.7-.42-.22-1.02-.78-.01-.79.94-.02 1.62.87 1.84 1.23 1.08 1.81 2.81 1.3 3.5.99.1-.78.42-1.31.76-1.61-2.67-.3-5.46-1.33-5.46-5.92 0-1.31.47-2.39 1.23-3.23-.12-.3-.54-1.53.12-3.18 0 0 1-.32 3.3 1.23a11.3 11.3 0 0 1 6 0c2.3-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.77.84 1.23 1.9 1.23 3.23 0 4.6-2.8 5.62-5.48 5.92.44.38.81 1.1.81 2.22v3.3c0 .32.23.69.83.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg><span>GitHub</span></a>
+    </div>
+  </header>
+
+  <main id="main" class="page">
+    <p class="breadcrumb"><a href="/">Kept</a> › Google Keep alternative</p>
+    <h1>A Google Keep alternative that you control</h1>
+    <p class="lead">Kept keeps what makes Google Keep pleasant: a grid of colourful notes, fast checklists, labels and reminders. The difference is where your notes live: on your phone with no account, on a server you run, or on a private server hosted for you.</p>
+    <p class="updated">Last checked November 2026</p>
+
+    <div class="actions">
+      <a class="btn btn-primary" href="/migrate-from-google-keep/">Move my Keep notes</a>
+      <a class="btn btn-secondary" href="/self-hosted-google-keep/">Run your own server</a>
+    </div>
+
+    <figure>
+      <img src="/assets/images/guides/kept-features.webp" width="1400" height="1040" alt="A collage of Kept notes: rich text with photos, a drawing, a code block, a reminder, coloured patterned notes and a shared binder">
+      <figcaption>Rich notes, drawings, code blocks, reminders, colours and patterns, and shared binders.</figcaption>
+    </figure>
+
+    <nav class="toc" aria-label="On this page">
+      <p>On this page</p>
+      <ol>
+        <li><a href="#why-switch">Why people look for a Keep alternative</a></li>
+        <li><a href="#familiar">What will feel familiar</a></li>
+        <li><a href="#different">What's different</a></li>
+        <li><a href="#side-by-side">Kept and Google Keep side by side</a></li>
+        <li><a href="#choose">Three ways to use Kept</a></li>
+        <li><a href="#not-for-you">When Kept isn't the right fit</a></li>
+        <li><a href="#switch">How to switch</a></li>
+      </ol>
+    </nav>
+
+    <h2 id="why-switch">Why people look for a Keep alternative</h2>
+    <p>Google Keep is free, fast and everywhere. The reasons people leave it are usually about control rather than features:</p>
+    <ul>
+      <li><strong>Your notes are on Google's servers</strong>, tied to a Google account, and they aren't end-to-end encrypted.</li>
+      <li><strong>You can't run it yourself</strong> or use it without signing in to Google.</li>
+      <li><strong>Getting your notes out</strong> means a Google Takeout ZIP, which only some apps can import.</li>
+      <li><strong>Features change under you.</strong> Keep's reminders have moved into Google Tasks, and location reminders are no longer supported. With open-source software, you decide when to update.</li>
+    </ul>
+    <p>Kept was built for people who like how Keep works and want those choices back.</p>
+
+    <h2 id="familiar">What will feel familiar</h2>
+    <p>If you've used Keep, you already know how to use Kept:</p>
+    <ul>
+      <li>a "Take a note…" bar above a masonry grid of cards, with pinned notes at the top;</li>
+      <li>notes and checklists, with ticked items folded away underneath;</li>
+      <li>colours, labels, archive and trash;</li>
+      <li>photos and drawings on notes;</li>
+      <li>reminders, and sharing a note with someone so you both can edit it.</li>
+    </ul>
+    <figure>
+      <img src="/assets/images/guides/keep-imported-notes.webp" width="1600" height="1075" loading="lazy" decoding="async" alt="Kept's notes grid after importing from Google Keep: pinned coloured checklists, labels in the sidebar and photo notes">
+      <figcaption>Notes imported from a Google Keep export keep their colours, labels, pins and checklists.</figcaption>
+    </figure>
+
+    <h2 id="different">What's different</h2>
+    <div class="cards">
+      <div class="card"><h3>Use it with no account</h3><p>The Android and iOS apps can keep notes only on the device, with no sign-up and no server. <a href="/offline-notes-app/">More on offline use</a>.</p></div>
+      <div class="card"><h3>Run your own server</h3><p>One Docker container and an SQLite file. Sync your phones, use the web app and share with family. <a href="/self-hosted-google-keep/">Self-hosting guide</a>.</p></div>
+      <div class="card"><h3>Encrypted notes</h3><p>Lock a note with a passcode and its text, checklists, images and attachments are encrypted on your device (AES-256-GCM) before they're saved or synced.</p></div>
+      <div class="card"><h3>More note types</h3><p>Rich text, code blocks with syntax highlighting, nested checklists with drag to reorder, link previews and file attachments.</p></div>
+      <div class="card"><h3>Binders</h3><p>Separate pages for a project or part of your life, so your main notes stay short. Binders can be shared too.</p></div>
+      <div class="card"><h3>Open data</h3><p>Export to JSON, CSV or Markdown at any time, or take a full server backup with every image and attachment.</p></div>
+    </div>
+    <figure>
+      <img src="/assets/images/guides/web-nested-checklist.webp" width="1200" height="1367" loading="lazy" decoding="async" alt="A Kept checklist with nested sub-items and drag handles">
+      <figcaption>Nested checklists with drag to reorder.</figcaption>
+    </figure>
+
+    <h2 id="side-by-side">Kept and Google Keep side by side</h2>
+    <p class="table-key"><span class="y">Yes</span> · <span class="p">Partly</span> · <span class="n">No</span></p>
+    <div class="table-wrap">
+      <table class="compare-table">
+        <thead><tr><th scope="col"></th><th scope="col">Kept</th><th scope="col">Google Keep</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Open source</th><td><span class="y">Yes</span>, AGPL-3.0</td><td><span class="n">No</span></td></tr>
+          <tr><th scope="row">Run your own server</th><td><span class="y">Yes</span>, one Docker container</td><td><span class="n">No</span></td></tr>
+          <tr><th scope="row">Use without an account</th><td><span class="y">Yes</span>, device-only mode</td><td><span class="n">No</span>, needs a Google account</td></tr>
+          <tr><th scope="row">Apps</th><td>Android, iOS, web (on a server)</td><td>Android, iOS, web</td></tr>
+          <tr><th scope="row">End-to-end encryption</th><td><span class="p">Per note</span>, for notes you lock</td><td><span class="n">No</span></td></tr>
+          <tr><th scope="row">Text formatting</th><td>Rich text, headings, lists, code blocks</td><td>Bold, italic, underline, two heading sizes</td></tr>
+          <tr><th scope="row">Checklists</th><td><span class="y">Yes</span>, nested, drag to reorder</td><td><span class="y">Yes</span></td></tr>
+          <tr><th scope="row">Drawings and photos</th><td><span class="y">Yes</span></td><td><span class="y">Yes</span></td></tr>
+          <tr><th scope="row">Voice recordings</th><td><span class="n">No</span></td><td><span class="y">Yes</span>, on mobile</td></tr>
+          <tr><th scope="row">File attachments</th><td><span class="y">Yes</span>: PDFs, documents, text files, archives</td><td><span class="n">No</span></td></tr>
+          <tr><th scope="row">Labels, colours, pins, archive</th><td><span class="y">Yes</span>, plus background patterns</td><td><span class="y">Yes</span>, plus background images</td></tr>
+          <tr><th scope="row">Notebooks or folders</th><td><span class="y">Binders</span></td><td><span class="n">No</span></td></tr>
+          <tr><th scope="row">Reminders</th><td>Time, repeating and location reminders; calendar sync</td><td>Time and repeating, now kept in Google Tasks. <span class="note">Location reminders are no longer supported.</span></td></tr>
+          <tr><th scope="row">Sharing</th><td>With people on your server; live co-editing; shared binders</td><td>With any Google account or Google Group</td></tr>
+          <tr><th scope="row">Version history</th><td><span class="n">No</span></td><td><span class="p">Web only</span>, text only</td></tr>
+          <tr><th scope="row">Getting your data out</th><td>JSON, CSV or Markdown export; full server backup</td><td>Google Takeout</td></tr>
+          <tr><th scope="row">Price</th><td>Open source (AGPL-3.0). The server and web app (PWA) are free. The mobile apps are an optional one-time purchase that helps support ongoing development.</td><td>Free with a Google account</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="table-key">Google Keep details are from <a href="https://support.google.com/keep/" rel="noopener">Google Keep Help</a>, checked November 2026.</p>
+
+    <h2 id="choose">Three ways to use Kept</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col"></th><th scope="col">On this device</th><th scope="col">Your own server</th><th scope="col">Kept Cloud</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Account needed</th><td>No</td><td>On your server</td><td>Yes</td></tr>
+          <tr><th scope="row">Where notes live</th><td>Your phone or tablet</td><td>Your hardware</td><td>A private server run for you</td></tr>
+          <tr><th scope="row">Sync and web app</th><td>No</td><td>Yes</td><td>Yes</td></tr>
+          <tr><th scope="row">Sharing</th><td>No</td><td>Yes</td><td>Yes</td></tr>
+          <tr><th scope="row">Google Keep import</th><td>No</td><td>Yes</td><td>Yes</td></tr>
+          <tr><th scope="row">Backups</th><td>Save a backup file yourself</td><td>Scheduled and full server backups</td><td>Automatic</td></tr>
+          <tr><th scope="row">Cost</th><td>An optional one-time app purchase that helps support ongoing development. The app is open source.</td><td>Free and open source, including the web app (PWA). The mobile apps are an optional one-time purchase that helps support ongoing development.</td><td>Subscription with a 7-day free trial, running the same open-source server.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>You can start in one mode and move later: a device-only library can be moved to a server in one step, and a server can be moved with a full backup.</p>
+
+    <h2 id="not-for-you">When Kept isn't the right fit</h2>
+    <p>Being honest about this saves you an afternoon:</p>
+    <ul>
+      <li><strong>You rely on Google's ecosystem.</strong> Kept doesn't appear inside Gmail, Google Docs or other Google apps the way Keep does, and you can't share with someone by their Google account.</li>
+      <li><strong>You need everything end-to-end encrypted.</strong> Kept encrypts the notes you lock with a passcode, and their titles stay visible. Other notes are readable by whoever runs the server, which is what makes search, sharing and the web app work.</li>
+    </ul>
+
+    <h2 id="switch">How to switch</h2>
+    <ol class="steps">
+      <li><strong>Pick where your notes will live</strong><p>Your own server or Kept Cloud, if you want to import from Keep and sync.</p></li>
+      <li><strong>Export Keep with Google Takeout</strong><p>Select only Keep and download the ZIP.</p></li>
+      <li><strong>Import the ZIP in Kept</strong><p>Settings → Data &amp; Migration → Import from Google Keep. Your Keep notes aren't changed.</p></li>
+      <li><strong>Install the apps</strong><p>Sign in on <a href="https://play.google.com/store/apps/details?id=xyz.keepitkept.app" rel="noopener">Android</a> and <a href="https://apps.apple.com/ca/app/kept-notes/id6768974473" rel="noopener">iOS</a>.</p></li>
+    </ol>
+    <p>The <a href="/migrate-from-google-keep/">full migration guide</a> has screenshots and a list of exactly what transfers.</p>
+
+    <h2>Keep reading</h2>
+    <ul class="related">
+      <li><a href="/migrate-from-google-keep/">Migrate from Google Keep<span>Step by step, with screenshots</span></a></li>
+      <li><a href="/self-hosted-google-keep/">Run your own server<span>Docker, HTTPS and backups</span></a></li>
+      <li><a href="/offline-notes-app/">Offline notes on your phone<span>No account needed</span></a></li>
+    </ul>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer__inner">
+      <nav aria-label="Footer">
+        <a href="/">Kept home</a>
+        <a href="/google-keep-alternative/">Google Keep alternative</a>
+        <a href="/self-hosted-google-keep/">Self-hosting</a>
+        <a href="/migrate-from-google-keep/">Migrate from Keep</a>
+        <a href="/offline-notes-app/">Offline notes app</a>
+        <a href="https://github.com/ericerkz/kept" rel="noopener">GitHub</a>
+        <a href="/#privacy">Privacy</a>
+      </nav>
+      <span>Kept is open source under the AGPL-3.0. Google Keep is a trademark of Google LLC; Kept isn't affiliated with Google.</span>
+    </div>
+  </footer>
+  <script>document.querySelector(".site-nav [aria-current]")?.scrollIntoView({ block: "nearest", inline: "center" });</script>
+</body>
+</html>
