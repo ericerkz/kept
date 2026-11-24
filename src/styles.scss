@@ -3628,6 +3628,10 @@ body [data-note-ink] {
     box-shadow: inset 0 -2px var(--note-ink);
   }
 
+  // Text controls in the editor toolbar follow the note ink too, so they stay
+  // readable on light note colours in the dark theme.
+  .icons-container .text-format-trigger,
+  .icons-container .close-btn,
   .icons-container .icons > .material-restore,
   .attachment-card,
   .attachment-card .attachment-type,
@@ -3698,7 +3702,8 @@ app-notes .overview-cbox-note {
   text-align: left;
 }
 app-input .note-title.ph,
-app-input .note-body.ph {
+app-input .note-body.ph,
+app-input .cbox-note.ph {
   text-align: left;
 }
 

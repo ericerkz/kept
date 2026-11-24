@@ -50,6 +50,20 @@ try {
   await language.waitFor();await language.selectOption('he');
   await page.waitForFunction(()=>document.documentElement.lang==='he');
   assert.equal(await page.locator('html').getAttribute('dir'),'ltr');
+  // Mixed Hebrew/Latin section headings keep their reading order but stay at the usual left edge.
+  for (const heading of ['ייבוא מ-Google Keep','ייצוא נתוני Kept שלך']) {
+    const title=page.locator('app-settings .section-title').filter({hasText:heading}).first();
+    const order=await title.evaluate(element=>{
+      const text=element.querySelector('[dir="auto"]') || element;const node=text.firstChild;
+      const charLeft=index=>{const range=document.createRange();range.setStart(node,index);range.setEnd(node,index+1);return range.getBoundingClientRect().left;};
+      const latin=node.data.search(/[A-Za-z]/);
+      return {direction:getComputedStyle(text).direction,hebrew:charLeft(0),latin:charLeft(latin),
+        textLeft:text.getBoundingClientRect().left,boxLeft:element.getBoundingClientRect().left};
+    });
+    assert.equal(order.direction,'rtl',heading);
+    assert.ok(order.latin<order.hebrew,`${heading} must read right-to-left: ${JSON.stringify(order)}`);
+    assert.ok(Math.abs(order.textLeft-order.boxLeft)<2,`${heading} stays left-aligned: ${JSON.stringify(order)}`);
+  }
   await page.goto(fixture.origin+'/');await page.locator('app-notes').waitFor();
   const search=page.locator('app-navbar input:visible').first();
   const heading=await page.locator('app-notes [_title]').first().evaluate(element=>{
@@ -79,6 +93,18 @@ try {
   const pin=await page.locator('app-input .note-main:visible > .pin-icon:visible').boundingBox();
   assert.ok(titleRight <= pin.x,'RTL title must stop before the pin');
   if (process.env.KEPT_I18N_SCREENSHOT) await page.screenshot({path:process.env.KEPT_I18N_SCREENSHOT});
+  // The empty checklist row's Hebrew placeholder stays inside the card, before the list menu.
+  await page.locator('app-input .checklist-action:visible').first().click();
+  const listPlaceholder=page.locator('app-input .cbox-ph-container:visible .cbox-note.ph').first();await listPlaceholder.waitFor();
+  const placeholderBox=await listPlaceholder.evaluate(element=>{
+    const range=document.createRange();range.selectNodeContents(element);
+    return {align:getComputedStyle(element).textAlign,right:element.getBoundingClientRect().right,textRight:range.getBoundingClientRect().right,
+      menu:element.closest('.cbox-ph-container').querySelector('.checklist-menu-button').getBoundingClientRect().left,
+      card:element.closest('.note-main').getBoundingClientRect().right};
+  });
+  assert.equal(placeholderBox.align,'left');
+  assert.ok(placeholderBox.right<=placeholderBox.menu+1 && placeholderBox.textRight<=placeholderBox.menu,'checklist placeholder must stop before the list menu: '+JSON.stringify(placeholderBox));
+  assert.ok(placeholderBox.right<=placeholderBox.card,'checklist placeholder must fit the card: '+JSON.stringify(placeholderBox));
   await page.locator('app-input .close-btn:visible').click();
   await page.setViewportSize({width:390,height:844});
   await page.locator('app-navbar .pic-container').click();
@@ -91,6 +117,19 @@ try {
   assert.equal(await page.locator('app-notes .main-container').evaluate(element=>getComputedStyle(element).direction),'ltr');
   assert.ok((await sidebar.boundingBox()).x <= 16,'sidebar stays on the left');
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth), 'translated layout must fit the viewport');
+  // Editor text buttons follow the note ink on light colours in the dark theme.
+  await fetch(fixture.origin+'/api/notes',{method:'POST',headers,body:JSON.stringify({noteTitle:'Pale blue note',noteBody:'<p>כחול</p>',bgColor:'#d2e3fc'})});
+  await page.emulateMedia({colorScheme:'dark'});
+  await page.goto(fixture.origin+'/');await page.locator('app-notes').waitFor();
+  assert.equal(await page.evaluate(()=>document.body.classList.contains('light-theme')),false);
+  await page.locator('.note-container').filter({hasText:'Pale blue note'}).first().click();
+  const lightNote=page.locator('app-input .note-main[data-note-ink]:visible').first();await lightNote.waitFor();
+  assert.equal(await lightNote.getAttribute('data-note-ink'),'#202124');
+  for (const control of ['.close-btn','.text-format-trigger']) {
+    assert.equal(await lightNote.locator(control+':visible').first().evaluate(element=>getComputedStyle(element).color),'rgb(32, 33, 36)',control+' uses the note ink');
+  }
+  await page.locator('app-input .close-btn:visible').click();
+  await page.emulateMedia({colorScheme:'light'});
   const unchanged=await (await fetch(fixture.origin+`/api/notes/${note.id}`,{headers})).json();
   assert.equal(unchanged.noteTitle,note.noteTitle);assert.equal(unchanged.noteBody,note.noteBody,'opening/localizing must not rewrite stored content');
   assert.deepEqual(errors,[]);
