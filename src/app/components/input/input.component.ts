@@ -2022,9 +2022,9 @@ export class InputComponent implements OnInit {
     if (!isLetter) return
     $event.preventDefault()
     let enteredValue = $event.key
-    this.addCheckBox(enteredValue) // a new checkbox will appear in the html
+    const row = this.addCheckBox(enteredValue) // a new checkbox will appear in the html
     this.cd.detectChanges()
-    this.focusLastCboxInput()
+    this.focusCboxInputEnd(row.id)
   }
 
   cboxPhBeforeInput(event: InputEvent) {
@@ -2041,9 +2041,9 @@ export class InputComponent implements OnInit {
   private enterFromChecklistPlaceholder() {
     if (this.hasMeaningfulBody(this.cboxPh?.nativeElement.innerHTML)) {
       this.addCheckBoxFromPlaceholder()
-      this.addCheckBox('')
+      const row = this.addCheckBox('')
       this.cd.detectChanges()
-      this.focusLastCboxInput()
+      this.focusCboxInputEnd(row.id)
     } else this.leaveChecklistForText()
   }
 
@@ -2095,18 +2095,20 @@ export class InputComponent implements OnInit {
     const value = this.cboxPh?.nativeElement.innerHTML || ''
     if (!value.trim()) return
     this.cboxPh?.nativeElement.replaceChildren()
-    this.addCheckBox(value)
+    const row = this.addCheckBox(value)
     this.cd.detectChanges()
-    this.focusLastCboxInput()
+    this.focusCboxInputEnd(row.id)
   }
 
   cboxPhClick() {
     this.cboxPh?.nativeElement.focus()
   }
 
-  private focusLastCboxInput() {
-    const rows = this.visibleCboxInputs(this.activeChecklistId)
-    const el = rows[rows.length - 1]
+  // Focus the row that was just added. Not the last visible row: with
+  // completed items shown below, that is a checked item, and the rest of
+  // the word being typed would land in it.
+  private focusCboxInputEnd(id: number) {
+    const el = this.visibleCboxInputs(this.activeChecklistId).find(row => Number(row.dataset['cboxId']) === id)
     if (!el) return
     el.focus()
     const sel = window.getSelection()
