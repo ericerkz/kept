@@ -10,6 +10,7 @@ import { Router } from '@angular/router';
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 
 import { noteAppearance, notePatternImage, validNotePattern } from '../../utils/note-appearance';
+import { drawingHasTransparency } from '../../utils/drawing-background';
 import { bgImages, bgColors } from 'src/app/interfaces/tooltip';
 import { SharedService, type WidgetCreateRequest } from 'src/app/services/shared.service';
 import { BehaviorSubject, Subscription, Subject } from 'rxjs';
@@ -4013,10 +4014,15 @@ export class InputComponent implements OnInit {
     tempCtx.drawImage(image, 0, 0)
     const imageData = tempCtx.getImageData(0, 0, temp.width, temp.height)
     const data = imageData.data
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i] > 248 && data[i + 1] > 248 && data[i + 2] > 248) data[i + 3] = 0
+    if (!drawingHasTransparency(data)) {
+      // An old export flattened onto a white page: make the page transparent.
+      // Current drawings are saved transparent, and there white is a pen
+      // colour, so their white strokes must be kept.
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] > 248 && data[i + 1] > 248 && data[i + 2] > 248) data[i + 3] = 0
+      }
+      tempCtx.putImageData(imageData, 0, 0)
     }
-    tempCtx.putImageData(imageData, 0, 0)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(temp, 0, 0)
   }
