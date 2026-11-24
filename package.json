@@ -36,6 +36,7 @@
     "test:uuid": "node --test src/app/utils/uuid.test.ts",
     "test:checklist-sort": "node --test src/app/utils/checklist-sort.test.ts scripts/checklist-sort-editor.test.cjs",
     "test:checklist-remove": "node --test scripts/checklist-remove.test.cjs",
+    "test:checklist-new-item-focus": "node --test scripts/checklist-new-item-focus.test.cjs",
     "test:uuid:http": "node scripts/uuid-http-test.mjs",
     "test:native": "node server/native-client.test.js",
     "test:android-back": "node --test scripts/android-back-navigation.test.cjs",
