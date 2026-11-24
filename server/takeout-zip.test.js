@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const AdmZip = require('adm-zip');
-const { readTakeoutZip } = require('./takeout-zip');
+const { readTakeoutZip, findKeepJsonEntries } = require('./takeout-zip');
 const { ZipWriter, TextReader, Uint8ArrayWriter } = require('@zip.js/zip.js');
 
 async function withArchive(files, options, run, change = bytes => bytes) {
@@ -70,4 +70,46 @@ test('stored ZIP64 archives with data descriptors are supported', async () => {
     await archive?.close();
     await fs.rm(directory, { recursive: true, force: true });
   }
+});
+
+const keepNote = title => JSON.stringify({ title, textContent: 'Milch', isTrashed: false, userEditedTimestampUsec: 1700000000000000 });
+
+test('a localized Keep folder is found by its note files', async () => {
+  await withArchive({
+    'Takeout/Google Notizen/Einkaufsliste.json': keepNote('Einkaufsliste'),
+    'Takeout/Google Notizen/Einkaufsliste.html': '<html></html>',
+    'Takeout/Google Notizen/Urlaub.json': keepNote('Urlaub'),
+    'Takeout/Google Notizen/Urlaub.html': '<html></html>',
+    'Takeout/Google Notizen/foto.png': '\0foto',
+    'Takeout/Google Notizen/Labels.txt': 'Arbeit',
+    'Takeout/Chrome/BrowserHistory.json': '{"Browser History":[]}',
+    'Takeout/Google Fotos/Urlaub/IMG_0001.jpg.json': '{"title":"IMG_0001.jpg"}',
+    'Takeout/archive_browser.html': '<html></html>'
+  }, {}, async entries => {
+    const names = (await findKeepJsonEntries(entries)).map(entry => entry.entryName).sort();
+    assert.deepEqual(names, ['Takeout/Google Notizen/Einkaufsliste.json', 'Takeout/Google Notizen/Urlaub.json']);
+  });
+});
+
+test('a folder named Keep is still used first', async () => {
+  await withArchive({
+    'Takeout/Keep/note.json': '{"title":"Plain"}',
+    'Takeout/Google Notizen/Notiz.json': keepNote('Notiz'),
+    'Takeout/Google Notizen/Notiz.html': '<html></html>'
+  }, {}, async entries => {
+    assert.deepEqual((await findKeepJsonEntries(entries)).map(entry => entry.entryName), ['Takeout/Keep/note.json']);
+  });
+});
+
+test('paired JSON and HTML files that are not Keep notes are ignored', async () => {
+  await withArchive({
+    'Takeout/My Activity/Search/MyActivity.json': '[{"title":"Searched for kept"}]',
+    'Takeout/My Activity/Search/MyActivity.html': '<html></html>',
+    'Takeout/Other/report.json': '{"textContent":"no timestamp"}',
+    'Takeout/Other/report.html': '<html></html>',
+    'Takeout/Broken/note.json': '{not json',
+    'Takeout/Broken/note.html': '<html></html>'
+  }, {}, async entries => {
+    assert.deepEqual(await findKeepJsonEntries(entries), []);
+  });
 });

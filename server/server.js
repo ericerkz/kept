@@ -42,7 +42,7 @@ const { createIntegrationRequests } = require('./integration-requests');
 const integrationRequests = createIntegrationRequests();
 const fullBackup = require('./full-backup');
 const backupRetention = require('./backup-retention');
-const { readTakeoutZip } = require('./takeout-zip');
+const { readTakeoutZip, findKeepJsonEntries } = require('./takeout-zip');
 const { createRequestDeadlines } = require('./request-deadlines');
 
 // Upload clients send flat metadata fields. Never interpret nested objects or
@@ -9212,10 +9212,6 @@ async function cleanupStaleTakeoutUploads(maxAgeMs = 24 * 60 * 60 * 1000) {
   }
 }
 
-function isKeepJsonEntry(entry) {
-  return !entry.isDirectory && /(^|\/)(?:Takeout\/)?Keep\/[^/]+\.json$/i.test(entry.entryName);
-}
-
 function keepListText(item) {
   return String(item?.text ?? item?.title ?? item?.data ?? item?.name ?? '');
 }
@@ -9313,9 +9309,9 @@ app.post('/api/import/google-takeout', requireAuth, importLimiter, allowLargeUpl
       if (!e.isDirectory) attachmentsByName[path.basename(e.entryName)] = e;
     }
 
-    const jsonEntries = entries.filter(isKeepJsonEntry);
+    const jsonEntries = await findKeepJsonEntries(entries);
     if (!jsonEntries.length) {
-      return res.status(400).json({ error: 'No Google Keep notes found in this ZIP. Upload the full Takeout ZIP that contains Takeout/Keep/*.json files. If your ZIP is large and this appears incorrectly, try importing over a direct LAN/SSH connection because some proxies/CDNs reject large uploads before Kept can inspect them.' });
+      return res.status(400).json({ error: 'No Google Keep notes found in this ZIP. Upload the full Takeout ZIP that contains the Keep notes folder (Takeout/Keep, or its name in your account language, such as Takeout/Google Notizen). If your ZIP is large and this appears incorrectly, try importing over a direct LAN/SSH connection because some proxies/CDNs reject large uploads before Kept can inspect them.' });
     }
 
     // Estimate the import's footprint from the ZIP's own uncompressed-size
