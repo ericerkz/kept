@@ -2075,10 +2075,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     note.images = [...(note.images || []), ...imageData]
     this.masonrySignatureToken++
     this.Shared.note.id = note.id!
-    await this.Shared.note.db.updateKey({
-      images: note.images,
-      isCbox: false
-    })
+    // Only the images change: a checklist note stays a checklist.
+    await this.Shared.note.db.updateKey({ images: note.images })
     this.cd.detectChanges()
     this.scheduleBuildMasonry(true)
   }
@@ -2251,10 +2249,8 @@ export class NotesComponent implements OnInit, OnDestroy, AfterViewChecked {
     note.images = [...(note.images || []), ...imageData]
     this.masonrySignatureToken++
     this.Shared.note.id = note.id!
-    await this.Shared.note.db.updateKey({
-      images: note.images,
-      isCbox: false
-    })
+    // Only the images change: a checklist note stays a checklist.
+    await this.Shared.note.db.updateKey({ images: note.images })
     this.cd.detectChanges()
     this.scheduleBuildMasonry(true)
   }
