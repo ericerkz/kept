@@ -54,6 +54,7 @@
     "test:oauth-metadata": "node --test mcp/oauth-client-metadata.test.mjs server/oauth-client-metadata.test.js server/public-file-download.test.js",
     "test:secret-files": "node --test server/secret-files.test.js",
     "test:store-offerings": "node --test scripts/welcome-offering.test.cjs scripts/device-server-move.test.cjs",
+    "test:checklist-longpress-paste": "node --test scripts/checklist-longpress-paste.test.cjs",
     "purgecss": "purgecss -c purgecss.config.js",
     "watch": "concurrently --kill-others \"npm run translations:watch\" \"ng build --watch --configuration development\"",
     "test": "ng test",

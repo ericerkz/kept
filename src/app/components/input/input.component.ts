@@ -268,6 +268,9 @@ export class InputComponent implements OnInit {
   private pendingCboxFocusPoint?: { id: number, x: number, y: number };
   private pendingCboxFocusRange?: Range;
   private cboxTextTouch?: { id: number, x: number, y: number, moved: boolean, wasFocused: boolean, disabledEditing: boolean };
+  private cboxTextHoldTimer?: ReturnType<typeof setTimeout>;
+  // A touch held this long without moving is a long-press, not a scroll.
+  private static readonly CBOX_TEXT_HOLD_MS = 300;
   private lastCboxTouchToggleAt = 0;
   activePointers: Map<number, { x: number, y: number }> = new Map();
   drawingTransform = { scale: 1, x: 0, y: 0 };
@@ -2202,7 +2205,7 @@ export class InputComponent implements OnInit {
     if (!touch) return
     const wasFocused = document.activeElement === el
     if (!wasFocused) el.contentEditable = 'false'
-    this.cboxTextTouch = {
+    const start = this.cboxTextTouch = {
       id,
       x: touch.clientX,
       y: touch.clientY,
@@ -2210,6 +2213,22 @@ export class InputComponent implements OnInit {
       wasFocused,
       disabledEditing: !wasFocused
     }
+    // Editing is off while a touch might be a scroll, so the keyboard does not
+    // open. A held touch is a long-press: make the row editable again before
+    // the browser's long-press fires, or Android offers only Copy/Share and
+    // no Paste for the item.
+    this.clearCboxTextHold()
+    if (start.disabledEditing) this.cboxTextHoldTimer = setTimeout(() => {
+      this.cboxTextHoldTimer = undefined
+      if (this.cboxTextTouch !== start || start.moved) return
+      el.contentEditable = 'true'
+      start.disabledEditing = false
+    }, InputComponent.CBOX_TEXT_HOLD_MS)
+  }
+
+  private clearCboxTextHold() {
+    if (this.cboxTextHoldTimer) clearTimeout(this.cboxTextHoldTimer)
+    this.cboxTextHoldTimer = undefined
   }
 
   cboxTextTouchMove(event: TouchEvent, id: number, el: HTMLDivElement) {
@@ -2221,12 +2240,14 @@ export class InputComponent implements OnInit {
     if (dx <= 10 && dy <= 10) return
 
     start.moved = true
+    this.clearCboxTextHold()
     this.pendingCboxFocusPoint = undefined
     if (!start.wasFocused && document.activeElement === el) el.blur()
   }
 
   cboxTextTouchCancel(id: number, el: HTMLDivElement) {
     if (this.cboxTextTouch?.id === id) {
+      this.clearCboxTextHold()
       if (this.cboxTextTouch.disabledEditing) el.contentEditable = 'true'
       this.cboxTextTouch = undefined
     }
@@ -2237,6 +2258,7 @@ export class InputComponent implements OnInit {
     if (!touch) return
     const start = this.cboxTextTouch
     this.cboxTextTouch = undefined
+    this.clearCboxTextHold()
     if (!start || start.id !== id) return
     if (start.disabledEditing) el.contentEditable = 'true'
     const dx = Math.abs(touch.clientX - start.x)
@@ -5055,6 +5077,7 @@ export class InputComponent implements OnInit {
   ngOnDestroy() {
     this.destroyed = true;
     this.clearComposerDraft();
+    this.clearCboxTextHold();
     document.removeEventListener('visibilitychange', this.visibilitySave)
     window.removeEventListener('pagehide', this.flushAutosave)
     for (const handle of this.backgroundSaveHandles) void handle.remove()
