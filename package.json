@@ -25,6 +25,8 @@
     "test:label-highlight:ui": "node scripts/label-highlight-test.mjs",
     "test:mobile-editor-icons:ui": "node scripts/mobile-editor-icons-test.mjs",
     "test:sidebar-icons:ui": "node scripts/sidebar-icons-test.mjs",
+    "test:checklist-paste": "node --test src/app/utils/checklist-paste.test.ts",
+    "test:checklist-paste:ui": "node scripts/checklist-paste-test.mjs",
     "test:images": "node --test scripts/note-images.test.cjs server/image-uploads.test.js",
     "test:shared-organization": "node --test server/shared-note-organization.test.js scripts/shared-note-organization.test.cjs",
     "test:sync": "node server/sync-smoke.test.js",

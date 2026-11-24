@@ -192,6 +192,7 @@
     "input.change_passcode": "Change passcode",
     "input.checklist_actions": "Checklist actions",
     "input.checklist_removed": "Checklist removed",
+    "input.list_pasted_as_checklist": "Pasted as a checklist",
     "input.choose_on_map": "Choose on map",
     "input.clear": "Clear",
     "input.clear_formatting": "Clear formatting",

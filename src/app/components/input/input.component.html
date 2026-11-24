@@ -899,7 +899,7 @@
     <div class="cbox-plus-icon"></div>
     <div class="cbox-note-container">
       <div class="cbox-note ph">{{ 'input.list_item' | translate }}</div>
-      <div #cboxPh [attr.data-checklist-draft]="listId" (keydown)="cboxPhKeyDown($event)" (beforeinput)="cboxPhBeforeInput($event)" (input)="cboxPhInput()" (focus)="activateChecklist(listId); rememberTextHistoryTarget(cboxPh)" class="cbox-note" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
+      <div #cboxPh [attr.data-checklist-draft]="listId" (keydown)="cboxPhKeyDown($event)" (beforeinput)="cboxPhBeforeInput($event)" (paste)="cboxPaste($event)" (input)="cboxPhInput()" (focus)="activateChecklist(listId); rememberTextHistoryTarget(cboxPh)" class="cbox-note" dir="auto" contenteditable="true" spellcheck="true" autocomplete="off" autocorrect="off" autocapitalize="sentences" inputmode="text">
       </div>
     </div>
     <button #checklistMenuBtn type="button" class="checklist-menu-button"
@@ -969,7 +969,7 @@
           (click)="toggleCboxDone(cb.id, $event)"></div>
         <div class="cbox-note-container">
           <div #cboxInput [attr.data-cbox-last]="last" [attr.data-cbox-id]="cb.id" [class.cbox-done]="cb.done"
-            (input)="onCboxInput(cb.id, cboxInput)" (beforeinput)="cboxBeforeInput($event, cb.id)"
+            (input)="onCboxInput(cb.id, cboxInput)" (beforeinput)="cboxBeforeInput($event, cb.id)" (paste)="cboxPaste($event, cb.id)"
             (blur)="cboxTools(cb.id).update(cboxInput); cboxInputBlur(cb.id)" (keydown)="cBoxKeyDown($event,cb.id)"
             (touchstart)="cboxTextTouchStart($event, cb.id, cboxInput)" (touchmove)="cboxTextTouchMove($event, cb.id, cboxInput)"
             (touchcancel)="cboxTextTouchCancel(cb.id, cboxInput)"
