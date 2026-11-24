@@ -32,6 +32,7 @@ import { UserPreferencesService } from 'src/app/services/user-preferences.servic
 import { ensureTimepickerWheelPlugin } from 'src/app/utils/timepicker-wheel';
 import { MAX_INDENT_LEVEL, descendantIndexes, maxIndentLevelAt, normalizeIndentLevel, normalizeIndentLevels } from 'src/app/utils/checkbox-indent';
 import { sortChecklistItems } from 'src/app/utils/checklist-sort';
+import { checklistItemHtml, parseChecklistLines, type ChecklistPasteItem } from 'src/app/utils/checklist-paste';
 import { environment } from 'src/environments/environment';
 import { createUuid } from 'src/app/utils/uuid';
 import type { LocationPin } from '../location-map-picker/location-map-picker.component';
@@ -441,15 +442,17 @@ export class InputComponent implements OnInit {
 
   }
 
-  insertChecklist() {
-    if (document.activeElement?.matches('.kept-code-input')) return
+  // `items`: rows to start the list with (a pasted list). Returns whether a
+  // list was inserted.
+  insertChecklist(items?: ChecklistPasteItem[]): boolean {
+    if (document.activeElement?.matches('.kept-code-input')) return false
     const selected = window.getSelection()?.anchorNode
-    if ((selected?.nodeType === 1 ? selected as Element : selected?.parentElement)?.closest('pre, code')) return
+    if ((selected?.nodeType === 1 ? selected as Element : selected?.parentElement)?.closest('pre, code')) return false
     const focused = this.textHistoryTarget?.closest<HTMLElement>('[data-checklist-id]')
-    if (focused?.isConnected && this.noteContainer.nativeElement.contains(focused) && !this.bodyContaining(this.lastBodyRange?.commonAncestorContainer)) {
+    if (!items && focused?.isConnected && this.noteContainer.nativeElement.contains(focused) && !this.bodyContaining(this.lastBodyRange?.commonAncestorContainer)) {
       this.activeChecklistId = focused.dataset['checklistId'] || DEFAULT_CHECKLIST_ID
       this.cboxPh?.nativeElement.focus()
-      return
+      return false
     }
     const before = this.checklistModeSnapshot()
     const body = this.activeBody()
@@ -458,18 +461,21 @@ export class InputComponent implements OnInit {
       ? parts.findIndex(part => part.type === 'checklist' && part.id === body.dataset['bodyAfter']) + 1 : 0
     const split = this.splitBodyAtCursor()
     const id = createUuid()
-    const nextId = Math.max(-1, ...before.checkBoxes.map(row => row.id)) + 1
+    const firstId = Math.max(-1, ...before.checkBoxes.map(row => row.id)) + 1
+    const rows = (items?.length ? items : [{ text: '', done: false, indentLevel: 0 }]).map((item, index) => ({
+      id: firstId + index, listId: id, data: checklistItemHtml(item.text), done: item.done, indentLevel: item.indentLevel }))
     parts.splice(bodyIndex, 1, { type: 'text', html: split.before }, { type: 'checklist', id }, { type: 'text', html: split.after })
     this.activeChecklistId = id
     this.applyChecklistModeSnapshot({ ...before, bodyHtml: serializeChecklistBody(parts),
-      checkBoxes: [...before.checkBoxes, { id: nextId, listId: id, data: '', done: false, indentLevel: 0 }],
+      checkBoxes: [...before.checkBoxes, ...rows],
       isCbox: true, isHybridNote: this.hasMeaningfulBody(parts[0].type === 'text' ? parts[0].html : '') })
     this.recordChecklistModeChange(before)
-    const row = this.noteContainer.nativeElement.querySelector<HTMLDivElement>(`[data-cbox-id="${nextId}"]`)
+    const row = this.noteContainer.nativeElement.querySelector<HTMLDivElement>(`[data-cbox-id="${rows[rows.length - 1].id}"]`)
     if (row) {
       const caret = document.createRange(); caret.selectNodeContents(row); caret.collapse(false)
       this.focusCboxAtRange(row, caret)
     }
+    return true
   }
 
   // The checklist the cursor is in, if any. The toolbar's checklist button is
@@ -1502,8 +1508,21 @@ export class InputComponent implements OnInit {
     }
 
     event.preventDefault()
-    const text = event.clipboardData?.getData('text/plain') || ''
     const target = event.currentTarget as HTMLDivElement
+    const isTitle = this.noteTitle?.nativeElement === target
+    const pasted = event.clipboardData?.getData('text/plain') || ''
+    // A title is one line.
+    const text = isTitle ? pasted.replace(/\s+/g, ' ').trim() : pasted
+    // A pasted list (most lines start with -, *, 1., [ ], ☐ ...) becomes a
+    // checklist at the caret, one item per line. Prose is pasted as text.
+    if (!isTitle && this.editorBodies().includes(target)) {
+      const list = parseChecklistLines(pasted)
+      if (list.isList && this.insertChecklist(list.items)) {
+        this.dismissMobileNewNoteStarters()
+        this.offerPastedListAsText(this.activeChecklistId, pasted)
+        return
+      }
+    }
     const emptyNote = !this.isCbox.value && target === this.noteBody?.nativeElement
       && !this.hasMeaningfulBody(target.innerHTML) && !this.images.length && !this.attachments.length && !this.pendingAttachmentFiles.length
     // Paste immediately. Worker startup/detection must never delay entering text.
@@ -1514,9 +1533,127 @@ export class InputComponent implements OnInit {
       const candidate = emptyNote ? pastedCodeCandidate(text) : null
       if (candidate) void this.detectPastedCode(target, candidate)
       else this.queueEditorLinkDecoration()
-    } else if (this.noteTitle?.nativeElement === target) {
+    } else if (isTitle) {
       this.onNoteTitleInput()
     }
+  }
+
+  // A list pasted into text became a checklist. Undo puts back the text
+  // exactly as it was pasted, in the same place (pasting again would just
+  // make a checklist again).
+  private offerPastedListAsText(listId: string, pasted: string) {
+    const lines = pasted.replace(/\r\n?/g, '\n').replace(/\n+$/, '').split('\n')
+    const html = lines.map(line => `<div>${checklistItemHtml(line) || '<br>'}</div>`).join('')
+    try {
+      Snackbar.show({ pos: 'bottom-left', text: uiText('input.list_pasted_as_checklist'), actionText: uiText('common.undo'), duration: 6000,
+        onActionClick: () => { this.replaceChecklist(listId, () => html) } })
+    } catch {}
+  }
+
+  // Pasting into a checklist row (`id`) or a list's "List item" row: each
+  // pasted line becomes its own item, with list markers removed, [x] / ☑
+  // checked and indentation kept. Plain text only. Without this the browser
+  // pasted everything, web page formatting included, into a single item.
+  cboxPaste(event: ClipboardEvent, id?: number) {
+    if (this.clipboardImageFiles(event).length) {
+      void this.pasteEvent(event)
+      return
+    }
+    event.preventDefault()
+    const target = event.currentTarget as HTMLDivElement
+    const items = parseChecklistLines(event.clipboardData?.getData('text/plain') || '').items
+    if (items.length < 2) {
+      // One line: insert it like typing.
+      if (!items.length) return
+      this.insertPlainTextAtCursor(target, items[0].text)
+      if (id === undefined) this.cboxPhInput()
+      else this.onCboxInput(id, target)
+      return
+    }
+
+    this.syncCboxDomIntoModel()
+    const current = id === undefined ? undefined : this.checkBoxes.find(cb => cb.id === id)
+    if (id !== undefined && !current) return
+    // Undo goes back to before the paste in one step.
+    this.pushCboxHistorySnapshot()
+    const { before, after } = this.cboxHtmlAroundSelection(target)
+    const listId = current ? checklistId(current) : (target.dataset['checklistDraft'] || this.activeChecklistId)
+    const baseIndent = current ? this.checkboxIndentLevel(current) : 0
+    let nextId = Math.max(-1, ...this.checkBoxes.map(cb => Number(cb.id)).filter(Number.isSafeInteger)) + 1
+    const rows: CheckboxI[] = items.map(item => ({
+      ...(listId !== DEFAULT_CHECKLIST_ID ? { listId } : {}),
+      id: nextId++, data: checklistItemHtml(item.text), done: item.done, indentLevel: baseIndent + item.indentLevel
+    }))
+    rows[0].data = before + rows[0].data
+    const last = rows[rows.length - 1]
+    last.data += after
+
+    if (current) {
+      // The row pasted into keeps its place and takes the first line; a row
+      // that was empty also takes that line's checked state.
+      if (!this.hasMeaningfulBody(before)) current.done = rows[0].done
+      current.data = rows[0].data
+      target.innerHTML = current.data
+      rows[0] = current
+      this.checkBoxes.splice(this.checkBoxes.indexOf(current) + 1, 0, ...rows.slice(1))
+    } else {
+      target.replaceChildren()
+      const lastInList = this.checkBoxes.map(cb => checklistId(cb)).lastIndexOf(listId)
+      this.checkBoxes.splice(lastInList < 0 ? this.checkBoxes.length : lastInList + 1, 0, ...rows)
+    }
+    for (const row of rows) this.cboxSuggestionDraftValues.set(row.id, row.data)
+    this.checkBoxes = normalizeIndentLevels(this.checkBoxes)
+    this.noteToEdit.checkBoxes = this.checkBoxes
+    this.inputLength.next({ ...this.inputLength.value, cb: this.checkBoxes.length })
+    this.pushCboxHistorySnapshot()
+    this.cd.detectChanges()
+    this.queueAutosave()
+    // Caret after the last pasted line, before any text that followed the caret.
+    const lastEl = this.visibleCboxInputs(listId).find(el => Number(el.dataset['cboxId']) === rows[rows.length - 1].id)
+    if (lastEl) this.focusCboxAtRange(lastEl, this.rangeAtTextOffset(lastEl, items[items.length - 1].text.length))
+  }
+
+  // The row's HTML before and after the selection (the selection itself is
+  // replaced). Without a selection in the row, everything is "before".
+  private cboxHtmlAroundSelection(target: HTMLDivElement) {
+    const selection = window.getSelection()
+    let range = selection?.rangeCount ? selection.getRangeAt(0) : undefined
+    if (!range || !target.contains(range.startContainer) || !target.contains(range.endContainer)) {
+      range = document.createRange()
+      range.selectNodeContents(target)
+      range.collapse(false)
+    }
+    const before = document.createRange()
+    before.selectNodeContents(target)
+    before.setEnd(range.startContainer, range.startOffset)
+    const after = document.createRange()
+    after.selectNodeContents(target)
+    after.setStart(range.endContainer, range.endOffset)
+    const html = (part: Range) => {
+      const container = document.createElement('div')
+      container.append(part.cloneContents())
+      return container.textContent || container.querySelector('img') ? container.innerHTML : ''
+    }
+    return { before: html(before), after: html(after) }
+  }
+
+  // A collapsed range `offset` characters into the element's text.
+  private rangeAtTextOffset(el: HTMLElement, offset: number) {
+    const range = document.createRange()
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+    let remaining = offset
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const length = node.textContent?.length || 0
+      if (remaining <= length) {
+        range.setStart(node, remaining)
+        range.collapse(true)
+        return range
+      }
+      remaining -= length
+    }
+    range.selectNodeContents(el)
+    range.collapse(false)
+    return range
   }
 
   private async detectPastedCode(target: HTMLDivElement, candidate: NonNullable<ReturnType<typeof pastedCodeCandidate>>) {

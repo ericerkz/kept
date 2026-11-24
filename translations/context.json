@@ -870,6 +870,9 @@
     "input.list_item": [
       "src/app/components/input/input.component.html"
     ],
+    "input.list_pasted_as_checklist": [
+      "src/app/components/input/input.component.ts"
+    ],
     "input.loading_saved_places": [
       "src/app/components/input/input.component.html"
     ],
