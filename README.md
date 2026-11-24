@@ -340,7 +340,7 @@ The callback URL to register with your identity provider is `https://your-kept.e
 
 Lock a note with a passcode to encrypt its text, checklists, images and attachments on your device before they are saved or synced. Kept uses **AES-256-GCM authenticated encryption**, with a separate random 256-bit key for each note. Your passcode protects that key using **PBKDF2-HMAC-SHA-256 with 600,000 iterations** and a random salt. Encryption uses the platform’s built-in Web Crypto API.
 
-Titles and basic note metadata remain visible. Existing legacy passcode locks are not automatically encrypted; change their passcode in an updated app to convert them. Connected mode requires an updated server, and older app versions cannot open encrypted notes. Keep your passcode safe: Kept cannot recover encrypted content without it. Locking a note does not rewrite earlier backups or exports; keep those copies private too.
+Titles and basic note metadata remain visible. 
 
 ## Backups And Restore
 
