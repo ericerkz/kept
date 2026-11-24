@@ -49,6 +49,7 @@
     "test:catalog-order:ui": "node scripts/catalog-order-test.mjs",
     "test:oidc": "node --test server/oidc-only.test.js server/oidc-registration.test.js mcp/oidc-link.test.mjs scripts/login-errors.test.cjs",
     "test:reminder-navigation": "node --test scripts/reminder-navigation.test.cjs",
+    "test:checklist-undo-typing": "node --test scripts/checklist-undo-typing.test.cjs",
     "mcp": "node mcp/index.mjs",
     "test:mcp": "node --test mcp/*.test.mjs",
     "test:oauth-metadata": "node --test mcp/oauth-client-metadata.test.mjs server/oauth-client-metadata.test.js server/public-file-download.test.js",

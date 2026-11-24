@@ -1321,6 +1321,11 @@ export class InputComponent implements OnInit {
   }
 
   private syncCboxDomIntoModel() {
+    // Text typed into rows has no Undo step of its own: history snapshots are
+    // taken after checklist changes. Record the typed text before the next
+    // change, or undoing that change (deleting, checking, indenting a row...)
+    // would also throw away everything typed since the previous change.
+    if (this.lastCboxTextInputAt > this.lastCboxStructuralChangeAt) this.pushCboxHistorySnapshot()
     this.checkBoxes = this.currentCheckBoxesForSave(false)
   }
 
