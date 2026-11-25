@@ -120,7 +120,7 @@
       </h2>
       
       <section class="settings-section takeout-section">
-        <div class="section-title">{{ 'settings.import_from_google_keep' | translate }}</div>
+        <div class="section-title"><span dir="auto">{{ 'settings.import_from_google_keep' | translate }}</span></div>
         <p class="section-desc">
           {{ 'settings.import_your_notes_from_a_google_takeout_export_colors_images_link' | translate }}
         </p>
@@ -163,7 +163,7 @@
       </section>
 
       <section class="settings-section export-section" id="export-notes" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 24px; margin-top: 24px;">
-        <div class="section-title">{{ 'settings.export_your_kept_data' | translate }}</div>
+        <div class="section-title"><span dir="auto">{{ 'settings.export_your_kept_data' | translate }}</span></div>
         <p class="section-desc">
           {{ 'settings.a_readable_copy_of_your_notes_checklists_and_labels_these_exports' | translate }}
         </p>
@@ -197,7 +197,7 @@
 
       <section class="settings-section">
         <div class="section-title mcp-section-title">
-          <span>{{ 'settings.oauth_app_access' | translate }}</span>
+          <span dir="auto">{{ 'settings.oauth_app_access' | translate }}</span>
           <label class="toggle-label">
             <input type="checkbox" [checked]="oauthAccess?.enabled" [disabled]="isSavingOAuthAccess"
               (change)="toggleOAuthAccess($event)">
@@ -234,7 +234,7 @@
 
       <section class="settings-section">
         <div class="section-title mcp-section-title">
-          <span>{{ 'settings.local_mcp_access' | translate }}</span>
+          <span dir="auto">{{ 'settings.local_mcp_access' | translate }}</span>
           <label class="toggle-label">
             <input type="checkbox" [checked]="mcpAccess?.enabled" [disabled]="isSavingMcpAccess"
               (change)="toggleMcpAccess($event)">
@@ -316,7 +316,7 @@
 
       @if (oidcLinkStatus?.enabled) {
         <section class="settings-section sso-section">
-          <div class="section-title">{{ 'settings.single_sign_on' | translate }}</div>
+          <div class="section-title"><span dir="auto">{{ 'settings.single_sign_on' | translate }}</span></div>
           <p class="section-desc">
             @if (oidcLinkStatus?.passwordLoginEnabled === false) {
               {{ 'settings.this_server_requires_single_sign_on_with_value0_keep_your_account' | translate: { value0: (oidcLinkStatus?.providerName) } }}
@@ -350,7 +350,7 @@
 
       <section class="settings-section">
         <div class="section-title">
-          <span>{{ 'settings.two_factor_authentication_totp' | translate }}</span>
+          <span dir="auto">{{ 'settings.two_factor_authentication_totp' | translate }}</span>
           <label class="toggle-label">
             <input type="checkbox" [checked]="totpEnabled" (change)="toggle2fa($event)">
             <span class="toggle-text">{{(totpEnabled) ? ('common.enabled' | translate) : ('common.disabled' | translate)}}</span>
@@ -554,7 +554,7 @@
 
       <!-- ICS Feed -->
       <section class="settings-section">
-        <div class="section-title">{{ 'settings.ics_feed' | translate }}</div>
+        <div class="section-title"><span dir="auto">{{ 'settings.ics_feed' | translate }}</span></div>
         <p class="section-desc">
           {{ 'settings.subscribe_to_your_reminders_in_any_calendar_app_that_supports_ics' | translate }}
         </p>
@@ -583,7 +583,7 @@
       <!-- Google Calendar -->
       <section class="settings-section">
         <div class="section-title">
-          <span>{{ 'settings.google_calendar' | translate }}</span>
+          <span dir="auto">{{ 'settings.google_calendar' | translate }}</span>
           @if (googleStatus?.hasCredentials) {
             <label class="toggle-label">
               <input type="checkbox" [(ngModel)]="googleEnabled" (change)="saveGoogleEnabled()">
@@ -662,7 +662,7 @@
       <!-- CalDAV -->
       <section class="settings-section">
         <div class="section-title">
-          <span>{{ 'settings.caldav_sync' | translate }}</span>
+          <span dir="auto">{{ 'settings.caldav_sync' | translate }}</span>
           @if (hasExistingCaldav) {
             <label class="toggle-label">
               <input type="checkbox" [(ngModel)]="caldavEnabled">
@@ -860,7 +860,7 @@
       </h2>
 
       <section class="settings-section danger-section">
-        <div class="section-title">{{ 'settings.delete_your_account' | translate }}</div>
+        <div class="section-title"><span dir="auto">{{ 'settings.delete_your_account' | translate }}</span></div>
         <p class="section-desc">
           {{ 'settings.permanently_delete_your_account_and_everything_you_own_in_kept_th' | translate }}
         </p>

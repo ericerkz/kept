@@ -105,6 +105,12 @@
   }
 }
 
+// Size the empty-row placeholder to the text column, not the whole row, so it
+// never runs under the list menu or past the card edge.
+.cbox-ph-container .cbox-note-container {
+  position: relative;
+}
+
 
 .cbox-note {
   letter-spacing: 0;
@@ -136,7 +142,8 @@
     color: #9aa0a6;
     position: absolute;
     pointer-events: none;
-    width: 90%;
+    box-sizing: border-box;
+    width: 100%;
     font-weight: 400;
   }
 
