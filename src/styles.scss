@@ -3621,13 +3621,6 @@ body [data-note-ink] {
   .icons-container .icons > button.undo::after,
   .pin-icon::after { background-color: var(--note-ink) !important; }
 
-  // The "A" formatting button and the Close button are text, not masked
-  // icons, so they need the note ink too. Without it they keep the dark
-  // theme's light grey and nearly vanish on light note colours.
-  .icons-container .text-format-trigger,
-  .icons-container .text-format-trigger:not(:disabled),
-  .close-btn { color: var(--note-ink) !important; }
-
   .icons-container .icons > .alarm-active::after {
     background-color: var(--note-ink) !important;
   }
